@@ -1,0 +1,1773 @@
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import type { AIProvider, AIStyle, AIStyleRoute, Emotion, MediaAsset, PostItem, PrivacySetting, ReplyItem, Visibility } from '@goodnight/shared-types';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PrismaRuntimeService } from './prisma-runtime.service.js';
+import { DAPI_BASE_URL, DAPI_PROVIDER_ID, REMOTE_BACKUP_BASE_URL, REMOTE_BACKUP_PROVIDER_ID, RemoteAiProviderService, sanitizeProviderError } from './remote-ai-provider.service.js';
+import { resolveUploadsDirectory, visualFixtureMode } from './runtime-environment.js';
+
+const now = () => new Date().toISOString();
+const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
+const SUPPORTED_AI_REPLY_STYLES: readonly AIStyle[] = ['warm', 'rational', 'light', 'clear', 'poetic'];
+
+function isSupportedAiReplyStyle(value: unknown): value is AIStyle {
+  return typeof value === 'string' && SUPPORTED_AI_REPLY_STYLES.includes(value as AIStyle);
+}
+
+const MOOD_KEY_TO_EMOTION: Record<string, string> = {
+  anxious: '焦虑',
+  anxiety: '焦虑',
+  jiaolv: '焦虑',
+  焦虑: '焦虑',
+  '鐒﹁檻': '焦虑',
+  aggrieved: '委屈',
+  wronged: '委屈',
+  weiqu: '委屈',
+  委屈: '委屈',
+  '濮斿眻': '委屈',
+  insomnia: '失眠',
+  sleepless: '失眠',
+  shimian: '失眠',
+  失眠: '失眠',
+  '澶辯湢': '失眠',
+  love: '恋爱',
+  lianai: '恋爱',
+  恋爱: '恋爱',
+  '鎭嬬埍': '恋爱',
+  work: '工作',
+  gongzuo: '工作',
+  工作: '工作',
+  '宸ヤ綔': '工作',
+  sad: '难过',
+  nanguo: '难过',
+  难过: '难过',
+  lonely: '孤独',
+  gudu: '孤独',
+  孤独: '孤独',
+  angry: '生气',
+  shengqi: '生气',
+  生气: '生气',
+  all: '全部',
+  全部: '全部',
+  '鍏ㄩ儴': '全部',
+};
+
+export function normalizeStoreEmotion(value?: string): Emotion {
+  if (!value) return '焦虑' as Emotion;
+  const trimmed = String(value).trim();
+  return (MOOD_KEY_TO_EMOTION[trimmed] ?? trimmed) as Emotion;
+}
+
+export type AITaskType =
+  | 'post_reply'
+  | 'today_letter'
+  | 'breakdown'
+  | 'rewrite'
+  | 'rant'
+  | 'heal'
+  | 'sleep'
+  | 'work'
+  | 'future'
+  | 'month_report';
+
+export interface AIGenerateInput {
+  taskType?: AITaskType | string;
+  content?: string;
+  mood?: string;
+  style?: AIStyle;
+  userId?: string;
+  sourceId?: string;
+  simulatePrimaryFail?: boolean;
+  simulateBackupFail?: boolean;
+}
+
+export interface AIGenerateResult {
+  status: 'queued';
+  provider: string;
+  style: AIStyle;
+  result: string;
+  structured: Record<string, unknown>;
+  jobId: string;
+  job: AIJob;
+}
+
+const dataFile = path.resolve(
+  process.cwd(),
+  process.env.GOODNIGHT_STORE_FILE ?? (process.env.VITEST ? `data/goodnight-store.vitest-${process.pid}.json` : 'data/goodnight-store.json'),
+);
+const uploadsDirectory = resolveUploadsDirectory();
+
+function imageDimensions(buffer: Buffer, mimeType: string) {
+  if (mimeType === 'image/png' && buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (mimeType === 'image/webp' && buffer.length >= 30 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    const kind = buffer.subarray(12, 16).toString('ascii');
+    if (kind === 'VP8X') return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) };
+  }
+  if (mimeType === 'image/jpeg') {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) { offset += 1; continue; }
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker) && offset + 8 < buffer.length) {
+        return { width: buffer.readUInt16BE(offset + 7), height: buffer.readUInt16BE(offset + 5) };
+      }
+      if (!length || offset + 2 + length > buffer.length) break;
+      offset += 2 + length;
+    }
+  }
+  return { width: 0, height: 0 };
+}
+
+function extensionForMime(mimeType: string) {
+  return mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
+}
+
+function diaryExportFilename(generatedAt: string) {
+  const date = generatedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
+  return `goodnight-treehole-diaries-${date}.json`;
+}
+
+function escapeSvgText(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[character] ?? character));
+}
+
+export interface Mood {
+  id: string;
+  userId: string;
+  emotion: Emotion;
+  content: string;
+  visibility: Visibility;
+  riskLevel: 'low' | 'medium' | 'high';
+  riskScore: number;
+  status: 'active' | 'deleted';
+  attachmentIds?: string[];
+  createdAt: string;
+}
+
+export interface Letter {
+  id: string;
+  userId: string;
+  sourceMoodId?: string;
+  style: AIStyle;
+  title: string;
+  content: string;
+  status: 'unread' | 'read';
+  savedToDiary: boolean;
+  aiJobId?: string;
+  generationStatus?: AIJob['status'];
+  favorite?: boolean;
+  likeCount?: number;
+  createdAt: string;
+}
+
+export interface Diary {
+  id: string;
+  userId: string;
+  moodId?: string;
+  letterId?: string;
+  emotion: Emotion;
+  content: string;
+  hasLetter: boolean;
+  source?: string;
+  toolResult?: unknown;
+  attachmentIds?: string[];
+  createdAt: string;
+}
+
+export type FeedbackTicketStatus = 'open' | 'processing' | 'resolved' | 'closed';
+
+export interface FeedbackTicket {
+  id: string;
+  userId: string;
+  categoryId: string;
+  sourcePage: string;
+  content: string;
+  status: FeedbackTicketStatus;
+  priority: string;
+  // Persist only MediaAsset ids. URLs are resolved at read time so stale or
+  // user-supplied URLs can never be rendered by the admin application.
+  screenshots: string[];
+  reply: string;
+  repliedBy?: string;
+  repliedAt?: string;
+  createdAt: string;
+}
+
+export interface AIJob {
+  id: string;
+  userId: string;
+  contentId: string;
+  contentType: string;
+  taskType?: string;
+  jobType: string;
+  style: AIStyle;
+  providerId: string;
+  modelName: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'fallback' | 'cancelled';
+  promptSummary: string;
+  promptVersion?: string;
+  result: string;
+  structuredResult?: Record<string, unknown>;
+  errorMessage?: string;
+  durationMs: number;
+  retryCount: number;
+  fallbackUsed?: boolean;
+  traceJson: unknown[];
+  routeVersion: number;
+  createdAt: string;
+  completedAt?: string;
+}
+
+interface StoreData {
+  users: Array<{ id: string; openid: string; nickname: string; anonymousCode: string; avatarUrl: string; status: 'normal' | 'limited' | 'banned'; createdAt: string }>;
+  adminUsers: Array<{ id: string; username: string; passwordHash: string; displayName: string; role: string; status: string; lastLoginAt?: string }>;
+  privacySettings: Record<string, PrivacySetting>;
+  moods: Mood[];
+  posts: PostItem[];
+  replies: ReplyItem[];
+  letters: Letter[];
+  diaries: Diary[];
+  favorites: Array<{ id: string; userId: string; targetType: 'post' | 'letter' | 'diary'; targetId: string; createdAt: string }>;
+  feedbackCategories: Array<{ id: string; name: string; sortOrder: number; enabled: boolean }>;
+  faqs: Array<{ id: string; question: string; answer: string; sortOrder: number; enabled: boolean; createdAt: string }>;
+  replyPresets: Array<{ id: string; text: string; scene: string; sortOrder: number; enabled: boolean; createdAt: string }>;
+  feedbackTickets: FeedbackTicket[];
+  systemSettings: Record<string, { value: unknown; description: string; updatedBy: string; updatedAt: string }>;
+  aiProviders: AIProvider[];
+  aiRoutes: AIStyleRoute[];
+  aiJobs: AIJob[];
+  assets: MediaAsset[];
+  auditLogs: Array<{ id: string; adminUserId: string; action: string; resourceType: string; resourceId: string; beforeJson: unknown; afterJson: unknown; ip: string; userAgent: string; createdAt: string }>;
+}
+
+function seedData(): StoreData {
+  const createdAt = now();
+  return {
+    users: [
+      { id: 'user_demo', openid: 'openid_demo', nickname: '晚安旅人', anonymousCode: '树洞 0427', avatarUrl: '/avatar.svg', status: 'normal', createdAt },
+      { id: 'user_guest', openid: 'openid_guest', nickname: '今天也在努力', anonymousCode: '树洞 1024', avatarUrl: '/avatar.svg', status: 'normal', createdAt },
+    ],
+    adminUsers: [
+      { id: 'admin_1', username: 'admin', passwordHash: 'plain:admin123', displayName: '值班管理员', role: 'super_admin', status: 'active' },
+    ],
+    privacySettings: {
+      user_demo: { defaultVisibility: 'PRIVATE', allowAnonymousPublic: true, allowHumanReplies: true, allowMonthlyReportShare: true },
+      user_guest: { defaultVisibility: 'PUBLIC', allowAnonymousPublic: true, allowHumanReplies: false, allowMonthlyReportShare: true },
+    },
+    moods: [
+      { id: 'mood_1', userId: 'user_demo', emotion: '焦虑', content: '明天要汇报，我又开始担心自己讲不好。', visibility: 'PUBLIC', riskLevel: 'low', riskScore: 0.1, status: 'active', createdAt },
+      { id: 'mood_2', userId: 'user_guest', emotion: '失眠', content: '凌晨两点还是睡不着，脑子一直在转。', visibility: 'PUBLIC', riskLevel: 'low', riskScore: 0.1, status: 'active', createdAt },
+    ],
+    posts: [
+      { id: 'post_1', moodId: 'mood_1', userId: 'user_demo', emotion: '焦虑', content: '明天要汇报，我又开始担心自己讲不好。', visibility: 'PUBLIC', status: 'active', reviewStatus: 'published', hugCount: 18, replyCount: 2, favoriteCount: 5, reportCount: 0, createdAt },
+      { id: 'post_2', moodId: 'mood_2', userId: 'user_guest', emotion: '失眠', content: '凌晨两点还是睡不着，脑子一直在转。', visibility: 'PUBLIC', status: 'active', reviewStatus: 'published', hugCount: 31, replyCount: 1, favoriteCount: 8, reportCount: 0, createdAt },
+    ],
+    replies: [
+      { id: 'reply_ai_1', postId: 'post_1', type: 'AI', style: 'warm', content: '你已经在认真准备了，紧张只是身体在提醒你重视这件事。先把开场一句话写下来就好。', status: 'published', riskLevel: 'low', createdAt },
+      { id: 'reply_human_1', postId: 'post_1', userId: 'user_guest', type: 'USER', style: 'human', content: '抱抱，我汇报前也会这样。把稿子读三遍会安心很多。', status: 'published', riskLevel: 'low', createdAt },
+      { id: 'reply_ai_2', postId: 'post_2', type: 'AI', style: 'poetic', content: '夜晚把声音放大了，不代表明天会更难。先让肩膀落下来，给自己一杯温水。', status: 'published', riskLevel: 'low', createdAt },
+    ],
+    letters: [
+      { id: 'letter_today', userId: 'user_demo', sourceMoodId: 'mood_1', style: 'warm', title: '给今晚的你', content: '辛苦了。今天的你没有被焦虑打败，而是在试着把它说出来。', status: 'unread', savedToDiary: false, createdAt },
+    ],
+    diaries: [
+      { id: 'diary_1', userId: 'user_demo', moodId: 'mood_1', letterId: 'letter_today', emotion: '焦虑', content: '今天练习了汇报开场，虽然还是紧张，但已经比早上稳一点。', hasLetter: true, createdAt },
+    ],
+    favorites: [
+      { id: 'fav_1', userId: 'user_demo', targetType: 'post', targetId: 'post_1', createdAt },
+      { id: 'fav_2', userId: 'user_demo', targetType: 'letter', targetId: 'letter_today', createdAt },
+    ],
+    feedbackCategories: [
+      { id: 'cat_1', name: '使用问题', sortOrder: 1, enabled: true },
+      { id: 'cat_2', name: '内容建议', sortOrder: 2, enabled: true },
+      { id: 'cat_3', name: '隐私与数据', sortOrder: 3, enabled: true },
+    ],
+    faqs: [
+      { id: 'faq_1', question: '树洞内容会公开我的身份吗？', answer: '不会。广场只展示匿名编号，个人身份不会出现在公开内容里。', sortOrder: 1, enabled: true, createdAt },
+      { id: 'faq_2', question: 'AI 回信是心理诊断吗？', answer: '不是。晚安树洞只提供情绪陪伴和整理，不做诊断或医疗建议。', sortOrder: 2, enabled: true, createdAt },
+    ],
+    replyPresets: [
+      { id: 'preset_1', text: '给你一个轻轻的抱抱。', scene: 'comfort', sortOrder: 1, enabled: true, createdAt },
+      { id: 'preset_2', text: '我看见你的不容易了。', scene: 'comfort', sortOrder: 2, enabled: true, createdAt },
+    ],
+    feedbackTickets: [
+      { id: 'ticket_1', userId: 'user_demo', categoryId: 'cat_1', sourcePage: '/pages/feedback/index', content: '希望月报可以导出图片。', status: 'open', priority: 'medium', screenshots: [], reply: '', createdAt },
+    ],
+    systemSettings: {
+      appName: { value: '晚安树洞', description: '小程序名称', updatedBy: 'system', updatedAt: createdAt },
+      defaultVisibility: { value: 'PRIVATE', description: '新用户默认发布可见范围', updatedBy: 'system', updatedAt: createdAt },
+      defaultPageSize: { value: 10, description: '默认分页数量', updatedBy: 'system', updatedAt: createdAt },
+      highRiskBlockEnabled: { value: true, description: '高危词拦截开关', updatedBy: 'system', updatedAt: createdAt },
+      allowHumanRepliesDefault: { value: true, description: '允许真人回应默认值', updatedBy: 'system', updatedAt: createdAt },
+      localModelFirst: { value: false, description: '本地模型已由运行策略永久禁用', updatedBy: 'system', updatedAt: createdAt },
+    },
+    aiProviders: [
+      { id: 'provider_qwen', name: '历史本地模型（已禁用）', type: 'local', providerKind: 'ollama', baseUrl: 'disabled://local-model', modelName: 'Qwen2.5-1.5B', apiKeyStatus: 'missing', enabled: false, priority: 99, dailyLimit: 0, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['historical', 'disabled'], failureRate: 0, avgLatencyMs: 0, todayCalls: 31 },
+      { id: DAPI_PROVIDER_ID, name: 'DAPI · DeepSeek', type: 'cloud', providerKind: 'openai-compatible', baseUrl: DAPI_BASE_URL, modelName: 'deepseek-chat', apiKeyStatus: 'missing', enabled: true, priority: 1, dailyLimit: 10000, timeoutSeconds: 30, failoverEnabled: true, usageTags: ['remote', 'primary', 'dapi', 'deepseek'], failureRate: 0, avgLatencyMs: 0, todayCalls: 0, modelMeta: { family: 'openai-compatible', capabilities: ['chat'] } },
+      { id: REMOTE_BACKUP_PROVIDER_ID, name: 'OpenAI API · 远程备用', type: 'cloud', providerKind: 'openai-compatible', baseUrl: REMOTE_BACKUP_BASE_URL, modelName: 'gpt-4o-mini', apiKeyStatus: 'missing', enabled: false, priority: 2, dailyLimit: 10000, timeoutSeconds: 30, failoverEnabled: false, usageTags: ['remote', 'secondary', 'openai'], failureRate: 0, avgLatencyMs: 0, todayCalls: 0, modelMeta: { family: 'openai-compatible', capabilities: ['chat'] } },
+      { id: 'provider_deepseek', name: 'DeepSeek（历史配置）', type: 'cloud', providerKind: 'other', baseUrl: 'https://api.deepseek.com', modelName: 'deepseek-chat', apiKeyStatus: 'missing', enabled: false, priority: 90, dailyLimit: 1000, timeoutSeconds: 12, failoverEnabled: false, usageTags: ['historical', 'disabled'], failureRate: 0.04, avgLatencyMs: 930, todayCalls: 18 },
+      { id: 'provider_kimi', name: 'Kimi', type: 'cloud', baseUrl: 'https://api.moonshot.cn', modelName: 'moonshot-v1-128k', apiKeyStatus: 'missing', enabled: true, priority: 3, dailyLimit: 800, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['poetic'], failureRate: 0.05, avgLatencyMs: 870, todayCalls: 12 },
+      { id: 'provider_doubao', name: '豆包', type: 'cloud', baseUrl: 'https://ark.cn-beijing.volces.com', modelName: 'doubao-pro', apiKeyStatus: 'missing', enabled: true, priority: 4, dailyLimit: 800, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['light'], failureRate: 0.03, avgLatencyMs: 760, todayCalls: 9 },
+      { id: 'provider_openai', name: 'OpenAI', type: 'cloud', baseUrl: 'https://api.openai.com', modelName: 'gpt-4o-mini', apiKeyStatus: 'missing', enabled: true, priority: 5, dailyLimit: 500, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['clear'], failureRate: 0.03, avgLatencyMs: 810, todayCalls: 7 },
+      { id: 'provider_claude', name: 'Claude', type: 'cloud', baseUrl: 'https://api.anthropic.com', modelName: 'claude-3-haiku', apiKeyStatus: 'missing', enabled: false, priority: 6, dailyLimit: 300, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['backup'], failureRate: 0.01, avgLatencyMs: 980, todayCalls: 0 },
+      { id: 'provider_safe_template', name: '安全文案备用', type: 'template', providerKind: 'template', baseUrl: 'local://safe-response-template', modelName: 'safe-response-template', apiKeyStatus: 'configured', enabled: true, priority: 98, dailyLimit: 99999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['backup', 'template', 'safe'], failureRate: 0, avgLatencyMs: 1, todayCalls: 0 },
+      { id: 'provider_template', name: '模板兜底', type: 'template', baseUrl: 'local://template', modelName: 'fallback-template', apiKeyStatus: 'configured', enabled: true, priority: 99, dailyLimit: 99999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['fallback'], failureRate: 0, avgLatencyMs: 4, todayCalls: 6 },
+    ],
+    aiRoutes: [
+      { style: 'warm', label: '暖心陪伴', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-warm-v1', promptTemplate: '温柔但不诊断地回应用户情绪。', enabled: true, routeVersion: 1 },
+      { style: 'rational', label: '理性分析', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-rational-v1', promptTemplate: '拆解事实、情绪和下一步。', enabled: true, routeVersion: 1 },
+      { style: 'light', label: '轻松一点', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-light-v1', promptTemplate: '轻松一点但不轻浮。', enabled: true, routeVersion: 1 },
+      { style: 'clear', label: '清醒提醒', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-clear-v1', promptTemplate: '清晰提醒边界和可控行动。', enabled: true, routeVersion: 1 },
+      { style: 'poetic', label: '诗意疗愈', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-poetic-v1', promptTemplate: '像夜灯一样温柔地书写。', enabled: true, routeVersion: 1 },
+    ],
+    aiJobs: [],
+    assets: [],
+    auditLogs: [],
+  };
+}
+
+@Injectable()
+export class StoreService implements OnModuleInit {
+  private data: StoreData;
+  private persistQueue: Promise<void> = Promise.resolve();
+  private persistenceError?: string;
+  private ollamaOnline = false;
+  private ollamaLastCheckedAt?: string;
+  private ollamaLastError?: string;
+
+  constructor(
+    @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
+    @Inject(RemoteAiProviderService) private readonly remoteAi: RemoteAiProviderService = new RemoteAiProviderService(),
+  ) {
+    this.data = seedData();
+  }
+
+  async onModuleInit() {
+    const persisted = await this.prisma.loadRuntimeState<StoreData>();
+    this.data = persisted ?? this.loadLegacyStore();
+    this.migrateAiJobs();
+    this.recoverInterruptedAiJobs();
+    this.reconcileFavoriteCounts();
+    this.reconcileLetterFavorites();
+    this.ensureSeedCoverage();
+    if (!visualFixtureMode) this.enforceRemoteAiProviderPolicy();
+    await this.flush();
+  }
+
+  get users() { return this.data.users; }
+  get adminUsers() { return this.data.adminUsers; }
+  get privacySettings() { return this.data.privacySettings; }
+  get moods() { return this.data.moods; }
+  get posts() { return this.data.posts; }
+  get replies() { return this.data.replies; }
+  get letters() { return this.data.letters; }
+  set letters(value: Letter[]) { this.data.letters = value; this.persist(); }
+  get diaries() { return this.data.diaries; }
+  set diaries(value: Diary[]) { this.data.diaries = value; this.persist(); }
+  get favorites() { return this.data.favorites; }
+  set favorites(value: StoreData['favorites']) { this.data.favorites = value; this.persist(); }
+  get feedbackCategories() { return this.data.feedbackCategories; }
+  set feedbackCategories(value: StoreData['feedbackCategories']) { this.data.feedbackCategories = value; this.persist(); }
+  get faqs() { return this.data.faqs; }
+  set faqs(value: StoreData['faqs']) { this.data.faqs = value; this.persist(); }
+  get replyPresets() { return this.data.replyPresets; }
+  set replyPresets(value: StoreData['replyPresets']) { this.data.replyPresets = value; this.persist(); }
+  get feedbackTickets() { return this.data.feedbackTickets; }
+  get systemSettings() { return this.data.systemSettings; }
+  get aiProviders() { return this.data.aiProviders; }
+  get aiRoutes() { return this.data.aiRoutes; }
+  get aiJobs() { return this.data.aiJobs; }
+  get assets() { return this.data.assets; }
+  get auditLogs() { return this.data.auditLogs; }
+
+  isFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
+    return this.data.favorites.some((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
+  }
+
+  decorateLetter(letter: Letter) {
+    return { ...letter, favorite: this.isFavorite(letter.userId, 'letter', letter.id) };
+  }
+
+  addFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
+    const existing = this.data.favorites.find((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
+    if (existing) return { item: existing, created: false };
+
+    const favorite = { id: id('fav'), userId, targetType, targetId, createdAt: now() };
+    this.data.favorites.unshift(favorite);
+    if (targetType === 'post') {
+      const post = this.posts.find((item) => item.id === targetId);
+      if (post) post.favoriteCount += 1;
+    }
+    if (targetType === 'letter') {
+      const letter = this.letters.find((item) => item.id === targetId && item.userId === userId);
+      if (letter) letter.favorite = true;
+    }
+    return { item: favorite, created: true };
+  }
+
+  removeFavoriteByTarget(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
+    const removed = this.data.favorites.filter((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
+    if (!removed.length) return removed;
+    this.data.favorites = this.data.favorites.filter((item) => !removed.some((favorite) => favorite.id === item.id));
+    this.applyFavoriteRemoval(removed);
+    return removed;
+  }
+
+  removeFavoriteById(userId: string, favoriteId: string) {
+    const favorite = this.data.favorites.find((item) => item.id === favoriteId && item.userId === userId);
+    if (!favorite) return undefined;
+    this.data.favorites = this.data.favorites.filter((item) => item.id !== favorite.id);
+    this.applyFavoriteRemoval([favorite]);
+    return favorite;
+  }
+
+  clearFavoritesForUser(userId: string) {
+    const removed = this.data.favorites.filter((item) => item.userId === userId);
+    if (!removed.length) return removed;
+    this.data.favorites = this.data.favorites.filter((item) => item.userId !== userId);
+    this.applyFavoriteRemoval(removed);
+    return removed;
+  }
+
+  private storedFeedbackScreenshotIds(value: unknown) {
+    if (!Array.isArray(value)) return [] as string[];
+    const ids = value
+      .map((item) => typeof item === 'string' ? item : item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined)
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => item.trim());
+    return [...new Set(ids)];
+  }
+
+  resolveFeedbackScreenshotIds(userId: string, value: unknown) {
+    if (value === undefined) return [] as string[];
+    if (!Array.isArray(value)) throw new BadRequestException('反馈截图必须是图片资源列表');
+    if (value.length > 2) throw new BadRequestException('反馈最多只能附带两张截图');
+    if (value.some((item) => typeof item !== 'string' || !item.trim())) {
+      throw new BadRequestException('反馈截图必须引用已上传的图片资源');
+    }
+
+    const ids = value.map((item) => String(item).trim());
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('请不要重复选择同一张反馈截图');
+
+    for (const assetId of ids) {
+      const asset = this.assets.find((item) => item.id === assetId);
+      if (!asset || asset.status !== 'ready') throw new NotFoundException('反馈截图不存在或已被删除');
+      if (asset.userId !== userId) throw new ForbiddenException('不能使用其他用户上传的截图');
+      if (asset.usageType !== 'feedback') throw new BadRequestException('反馈只能使用通过反馈入口上传的截图');
+      if (!fs.existsSync(path.join(uploadsDirectory, asset.storageKey))) {
+        throw new NotFoundException('反馈截图文件不存在，请重新上传');
+      }
+    }
+    return ids;
+  }
+
+  decorateFeedbackTicket(ticket: FeedbackTicket) {
+    const screenshots = this.storedFeedbackScreenshotIds(ticket.screenshots)
+      .map((assetId) => this.assets.find((asset) => asset.id === assetId && asset.userId === ticket.userId && asset.status === 'ready'))
+      .filter((asset): asset is MediaAsset => Boolean(asset))
+      .map((asset) => ({
+        id: asset.id,
+        url: asset.url,
+        mimeType: asset.mimeType,
+        size: asset.size,
+        width: asset.width,
+        height: asset.height,
+      }));
+    return { ...ticket, screenshots };
+  }
+
+  async createFeedbackTicket(input: { categoryId?: unknown; content?: unknown; sourcePage?: unknown; assetIds?: unknown }) {
+    const userId = this.getDemoUserId();
+    const content = typeof input.content === 'string' ? input.content.trim() : '';
+    if (!content) throw new BadRequestException('反馈内容不能为空');
+    if (content.length > 500) throw new BadRequestException('反馈内容不能超过 500 字');
+
+    const requestedCategoryId = typeof input.categoryId === 'string' ? input.categoryId.trim() : '';
+    const category = requestedCategoryId
+      ? this.feedbackCategories.find((item) => item.id === requestedCategoryId)
+      : this.feedbackCategories.filter((item) => item.enabled).sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    if (!category || !category.enabled) throw new BadRequestException('请选择可用的反馈分类');
+
+    const sourcePage = typeof input.sourcePage === 'string' && input.sourcePage.trim()
+      ? input.sourcePage.trim()
+      : '/pages/help/feedback';
+    if (!sourcePage.startsWith('/pages/') || sourcePage.length > 160) {
+      throw new BadRequestException('反馈来源页面不合法');
+    }
+
+    const screenshots = this.resolveFeedbackScreenshotIds(userId, input.assetIds);
+    const ticket: FeedbackTicket = {
+      id: id('ticket'),
+      userId,
+      categoryId: category.id,
+      sourcePage,
+      content,
+      status: 'open',
+      priority: 'medium',
+      screenshots,
+      reply: '',
+      createdAt: now(),
+    };
+    this.data.feedbackTickets.unshift(ticket);
+    await this.persistAndFlush();
+    return ticket;
+  }
+
+  feedbackTicketOrThrow(ticketId: string) {
+    const ticket = this.feedbackTickets.find((item) => item.id === ticketId);
+    if (!ticket) throw new NotFoundException('反馈工单不存在');
+    return ticket;
+  }
+
+  async replyToFeedbackTicket(adminId: string, ticketId: string, value: unknown) {
+    const ticket = this.feedbackTicketOrThrow(ticketId);
+    const reply = typeof value === 'string' ? value.trim() : '';
+    if (!reply) throw new BadRequestException('回复内容不能为空');
+    if (reply.length > 1000) throw new BadRequestException('回复内容不能超过 1000 字');
+    if (ticket.status === 'closed') throw new BadRequestException('已关闭的工单不能再回复');
+
+    const before = { ...ticket };
+    ticket.reply = reply;
+    ticket.repliedBy = adminId;
+    ticket.repliedAt = now();
+    // A reply is work in progress, not proof that the issue has been solved.
+    if (ticket.status === 'open') ticket.status = 'processing';
+    this.audit(adminId, 'FEEDBACK_REPLY', 'FeedbackTicket', ticket.id, before, ticket);
+    await this.persistAndFlush();
+    return ticket;
+  }
+
+  async updateFeedbackTicketStatus(adminId: string, ticketId: string, value: unknown) {
+    const ticket = this.feedbackTicketOrThrow(ticketId);
+    const status = typeof value === 'string' ? value : '';
+    const allowedStatuses: FeedbackTicketStatus[] = ['open', 'processing', 'resolved', 'closed'];
+    if (!allowedStatuses.includes(status as FeedbackTicketStatus)) throw new BadRequestException('反馈工单状态不合法');
+    const nextStatus = status as FeedbackTicketStatus;
+    if (nextStatus === ticket.status) return ticket;
+
+    const transitions: Record<FeedbackTicketStatus, FeedbackTicketStatus[]> = {
+      open: ['processing', 'closed'],
+      processing: ['resolved', 'closed'],
+      resolved: ['processing', 'closed'],
+      closed: [],
+    };
+    if (!transitions[ticket.status].includes(nextStatus)) {
+      throw new BadRequestException('当前工单不能切换到该状态');
+    }
+    if (nextStatus === 'resolved' && !ticket.reply.trim()) {
+      throw new BadRequestException('请先回复用户，再将工单标记为已解决');
+    }
+
+    const before = { ...ticket };
+    ticket.status = nextStatus;
+    this.audit(adminId, 'FEEDBACK_STATUS', 'FeedbackTicket', ticket.id, before, ticket);
+    await this.persistAndFlush();
+    return ticket;
+  }
+
+  async createMediaAsset(file: Express.Multer.File, usageType: string): Promise<MediaAsset> {
+    const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
+    if (!allowed.has(file.mimetype)) throw new NotFoundException('仅支持 JPEG、PNG 或 WebP 图片');
+    if (!file.buffer?.length) throw new NotFoundException('上传文件内容为空');
+    if (file.size > 5 * 1024 * 1024) throw new NotFoundException('单张图片不能超过 5MB');
+    const assetId = id('media');
+    const storageKey = `${assetId}.${extensionForMime(file.mimetype)}`;
+    const target = path.join(uploadsDirectory, storageKey);
+    fs.mkdirSync(uploadsDirectory, { recursive: true });
+    fs.writeFileSync(target, file.buffer);
+    const dimensions = imageDimensions(file.buffer, file.mimetype);
+    const asset: MediaAsset = {
+      id: assetId,
+      userId: this.getDemoUserId(),
+      storageKey,
+      url: `/uploads/${storageKey}`,
+      mimeType: file.mimetype,
+      size: file.size,
+      width: dimensions.width,
+      height: dimensions.height,
+      usageType,
+      status: 'ready',
+      createdAt: now(),
+    };
+    this.assets.unshift(asset);
+    this.persist();
+    await this.flush();
+    return asset;
+  }
+
+  async createDiaryExport(userId = this.getDemoUserId()) {
+    const generatedAt = now();
+    const diaries = this.diaries
+      .filter((item) => item.userId === userId)
+      .map((item) => {
+        const attachmentIds = item.attachmentIds ?? this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [];
+        return {
+          ...item,
+          attachments: this.mediaByIds(attachmentIds).map((asset) => ({
+            id: asset.id,
+            url: asset.url,
+            mimeType: asset.mimeType,
+            size: asset.size,
+            width: asset.width,
+            height: asset.height,
+            createdAt: asset.createdAt,
+          })),
+        };
+      });
+    const assetId = id('export');
+    const storageKey = `diary-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
+    const target = path.join(uploadsDirectory, storageKey);
+    const asset: MediaAsset = {
+      id: assetId,
+      userId,
+      storageKey,
+      url: `/api/v1/exports/${assetId}/download`,
+      mimeType: 'application/json; charset=utf-8',
+      size: 0,
+      width: 0,
+      height: 0,
+      usageType: 'diary-export',
+      status: 'ready',
+      createdAt: generatedAt,
+    };
+    const document = {
+      format: 'goodnight-treehole-diary-export/v1',
+      generatedAt,
+      count: diaries.length,
+      diaries,
+    };
+    const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+    asset.size = contents.length;
+
+    fs.mkdirSync(uploadsDirectory, { recursive: true });
+    fs.writeFileSync(target, contents);
+    this.assets.unshift(asset);
+    this.persist();
+    try {
+      await this.flush();
+    } catch (error) {
+      this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+      throw error;
+    }
+
+    return {
+      count: diaries.length,
+      generatedAt,
+      downloadUrl: asset.url,
+      asset: { ...asset, filename: diaryExportFilename(generatedAt) },
+    };
+  }
+
+  getDiaryExportDownload(assetId: string, userId = this.getDemoUserId()) {
+    const asset = this.assets.find((item) => item.id === assetId && item.userId === userId && item.usageType === 'diary-export' && item.status === 'ready');
+    if (!asset) throw new NotFoundException('导出文件不存在或无权访问');
+    const target = path.resolve(uploadsDirectory, asset.storageKey);
+    if (!target.startsWith(`${uploadsDirectory}${path.sep}`) || !fs.existsSync(target)) {
+      throw new NotFoundException('导出文件已不存在，请重新导出');
+    }
+    return { asset, filePath: target, filename: diaryExportFilename(asset.createdAt) };
+  }
+
+  async createLetterPoster(letter: Letter): Promise<MediaAsset> {
+    const assetId = id('media');
+    const storageKey = `poster_${letter.id}_${Date.now()}.svg`;
+    const title = escapeSvgText(letter.title || '给现在的你');
+    const content = escapeSvgText(letter.content || '愿你今晚被温柔接住。').slice(0, 420);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#fff8eb"/><circle cx="920" cy="150" r="190" fill="#e5f2d3"/><path d="M0 1180 Q240 1030 460 1190 T1080 1160 V1440 H0Z" fill="#d8ead4"/><text x="100" y="210" font-family="sans-serif" font-size="42" fill="#76916f">晚安树洞 · 今日回信</text><text x="100" y="340" font-family="sans-serif" font-weight="700" font-size="66" fill="#4a5a48">${title}</text><foreignObject x="100" y="440" width="880" height="720"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:38px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${content}</div></foreignObject><text x="100" y="1300" font-family="sans-serif" font-size="34" fill="#76916f">把此刻轻轻收好</text></svg>`;
+    const buffer = Buffer.from(svg, 'utf8');
+    fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
+    const asset: MediaAsset = {
+      id: assetId,
+      userId: letter.userId,
+      storageKey,
+      url: `/uploads/${storageKey}`,
+      mimeType: 'image/svg+xml',
+      size: buffer.length,
+      width: 1080,
+      height: 1440,
+      usageType: 'letter-poster',
+      status: 'ready',
+      createdAt: now(),
+    };
+    this.assets.unshift(asset);
+    this.persist();
+    await this.flush();
+    return asset;
+  }
+
+  async createMonthlyReportPoster(userId: string, month: string, summary: string): Promise<MediaAsset> {
+    const assetId = id('media');
+    const storageKey = `report_${month.replace(/[^0-9-]/g, '')}_${Date.now()}.svg`;
+    const safeMonth = escapeSvgText(month);
+    const safeSummary = escapeSvgText(summary || '本月的情绪记录正在汇总中。').slice(0, 420);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#f6fbf1"/><circle cx="160" cy="170" r="170" fill="#fff0c9"/><path d="M0 1240 Q220 1080 490 1220 T1080 1190 V1440 H0Z" fill="#dcebd4"/><text x="100" y="250" font-family="sans-serif" font-size="42" fill="#6f8c72">晚安树洞 · 情绪月报</text><text x="100" y="365" font-family="sans-serif" font-weight="700" font-size="70" fill="#3f5541">${safeMonth}</text><foreignObject x="100" y="470" width="880" height="670"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:40px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${safeSummary}</div></foreignObject><text x="100" y="1310" font-family="sans-serif" font-size="34" fill="#6f8c72">看见情绪，也看见正在努力的自己</text></svg>`;
+    const buffer = Buffer.from(svg, 'utf8');
+    fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
+    const asset: MediaAsset = { id: assetId, userId, storageKey, url: `/uploads/${storageKey}`, mimeType: 'image/svg+xml', size: buffer.length, width: 1080, height: 1440, usageType: 'monthly-report-poster', status: 'ready', createdAt: now() };
+    this.assets.unshift(asset);
+    this.persist();
+    await this.flush();
+    return asset;
+  }
+
+  async deleteMediaAsset(assetId: string) {
+    const asset = this.assets.find((item) => item.id === assetId && item.userId === this.getDemoUserId() && item.status === 'ready');
+    if (!asset) throw new NotFoundException('图片不存在');
+    const attached =
+      [...this.moods, ...this.posts].some((item: any) => item.attachmentIds?.includes(assetId)) ||
+      this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId));
+    if (attached) throw new ForbiddenException('已发布内容的图片不能在草稿删除接口中移除');
+    const target = path.join(uploadsDirectory, asset.storageKey);
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+    asset.status = 'deleted';
+    await this.persistAndFlush();
+  }
+
+  mediaByIds(assetIds: string[] = []) {
+    return assetIds
+      .map((assetId) => this.assets.find((asset) => asset.id === assetId && asset.status === 'ready'))
+      .filter((asset): asset is MediaAsset => Boolean(asset));
+  }
+
+  decoratePost(post: PostItem) {
+    const attachmentIds = post.attachmentIds ?? [];
+    post.attachments = this.mediaByIds(attachmentIds);
+    (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser = this.favorites.some(
+      (item) => item.userId === this.getDemoUserId() && item.targetType === 'post' && item.targetId === post.id,
+    );
+    return post;
+  }
+
+  persist() {
+    // The relational mapper performs several awaited writes in one transaction.
+    // Snapshot only when this queue entry begins: this avoids both in-transaction
+    // mutation and an older queued snapshot overwriting a later user action.
+    this.persistQueue = this.persistQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const snapshot = structuredClone(this.data);
+        await this.prisma.saveRuntimeState(snapshot);
+        this.persistenceError = undefined;
+      })
+      .catch((error) => {
+        this.persistenceError = error instanceof Error ? error.message : String(error);
+      });
+  }
+
+  async flush() {
+    await this.persistQueue;
+    if (this.persistenceError) throw new Error(this.persistenceError);
+  }
+
+  async persistAndFlush() {
+    this.persist();
+    await this.flush();
+  }
+
+  private loadLegacyStore(): StoreData {
+    if (fs.existsSync(dataFile)) {
+      return JSON.parse(fs.readFileSync(dataFile, 'utf8')) as StoreData;
+    }
+    return seedData();
+  }
+
+  private migrateAiJobs() {
+    let changed = false;
+    for (const job of this.data.aiJobs) {
+      const legacyStatus = job.status as string;
+      if (legacyStatus === 'success') { job.status = 'succeeded'; changed = true; }
+      if (legacyStatus === 'fallback_completed') { job.status = 'fallback'; changed = true; }
+    }
+    if (changed) this.persist();
+  }
+
+  private recoverInterruptedAiJobs() {
+    let changed = false;
+    for (const job of this.data.aiJobs) {
+      if (!['queued', 'running'].includes(job.status)) continue;
+      job.status = 'failed';
+      job.completedAt = now();
+      job.errorMessage = [job.errorMessage, '任务在服务重启时未完成，已标记为失败，可在后台重试。'].filter(Boolean).join(' | ');
+      job.traceJson = [...(job.traceJson ?? []), { status: 'failed', reason: 'interrupted-by-service-restart' }];
+      changed = true;
+    }
+    if (changed) this.persist();
+  }
+
+  private reconcileFavoriteCounts() {
+    let changed = false;
+    for (const post of this.posts) {
+      const expected = this.favorites.filter((item) => item.targetType === 'post' && item.targetId === post.id).length;
+      if (post.favoriteCount !== expected) {
+        post.favoriteCount = expected;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
+  private reconcileLetterFavorites() {
+    let changed = false;
+    for (const letter of this.letters) {
+      const expected = this.isFavorite(letter.userId, 'letter', letter.id);
+      if (Boolean(letter.favorite) !== expected) {
+        letter.favorite = expected;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
+  private applyFavoriteRemoval(favorites: StoreData['favorites']) {
+    for (const favorite of favorites) {
+      if (favorite.targetType === 'post') {
+        const post = this.posts.find((item) => item.id === favorite.targetId);
+        if (post) post.favoriteCount = Math.max(0, post.favoriteCount - 1);
+      }
+      if (favorite.targetType === 'letter') {
+        const letter = this.letters.find((item) => item.id === favorite.targetId && item.userId === favorite.userId);
+        if (letter) letter.favorite = this.isFavorite(favorite.userId, 'letter', favorite.targetId);
+      }
+    }
+  }
+
+  enforceRemoteAiProviderPolicy() {
+    if (visualFixtureMode) return;
+    const upsert = (definition: AIProvider) => {
+      const current = this.aiProviders.find((item) => item.id === definition.id);
+      const next: AIProvider = {
+        ...definition,
+        todayCalls: current?.todayCalls ?? definition.todayCalls,
+        avgLatencyMs: current?.avgLatencyMs ?? definition.avgLatencyMs,
+        failureRate: current?.failureRate ?? definition.failureRate,
+      };
+      if (current) Object.assign(current, next);
+      else this.aiProviders.unshift(next);
+      return current ?? next;
+    };
+
+    const primary = upsert(this.remoteAi.primaryDefinition());
+    const secondary = upsert(this.remoteAi.secondaryDefinition());
+    for (const provider of this.aiProviders) {
+      const managedRemote = provider.id === primary.id || provider.id === secondary.id;
+      const template = provider.providerKind === 'template' || provider.type === 'template';
+      if (!managedRemote && !template) {
+        provider.enabled = false;
+        provider.failoverEnabled = false;
+        provider.usageTags = [...new Set([...provider.usageTags, 'disabled-by-policy'])];
+      }
+      if (provider.type === 'local' || provider.providerKind === 'ollama') provider.apiKeyStatus = 'missing';
+    }
+    const fallback = this.ensureSafeBackupTemplateProvider();
+    for (const route of this.aiRoutes) {
+      const changed = route.primaryProviderId !== primary.id || route.backupProviderId !== secondary.id || !route.fallbackTemplateId;
+      route.primaryProviderId = primary.id;
+      route.backupProviderId = secondary.id;
+      route.fallbackTemplateId = fallback.id;
+      route.promptVersion = `dapi-${route.style}-v1`;
+      route.timeoutSeconds = Math.max(30, Number(route.timeoutSeconds ?? 30));
+      if (changed) route.routeVersion = Math.max(1, Number(route.routeVersion ?? 0)) + 1;
+    }
+    this.persist();
+  }
+
+  async syncOllamaModels(assignRoutes = true) {
+    void assignRoutes;
+    this.ollamaLastCheckedAt = now();
+    this.ollamaOnline = false;
+    this.ollamaLastError = '本地模型已被 DAPI-only 运行策略禁用。';
+    this.enforceRemoteAiProviderPolicy();
+    await this.flush();
+    return { online: false, disabled: true, baseUrl: 'disabled://local-model', models: [], providers: [], error: this.ollamaLastError };
+  }
+
+  ollamaStatus() {
+    return {
+      baseUrl: 'disabled://local-model',
+      online: false,
+      disabled: true,
+      modelCount: 0,
+      lastCheckedAt: this.ollamaLastCheckedAt,
+      error: this.ollamaLastError,
+      models: this.aiProviders.filter((provider) => provider.providerKind === 'ollama').map((provider) => ({
+        providerId: provider.id,
+        name: provider.modelName,
+        enabled: provider.enabled,
+        ...provider.modelMeta,
+      })),
+    };
+  }
+
+  private isTextOllamaProvider(provider?: AIProvider) {
+    if (!provider || provider.providerKind !== 'ollama' || provider.type !== 'local') return false;
+    const capabilities = provider.modelMeta?.capabilities ?? [];
+    return provider.usageTags.includes('text') || (capabilities.includes('completion') && !capabilities.includes('vision'));
+  }
+
+  private isUserFacingTextOllamaProvider(provider?: AIProvider) {
+    return this.isTextOllamaProvider(provider) && !this.requiresReasoningOutputExtraction(provider!);
+  }
+
+  private ensureSafeBackupTemplateProvider() {
+    const existing = this.aiProviders.find((provider) => provider.id === 'provider_safe_template');
+    if (existing) return existing;
+    const provider: AIProvider = {
+      id: 'provider_safe_template',
+      name: '安全文案备用',
+      type: 'template',
+      providerKind: 'template',
+      baseUrl: 'local://safe-response-template',
+      modelName: 'safe-response-template',
+      apiKeyStatus: 'configured',
+      enabled: true,
+      priority: 98,
+      dailyLimit: 99_999,
+      timeoutSeconds: 1,
+      failoverEnabled: false,
+      usageTags: ['backup', 'template', 'safe'],
+      failureRate: 0,
+      avgLatencyMs: 1,
+      todayCalls: 0,
+    };
+    this.aiProviders.push(provider);
+    return provider;
+  }
+
+  private isMissingOrCorruptedRouteCopy(value?: string) {
+    return !value?.trim() || /\?{2,}/.test(value);
+  }
+
+  private appendAiTrace(job: AIJob, entry: Record<string, unknown>) {
+    const event = { at: now(), ...entry };
+    job.traceJson = [...(Array.isArray(job.traceJson) ? job.traceJson : []), event];
+    return event;
+  }
+
+  async testAiProvider(providerId: string) {
+    const provider = this.aiProviders.find((item) => item.id === providerId);
+    if (!provider) throw new NotFoundException('AI Provider 不存在');
+    if (!provider.enabled) return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: 'Provider 已停用' };
+    if (provider.type === 'local' || provider.providerKind === 'ollama') {
+      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: '本地模型已被 DAPI-only 运行策略禁用。' };
+    }
+    if (provider.providerKind !== 'openai-compatible') {
+      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: '当前 Provider 不在远程 AI 执行策略中。' };
+    }
+    try {
+      const response = await this.remoteAi.generate(provider, { prompt: '请只回复：连接正常', timeoutMs: Math.max(provider.timeoutSeconds, 30) * 1000, maxTokens: 20 });
+      provider.modelName = response.model;
+      provider.todayCalls += 1;
+      provider.avgLatencyMs = provider.avgLatencyMs ? Math.round((provider.avgLatencyMs + response.durationMs) / 2) : response.durationMs;
+      this.persist();
+      await this.flush();
+      return { ok: true, providerId, modelName: response.model, durationMs: response.durationMs, result: response.result };
+    } catch (error) {
+      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: sanitizeProviderError(error) };
+    }
+  }
+
+  getDemoUserId() {
+    return 'user_demo';
+  }
+
+  login(username: string, password: string) {
+    const admin = this.adminUsers.find((item) => item.username === username && item.passwordHash === `plain:${password}`);
+    if (!admin) throw new UnauthorizedException('账号或密码不正确');
+    admin.lastLoginAt = now();
+    const token = Buffer.from(`${admin.id}:${admin.role}:goodnight`).toString('base64url');
+    this.audit(admin.id, 'LOGIN', 'AdminUser', admin.id, null, { lastLoginAt: admin.lastLoginAt });
+    this.persist();
+    return { token, admin: { id: admin.id, username: admin.username, displayName: admin.displayName, role: admin.role } };
+  }
+
+  verifyToken(token?: string) {
+    if (!token) throw new UnauthorizedException('缺少登录凭证');
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const [adminId] = decoded.split(':');
+    const admin = this.adminUsers.find((item) => item.id === adminId);
+    if (!admin) throw new UnauthorizedException('登录已失效');
+    return admin;
+  }
+
+  audit(adminUserId: string, action: string, resourceType: string, resourceId: string, beforeJson: unknown, afterJson: unknown) {
+    const snapshot = <T>(value: T): T => value == null ? value : JSON.parse(JSON.stringify(value)) as T;
+    this.auditLogs.unshift({ id: id('audit'), adminUserId, action, resourceType, resourceId, beforeJson: snapshot(beforeJson), afterJson: snapshot(afterJson), ip: '127.0.0.1', userAgent: 'local-dev', createdAt: now() });
+  }
+
+  private ensureSeedCoverage() {
+    const seeds = [
+      { key: 'jiaolv', emotion: '焦虑', userId: 'user_demo', content: '明天要汇报，我又开始担心自己讲不好。', hugCount: 18 },
+      { key: 'weiqu', emotion: '委屈', userId: 'user_demo', content: '今天被一句话刺了一下，心里有点委屈，但我想慢慢说出来。', hugCount: 22 },
+      { key: 'shimian', emotion: '失眠', userId: 'user_guest', content: '凌晨两点还是睡不着，脑子一直在转。', hugCount: 31 },
+      { key: 'lianai', emotion: '恋爱', userId: 'user_guest', content: '很想念一个人，又担心自己的在意太多了。', hugCount: 16 },
+      { key: 'work', emotion: '工作', userId: 'user_demo', content: '工作消息一直弹出来，我有点喘不过气，想先把节奏找回来。', hugCount: 27 },
+    ];
+    let changed = false;
+    for (const seed of seeds) {
+      const hasPublishedSeed = this.data.posts.some(
+        (post) => post.status === 'active' && post.reviewStatus === 'published' && post.emotion === seed.emotion,
+      );
+      if (hasPublishedSeed) continue;
+      const moodId = `mood_seed_${seed.key}`;
+      const postId = `post_seed_${seed.key}`;
+      this.data.moods.unshift({
+        id: moodId,
+        userId: seed.userId,
+        emotion: seed.emotion as Emotion,
+        content: seed.content,
+        visibility: 'PUBLIC',
+        riskLevel: 'low',
+        riskScore: 0.08,
+        status: 'active',
+        createdAt: now(),
+      });
+      this.data.posts.unshift({
+        id: postId,
+        moodId,
+        userId: seed.userId,
+        emotion: seed.emotion as Emotion,
+        content: seed.content,
+        visibility: 'PUBLIC',
+        status: 'active',
+        reviewStatus: 'published',
+        hugCount: seed.hugCount,
+        replyCount: 1,
+        favoriteCount: 0,
+        reportCount: 0,
+        createdAt: now(),
+      });
+      this.data.replies.unshift({
+        id: `reply_seed_${seed.key}`,
+        postId,
+        type: 'AI',
+        style: 'warm',
+        content: this.composeDynamicText({
+          taskType: 'post_reply',
+          content: seed.content,
+          mood: seed.emotion,
+          style: 'warm',
+          routeLabel: '暖心陪伴',
+        }).result,
+        status: 'published',
+        riskLevel: 'low',
+        createdAt: now(),
+      });
+      changed = true;
+    }
+    if (changed) this.persist();
+  }
+
+  private assertCanWrite() {
+    const user = this.users.find((item) => item.id === this.getDemoUserId());
+    if (user?.status === 'limited' || user?.status === 'banned') {
+      throw new ForbiddenException('当前账号已被禁言或限制发布，请联系管理员');
+    }
+  }
+
+  async publicPosts(emotion?: string) {
+    const normalized = normalizeStoreEmotion(emotion);
+    const normalizedValue = String(normalized);
+    const hiddenPostIds = new Set(
+      (await this.prisma.hiddenPost.findMany({
+        where: { userId: this.getDemoUserId() },
+        select: { postId: true },
+      })).map((item) => item.postId),
+    );
+    this.posts.forEach((post) => this.decoratePost(post));
+    return this.posts.filter((post) => !hiddenPostIds.has(post.id) && post.status === 'active' && post.reviewStatus === 'published' && (!emotion || normalizedValue === '全部' || post.emotion === normalized));
+  }
+
+  async hidePostForCurrentUser(postId: string) {
+    this.getPost(postId, true);
+    const userId = this.getDemoUserId();
+    const item = await this.prisma.hiddenPost.upsert({
+      where: { userId_postId: { userId, postId } },
+      create: { userId, postId },
+      update: {},
+    });
+    return item;
+  }
+
+  async likeReply(replyId: string) {
+    const reply = this.replies.find((item) => item.id === replyId && item.status === 'published');
+    if (!reply) throw new NotFoundException('回应不存在');
+    reply.likeCount = (reply.likeCount ?? 0) + 1;
+    await this.persistAndFlush();
+    return reply;
+  }
+
+  getPost(idValue: string, includeUnpublished = false) {
+    const post = this.posts.find((item) => item.id === idValue && item.status === 'active' && (includeUnpublished || item.reviewStatus !== 'hidden'));
+    if (!post) throw new NotFoundException('树洞不存在');
+    return this.decoratePost(post);
+  }
+
+  async createMood(input: { content: string; emotion: Emotion; visibility: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[] }) {
+    if (!input.content?.trim()) throw new NotFoundException('内容不能为空');
+    const userId = this.getDemoUserId();
+    this.assertCanWrite();
+    const emotion = normalizeStoreEmotion(input.emotion);
+    const risk = this.detectRisk(input.content);
+    const attachmentIds = Array.from(new Set(input.assetIds ?? []));
+    if (attachmentIds.length > 2) throw new NotFoundException('最多添加 2 张图片');
+    const media = this.mediaByIds(attachmentIds);
+    if (media.length !== attachmentIds.length || media.some((asset) => asset.userId !== userId)) throw new NotFoundException('图片不存在、尚未上传完成或不属于当前用户');
+    const mood: Mood = { id: id('mood'), userId, emotion, content: input.content.trim(), visibility: input.visibility, riskLevel: risk.level, riskScore: risk.score, status: 'active', attachmentIds, createdAt: now() };
+    this.moods.unshift(mood);
+    if (input.visibility === 'PUBLIC') {
+      const post: PostItem = { id: id('post'), moodId: mood.id, userId, emotion, content: mood.content, visibility: 'PUBLIC', status: 'active', reviewStatus: 'pending_review', hugCount: 0, replyCount: 0, favoriteCount: 0, reportCount: 0, attachmentIds, attachments: media, createdAt: now() };
+      this.posts.unshift(post);
+      const requestedStyles = Array.isArray(input.replyStyles)
+        ? input.replyStyles.filter(isSupportedAiReplyStyle)
+        : [];
+      // Prefer the plural public contract when it has usable values, otherwise
+      // honour a valid single selected style before falling back safely.
+      const styleCandidates: AIStyle[] =
+        requestedStyles.length
+          ? requestedStyles
+          : isSupportedAiReplyStyle(input.style)
+            ? [input.style]
+            : ['warm'];
+      const styles = Array.from(new Set(styleCandidates));
+      // Persist the post and durable job records before waiting for a local model.
+      // Ollama can take tens of seconds to cold-load a model; holding the publish
+      // request open makes a successful post look like a failed action to users.
+      const jobs = styles.map((style) => this.queueAiJob({
+          userId,
+          contentId: mood.id,
+          contentType: 'Mood',
+          jobType: '树洞温柔回应',
+          taskType: 'post_reply',
+          mood: emotion,
+          style,
+          promptSummary: mood.content,
+        }));
+      const queuedJobs = jobs;
+      void Promise.all(queuedJobs.map((job) => this.waitForAiJob(job.id))).then(async (completedJobs) => {
+        for (const job of completedJobs) {
+          this.replies.unshift({
+            id: `reply_${job.id}`,
+            postId: post.id,
+            type: 'AI',
+            style: job.style,
+            content: job.result,
+            status: 'published',
+            riskLevel: 'low',
+            createdAt: job.createdAt,
+          });
+        }
+        post.replyCount = completedJobs.length;
+        await this.persistAndFlush();
+      }).catch(() => undefined);
+      this.persist();
+      await this.flush();
+      return { mood, post, job: queuedJobs[0], jobs: queuedJobs, next: '/pages/post/detail', reviewStatus: post.reviewStatus };
+    }
+    const diary: Diary = { id: id('diary'), userId, moodId: mood.id, emotion, content: mood.content, hasLetter: false, attachmentIds, createdAt: now() };
+    this.diaries.unshift(diary);
+    const queued = this.queueLetterGeneration({
+      userId,
+      sourceMoodId: mood.id,
+      style: isSupportedAiReplyStyle(input.style) ? input.style : 'warm',
+      content: mood.content,
+    });
+    void this.waitForAiJob(queued.job.id).then(async (completed) => {
+      if (!['succeeded', 'fallback'].includes(completed.status)) return;
+      const savedDiary = this.diaries.find((item) => item.id === diary.id);
+      if (savedDiary) savedDiary.hasLetter = true;
+      await this.persistAndFlush();
+    }).catch(() => undefined);
+    this.persist();
+    await this.flush();
+    return { mood, diary, letter: queued.letter, job: queued.job, jobs: [queued.job], next: '/pages/diary/index' };
+  }
+
+  detectRisk(content: string) {
+    const high = /自杀|自伤|伤害别人|杀|暴力/.test(content);
+    return { level: high ? 'high' as const : 'low' as const, score: high ? 0.92 : 0.08 };
+  }
+
+  queueLetterGeneration(input: { userId: string; sourceMoodId: string; style: AIStyle; content: string; letter?: Letter }) {
+    if (input.letter?.aiJobId) {
+      const pending = this.aiJobs.find((job) => job.id === input.letter?.aiJobId && ['queued', 'running'].includes(job.status));
+      if (pending) return { letter: input.letter, job: pending };
+    }
+    const letter = input.letter ?? {
+      id: id('letter'),
+      userId: input.userId,
+      sourceMoodId: input.sourceMoodId,
+      style: input.style,
+      title: '给今晚的你',
+      content: '',
+      status: 'unread' as const,
+      savedToDiary: false,
+      generationStatus: 'queued' as const,
+      createdAt: now(),
+    };
+    if (!input.letter) this.letters.unshift(letter);
+    const job = this.queueAI({
+      taskType: 'warm_letter',
+      content: input.content,
+      style: input.style,
+      userId: input.userId,
+      sourceId: letter.id,
+    });
+    letter.aiJobId = job.id;
+    letter.generationStatus = job.status;
+    this.persist();
+    void this.waitForAiJob(job.id).then((completed) => {
+      const target = this.letters.find((item) => item.id === letter.id);
+      if (!target) return;
+      target.aiJobId = completed.id;
+      target.generationStatus = completed.status;
+      if (['succeeded', 'fallback'].includes(completed.status)) {
+        target.style = input.style;
+        target.content = completed.result;
+        target.status = 'unread';
+      }
+      this.persist();
+    }).catch(() => undefined);
+    return { letter, job };
+  }
+
+  queueAI(input: AIGenerateInput) {
+    const userId = input.userId ?? this.getDemoUserId();
+    const taskType = this.normalizeTaskType(input.taskType);
+    const content = input.content?.trim() || this.latestUserContent(userId) || '此刻的心情还没有说完。';
+    const style = input.style ?? this.defaultStyleForTask(taskType);
+    const sourceId = input.sourceId ?? `${taskType}_${Date.now()}`;
+    const mood = input.mood ? normalizeStoreEmotion(input.mood) : this.inferMood(content);
+    return this.queueAiJob({
+      userId,
+      contentId: sourceId,
+      contentType: this.contentTypeForTask(taskType),
+      jobType: this.jobTypeLabel(taskType),
+      taskType,
+      mood,
+      style,
+      promptSummary: content,
+      simulatePrimaryFail: input.simulatePrimaryFail,
+      simulateBackupFail: input.simulateBackupFail,
+    });
+  }
+
+  generateAI(input: AIGenerateInput): AIGenerateResult {
+    const taskType = this.normalizeTaskType(input.taskType);
+    const style = input.style ?? this.defaultStyleForTask(taskType);
+    const job = this.queueAI(input);
+
+    return {
+      status: 'queued',
+      provider: '',
+      style,
+      result: '',
+      structured: {},
+      jobId: job.id,
+      job,
+    };
+  }
+
+  queueAiJob(input: { userId: string; contentId: string; contentType: string; jobType: string; taskType?: AITaskType | string; mood?: string; style: AIStyle; promptSummary: string; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean }) {
+    const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
+    const route = this.aiRoutes.find((item) => item.style === input.style && item.enabled)
+      ?? this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))
+      ?? this.aiRoutes[0];
+    const job: AIJob = {
+      id: id('job'), userId: input.userId, contentId: input.contentId, contentType: input.contentType, taskType: this.jobTypeLabel(taskType), jobType: this.jobTypeLabel(taskType),
+      style: input.style, providerId: '', modelName: '', status: 'queued', promptSummary: input.promptSummary.slice(0, 160),
+      promptVersion: route?.promptVersion, result: '', durationMs: 0, retryCount: 0,
+      traceJson: [{
+        at: now(), event: 'queued', status: 'queued', taskType, style: input.style, routeVersion: route?.routeVersion ?? 0,
+        primaryProviderId: route?.primaryProviderId, backupProviderId: route?.backupProviderId, fallbackTemplateId: route?.fallbackTemplateId,
+      }],
+      routeVersion: route?.routeVersion ?? 0, createdAt: now(),
+    };
+    this.aiJobs.unshift(job);
+    this.persist();
+    void Promise.resolve().then(async () => {
+      try {
+        await this.runAiJob({ ...input, jobId: job.id });
+      } catch (error) {
+        job.status = 'failed';
+        job.errorMessage = sanitizeProviderError(error);
+        job.durationMs = Math.max(1, Date.now() - Date.parse(job.createdAt));
+        job.completedAt = now();
+        this.appendAiTrace(job, { event: 'terminal', status: 'failed', reason: job.errorMessage, durationMs: job.durationMs });
+        this.persist();
+      }
+    });
+    return job;
+  }
+
+  async waitForAiJob(jobId: string, timeoutMs = 120_000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const job = this.aiJobs.find((item) => item.id === jobId);
+      if (!job) throw new NotFoundException('AI 任务不存在');
+      if (!['queued', 'running'].includes(job.status)) {
+        await this.flush();
+        return job;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(`AI task ${jobId} did not finish within ${timeoutMs}ms`);
+  }
+
+  latestSuccessfulAiJob(userId: string, taskType: string) {
+    const normalizedTaskType = this.jobTypeLabel(this.normalizeTaskType(taskType));
+    return this.aiJobs.find((job) => (
+      job.userId === userId
+      && job.taskType === normalizedTaskType
+      && ['succeeded', 'fallback'].includes(job.status)
+      && Boolean(job.result)
+    ));
+  }
+
+  async runAiJob(input: { userId: string; contentId: string; contentType: string; jobType: string; taskType?: AITaskType | string; mood?: string; style: AIStyle; promptSummary: string; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean; jobId?: string }) {
+    const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
+    const route = this.aiRoutes.find((item) => item.style === input.style && item.enabled)
+      ?? this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))
+      ?? this.aiRoutes[0];
+    if (!route) throw new NotFoundException('没有可用的 AI 路由规则');
+    const primary = this.aiProviders.find((item) => item.id === route.primaryProviderId);
+    const backup = this.aiProviders.find((item) => item.id === route.backupProviderId);
+    const job: AIJob = input.jobId ? this.aiJobs.find((item) => item.id === input.jobId)! : {
+      id: id('job'), userId: input.userId, contentId: input.contentId, contentType: input.contentType, taskType: this.jobTypeLabel(taskType), jobType: this.jobTypeLabel(taskType),
+      style: input.style, providerId: '', modelName: '', status: 'queued', promptSummary: input.promptSummary.slice(0, 160),
+      promptVersion: route.promptVersion, result: '', durationMs: 0, retryCount: 0, traceJson: [], routeVersion: route.routeVersion, createdAt: now(),
+    };
+    if (!job) throw new NotFoundException('AI 任务不存在');
+    if (!input.jobId) {
+      this.aiJobs.unshift(job);
+      this.appendAiTrace(job, {
+        event: 'queued', status: 'queued', taskType, style: input.style, routeVersion: route.routeVersion,
+        primaryProviderId: route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
+      });
+      this.persist();
+    }
+
+    const jobStartedAt = Date.now();
+    job.status = 'running';
+    this.appendAiTrace(job, {
+      event: 'running', status: 'running', taskType, style: input.style, routeVersion: route.routeVersion,
+      primaryProviderId: route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
+    });
+    this.persist();
+    if (visualFixtureMode) {
+      job.status = 'failed';
+      job.errorMessage = 'VISUAL_FIXTURE_REMOTE_AI_DISABLED';
+      job.durationMs = Math.max(1, Date.now() - jobStartedAt);
+      job.completedAt = now();
+      this.appendAiTrace(job, { event: 'terminal', status: 'failed', reason: job.errorMessage, durationMs: job.durationMs });
+      this.persist();
+      return job;
+    }
+
+    const risk = this.detectRisk(input.promptSummary);
+    if (risk.level === 'high') {
+      job.providerId = 'risk-escalation';
+      job.modelName = 'safety-policy';
+      job.result = '我很在意你现在的安全。请先联系身边可信任的人，或尽快联系当地紧急服务、心理危机干预热线；如果你正处在即时危险中，请优先拨打当地紧急电话。你不需要一个人扛着。';
+      job.structuredResult = { riskLevel: 'high', escalation: true, nextSmallStep: '现在就联系一位可信任的人，并离开可能伤害自己的环境。' };
+      job.status = 'succeeded';
+      job.durationMs = 1;
+      job.completedAt = now();
+      this.appendAiTrace(job, {
+        event: 'terminal', taskType, riskLevel: 'high', status: 'succeeded', providerId: job.providerId,
+        modelName: job.modelName, durationMs: job.durationMs, safetyEscalation: true,
+      });
+      this.persist();
+      return job;
+    }
+
+    const prompt = this.buildAiPrompt({ taskType, style: input.style, route, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary) });
+    const needsStructuredResult = taskType === 'breakdown';
+    const candidates = [
+      { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
+      { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
+    ] as const;
+    const errors: string[] = [];
+    for (const candidate of candidates) {
+      const provider = candidate.provider;
+      const attemptStartedAt = Date.now();
+      if (candidate.forcedFailure) {
+        const reason = `simulated-${candidate.role}-failure`;
+        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider?.id, modelName: provider?.modelName, role: candidate.role, status: 'failed', reason, durationMs: Math.max(0, Date.now() - attemptStartedAt) });
+        errors.push(reason);
+        continue;
+      }
+      if (!provider || !provider.enabled) {
+        const reason = 'provider-unavailable';
+        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider?.id, modelName: provider?.modelName, role: candidate.role, status: 'skipped', reason, durationMs: Math.max(0, Date.now() - attemptStartedAt) });
+        errors.push(`${candidate.role}:${reason}`);
+        continue;
+      }
+      if (provider.type === 'local' || provider.providerKind !== 'openai-compatible') {
+        const reason = 'unsupported-remote-provider';
+        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: provider.modelName, role: candidate.role, status: 'skipped', reason, durationMs: Math.max(0, Date.now() - attemptStartedAt) });
+        errors.push(`${provider.id}:${reason}`);
+        continue;
+      }
+      try {
+        const response = await this.remoteAi.generate(provider, {
+          prompt,
+          timeoutMs: Math.max(provider.timeoutSeconds, 30) * 1000,
+          json: needsStructuredResult,
+          maxTokens: needsStructuredResult ? 520 : 360,
+        });
+        const userFacingResult = this.extractUserFacingModelOutput(response.result, this.requiresReasoningOutputExtraction(provider));
+        const structured = needsStructuredResult ? this.parseBreakdownResult(userFacingResult) : undefined;
+        job.providerId = provider.id;
+        job.modelName = response.model;
+        job.result = this.safetyFilter(structured ? structured.summary : userFacingResult);
+        job.structuredResult = structured;
+        job.status = 'succeeded';
+        job.fallbackUsed = candidate.role === 'backup';
+        job.retryCount = candidate.role === 'backup' ? 1 : 0;
+        job.durationMs = Math.max(response.durationMs, Date.now() - jobStartedAt);
+        job.completedAt = now();
+        provider.modelName = response.model;
+        provider.todayCalls += 1;
+        provider.avgLatencyMs = provider.avgLatencyMs ? Math.round((provider.avgLatencyMs + response.durationMs) / 2) : response.durationMs;
+        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: response.model, role: candidate.role, status: 'succeeded', durationMs: response.durationMs, jobDurationMs: job.durationMs, structured: Boolean(structured), fallbackUsed: job.fallbackUsed });
+        this.appendAiTrace(job, { event: 'terminal', providerId: provider.id, modelName: response.model, status: 'succeeded', durationMs: job.durationMs, fallbackUsed: job.fallbackUsed });
+        this.persist();
+        return job;
+      } catch (error) {
+        const message = sanitizeProviderError(error);
+        errors.push(`${provider.id}:${message}`);
+        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: provider.modelName, role: candidate.role, status: 'failed', reason: message, durationMs: Math.max(1, Date.now() - attemptStartedAt) });
+        if (candidate.role === 'primary' && !this.remoteAi.canFailOver(error)) break;
+      }
+    }
+
+    const template = this.composeDynamicText({ taskType, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary), style: input.style, routeLabel: route.label });
+    job.providerId = route.fallbackTemplateId || this.templateProvider().id;
+    job.modelName = this.aiProviders.find((provider) => provider.id === job.providerId)?.modelName ?? 'safe-template';
+    job.result = this.safetyFilter(template.result);
+    job.structuredResult = needsStructuredResult ? template.structured : undefined;
+    job.status = 'fallback';
+    job.fallbackUsed = true;
+    job.retryCount = Math.max(1, candidates.length - 1);
+    job.errorMessage = errors.join(' | ') || 'AI_PROVIDER_FAILED';
+    job.durationMs = Math.max(1, Date.now() - jobStartedAt);
+    job.completedAt = now();
+    this.appendAiTrace(job, { event: 'terminal', status: 'fallback', reason: job.errorMessage, providerId: job.providerId, modelName: job.modelName, durationMs: job.durationMs, fallbackUsed: true });
+    this.persist();
+    return job;
+  }
+
+  private templateProvider(): AIProvider {
+    return { id: 'provider_template', name: '安全模板兜底', type: 'template', providerKind: 'template', baseUrl: 'local://template', modelName: 'safe-template', apiKeyStatus: 'configured', enabled: true, priority: 999, dailyLimit: 99_999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['fallback'], failureRate: 0, avgLatencyMs: 1, todayCalls: 0 };
+  }
+
+  private requiresReasoningOutputExtraction(provider: AIProvider) {
+    return provider.providerKind === 'ollama' && /huihui-qwen3\.5/i.test(provider.modelName);
+  }
+
+  private extractUserFacingModelOutput(rawOutput: string, requiresReasoningExtraction: boolean) {
+    const trimmed = rawOutput.trim();
+    if (!requiresReasoningExtraction) return trimmed;
+    const finalOutput = trimmed.split(/<\/think>\s*/i).at(-1)?.trim() ?? '';
+    if (!/<\/think>/i.test(trimmed) || !finalOutput || /^thinking process\s*:/i.test(finalOutput)) {
+      throw new Error('Reasoning-model response did not contain a safe final answer');
+    }
+    return finalOutput;
+  }
+
+  private buildAiPrompt(input: { taskType: AITaskType; style: AIStyle; route: AIStyleRoute; content: string; mood: string }) {
+    const safety = '你是晚安树洞的中文情绪陪伴助手。你不是医生，不做心理疾病诊断、不冒充专业人员、不做绝对承诺。语气温和、具体、不过度说教。若用户提及即时人身危险，提醒其联系身边可信任的人和当地紧急支持。';
+    const taskInstructions: Record<AITaskType, string> = {
+      post_reply: '为匿名树洞写一段 90 到 160 字的公开温柔回应，不泄露或推测身份。',
+      today_letter: '写一封给此刻用户的 140 到 220 字今日回信，紧贴其最近记录，给出一个很小且可执行的行动。',
+      breakdown: '只输出严格 JSON，不要 Markdown。字段必须完整：{"triggerEvent":"","coreEmotions":[""],"realNeeds":[""],"nextSmallStep":"","summary":"","advice":["","",""]}。',
+      rewrite: '把用户的负面表达改写成不否认感受、也不攻击自己的 80 到 150 字表达。',
+      rant: '写一段允许释放情绪、但不煽动伤害自己或他人的 80 到 150 字文案。',
+      heal: '写一句简短、自然、不过度承诺的治愈短句。',
+      sleep: '给失眠中的用户一段 80 到 140 字安慰，聚焦当下放松和一个小动作。',
+      work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。',
+      future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。',
+      month_report: '根据提供的真实统计写一段月度观察，不改写或虚构其中的数字。',
+    };
+    return `${safety}\n任务：${taskInstructions[input.taskType]}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
+  }
+
+  private parseBreakdownResult(value: string) {
+    const normalized = value.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    const parsed = JSON.parse(normalized) as Record<string, unknown>;
+    const coreEmotions = Array.isArray(parsed.coreEmotions) ? parsed.coreEmotions.map(String).filter(Boolean) : [];
+    const realNeeds = Array.isArray(parsed.realNeeds) ? parsed.realNeeds.map(String).filter(Boolean) : [];
+    const triggerEvent = String(parsed.triggerEvent ?? '').trim();
+    const nextSmallStep = String(parsed.nextSmallStep ?? '').trim();
+    const summary = String(parsed.summary ?? '').trim();
+    if (!triggerEvent || !coreEmotions.length || !realNeeds.length || !nextSmallStep || !summary) throw new Error('Remote AI structured response is incomplete');
+    const advice = Array.isArray(parsed.advice) ? parsed.advice.map(String).filter(Boolean).slice(0, 3) : [];
+    return { triggerEvent, trigger: triggerEvent, coreEmotions, coreEmotion: coreEmotions.join('、'), realNeeds, realNeed: realNeeds.join('、'), nextSmallStep, nextStep: nextSmallStep, smallAction: nextSmallStep, firstStep: nextSmallStep, summary, advice };
+  }
+
+  private normalizeTaskType(value?: string): AITaskType {
+    const key = String(value ?? '').trim();
+    const map: Record<string, AITaskType> = {
+      public_ai_reply: 'post_reply',
+      warm_letter: 'today_letter',
+      emotion_analysis: 'breakdown',
+      negative_rewrite: 'rewrite',
+      healing_phrase: 'heal',
+      sleep_comfort: 'sleep',
+      work_support: 'work',
+      future_letter: 'future',
+      monthly_report: 'month_report',
+      post_reply: 'post_reply',
+      '树洞温柔回应': 'post_reply',
+      today_letter: 'today_letter',
+      '今日回信': 'today_letter',
+      breakdown: 'breakdown',
+      decompose: 'breakdown',
+      '情绪拆解': 'breakdown',
+      rewrite: 'rewrite',
+      '负面改写': 'rewrite',
+      rant: 'rant',
+      '发疯文案': 'rant',
+      heal: 'heal',
+      'healing-quote': 'heal',
+      '治愈短句': 'heal',
+      sleep: 'sleep',
+      'sleep-comfort': 'sleep',
+      '失眠安慰': 'sleep',
+      work: 'work',
+      'work-support': 'work',
+      '工作破防': 'work',
+      future: 'future',
+      'future-letter': 'future',
+      '写给未来的自己': 'future',
+      month_report: 'month_report',
+      report: 'month_report',
+      '情绪月报': 'month_report',
+    };
+    return map[key] ?? 'post_reply';
+  }
+
+  private defaultStyleForTask(taskType: AITaskType): AIStyle {
+    if (taskType === 'breakdown' || taskType === 'work') return 'rational';
+    if (taskType === 'future') return 'poetic';
+    if (taskType === 'rewrite') return 'clear';
+    return 'warm';
+  }
+
+  private contentTypeForTask(taskType: AITaskType) {
+    if (taskType === 'today_letter') return 'Letter';
+    if (taskType === 'post_reply') return 'Post';
+    if (taskType === 'month_report') return 'Report';
+    return 'ToolTask';
+  }
+
+  private jobTypeLabel(taskType: AITaskType) {
+    const map: Record<AITaskType, string> = {
+      post_reply: '树洞温柔回应',
+      today_letter: '今日回信',
+      breakdown: '情绪拆解',
+      rewrite: '负面改写',
+      rant: '发疯文案',
+      heal: '治愈短句',
+      sleep: '失眠安慰',
+      work: '工作破防',
+      future: '写给未来的自己',
+      month_report: '情绪月报',
+    };
+    void map;
+    return ({
+      post_reply: 'public_ai_reply',
+      today_letter: 'warm_letter',
+      breakdown: 'emotion_analysis',
+      rewrite: 'negative_rewrite',
+      rant: 'rant',
+      heal: 'healing_phrase',
+      sleep: 'sleep_comfort',
+      work: 'work_support',
+      future: 'future_letter',
+      month_report: 'monthly_report',
+    } as Record<AITaskType, string>)[taskType];
+  }
+
+  private publicProviderName(providerId: string) {
+    if (providerId.startsWith('provider_ollama_')) return 'local-ollama';
+    const map: Record<string, string> = {
+      provider_qwen: 'local-qwen',
+      provider_deepseek: 'deepseek',
+      provider_kimi: 'kimi',
+      provider_openai: 'openai',
+      provider_doubao: 'doubao',
+      provider_template: 'fallback-template',
+    };
+    return map[providerId] ?? providerId;
+  }
+
+  private latestUserContent(userId: string) {
+    const diary = this.diaries.find((item) => item.userId === userId);
+    const mood = this.moods.find((item) => item.userId === userId);
+    return diary?.content ?? mood?.content ?? '';
+  }
+
+  resolveSourceContent(sourceId?: string) {
+    if (!sourceId) return '';
+    return (
+      this.moods.find((item) => item.id === sourceId)?.content ??
+      this.diaries.find((item) => item.id === sourceId)?.content ??
+      this.letters.find((item) => item.id === sourceId)?.content ??
+      ''
+    );
+  }
+
+  private inferMood(content: string): Emotion {
+    const text = content || '';
+    if (/睡不着|失眠|凌晨|夜里|入睡/.test(text)) return '失眠' as Emotion;
+    if (/工作|领导|同事|汇报|会议|加班|项目|职场/.test(text)) return '工作' as Emotion;
+    if (/喜欢|恋爱|想念|关系|分手|暧昧/.test(text)) return '恋爱' as Emotion;
+    if (/委屈|批评|误会|刺|被说|责备/.test(text)) return '委屈' as Emotion;
+    if (/焦虑|担心|害怕|紧张|慌|压力/.test(text)) return '焦虑' as Emotion;
+    return '焦虑' as Emotion;
+  }
+
+  private extractTopic(content: string) {
+    const text = content.replace(/\s+/g, ' ').trim();
+    if (!text) return '还没说出口的那部分心情';
+    return text.length > 34 ? `${text.slice(0, 34)}...` : text;
+  }
+
+  private buildStructured(input: { taskType: AITaskType; content: string; mood: string; style: AIStyle }) {
+    const topic = this.extractTopic(input.content);
+    const lowered = input.content;
+    const trigger = /领导|批评|责备/.test(lowered)
+      ? '被重要的人评价或否定，让努力感没有被看见'
+      : /睡不着|凌晨|失眠/.test(lowered)
+        ? '夜里大脑停不下来，对明天状态产生担心'
+        : /工作|会议|加班|项目/.test(lowered)
+          ? '工作节奏过密，让身体和注意力都在紧绷'
+          : `你提到的“${topic}”正在牵动注意力`;
+    const coreEmotion = /委屈|批评|责备|误会/.test(lowered)
+      ? '委屈、受挫和一点不被理解'
+      : /睡不着|失眠|担心/.test(lowered)
+        ? '失眠里的焦虑、担心和疲惫'
+        : `${input.mood}里夹着需要被确认的紧张`;
+    const realNeed = /努力|认真|已经/.test(lowered)
+      ? '希望自己的努力被看见，也希望获得更清楚的反馈'
+      : /明天|状态/.test(lowered)
+        ? '需要把今晚和明天切开，让身体先恢复一点能量'
+        : '需要被理解、被确认，并找回一点可控感';
+    const nextStep = /睡不着|失眠|凌晨/.test(lowered)
+      ? '先把担心写成三行，放到明天再处理，然后做三轮慢呼气'
+      : /工作|领导|批评|汇报/.test(lowered)
+        ? '先写下一件可执行的小事，其他评价等情绪降下来再处理'
+        : '先给这件事命名，再选一个五分钟内能完成的小动作';
+
+    return {
+      trigger,
+      triggerEvent: trigger,
+      coreEmotion,
+      coreEmotions: [coreEmotion],
+      emotion: coreEmotion,
+      realNeed,
+      realNeeds: [realNeed],
+      need: realNeed,
+      nextStep,
+      nextSmallStep: nextStep,
+      smallAction: nextStep,
+      firstStep: nextStep,
+      advice: this.dynamicAdvice(input.mood, input.style, input.content),
+      summary: `这次的重点不是立刻解决全部问题，而是先承认“${topic}”确实让你累了。`,
+    };
+  }
+
+  private dynamicAdvice(mood: string, style: AIStyle, content: string) {
+    if (/睡不着|失眠|凌晨/.test(content) || mood === '失眠') return ['写下担心清单', '做三轮慢呼气', '把明天第一步写小'];
+    if (/工作|领导|汇报|项目/.test(content) || mood === '工作') return ['先列一件小任务', '把反馈和自我价值分开', '给自己留十分钟缓冲'];
+    if (style === 'poetic') return ['把心事写成一句话', '给房间留一盏小灯', '今晚少责备自己一点'];
+    if (style === 'rational') return ['区分事实和猜测', '写下可控的一步', '暂时不做最终判断'];
+    return ['喝几口温水', '把肩膀放松下来', '先照顾此刻的身体'];
+  }
+
+  private composeDynamicText(input: { taskType: AITaskType; content: string; mood: string; style: AIStyle; routeLabel: string }) {
+    const topic = this.extractTopic(input.content);
+    const structured = this.buildStructured(input);
+    const action = structured.nextStep as string;
+    const styleText: Record<AIStyle, string> = {
+      warm: `暖心陪伴：我听见你提到“${topic}”。这份${input.mood}不是矫情，它是在提醒你已经撑了一会儿。今晚先不用急着证明自己，先做一件很小的事：${action}。`,
+      rational: `理性分析：围绕“${topic}”，现在可以先分成三层看：事实是事情发生了，情绪是${structured.coreEmotion}，需要是${structured.realNeed}。下一步只保留一个动作：${action}。`,
+      light: `轻松一点：关于“${topic}”，先把脑内音量调低一点。你不用一口气处理完，先把最卡住的地方写出来，再给自己一个短暂停顿：${action}。`,
+      clear: `清醒提醒：你写下“${topic}”，说明这件事已经占用了能量。先别把它扩大成对自己的结论，今晚只处理可控部分：${action}。`,
+      poetic: `诗意疗愈：你把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+    };
+    const taskText: Partial<Record<AITaskType, string>> = {
+      breakdown: `情绪拆解：触发事件可能是“${structured.trigger}”；核心情绪是“${structured.coreEmotion}”；真实需要是“${structured.realNeed}”；可以先做的一小步是“${action}”。`,
+      rewrite: `负面改写：把“${topic}”换成更照顾自己的说法：我正在经历${input.mood}，但这不等于我不够好。我可以先从“${action}”开始。`,
+      rant: `发疯文案：今天这件“${topic}”真的够烦，也够消耗。允许你先吐槽，不急着优雅；吐完以后，把力气收回来一点点：${action}。`,
+      heal: `治愈短句：就算“${topic}”让你很累，你也仍然值得被认真对待。先把自己放回当下：${action}。`,
+      sleep: `失眠安慰：如果“${topic}”还在脑子里转，先告诉自己：现在不是解决全部问题的时间。把担心放进纸上，再做一轮慢呼气。`,
+      work: `工作支撑：面对“${topic}”，先把评价、任务和自我价值分开。你要处理的是下一步任务，不是证明整个人都没问题；先做：${action}。`,
+      future: `写给未来：未来的你会记得，此刻关于“${topic}”的难受并没有浪费。它提醒你要更温柔地安排边界，也提醒你从“${action}”重新开始。`,
+      month_report: `情绪月报：这个阶段反复出现的线索是“${topic}”。${input.mood}背后有真实需要，下个月可以先固定一个小动作：${action}。`,
+      post_reply: styleText[input.style],
+      today_letter: styleText[input.style],
+    };
+    return {
+      result: taskText[input.taskType] ?? `${input.routeLabel}：${styleText[input.style]}`,
+      structured,
+    };
+  }
+
+  safetyFilter(text: string) {
+    return text
+      .replace(/我能治愈你/g, '我会陪你整理此刻的感受')
+      .replace(/你一定会好/g, '愿你一点点变得轻松');
+  }
+
+  createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
+    const post = this.getPost(postId, true);
+    const ownerPrivacy = this.privacySettings[post.userId];
+    const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
+    if (post.visibility !== 'PUBLIC' || post.reviewStatus !== 'published' || ownerPrivacy?.allowHumanReplies === false || !systemAllowsHumanReplies) {
+      throw new ForbiddenException('当前内容不允许真人回应');
+    }
+    if (!input.content?.trim()) throw new NotFoundException('回复内容不能为空');
+    this.assertCanWrite();
+    const risk = this.detectRisk(input.content);
+    const reply: ReplyItem = { id: id('reply'), postId, userId: input.anonymous ? undefined : this.getDemoUserId(), type: 'USER', style: 'human', content: input.content.trim(), status: 'pending_review', riskLevel: risk.level, likeCount: 0, createdAt: now() };
+    this.replies.unshift(reply);
+    post.replyCount = this.replies.filter((item) => item.postId === postId && item.status === 'published').length;
+    this.persist();
+    return reply;
+  }
+
+  moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
+    const post = this.getPost(postId, true);
+    const before = { ...post };
+    if (action === 'approve') {
+      post.reviewStatus = 'published';
+      post.publishedAt ??= now();
+    }
+    if (action === 'hide') post.reviewStatus = 'hidden';
+    if (action === 'reject') post.reviewStatus = 'rejected';
+    if (action === 'risk') post.reportCount += 1;
+    this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, post);
+    this.persist();
+    return post;
+  }
+
+  moderateReply(adminId: string, replyId: string, action: 'approve' | 'block', content?: string) {
+    const reply = this.replies.find((item) => item.id === replyId);
+    if (!reply) throw new NotFoundException('回应不存在');
+    const before = { ...reply };
+    if (content) reply.content = content;
+    reply.status = action === 'approve' ? 'published' : 'blocked';
+    const post = this.posts.find((item) => item.id === reply.postId);
+    if (post) post.replyCount = this.replies.filter((item) => item.postId === post.id && item.status === 'published').length;
+    this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, reply);
+    this.persist();
+    return reply;
+  }
+}

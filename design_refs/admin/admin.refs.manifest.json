@@ -1,0 +1,209 @@
+[
+  {
+    "fileName": "01-admin-login.png",
+    "pageSemantic": "admin-login",
+    "pageTitle": "登录",
+    "activeMenu": "登录",
+    "mainTableFields": [
+      "管理员账号",
+      "密码"
+    ],
+    "mainButtons": [
+      "登录"
+    ],
+    "hasRightDetailPanel": false,
+    "route": "/login",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (2).png",
+    "copied": true
+  },
+  {
+    "fileName": "02-admin-dashboard.png",
+    "pageSemantic": "admin-dashboard",
+    "pageTitle": "数据总览",
+    "activeMenu": "数据总览",
+    "mainTableFields": [
+      "指标",
+      "趋势",
+      "待处理"
+    ],
+    "mainButtons": [
+      "审核内容",
+      "AI 配置",
+      "处理反馈"
+    ],
+    "hasRightDetailPanel": false,
+    "route": "/dashboard",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (1).png",
+    "copied": true
+  },
+  {
+    "fileName": "03-admin-user-list.png",
+    "pageSemantic": "admin-user-list",
+    "pageTitle": "用户管理",
+    "activeMenu": "用户管理",
+    "mainTableFields": [
+      "用户",
+      "状态",
+      "注册时间",
+      "记录数"
+    ],
+    "mainButtons": [
+      "查看",
+      "禁言",
+      "恢复",
+      "备注"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/users",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (9).png",
+    "copied": true
+  },
+  {
+    "fileName": "04-admin-post-content.png",
+    "pageSemantic": "admin-post-content",
+    "pageTitle": "树洞内容",
+    "activeMenu": "树洞内容",
+    "mainTableFields": [
+      "内容",
+      "情绪",
+      "审核状态",
+      "举报数"
+    ],
+    "mainButtons": [
+      "审核通过",
+      "隐藏",
+      "删除",
+      "重生成 AI"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/posts",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (10).png",
+    "copied": true
+  },
+  {
+    "fileName": "05-admin-reply-moderation.png",
+    "pageSemantic": "admin-reply-moderation",
+    "pageTitle": "回应审核",
+    "activeMenu": "回应审核",
+    "mainTableFields": [
+      "类型",
+      "风险",
+      "状态",
+      "创建时间"
+    ],
+    "mainButtons": [
+      "通过",
+      "拦截",
+      "修改后通过"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/replies/moderation",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (5).png",
+    "copied": true
+  },
+  {
+    "fileName": "06-admin-ai-provider-center.png",
+    "pageSemantic": "admin-ai-provider-center",
+    "pageTitle": "AI 配置中心",
+    "activeMenu": "AI 配置中心",
+    "mainTableFields": [
+      "供应商",
+      "模型",
+      "状态",
+      "失败率",
+      "今日调用"
+    ],
+    "mainButtons": [
+      "编辑",
+      "测试",
+      "启用",
+      "停用"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/ai/providers",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (6).png",
+    "copied": true
+  },
+  {
+    "fileName": "07-admin-ai-style-routing.png",
+    "pageSemantic": "admin-ai-style-routing",
+    "pageTitle": "风格路由",
+    "activeMenu": "风格路由",
+    "mainTableFields": [
+      "风格",
+      "主模型",
+      "备用模型",
+      "Prompt 版本"
+    ],
+    "mainButtons": [
+      "测试生成",
+      "保存配置"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/ai/routes",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (7).png",
+    "copied": true
+  },
+  {
+    "fileName": "08-admin-ai-job-log.png",
+    "pageSemantic": "admin-ai-job-log",
+    "pageTitle": "AI 任务记录",
+    "activeMenu": "AI 任务记录",
+    "mainTableFields": [
+      "任务",
+      "风格",
+      "模型",
+      "状态",
+      "耗时"
+    ],
+    "mainButtons": [
+      "查看详情",
+      "重试",
+      "模板兜底"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/ai/jobs",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (8).png",
+    "copied": true
+  },
+  {
+    "fileName": "09-admin-feedback-ticket.png",
+    "pageSemantic": "admin-feedback-ticket",
+    "pageTitle": "反馈工单",
+    "activeMenu": "反馈工单",
+    "mainTableFields": [
+      "来源",
+      "类型",
+      "优先级",
+      "状态"
+    ],
+    "mainButtons": [
+      "回复用户",
+      "标记已解决"
+    ],
+    "hasRightDetailPanel": true,
+    "route": "/ops/feedback",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (3).png",
+    "copied": true
+  },
+  {
+    "fileName": "10-admin-system-settings.png",
+    "pageSemantic": "admin-system-settings",
+    "pageTitle": "系统设置",
+    "activeMenu": "系统设置",
+    "mainTableFields": [
+      "配置项",
+      "值",
+      "说明",
+      "更新时间"
+    ],
+    "mainButtons": [
+      "保存设置",
+      "导出数据"
+    ],
+    "hasRightDetailPanel": false,
+    "route": "/ops/config",
+    "source": "C:\\Users\\zyu33\\Downloads\\ChatGPT Image 2026年7月4日 01_08_00 (4).png",
+    "copied": true
+  }
+]

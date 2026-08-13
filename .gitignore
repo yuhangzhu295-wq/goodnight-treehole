@@ -1,0 +1,28 @@
+# Dependencies and local runtimes
+node_modules/
+.venv*/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime state, databases, and generated delivery artifacts
+data/
+artifacts/
+outputs/
+reports/
+work/
+coverage/
+dist/
+.vite/
+
+# Logs and editor/OS state
+*.log
+*.pid
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

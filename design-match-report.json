@@ -1,0 +1,31 @@
+{
+  "schema": "goodnight.design-match-report/v1",
+  "threshold": { "maskedPixelDiffPercent": 5, "policy": "final-responsive-visual-mask/v1" },
+  "currentSourceStatus": "PARTIAL_CURRENT_EVIDENCE",
+  "historicalStrictBaseline": {
+    "run": "artifacts/visual-fixtures/v1/runs/run-2026-07-17_03-55-11-889",
+    "warning": "These values predate the current runner and fixture-source edits. They are triage baselines, not current acceptance evidence.",
+    "layoutFailures": 0,
+    "maskPolicyFailures": 0,
+    "networkLeaks": 0,
+    "frames": [
+      { "reference": "admin/01-admin-login", "raw": 2.04, "masked": 2.04, "status": "historical-pass" },
+      { "reference": "admin/02-admin-dashboard", "raw": 9.72, "masked": 9.25 }, { "reference": "admin/03-admin-user-list", "raw": 8.7, "masked": 8.31 }, { "reference": "admin/04-admin-post-content", "raw": 9.45, "masked": 8.99 }, { "reference": "admin/05-admin-reply-moderation", "raw": 9.72, "masked": 9.35 }, { "reference": "admin/06-admin-ai-provider-center", "raw": 8.92, "masked": 8.83 }, { "reference": "admin/07-admin-ai-style-routing", "raw": 8.79, "masked": 8.74 }, { "reference": "admin/08-admin-ai-job-log", "raw": 8.81, "masked": 8.5 }, { "reference": "admin/09-admin-feedback-ticket", "raw": 7.97, "masked": 7.46 }, { "reference": "admin/10-admin-system-settings", "raw": 8.81, "masked": 8.76 },
+      { "reference": "front/01-square", "raw": 15.71, "masked": 15.69 }, { "reference": "front/02-mood-create", "raw": 16.1, "masked": 16.1 }, { "reference": "front/03-post-detail", "raw": 14.01, "masked": 14.01 }, { "reference": "front/04-post-detail-reply-sheet", "raw": 10.65, "masked": 10.65, "invalidatedBy": "old runner opened sheet through query string" }, { "reference": "front/05-letter-today", "raw": 14.35, "masked": 14.35 }, { "reference": "front/06-tool-index", "raw": 13.58, "masked": 13.58 }, { "reference": "front/07-tool-decompose", "raw": 12.57, "masked": 12.57 }, { "reference": "front/08-me", "raw": 9.17, "masked": 9.02 }, { "reference": "front/09-diary-list", "raw": 21.08, "masked": 21.08 }, { "reference": "front/10-report-month", "raw": 17.38, "masked": 17.27 }, { "reference": "front/11-letter-list", "raw": 15.67, "masked": 15.6 }, { "reference": "front/12-favorite-list", "raw": 13.03, "masked": 13.03 }, { "reference": "front/13-privacy-settings", "raw": 13.86, "masked": 13.86 }, { "reference": "front/14-feedback-help", "raw": 16.12, "masked": 16.12 }
+    ]
+  },
+  "currentFrames": [
+    {
+      "reference": "admin/09-admin-feedback-ticket",
+      "route": "/ops/feedback",
+      "state": "real click on tr[data-visual-id='vf_ticket_open']",
+      "before": { "raw": 7.97, "masked": 7.46, "run": "frame-admin-09-pre-2026-07-21" },
+      "after": { "raw": 8.01, "masked": 7.76, "run": "frame-admin-09-after-2026-07-21-a" },
+      "passed": false,
+      "artifacts": { "screenshot": "artifacts/visual-fixtures/v1/runs/frame-admin-09-after-2026-07-21-a/screenshots/admin-final/09-admin-feedback-ticket-reference-1448x1086.png", "overlay": "artifacts/visual-fixtures/v1/runs/frame-admin-09-after-2026-07-21-a/diffs/final/admin/09-admin-feedback-ticket-overlay.png", "rawDiff": "artifacts/visual-fixtures/v1/runs/frame-admin-09-after-2026-07-21-a/diffs/final/admin/09-admin-feedback-ticket-raw-diff.png", "maskedDiff": "artifacts/visual-fixtures/v1/runs/frame-admin-09-after-2026-07-21-a/diffs/final/admin/09-admin-feedback-ticket-masked-diff.png" },
+      "largestMismatchRegions": ["right reply/action panel", "left ticket-detail metadata and screenshot area", "metrics values and trend captions", "filter control widths", "sidebar/header brand assets"],
+      "classification": ["fixtureStateMismatch", "contentDensity", "componentGeometry", "typography", "asset"]
+    }
+  ],
+  "updatedAt": "2026-07-21T01:22:00+08:00"
+}

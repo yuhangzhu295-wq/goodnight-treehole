@@ -1,0 +1,17 @@
+{
+  "schema": "goodnight.visual-fixture/v1",
+  "id": "visual-v1",
+  "version": "v1",
+  "fixtureOnly": true,
+  "runtimeInstanceId": "visual-fixture-v1",
+  "database": { "host": "127.0.0.1", "port": 55433, "name": "goodnight_treehole_visual_v1", "schema": "public" },
+  "services": { "api": "http://127.0.0.1:3001", "front": "http://127.0.0.1:5175", "admin": "http://127.0.0.1:5176", "aiStub": "http://127.0.0.1:11435" },
+  "uploads": "artifacts/visual-fixtures/v1/runtime/uploads",
+  "seedSha256": "3d1c2fb324b53bc5579b884fdfc080197ab9df98f789d629c628adf611bcae50",
+  "reference": {
+    "front": { "postId": "vf_post_anxious", "emotionAnalysisJobId": "vf_job_emotion_analysis", "reportMonth": "2026-07" },
+    "admin": { "userId": "user_demo", "postId": "vf_post_anxious", "replyId": "vf_reply_featured", "jobId": "vf_job_featured", "ticketId": "vf_ticket_open" }
+  },
+  "expected": { "users": 10, "publicPosts": 8, "privateDiaries": 5, "terminalAiJobs": 6, "feedbackTickets": 68, "mediaAssets": 8 },
+  "source": { "seed": "fixtures/visual/v1/seed.ts", "assets": ["fixtures/visual/v1/assets/fixture-diary-01.svg", "fixtures/visual/v1/assets/fixture-diary-02.svg", "fixtures/visual/v1/assets/fixture-diary-03.svg", "fixtures/visual/v1/assets/fixture-diary-04.svg", "fixtures/visual/v1/assets/fixture-diary-05.svg", "fixtures/visual/v1/assets/fixture-feedback.png.base64", "fixtures/visual/v1/assets/fixture-ticket-a.svg", "fixtures/visual/v1/assets/fixture-ticket-b.svg"] }
+}

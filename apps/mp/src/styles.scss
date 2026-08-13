@@ -1,0 +1,8098 @@
+@use "./styles/tokens.scss";
+@use "./styles/goodnight-theme.scss";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(245, 220, 171, 0.36), transparent 28%),
+    linear-gradient(90deg, #edf2ed 0%, #f7fbf4 46%, #e5ece6 100%);
+  color: #253828;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a,
+select,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-shell {
+  position: relative;
+  width: min(430px, 100vw);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 22px 18px 96px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 247, 0.96), rgba(255, 249, 238, 0.98)),
+    #fffaf1;
+  box-shadow: 0 20px 56px rgba(46, 62, 50, 0.16);
+}
+
+@media (min-width: 760px) {
+  .phone-shell {
+    min-height: 920px;
+    margin-top: 22px;
+    border-radius: 28px;
+  }
+}
+
+.page {
+  position: relative;
+  display: grid;
+  gap: 14px;
+}
+
+.hero {
+  position: relative;
+  min-height: 168px;
+  padding: 28px 24px;
+  overflow: hidden;
+  border: 1px solid rgba(111, 130, 88, 0.18);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 82% 22%, rgba(122, 151, 83, 0.16), transparent 30%),
+    linear-gradient(135deg, #fffdf7, #f5efd9);
+  box-shadow: 0 14px 34px rgba(75, 91, 61, 0.1);
+}
+
+.hero::after {
+  position: absolute;
+  right: -18px;
+  bottom: -18px;
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 46%, #fffbec 0 22%, transparent 23%),
+    radial-gradient(circle at 38% 33%, #91a76a 0 8%, transparent 9%),
+    linear-gradient(145deg, #dce8c6, #f6e7bb);
+  opacity: 0.82;
+  content: "";
+}
+
+.hero h1,
+.title {
+  margin: 0;
+  color: #496734;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.16;
+}
+
+.hero p,
+.sub,
+.muted {
+  margin: 6px 0 0;
+  color: #71806b;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  font-size: 26px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.between {
+  justify-content: space-between;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  color: inherit;
+  border: 1px solid rgba(117, 139, 92, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 251, 0.92);
+  box-shadow: 0 12px 34px rgba(75, 91, 61, 0.08);
+}
+
+.soft {
+  background: linear-gradient(135deg, #fbf6df, #f3f7ed);
+}
+
+.tool-card {
+  min-height: 118px;
+}
+
+.metric-card {
+  text-align: center;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 4px;
+  color: #5d7b3f;
+  font-size: 28px;
+}
+
+button,
+.button,
+.pill {
+  min-height: 40px;
+  border: 1px solid rgba(106, 128, 80, 0.18);
+  border-radius: 999px;
+  padding: 9px 15px;
+  color: #415936;
+  background: rgba(255, 255, 250, 0.92);
+  box-shadow: 0 8px 20px rgba(62, 80, 49, 0.07);
+  cursor: pointer;
+}
+
+button.primary,
+.primary {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #719351, #597b3a);
+}
+
+button.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+
+button.danger,
+.danger {
+  color: #d84e42;
+  border-color: rgba(216, 78, 66, 0.3);
+  background: rgba(255, 247, 244, 0.92);
+}
+
+.input,
+.textarea,
+select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(117, 139, 92, 0.22);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #263629;
+  background: rgba(255, 254, 249, 0.94);
+  outline: none;
+}
+
+.textarea {
+  min-height: 144px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field label {
+  color: #52684a;
+  font-weight: 600;
+}
+
+.post-card {
+  cursor: pointer;
+}
+
+.post-actions {
+  margin-top: 12px;
+}
+
+.section-title {
+  margin: 6px 0 0;
+  color: #496734;
+  font-size: 18px;
+}
+
+.tabbar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  width: min(398px, calc(100vw - 28px));
+  padding: 8px;
+  border: 1px solid rgba(94, 116, 91, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 34px rgba(40, 53, 40, 0.14);
+  transform: translateX(-50%);
+  backdrop-filter: blur(18px);
+}
+
+.tabbar a {
+  min-height: 48px;
+  padding: 7px 4px;
+  border-radius: 12px;
+  color: #717a73;
+  text-align: center;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.tabbar a.router-link-active {
+  color: #fff;
+  background: #5f8d65;
+}
+
+.sheet-mask,
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 16px;
+  background: rgba(32, 45, 36, 0.28);
+}
+
+.modal {
+  align-items: center;
+}
+
+.sheet {
+  width: min(430px, 100vw);
+  max-height: 82vh;
+  overflow: auto;
+  padding: 20px 16px 28px;
+  border-radius: 20px 20px 0 0;
+  background: #fffaf1;
+  box-shadow: 0 -20px 45px rgba(30, 40, 35, 0.18);
+}
+
+.modal .card {
+  max-width: 360px;
+}
+
+.chart {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  height: 120px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7ead2;
+}
+
+.bar {
+  flex: 1;
+  min-height: 16px;
+  border-radius: 6px 6px 0 0;
+  background: #6d91b8;
+}
+
+.status-row {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  color: #111;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.front-hero,
+.detail-top {
+  position: relative;
+  min-height: 190px;
+  padding: 16px 12px 24px;
+  overflow: hidden;
+}
+
+.square-hero,
+.compact-hero,
+.letter-hero,
+.detail-top {
+  margin: -22px -18px 0;
+  padding: 24px 18px 28px;
+  background:
+    radial-gradient(circle at 82% 25%, rgba(197, 171, 115, 0.16), transparent 30%),
+    linear-gradient(135deg, #fffdf6, #f9f2df 74%, #eef5ea);
+}
+
+.front-hero::before,
+.detail-top::before {
+  position: absolute;
+  right: -22px;
+  top: 0;
+  width: 190px;
+  height: 190px;
+  border-radius: 0 0 0 90px;
+  background:
+    radial-gradient(circle at 67% 45%, rgba(255, 226, 143, 0.9) 0 5px, transparent 6px),
+    radial-gradient(circle at 54% 40%, #ffe8a6 0 12px, #8b6844 13px 18px, transparent 19px),
+    radial-gradient(circle at 44% 70%, rgba(101, 129, 71, 0.24) 0 52px, transparent 53px),
+    linear-gradient(110deg, transparent 0 28%, #9b7b55 29% 45%, #c1a078 46% 58%, transparent 59%),
+    radial-gradient(circle at 42% 12%, #b8c98d 0 4px, transparent 5px),
+    radial-gradient(circle at 25% 22%, #cbd8a4 0 4px, transparent 5px),
+    radial-gradient(circle at 62% 8%, #d7dfb1 0 4px, transparent 5px);
+  opacity: 0.94;
+  content: "";
+}
+
+.front-hero::after,
+.detail-top::after {
+  position: absolute;
+  right: 28px;
+  bottom: 10px;
+  width: 62px;
+  height: 46px;
+  border-radius: 50% 50% 42% 42%;
+  background:
+    radial-gradient(circle at 40% 42%, #2d3129 0 2px, transparent 3px),
+    radial-gradient(circle at 60% 42%, #2d3129 0 2px, transparent 3px),
+    radial-gradient(circle at 37% 58%, #efaf93 0 5px, transparent 6px),
+    radial-gradient(circle at 63% 58%, #efaf93 0 5px, transparent 6px),
+    linear-gradient(#fff8df, #f7eac5);
+  box-shadow: 0 10px 24px rgba(88, 80, 50, 0.12);
+  content: "";
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 3;
+  margin-top: 46px;
+}
+
+.hero-copy h1,
+.letter-heading h1,
+.detail-top h1 {
+  margin: 0;
+  color: #446532;
+  font-size: 44px;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.hero-copy p,
+.letter-heading p {
+  margin: 12px 0 0;
+  color: #5a7545;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.tree-scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tree-heart {
+  position: absolute;
+  right: 56px;
+  top: 78px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: #fff6c7;
+  background: rgba(126, 96, 56, 0.32);
+  box-shadow: 0 0 16px rgba(255, 218, 132, 0.86);
+}
+
+.tree-bell {
+  position: absolute;
+  right: 126px;
+  top: 34px;
+  z-index: 2;
+  color: #9a733e;
+}
+
+.seedling-face {
+  position: absolute;
+  right: 102px;
+  bottom: 35px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  color: #d8896c;
+  background: #fff3d3;
+  border: 1px solid rgba(118, 142, 86, 0.16);
+}
+
+.tree-scene.small .seedling-face,
+.letter-tree .seedling-face {
+  right: 118px;
+  bottom: 22px;
+}
+
+.mood-filter-row {
+  display: flex;
+  gap: 8px;
+  margin: -8px -8px 8px;
+  padding: 0 8px 6px;
+  overflow-x: auto;
+}
+
+.mood-pill,
+.style-pill,
+.letter-style-tabs button,
+.advice-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: max-content;
+  min-height: 44px;
+  white-space: nowrap;
+  border: 1px solid rgba(104, 126, 78, 0.18);
+  background: rgba(255, 253, 247, 0.96);
+}
+
+.mood-pill.active,
+.style-pill.active,
+.letter-style-tabs button.active,
+.advice-row button.active,
+.emotion-choice.active,
+.visibility-card.active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #7e955b, #627d3e);
+  box-shadow: 0 12px 24px rgba(86, 111, 56, 0.22);
+}
+
+.soft-note,
+.empty-card {
+  padding: 18px;
+  border: 1px solid rgba(117, 139, 92, 0.16);
+  border-radius: 8px;
+  color: #627154;
+  background: rgba(255, 255, 250, 0.9);
+}
+
+.treehole-card,
+.detail-card,
+.reply-card,
+.panel-card,
+.write-card,
+.letter-intro,
+.letter-card,
+.advice-section,
+.share-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(116, 134, 85, 0.16);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 94% 12%, rgba(247, 224, 159, 0.18), transparent 26%),
+    rgba(255, 255, 252, 0.95);
+  box-shadow: 0 12px 34px rgba(78, 88, 62, 0.09);
+}
+
+.treehole-card {
+  padding: 16px 14px 0;
+  cursor: pointer;
+}
+
+.post-main,
+.detail-author {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 78px;
+  gap: 12px;
+  align-items: start;
+}
+
+.detail-author {
+  grid-template-columns: 66px minmax(0, 1fr);
+}
+
+.avatar-bubble,
+.card-illustration {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f7efd7;
+  border: 1px solid rgba(127, 147, 92, 0.14);
+}
+
+.avatar-bubble {
+  width: 52px;
+  height: 52px;
+  color: #779156;
+  font-size: 24px;
+}
+
+.avatar-bubble.large {
+  width: 62px;
+  height: 62px;
+}
+
+.card-illustration {
+  align-self: center;
+  width: 76px;
+  height: 76px;
+  color: #6f8b4e;
+  font-size: 34px;
+}
+
+.post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.post-meta strong,
+.detail-author strong {
+  color: #202822;
+  font-size: 19px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: #5e7d42;
+  background: #eef4df;
+  font-size: 13px;
+}
+
+.tag.gold {
+  color: #936a2b;
+  background: #fbefd6;
+}
+
+.tag.blue {
+  color: #507293;
+  background: #e6f0f9;
+}
+
+.tag.pink {
+  color: #ba6a6c;
+  background: #fee8e2;
+}
+
+.post-content,
+.detail-content,
+.reply-card p,
+.letter-content {
+  margin: 12px 0;
+  color: #26352a;
+  font-size: 16px;
+  line-height: 1.72;
+  word-break: break-word;
+}
+
+.wish-tag {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: #658143;
+  background: #eef4dc;
+}
+
+.reply-count,
+.reply-link {
+  margin: 12px 0 0;
+  color: #607c43;
+}
+
+.reply-count strong,
+.reply-link strong {
+  color: #547331;
+}
+
+.reply-link {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.card-more {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-weight: 700;
+  border-radius: 50%;
+  background: rgba(255, 254, 250, 0.96);
+}
+
+.post-actions,
+.detail-actions,
+.letter-actions,
+.sheet-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(119, 134, 88, 0.14);
+}
+
+.plain-action {
+  min-height: 50px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.plain-action.big {
+  font-size: 17px;
+}
+
+.write-fab {
+  position: fixed;
+  right: max(20px, calc((100vw - 430px) / 2 + 24px));
+  bottom: 118px;
+  z-index: 19;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  padding: 8px;
+  color: #fff;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c9457, #5c783c);
+  box-shadow: 0 14px 28px rgba(70, 92, 47, 0.28);
+}
+
+.write-fab span:first-child {
+  font-size: 26px;
+}
+
+.floating-status {
+  position: fixed;
+  left: 50%;
+  bottom: 88px;
+  z-index: 50;
+  width: min(320px, calc(100vw - 42px));
+  margin: 0;
+  padding: 11px 16px;
+  border: 1px solid rgba(96, 126, 73, 0.2);
+  border-radius: 999px;
+  color: #4e6838;
+  text-align: center;
+  background: rgba(255, 254, 248, 0.96);
+  box-shadow: 0 12px 28px rgba(50, 67, 42, 0.14);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.floating-status.secondary {
+  bottom: 134px;
+}
+
+.menu-sheet {
+  display: grid;
+  gap: 10px;
+}
+
+.menu-sheet h2 {
+  margin: 0 0 4px;
+  color: #435e31;
+}
+
+.write-card {
+  min-height: 210px;
+  padding: 20px;
+}
+
+.write-card textarea,
+.reply-compose textarea {
+  width: 100%;
+  min-height: 168px;
+  padding: 16px;
+  border: 1px solid rgba(124, 141, 92, 0.2);
+  border-radius: 8px;
+  color: #27342b;
+  background: rgba(255, 254, 249, 0.78);
+  line-height: 1.8;
+  resize: vertical;
+  outline: none;
+}
+
+.counter {
+  position: absolute;
+  right: 28px;
+  bottom: 24px;
+  color: #858b85;
+}
+
+.textarea-seed {
+  position: absolute;
+  right: 20px;
+  bottom: 16px;
+  color: #7f975c;
+  font-size: 34px;
+  opacity: 0.22;
+}
+
+.panel-card {
+  padding: 16px;
+}
+
+.panel-card h2,
+.reply-section h2,
+.hug-section h2,
+.advice-section h2 {
+  margin: 0 0 12px;
+  color: #293e2b;
+  font-size: 17px;
+}
+
+.emotion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.emotion-choice {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-height: 96px;
+  padding: 10px 6px;
+  border-radius: 8px;
+}
+
+.emotion-choice .face {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #f7efd7;
+}
+
+.visibility-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.visibility-card {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  min-height: 86px;
+  padding: 12px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.visibility-card small {
+  grid-column: 2;
+  color: inherit;
+  opacity: 0.72;
+}
+
+.round-icon {
+  display: grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(113, 143, 82, 0.12);
+}
+
+.style-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.style-row.no-wrap {
+  flex-wrap: nowrap;
+  margin-top: 16px;
+}
+
+.image-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.image-box {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  min-height: 86px;
+  border: 1px dashed rgba(112, 137, 81, 0.5);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.7);
+}
+
+.image-box.filled {
+  color: #59733e;
+  border-style: solid;
+}
+
+.error-text {
+  margin: 0;
+  color: #c04b3d;
+}
+
+.submit-bar {
+  min-height: 60px;
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #829a5e, #5f7f3d);
+  font-size: 20px;
+}
+
+.back-icon {
+  position: relative;
+  z-index: 5;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  color: #415f31;
+  background: transparent;
+  box-shadow: none;
+  font-size: 40px;
+  line-height: 1;
+}
+
+.detail-top {
+  min-height: 146px;
+}
+
+.detail-top h1 {
+  position: relative;
+  z-index: 3;
+  display: inline-block;
+  margin-left: 12px;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 24px;
+}
+
+.detail-card {
+  padding: 20px 14px 0;
+}
+
+.reply-section,
+.hug-section {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 96px;
+}
+
+.hug-section .style-pill {
+  scroll-margin-bottom: 180px;
+}
+
+.reply-card {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 60px;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+}
+
+.reply-card strong {
+  color: #5b7d37;
+}
+
+.reply-like {
+  min-height: 40px;
+  padding: 0;
+  color: #d74a58;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.reply-dock {
+  position: sticky;
+  bottom: 86px;
+  z-index: 18;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 92px;
+  gap: 8px;
+  padding: 10px 0 0;
+}
+
+.detail-page {
+  padding-bottom: 150px;
+}
+
+.reply-input-button {
+  justify-content: flex-start;
+  color: #8a8d88;
+  text-align: left;
+}
+
+.dock-main {
+  color: #fff;
+  border-color: transparent;
+  background: #7f965d;
+}
+
+.dock-outline {
+  color: #58723f;
+  border-color: #668446;
+  background: #fffdf7;
+}
+
+.reply-sheet-mask {
+  align-items: flex-end;
+}
+
+.reply-sheet {
+  display: grid;
+  gap: 14px;
+  max-height: 90vh;
+  padding: 16px 18px 28px;
+  border-radius: 28px 28px 0 0;
+}
+
+.sheet-handle {
+  justify-self: center;
+  width: 58px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(98, 92, 77, 0.18);
+}
+
+.sheet-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #466634;
+}
+
+.sheet-title-row h2,
+.reply-sheet h3 {
+  margin: 0;
+}
+
+.reply-compose {
+  position: relative;
+}
+
+.preset-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid rgba(117, 139, 92, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.9);
+}
+
+.setting-row input[type="checkbox"] {
+  width: 46px;
+  height: 28px;
+  accent-color: #718e4d;
+}
+
+.setting-row select {
+  min-width: 132px;
+}
+
+.outline-wide,
+.submit-wide {
+  min-height: 54px;
+  font-size: 17px;
+}
+
+.submit-wide {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #829a5e, #5f7f3d);
+}
+
+.letter-heading {
+  position: relative;
+  z-index: 3;
+  margin-top: 20px;
+  text-align: center;
+}
+
+.letter-heading h1 {
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 28px;
+}
+
+.letter-heading p {
+  color: #6f756e;
+}
+
+.letter-intro {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 150px;
+  padding: 22px 18px;
+}
+
+.letter-intro h2 {
+  margin: 0;
+  color: #496d35;
+  font-size: 32px;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  line-height: 1.15;
+}
+
+.letter-intro p {
+  margin: 10px 0 0;
+  color: #626a61;
+  line-height: 1.65;
+}
+
+.envelope-illustration {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 124px;
+  height: 82px;
+  border: 2px solid rgba(151, 121, 74, 0.35);
+  border-radius: 8px;
+  color: #6f884c;
+  background:
+    linear-gradient(145deg, transparent 48%, rgba(151, 121, 74, 0.24) 49% 51%, transparent 52%),
+    linear-gradient(35deg, transparent 48%, rgba(151, 121, 74, 0.24) 49% 51%, transparent 52%),
+    #fff3d8;
+  box-shadow: 0 14px 26px rgba(130, 108, 67, 0.14);
+}
+
+.envelope-illustration span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #fff6df;
+  background: #799054;
+}
+
+.envelope-illustration.small {
+  width: 92px;
+  height: 60px;
+}
+
+.letter-style-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid rgba(112, 134, 82, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.92);
+  overflow: hidden;
+}
+
+.letter-style-tabs button {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.letter-card {
+  min-height: 410px;
+  padding: 34px 28px;
+  background:
+    radial-gradient(circle at 14% 12%, rgba(126, 151, 88, 0.12), transparent 18%),
+    radial-gradient(circle at 86% 90%, rgba(126, 151, 88, 0.12), transparent 18%),
+    #fffaf0;
+}
+
+.letter-card h2 {
+  margin: 0;
+  color: #496d35;
+  font-size: 24px;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+}
+
+.letter-line {
+  width: 72%;
+  height: 1px;
+  margin: 12px 0 20px;
+  border-top: 1px dashed rgba(99, 122, 70, 0.28);
+}
+
+.letter-content {
+  white-space: pre-line;
+}
+
+.signature {
+  margin-top: 24px;
+  color: #496d35;
+  font-weight: 600;
+}
+
+.botanical {
+  position: absolute;
+  color: rgba(116, 140, 82, 0.32);
+  font-size: 56px;
+}
+
+.botanical.left {
+  left: 16px;
+  top: 18px;
+}
+
+.botanical.right {
+  right: 14px;
+  bottom: 16px;
+}
+
+.letter-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 0;
+  padding-top: 0;
+}
+
+.letter-actions button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px;
+  align-items: center;
+  min-height: 52px;
+}
+
+.advice-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+}
+
+.advice-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.advice-row button {
+  min-width: 0;
+}
+
+.advice-copy {
+  margin: 0;
+  color: #607452;
+  line-height: 1.6;
+}
+
+.share-modal {
+  align-items: center;
+}
+
+.share-card {
+  display: grid;
+  gap: 14px;
+  width: min(360px, calc(100vw - 42px));
+  padding: 22px;
+}
+
+.share-card h2 {
+  margin: 0;
+  color: #456332;
+}
+
+.share-preview {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid rgba(113, 134, 82, 0.16);
+  border-radius: 8px;
+  background: #fffaf0;
+  text-align: center;
+}
+
+.share-preview p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.share-preview small {
+  color: #7b8378;
+  word-break: break-all;
+}
+
+.tab-icon {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 22px;
+}
+
+@media (max-width: 380px) {
+  .hero-copy h1 {
+    font-size: 38px;
+  }
+
+  .post-main {
+    grid-template-columns: 50px minmax(0, 1fr);
+  }
+
+  .card-illustration {
+    display: none;
+  }
+
+  .visibility-grid,
+  .letter-intro {
+    grid-template-columns: 1fr;
+  }
+
+  .letter-style-tabs button,
+  .letter-actions button,
+  .advice-row button {
+    font-size: 13px;
+  }
+}
+
+.rest-page {
+  padding-bottom: 18px;
+}
+
+.rest-hero {
+  position: relative;
+  min-height: 224px;
+  margin: -22px -18px 0;
+  padding: 24px 18px 28px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% 14%, rgba(236, 208, 139, 0.18), transparent 26%),
+    linear-gradient(135deg, #fffdf6, #f8f0dc 72%, #edf4e9);
+}
+
+.tool-hero {
+  min-height: 248px;
+}
+
+.feature-card,
+.growth-card,
+.report-summary-card,
+.report-panel,
+.settings-card,
+.feedback-form,
+.decompose-input-card,
+.decompose-result-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(116, 134, 85, 0.16);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 96% 12%, rgba(245, 226, 160, 0.2), transparent 28%),
+    rgba(255, 255, 252, 0.95);
+  box-shadow: 0 12px 34px rgba(78, 88, 62, 0.09);
+}
+
+.feature-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px;
+  gap: 12px;
+  align-items: center;
+  min-height: 162px;
+  padding: 24px 18px;
+  background:
+    radial-gradient(circle at 94% 18%, rgba(250, 217, 127, 0.2), transparent 28%),
+    linear-gradient(135deg, #fff9df, #f4f8ec);
+}
+
+.feature-card h2,
+.growth-card h2,
+.report-summary-card h2,
+.report-panel h2,
+.decompose-input-card h2,
+.decompose-result-card h2,
+.feedback-form h2 {
+  margin: 0 0 10px;
+  color: #486935;
+  font-size: 23px;
+  line-height: 1.25;
+}
+
+.feature-card p,
+.report-panel p,
+.feedback-form p {
+  color: #697463;
+  line-height: 1.65;
+}
+
+.mail-seed {
+  display: grid;
+  place-items: center;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  color: #7c9358;
+  background: #fff6db;
+  border: 1px solid rgba(126, 148, 93, 0.14);
+  font-size: 44px;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tool-tile {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 126px;
+  padding: 14px;
+  border-radius: 8px;
+  white-space: normal;
+  text-align: left;
+  background: rgba(255, 255, 252, 0.96);
+}
+
+.tool-icon {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  color: #698249;
+  background: #f6efd7;
+  font-size: 30px;
+}
+
+.tool-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-copy strong {
+  color: #24342a;
+  font-size: 17px;
+}
+
+.tool-copy small {
+  color: #6f776d;
+  line-height: 1.45;
+}
+
+.bottom-slogan {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 999px;
+  color: #4f7137;
+  text-align: center;
+  background: #fbf3d4;
+}
+
+.rest-topbar {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 84px;
+  align-items: center;
+  min-height: 52px;
+  gap: 8px;
+}
+
+.rest-topbar h1 {
+  margin: 0;
+  color: #39562c;
+  text-align: center;
+  font-size: 24px;
+}
+
+.mini-link {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.detail-rest-page {
+  gap: 16px;
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #6d7e5a;
+}
+
+.decompose-input-card,
+.decompose-result-card,
+.feedback-form,
+.report-panel,
+.settings-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.decompose-result-card {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(133, 154, 97, 0.1), transparent 24%),
+    #fffaf0;
+}
+
+.result-block {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(118, 139, 91, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 251, 0.72);
+}
+
+.result-block span {
+  color: #66844a;
+  font-weight: 700;
+}
+
+.result-block p {
+  margin: 0;
+  color: #2f3c31;
+  line-height: 1.65;
+}
+
+.me-hero {
+  display: grid;
+  gap: 16px;
+  min-height: 204px;
+  margin: -22px -18px 0;
+  padding: 24px 18px 28px;
+  background:
+    radial-gradient(circle at 88% 10%, rgba(246, 218, 145, 0.22), transparent 30%),
+    linear-gradient(135deg, #fffdf6, #f6efd8 78%, #ecf3e9);
+}
+
+.me-user-card {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 86px;
+  padding: 12px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.me-user-card strong,
+.me-entry strong {
+  display: block;
+  color: #25342a;
+  font-size: 18px;
+}
+
+.me-user-card small {
+  color: #6d786b;
+}
+
+.growth-card,
+.report-summary-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 92% 16%, rgba(245, 222, 154, 0.18), transparent 22%),
+    #fffaf0;
+}
+
+.growth-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  text-align: center;
+}
+
+.growth-metrics div {
+  display: grid;
+  gap: 4px;
+  min-height: 86px;
+  padding: 10px 6px;
+  border-right: 1px solid rgba(115, 133, 91, 0.16);
+}
+
+.growth-metrics div:last-child {
+  border-right: 0;
+}
+
+.growth-metrics span,
+.growth-metrics small {
+  color: #707a6d;
+}
+
+.growth-metrics strong {
+  color: #657f43;
+  font-size: 30px;
+}
+
+.me-list,
+.diary-timeline,
+.faq-list {
+  display: grid;
+  gap: 10px;
+}
+
+.me-entry {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 24px;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.me-entry span {
+  color: #66834a;
+  font-size: 24px;
+}
+
+.me-entry em {
+  color: #637857;
+  font-style: normal;
+  font-size: 28px;
+}
+
+.clear-wide {
+  width: 100%;
+  min-height: 56px;
+  text-align: center;
+}
+
+.list-toolbar,
+.report-actions,
+.settings-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-actions {
+  grid-template-columns: 1fr;
+}
+
+.diary-card,
+.letter-list-card,
+.favorite-card,
+.faq-card {
+  border: 1px solid rgba(116, 134, 85, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 252, 0.96);
+  box-shadow: 0 10px 28px rgba(78, 88, 62, 0.08);
+}
+
+.diary-main,
+.favorite-main,
+.faq-card button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+  background: transparent;
+  text-align: left;
+}
+
+.diary-main,
+.favorite-main {
+  display: grid;
+  gap: 8px;
+  padding: 15px;
+}
+
+.diary-main strong,
+.favorite-main strong {
+  color: #26352a;
+  line-height: 1.65;
+}
+
+.diary-attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 236px);
+}
+
+.diary-attachment-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.45;
+  object-fit: cover;
+  border: 1px solid rgba(116, 134, 85, 0.16);
+  border-radius: 12px;
+  background: #f4f1e8;
+}
+
+.diary-detail-attachments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.diary-detail-attachment {
+  display: block;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #f4f1e8;
+}
+
+.diary-detail-attachment img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.1;
+  object-fit: cover;
+}
+
+.diary-main small {
+  color: #7a8478;
+}
+
+.segmented-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 4px;
+  border: 1px solid rgba(104, 126, 78, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.92);
+}
+
+.segmented-tabs button {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.segmented-tabs button.active {
+  color: #fff;
+  background: linear-gradient(135deg, #7e955b, #627d3e);
+}
+
+.line-chart {
+  background: #fbf0d6;
+}
+
+.distribution-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 34px;
+  gap: 10px;
+  align-items: center;
+}
+
+.distribution-row i {
+  display: block;
+  max-width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: #8aa06a;
+}
+
+.distribution-row span,
+.distribution-row strong {
+  color: #4f673d;
+}
+
+.setting-switch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.setting-switch small {
+  display: block;
+  margin-top: 4px;
+  color: #758071;
+  line-height: 1.4;
+}
+
+.setting-switch i {
+  position: relative;
+  display: block;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: #d9ddcf;
+}
+
+.setting-switch i::after {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(45, 54, 42, 0.18);
+  content: "";
+  transition: transform 0.16s ease;
+}
+
+.setting-switch i.on {
+  background: #789458;
+}
+
+.setting-switch i.on::after {
+  transform: translateX(20px);
+}
+
+.faq-card {
+  display: grid;
+}
+
+.faq-card button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  padding: 14px;
+}
+
+.faq-card p {
+  margin: 0;
+  padding: 0 14px 14px;
+  color: #657062;
+  line-height: 1.65;
+}
+
+.feedback-form select {
+  width: 100%;
+}
+
+@media (max-width: 380px) {
+  .feature-card,
+  .tool-tile {
+    grid-template-columns: 1fr;
+  }
+
+  .mail-seed {
+    display: none;
+  }
+
+  .growth-metrics strong {
+    font-size: 24px;
+  }
+}
+
+/* Claude visual restoration pass: keeps existing routes/events, replaces rough shell visuals. */
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background: linear-gradient(90deg, #e8eee8 0%, #f8fbf4 50%, #e3ebe4 100%);
+  color: var(--gn-ink);
+  font-family: var(--gn-font-body);
+}
+
+.phone-shell {
+  width: min(430px, 100vw);
+  min-height: 100vh;
+  padding: 0 15px 88px;
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 246, 0.98), rgba(255, 248, 235, 0.98)),
+    var(--gn-paper);
+  box-shadow: none;
+}
+
+@media (min-width: 760px) {
+  .phone-shell {
+    min-height: 764px;
+    margin-top: 0;
+    border-radius: 24px;
+    box-shadow: 0 22px 64px rgba(51, 69, 51, 0.16);
+  }
+}
+
+.page {
+  gap: 12px;
+}
+
+.front-hero,
+.rest-hero,
+.me-hero,
+.detail-top {
+  position: relative;
+  min-height: 166px;
+  margin: 0 -15px;
+  padding: 22px 15px 18px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 247, 0.82), rgba(255, 248, 230, 0.68)),
+    var(--gn-paper);
+  box-shadow: none;
+}
+
+.square-hero {
+  min-height: 158px;
+}
+
+.compact-hero,
+.letter-hero,
+.me-hero {
+  min-height: 188px;
+}
+
+.rest-hero.tool-hero {
+  min-height: 236px;
+}
+
+.front-hero::before,
+.rest-hero::before,
+.me-hero::before,
+.detail-top::before {
+  position: absolute;
+  top: -5px;
+  right: -10px;
+  width: 252px;
+  height: 206px;
+  border-radius: 0;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  opacity: 0.98;
+  content: "";
+}
+
+.front-hero::after,
+.rest-hero::after,
+.me-hero::after,
+.detail-top::after,
+.tree-scene span {
+  display: none;
+}
+
+.status-row {
+  padding: 0 5px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 3;
+  max-width: 270px;
+  margin-top: 38px;
+}
+
+.tool-hero .hero-copy {
+  margin-top: 52px;
+}
+
+.hero-copy h1,
+.letter-heading h1 {
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-display);
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1.08;
+}
+
+.tool-hero .hero-copy h1 {
+  font-size: 38px;
+}
+
+.hero-copy p,
+.letter-heading p {
+  margin-top: 10px;
+  color: #537239;
+  font-size: 16px;
+}
+
+.mood-filter-row {
+  gap: 9px;
+  margin: 0 -15px 10px;
+  padding: 8px 15px 13px;
+  overflow-x: auto;
+  background: rgba(255, 252, 243, 0.82);
+  scrollbar-width: none;
+}
+
+.mood-filter-row::-webkit-scrollbar,
+.style-row::-webkit-scrollbar,
+.preset-row::-webkit-scrollbar {
+  display: none;
+}
+
+button,
+.button,
+.pill,
+.mood-pill,
+.style-pill,
+.letter-style-tabs button,
+.advice-row button {
+  min-height: 44px;
+  border-color: rgba(104, 126, 78, 0.22);
+  border-radius: 999px;
+  color: var(--gn-ink-soft);
+  background: rgba(255, 254, 249, 0.94);
+  box-shadow: 0 8px 22px rgba(75, 91, 61, 0.08);
+}
+
+button.primary,
+.primary,
+.mood-pill.active,
+.style-pill.active,
+.letter-style-tabs button.active,
+.advice-row button.active,
+.emotion-choice.active,
+.visibility-card.active,
+.segmented-tabs button.active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #80985f, #5d793c);
+  box-shadow: 0 12px 26px rgba(83, 108, 56, 0.24);
+}
+
+.card,
+.soft-note,
+.empty-card,
+.treehole-card,
+.detail-card,
+.reply-card,
+.panel-card,
+.write-card,
+.letter-intro,
+.letter-card,
+.advice-section,
+.share-card,
+.feature-card,
+.growth-card,
+.report-summary-card,
+.report-panel,
+.settings-card,
+.feedback-form,
+.decompose-input-card,
+.decompose-result-card,
+.diary-card,
+.letter-list-card,
+.favorite-card,
+.faq-card {
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 252, 0.97), rgba(255, 250, 239, 0.94)),
+    var(--gn-panel);
+  box-shadow: var(--gn-shadow-card);
+}
+
+.treehole-card {
+  min-height: 178px;
+  padding: 15px 13px 0;
+}
+
+.post-main {
+  grid-template-columns: 64px minmax(0, 1fr) 108px;
+  gap: 12px;
+}
+
+.avatar-bubble {
+  width: 58px;
+  height: 58px;
+  color: transparent;
+  background: url("./assets/goodnight/square-baby.png") center / 72px auto no-repeat, #f8efd8;
+}
+
+.avatar-bubble.large {
+  width: 68px;
+  height: 68px;
+  background-size: 86px auto;
+}
+
+.card-illustration {
+  width: 108px;
+  height: 104px;
+  border: 0;
+  color: transparent;
+  background: url("./assets/goodnight/square-baby.png") center / contain no-repeat;
+}
+
+.post-meta strong,
+.detail-author strong {
+  color: #1f2821;
+  font-size: 19px;
+}
+
+.post-content,
+.detail-content,
+.reply-card p,
+.letter-content {
+  color: #26332a;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+.wish-tag,
+.tag {
+  min-height: 25px;
+  padding: 3px 10px;
+  border: 1px solid rgba(112, 137, 82, 0.1);
+  border-radius: 999px;
+  background: #eef5df;
+}
+
+.post-actions,
+.detail-actions,
+.letter-actions,
+.sheet-actions {
+  gap: 0;
+  min-height: 52px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(119, 134, 88, 0.16);
+}
+
+.plain-action {
+  min-height: 44px;
+  color: var(--gn-ink-soft);
+  background: transparent;
+  box-shadow: none;
+}
+
+.write-fab {
+  right: max(16px, calc((100vw - 430px) / 2 + 16px));
+  bottom: 72px;
+  width: 90px;
+  height: 90px;
+  font-size: 16px;
+  background: linear-gradient(135deg, #80985d, #5c7839);
+  box-shadow: 0 14px 30px rgba(72, 94, 49, 0.28);
+}
+
+.tabbar {
+  bottom: 5px;
+  width: min(410px, calc(100vw - 20px));
+  min-height: 74px;
+  padding: 8px 10px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 32px rgba(56, 67, 56, 0.13);
+}
+
+.tabbar a {
+  min-height: 56px;
+  border-radius: 18px;
+  color: #858a88;
+  font-size: 13px;
+}
+
+.tabbar a.router-link-active {
+  color: var(--gn-leaf-deep);
+  background: transparent;
+  font-weight: 700;
+}
+
+.tab-icon {
+  margin-bottom: 2px;
+  font-size: 25px;
+}
+
+.write-card,
+.panel-card {
+  padding: 18px;
+}
+
+.write-card textarea,
+.reply-compose textarea,
+.input,
+.textarea,
+select {
+  border-radius: 18px;
+  background: rgba(255, 254, 249, 0.9);
+}
+
+.emotion-choice,
+.visibility-card,
+.image-box {
+  border-radius: 18px;
+}
+
+.detail-page {
+  padding-bottom: 24px;
+}
+
+.detail-top {
+  min-height: 144px;
+}
+
+.detail-top h1 {
+  color: var(--gn-leaf-deep);
+  font-size: 24px;
+}
+
+.detail-card {
+  min-height: 248px;
+  padding: 20px 14px 0;
+}
+
+.reply-card {
+  grid-template-columns: 64px minmax(0, 1fr) 58px;
+  min-height: 92px;
+}
+
+.reply-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 76px;
+  z-index: 22;
+  grid-template-columns: minmax(0, 1fr) 86px 86px;
+  width: min(400px, calc(100vw - 30px));
+  padding: 0;
+  transform: translateX(-50%);
+}
+
+.reply-input-button {
+  justify-content: flex-start;
+  min-width: 0;
+  padding-left: 18px;
+  color: #90958c;
+}
+
+.dock-main,
+.dock-outline {
+  min-width: 0;
+}
+
+.sheet-mask,
+.modal {
+  padding: 0 15px;
+  background: rgba(40, 52, 42, 0.32);
+  backdrop-filter: blur(5px);
+}
+
+.sheet {
+  width: min(430px, 100vw);
+  border-radius: 30px 30px 0 0;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 247, 0.98), rgba(255, 248, 236, 0.98)),
+    var(--gn-paper);
+}
+
+.reply-sheet {
+  min-height: 480px;
+  padding: 16px 18px 26px;
+}
+
+.letter-heading {
+  margin-top: 40px;
+}
+
+.letter-intro {
+  grid-template-columns: minmax(0, 1fr) 128px;
+  min-height: 154px;
+  padding: 22px 18px;
+}
+
+.letter-intro::after,
+.feature-card::after {
+  width: 126px;
+  height: 126px;
+  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center / contain no-repeat;
+  content: "";
+}
+
+.envelope-illustration,
+.letter-intro > .envelope-illustration {
+  display: none;
+}
+
+.letter-style-tabs {
+  border-radius: 26px;
+}
+
+.letter-card {
+  min-height: 365px;
+  padding: 30px 25px;
+  background:
+    url("./assets/goodnight/letter-paper-corner.png") top center / 100% auto no-repeat,
+    linear-gradient(180deg, rgba(255, 254, 247, 0.96), rgba(255, 249, 235, 0.97));
+}
+
+.botanical {
+  display: none;
+}
+
+.advice-section {
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.feature-card {
+  grid-template-columns: minmax(0, 1fr) 140px;
+  min-height: 168px;
+  padding: 24px 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 251, 230, 0.96), rgba(248, 250, 237, 0.96)),
+    var(--gn-paper);
+}
+
+.feature-card::after {
+  width: 140px;
+  height: 140px;
+  background-image: url("./assets/goodnight/tool-baby-letter-cutout.png");
+}
+
+.mail-seed {
+  display: none;
+}
+
+.tool-grid {
+  gap: 11px;
+}
+
+.tool-tile {
+  grid-template-columns: 76px minmax(0, 1fr);
+  min-height: 126px;
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.tool-icon {
+  width: 70px;
+  height: 70px;
+  border: 0;
+  background: url("./assets/goodnight/tool-icon-decompose.png") center / contain no-repeat, #f8efd8;
+  color: transparent;
+}
+
+.bottom-slogan {
+  min-height: 42px;
+  padding: 11px 16px;
+  border-radius: 22px;
+  background:
+    url("./assets/goodnight/tool-footer-ribbon.png") center / cover no-repeat,
+    #fbf1cf;
+  color: var(--gn-leaf-deep);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.me-user-card {
+  border-radius: 24px;
+  background: rgba(255, 252, 240, 0.72);
+  box-shadow: none;
+}
+
+.me-user-card .avatar-bubble.large {
+  background-image: url("./assets/goodnight/profile-baby.png");
+  background-size: contain;
+}
+
+.growth-card,
+.report-summary-card {
+  padding: 18px;
+}
+
+.growth-card::after,
+.feedback-form::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 150px;
+  height: 95px;
+  background: url("./assets/goodnight/feedback-footer-leaves.png") bottom right / contain no-repeat;
+  opacity: 0.72;
+  pointer-events: none;
+  content: "";
+}
+
+.growth-metrics {
+  position: relative;
+  z-index: 1;
+}
+
+.me-entry {
+  min-height: 56px;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  box-shadow: none;
+  background: rgba(255, 255, 252, 0.76);
+}
+
+.me-list {
+  overflow: hidden;
+  border: 1px solid var(--gn-line);
+  border-radius: 22px;
+  background: rgba(255, 255, 252, 0.9);
+  box-shadow: var(--gn-shadow-card);
+}
+
+.clear-wide {
+  border-radius: 18px;
+}
+
+.list-page::before,
+.settings-page::before,
+.feedback-page::before,
+.report-page::before,
+.detail-rest-page::before {
+  position: absolute;
+  top: -4px;
+  right: -15px;
+  z-index: 0;
+  width: 185px;
+  height: 150px;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  opacity: 0.42;
+  pointer-events: none;
+  content: "";
+}
+
+.rest-topbar,
+.list-toolbar,
+.segmented-tabs,
+.diary-timeline,
+.settings-card,
+.feedback-form,
+.report-summary-card,
+.report-panel,
+.decompose-input-card,
+.decompose-result-card {
+  position: relative;
+  z-index: 1;
+}
+
+.rest-topbar {
+  min-height: 64px;
+  margin-top: 16px;
+}
+
+.rest-topbar h1 {
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-body);
+  font-size: 23px;
+}
+
+.diary-card,
+.letter-list-card,
+.favorite-card,
+.faq-card {
+  border-radius: 20px;
+}
+
+.diary-main,
+.favorite-main,
+.faq-card button {
+  border-radius: 20px;
+}
+
+.segmented-tabs {
+  padding: 5px;
+  border-radius: 26px;
+}
+
+.report-panel .line-chart {
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 229, 0.96), rgba(247, 238, 210, 0.96)),
+    #fbf0d6;
+}
+
+.distribution-row i {
+  background: linear-gradient(90deg, #89a268, #58733d);
+}
+
+.setting-switch {
+  border-radius: 18px;
+  background: rgba(255, 253, 248, 0.9);
+}
+
+.faq-card p,
+.feedback-form p,
+.report-panel p,
+.result-block p {
+  color: #657062;
+}
+
+@media (max-width: 380px) {
+  .post-main {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .card-illustration {
+    display: none;
+  }
+
+  .feature-card,
+  .letter-intro {
+    grid-template-columns: 1fr 118px;
+  }
+}
+
+/* Claude visual restoration second pass: tighten mobile scale after viewport fix. */
+.page {
+  gap: 10px;
+}
+
+.square-hero {
+  min-height: 140px;
+}
+
+.compact-hero,
+.letter-hero,
+.me-hero {
+  min-height: 166px;
+}
+
+.rest-hero.tool-hero {
+  min-height: 154px;
+}
+
+.front-hero::before,
+.rest-hero::before,
+.me-hero::before,
+.detail-top::before {
+  top: 0;
+  right: -2px;
+  width: 238px;
+  height: 176px;
+}
+
+.square-hero .hero-copy {
+  margin-top: 8px;
+}
+
+.compact-hero .hero-copy,
+.letter-hero .letter-heading,
+.me-hero .me-user-card {
+  margin-top: 16px;
+}
+
+.tool-hero .hero-copy {
+  margin-top: 16px;
+}
+
+.hero-copy h1,
+.letter-heading h1 {
+  font-size: 37px;
+}
+
+.tool-hero .hero-copy h1 {
+  font-size: 35px;
+}
+
+.hero-copy p,
+.letter-heading p {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.mood-filter-row {
+  margin-bottom: 8px;
+  padding: 7px 15px 11px;
+}
+
+.mood-pill,
+.style-pill,
+.letter-style-tabs button,
+.advice-row button {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 15px;
+}
+
+.treehole-card {
+  min-height: 176px;
+  padding: 14px 13px 0;
+}
+
+.post-main {
+  grid-template-columns: 64px minmax(0, 1fr) 104px;
+  gap: 10px;
+}
+
+.avatar-bubble {
+  width: 58px;
+  height: 58px;
+  background: url("./assets/goodnight/avatar-baby.png") center / contain no-repeat, #f8efd8;
+}
+
+.avatar-bubble.large {
+  background-image: url("./assets/goodnight/avatar-baby.png");
+}
+
+.card-illustration {
+  width: 102px;
+  height: 92px;
+  background-image: url("./assets/goodnight/square-baby.png");
+}
+
+.post-meta strong,
+.detail-author strong {
+  font-size: 17px;
+}
+
+.post-content,
+.detail-content,
+.reply-card p,
+.letter-content {
+  margin: 10px 0;
+  font-size: 14px;
+  line-height: 1.66;
+}
+
+.reply-count,
+.reply-link {
+  margin-top: 9px;
+  font-size: 14px;
+}
+
+.plain-action {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.card-more {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+
+.write-fab {
+  width: 72px;
+  height: 72px;
+  bottom: 72px;
+  font-size: 14px;
+}
+
+.write-fab span:first-child {
+  font-size: 22px;
+}
+
+.tabbar {
+  bottom: 5px;
+  min-height: 62px;
+  padding: 6px 10px;
+}
+
+.tabbar a {
+  min-height: 48px;
+  padding: 5px 4px;
+}
+
+.tab-icon {
+  font-size: 22px;
+}
+
+.feature-card {
+  min-height: 142px;
+  padding: 18px 18px;
+}
+
+.feature-card h2,
+.growth-card h2,
+.report-summary-card h2,
+.report-panel h2,
+.decompose-input-card h2,
+.decompose-result-card h2,
+.feedback-form h2 {
+  font-size: 20px;
+}
+
+.feature-card p,
+.report-panel p,
+.feedback-form p {
+  font-size: 14px;
+}
+
+.feature-card::after {
+  width: 126px;
+  height: 126px;
+}
+
+.tool-grid {
+  gap: 10px;
+}
+
+.tool-tile {
+  grid-template-columns: 68px minmax(0, 1fr);
+  min-height: 94px;
+  padding: 12px;
+}
+
+.tool-icon {
+  width: 62px;
+  height: 62px;
+  background-image: url("./assets/goodnight/tool-icon-decompose.png");
+}
+
+.tool-tile:nth-child(2) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-rewrite.png");
+}
+
+.tool-tile:nth-child(3) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-rant.png");
+}
+
+.tool-tile:nth-child(4) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-heal.png");
+}
+
+.tool-tile:nth-child(5) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-sleep.png");
+}
+
+.tool-tile:nth-child(6) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-work.png");
+}
+
+.tool-tile:nth-child(7) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-future.png");
+}
+
+.tool-tile:nth-child(8) .tool-icon {
+  background-image: url("./assets/goodnight/tool-icon-report.png");
+}
+
+.tool-copy strong {
+  font-size: 15px;
+}
+
+.tool-copy small {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bottom-slogan {
+  min-height: 38px;
+  font-size: 15px;
+}
+
+.letter-intro h2 {
+  font-size: 27px;
+}
+
+.letter-card h2 {
+  font-size: 22px;
+}
+
+.growth-metrics strong {
+  font-size: 27px;
+}
+
+/* Claude visual restoration third pass: match card heights and bottom chrome. */
+.mood-filter-row {
+  margin-bottom: 0;
+}
+
+.treehole-card {
+  padding-bottom: 0;
+}
+
+.post-actions,
+.detail-actions,
+.letter-actions,
+.sheet-actions {
+  min-height: 36px;
+  padding-top: 6px;
+}
+
+.plain-action {
+  min-height: 34px;
+}
+
+.feature-card {
+  height: 142px;
+  min-height: 142px;
+  padding: 16px 18px;
+}
+
+.feature-card h2 {
+  font-size: 18px;
+}
+
+.feature-card p {
+  margin: 8px 0 10px;
+  font-size: 13px;
+}
+
+.feature-card .primary {
+  min-height: 40px;
+  padding: 8px 18px;
+}
+
+.feature-card::after {
+  width: 118px;
+  height: 118px;
+}
+
+.tool-tile {
+  height: 88px;
+  min-height: 88px;
+}
+
+.tool-icon {
+  width: 58px;
+  height: 58px;
+}
+
+.tool-copy strong {
+  font-size: 14px;
+}
+
+.tool-copy small {
+  font-size: 11px;
+}
+
+.tabbar {
+  height: 58px;
+  min-height: 0;
+  padding: 4px 10px;
+}
+
+.tabbar a {
+  min-height: 49px;
+  padding: 3px 4px;
+  font-size: 12px;
+}
+
+.tab-icon {
+  font-size: 20px;
+}
+
+.reply-sheet {
+  height: 370px;
+  min-height: 0;
+  max-height: calc(100vh - 84px);
+  gap: 6px;
+  padding: 10px 18px 16px;
+  overflow: hidden;
+}
+
+.reply-sheet .sheet-handle {
+  height: 4px;
+}
+
+.reply-sheet .sheet-title-row h2 {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.reply-compose textarea {
+  min-height: 94px;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.reply-compose .counter {
+  right: 26px;
+  bottom: 18px;
+}
+
+.reply-sheet h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.preset-row {
+  gap: 8px;
+}
+
+.preset-row .style-pill {
+  min-height: 32px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+
+.reply-sheet .setting-row {
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 18px;
+  font-size: 14px;
+}
+
+.reply-sheet .setting-row select {
+  min-height: 34px;
+  border-radius: 18px;
+  font-size: 13px;
+}
+
+.reply-sheet .sheet-actions {
+  min-height: 42px;
+  padding-top: 6px;
+}
+
+.reply-sheet .outline-wide,
+.reply-sheet .submit-wide {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+/* Visual repair pass: remove polluted design-screenshot slices and rebuild 05/08 as layered UI. */
+.letter-page {
+  gap: 12px;
+}
+
+.letter-hero {
+  min-height: 204px;
+}
+
+.letter-heading {
+  margin-top: 34px;
+}
+
+.letter-heading h1 {
+  color: #25342a;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 32px;
+  letter-spacing: 0;
+}
+
+.letter-heading p {
+  margin-top: 6px;
+}
+
+.letter-intro {
+  position: relative;
+  display: block;
+  min-height: 142px;
+  padding: 25px 24px 22px 166px;
+  overflow: hidden;
+  background:
+    url("./assets/goodnight/letter-envelope.png") left 18px center / 132px auto no-repeat,
+    linear-gradient(145deg, rgba(255, 255, 252, 0.98), rgba(255, 250, 239, 0.94)),
+    var(--gn-panel);
+}
+
+.letter-intro::after {
+  display: none;
+  content: none;
+}
+
+.letter-intro h2 {
+  color: var(--gn-leaf-deep);
+  font-size: 30px;
+  line-height: 1.18;
+}
+
+.letter-intro p {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+.letter-style-tabs {
+  margin-top: 0;
+}
+
+.letter-card {
+  position: relative;
+  min-height: 452px;
+  padding: 34px 30px 32px;
+  overflow: hidden;
+  background:
+    url("./assets/goodnight/letter-card-leaf-tl.png") left 10px top 12px / 100px auto no-repeat,
+    url("./assets/goodnight/letter-card-leaf-tr.png") right 14px top 15px / 106px auto no-repeat,
+    url("./assets/goodnight/letter-card-leaf-bl.png") left 16px bottom 14px / 86px auto no-repeat,
+    url("./assets/goodnight/letter-card-leaf-br.png") right 16px bottom 10px / 150px auto no-repeat,
+    linear-gradient(180deg, rgba(255, 254, 247, 0.98), rgba(255, 249, 235, 0.98));
+}
+
+.letter-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.letter-card h2,
+.letter-line,
+.letter-content,
+.signature {
+  margin-left: 52px;
+}
+
+.letter-card h2 {
+  font-size: 25px;
+  line-height: 1.28;
+}
+
+.letter-line {
+  width: min(68%, 270px);
+}
+
+.letter-card .botanical {
+  display: none;
+}
+
+.letter-actions {
+  margin-top: 2px;
+}
+
+.advice-section {
+  padding-top: 14px;
+}
+
+.me-hero {
+  min-height: 342px;
+  padding: 22px 15px 24px;
+}
+
+.me-hero .me-copy {
+  position: relative;
+  z-index: 3;
+  max-width: 280px;
+  margin-top: 50px;
+}
+
+.me-hero .me-copy h1 {
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-display);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.me-hero .me-copy p {
+  margin: 14px 0 0;
+  color: var(--gn-leaf);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.me-hero .me-user-card {
+  position: relative;
+  z-index: 3;
+  grid-template-columns: 78px minmax(0, 1fr) 22px;
+  min-height: 98px;
+  margin-top: 30px;
+  padding: 13px 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 252, 0.92);
+  box-shadow: var(--gn-shadow-card);
+}
+
+.me-hero .me-user-card::after {
+  color: #7d827c;
+  font-size: 32px;
+  line-height: 1;
+  content: ">";
+}
+
+.me-user-card .avatar-bubble.large {
+  width: 76px;
+  height: 76px;
+  color: transparent;
+  background: url("./assets/goodnight/profile-baby.png") center / contain no-repeat, #fbf3dc;
+}
+
+.me-user-card strong {
+  font-size: 20px;
+}
+
+.me-user-card small {
+  display: block;
+  margin-top: 9px;
+  font-size: 15px;
+}
+
+.growth-card {
+  position: relative;
+  min-height: 188px;
+  padding: 20px 22px 18px;
+  overflow: hidden;
+}
+
+.growth-card::after {
+  right: 12px;
+  bottom: 8px;
+  width: 118px;
+  height: 78px;
+  background: url("./assets/goodnight/growth-leaves.png") bottom right / contain no-repeat;
+  opacity: 0.62;
+}
+
+.growth-card h2 {
+  position: relative;
+  z-index: 1;
+  font-size: 21px;
+}
+
+.growth-card button {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: min(250px, 72%);
+  min-height: 38px;
+  margin-top: -2px;
+}
+
+.growth-metrics {
+  gap: 0;
+}
+
+.growth-metrics div {
+  min-height: 78px;
+  padding: 8px 4px;
+}
+
+.growth-metrics strong {
+  font-size: 29px;
+}
+
+.me-list {
+  gap: 0;
+}
+
+.me-entry {
+  min-height: 68px;
+  padding: 0 18px;
+  border-radius: 0;
+}
+
+.me-entry span {
+  font-size: 24px;
+}
+
+.me-entry strong {
+  font-size: 18px;
+}
+
+.clear-wide {
+  min-height: 56px;
+}
+
+/* Visual repair pass: density correction against the 941x1672 front-page references. */
+.front-hero::before,
+.rest-hero::before,
+.me-hero::before,
+.detail-top::before {
+  width: 230px;
+  height: 176px;
+  background-position: top right;
+  background-size: auto 100%;
+}
+
+.letter-hero {
+  min-height: 108px;
+  padding-bottom: 12px;
+}
+
+.letter-hero::before {
+  right: -24px;
+  width: 208px;
+  height: 154px;
+}
+
+.letter-heading {
+  margin-top: 10px;
+}
+
+.letter-heading h1 {
+  font-size: 25px;
+}
+
+.letter-heading p {
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.letter-intro {
+  min-height: 120px;
+  padding: 22px 22px 20px 148px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 252, 0.98), rgba(255, 250, 239, 0.94)),
+    var(--gn-panel);
+}
+
+.letter-intro::before {
+  position: absolute;
+  left: 14px;
+  top: 22px;
+  z-index: 0;
+  width: 126px;
+  height: 86px;
+  background: url("./assets/goodnight/letter-envelope.png") center / contain no-repeat;
+  filter: drop-shadow(0 10px 14px rgba(108, 96, 58, 0.12));
+  content: "";
+}
+
+.letter-intro > div {
+  position: relative;
+  z-index: 1;
+}
+
+.letter-intro h2 {
+  font-size: 27px;
+}
+
+.letter-intro p {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.letter-card {
+  min-height: 312px;
+  padding: 28px 26px;
+  background:
+    url("./assets/goodnight/letter-card-leaf-tl.png") left 10px top 12px / 86px auto no-repeat,
+    url("./assets/goodnight/letter-card-leaf-tr.png") right 13px top 14px / 92px auto no-repeat,
+    url("./assets/goodnight/letter-card-leaf-bl.png") left 15px bottom 12px / 72px auto no-repeat,
+    url("./assets/goodnight/letter-card-leaf-br.png") right 14px bottom 9px / 126px auto no-repeat,
+    linear-gradient(180deg, rgba(255, 254, 247, 0.98), rgba(255, 249, 235, 0.98));
+}
+
+.letter-card h2,
+.letter-line,
+.letter-content,
+.signature {
+  margin-left: 42px;
+}
+
+.letter-content {
+  font-size: 14px;
+  line-height: 1.62;
+}
+
+.signature {
+  margin-top: 18px;
+}
+
+.letter-actions button {
+  min-height: 42px;
+  font-size: 15px;
+}
+
+.me-hero {
+  min-height: 260px;
+  padding-bottom: 18px;
+}
+
+.me-hero::before {
+  right: -18px;
+  width: 244px;
+  height: 190px;
+}
+
+.me-hero .me-copy {
+  margin-top: 10px;
+}
+
+.me-hero .me-copy h1 {
+  font-size: 38px;
+}
+
+.me-hero .me-copy p {
+  margin-top: 11px;
+  font-size: 15px;
+}
+
+.me-hero .me-user-card {
+  grid-template-columns: 70px minmax(0, 1fr) 20px;
+  min-height: 88px;
+  margin-top: 24px;
+  padding: 11px 16px;
+}
+
+.me-user-card .avatar-bubble.large {
+  width: 68px;
+  height: 68px;
+}
+
+.me-user-card strong {
+  font-size: 18px;
+}
+
+.me-user-card small {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.growth-card {
+  min-height: 156px;
+  padding: 17px 20px 14px;
+  gap: 10px;
+}
+
+.growth-card h2 {
+  font-size: 20px;
+}
+
+.growth-card button {
+  min-height: 36px;
+}
+
+.growth-metrics div {
+  min-height: 62px;
+  padding: 6px 3px;
+}
+
+.growth-metrics span,
+.growth-metrics small {
+  font-size: 13px;
+}
+
+.growth-metrics strong {
+  font-size: 27px;
+}
+
+.me-entry {
+  min-height: 38px;
+  padding: 0 18px;
+}
+
+.me-entry span {
+  font-size: 21px;
+}
+
+.me-entry strong {
+  font-size: 16px;
+}
+
+.me-entry em {
+  font-size: 22px;
+}
+
+.clear-wide {
+  min-height: 42px;
+}
+
+/* Visual repair pass: final flow fixes for 05 and compact growth-card rhythm for 08. */
+.letter-hero {
+  min-height: 96px;
+  padding-top: 13px;
+  padding-bottom: 10px;
+}
+
+.letter-hero .back-icon {
+  position: absolute;
+  left: 18px;
+  top: 48px;
+  z-index: 4;
+}
+
+.letter-hero .letter-heading {
+  margin-top: 8px;
+}
+
+.letter-heading h1 {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.letter-heading p {
+  font-size: 13px;
+  line-height: 1.22;
+}
+
+.letter-card {
+  background-blend-mode: multiply, multiply, multiply, multiply, normal;
+}
+
+.me-hero {
+  min-height: 250px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.me-hero .me-copy {
+  margin-top: 9px;
+}
+
+.me-hero .me-user-card {
+  margin-top: 17px;
+}
+
+.growth-card {
+  min-height: 158px;
+  padding: 14px 20px 12px;
+  gap: 6px;
+}
+
+.growth-card h2 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.2;
+}
+
+.growth-metrics div {
+  min-height: 58px;
+  gap: 2px;
+  padding: 3px;
+}
+
+.growth-metrics span,
+.growth-metrics small {
+  line-height: 1.18;
+}
+
+.growth-metrics strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.growth-card button {
+  min-height: 34px;
+  padding: 5px 16px;
+  font-size: 14px;
+}
+
+/* Visual repair pass: expose lower controls in first viewport. */
+.letter-card {
+  min-height: 286px;
+}
+
+.me-hero {
+  padding-bottom: 4px;
+}
+
+.me-entry {
+  min-height: 34px;
+}
+
+/* Visual repair pass: keep 05 advice chips above the fixed tabbar. */
+.letter-card {
+  min-height: 270px;
+}
+
+.letter-actions {
+  min-height: 36px;
+  padding-top: 0;
+}
+
+.letter-actions button {
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
+.advice-section {
+  gap: 0;
+}
+
+.advice-section h2 {
+  margin-bottom: 0;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.advice-row {
+  gap: 8px;
+}
+
+.advice-row button {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* Visual repair pass: 02 write mood should match the dense form reference, not the feed tab layout. */
+.phone-shell:has(.mood-create-page) .tabbar {
+  display: none;
+}
+
+.mood-create-page {
+  gap: 8px;
+  padding-bottom: 22px;
+}
+
+.mood-create-page .compact-hero {
+  min-height: 156px;
+  padding-top: 13px;
+  padding-bottom: 12px;
+}
+
+.mood-create-page .back-icon {
+  position: absolute;
+  left: 18px;
+  top: 48px;
+  z-index: 4;
+}
+
+.mood-create-page .hero-copy {
+  margin-top: 28px;
+}
+
+.mood-create-page .hero-copy h1 {
+  font-size: 36px;
+  line-height: 1.08;
+}
+
+.mood-create-page .hero-copy p {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.mood-create-page .write-card {
+  min-height: 166px;
+  padding: 12px;
+}
+
+.mood-create-page .write-card textarea {
+  min-height: 134px;
+  padding: 14px;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.mood-create-page .counter {
+  right: 25px;
+  bottom: 22px;
+  font-size: 15px;
+}
+
+.mood-create-page .panel-card {
+  padding: 10px 12px;
+  border-radius: 20px;
+}
+
+.mood-create-page .panel-card h2 {
+  margin: 0 0 7px;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.mood-create-page .panel-card:nth-of-type(2) {
+  height: 118px;
+}
+
+.mood-create-page .panel-card:nth-of-type(3) {
+  height: 88px;
+}
+
+.mood-create-page .panel-card:nth-of-type(4) {
+  height: 66px;
+}
+
+.mood-create-page .panel-card:nth-of-type(5) {
+  height: 82px;
+}
+
+.mood-create-page .emotion-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.mood-create-page .emotion-choice {
+  min-height: 64px;
+  padding: 0;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mood-create-page .emotion-choice.active {
+  color: var(--gn-leaf-deep);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mood-create-page .emotion-choice .face {
+  width: 38px;
+  height: 38px;
+  font-size: 17px;
+}
+
+.mood-create-page .emotion-choice.active .face {
+  outline: 2px solid var(--gn-leaf);
+  outline-offset: 3px;
+  box-shadow: 0 8px 18px rgba(83, 108, 56, 0.16);
+}
+
+.mood-create-page .emotion-choice span:last-child {
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+.mood-create-page .visibility-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mood-create-page .visibility-card {
+  grid-template-columns: 30px minmax(0, 1fr) 20px;
+  height: 50px;
+  min-height: 50px;
+  padding: 5px 8px;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.mood-create-page .visibility-card strong {
+  font-size: 13px;
+  line-height: 1.12;
+}
+
+.mood-create-page .visibility-card small {
+  font-size: 11px;
+  line-height: 1.12;
+}
+
+.mood-create-page .round-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.mood-create-page .style-row {
+  gap: 8px;
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.mood-create-page .style-pill {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.mood-create-page .image-row {
+  gap: 12px;
+}
+
+.mood-create-page .image-box {
+  width: 84px;
+  min-height: 42px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.mood-create-page .submit-bar {
+  min-height: 40px;
+  padding: 6px 16px;
+  border-radius: 22px;
+  font-size: 17px;
+}
+
+/* Front layout repair: visual density and safe bottom rhythm for pages 05, 06 and 08. */
+.back-icon {
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.mood-create-page .visibility-card {
+  height: auto;
+  min-height: 58px;
+  padding: 7px 8px;
+  align-items: center;
+}
+
+.letter-page {
+  gap: 12px;
+}
+
+.letter-page .letter-intro {
+  min-height: 114px;
+  padding-top: 18px;
+  padding-bottom: 17px;
+}
+
+.letter-page .letter-style-tabs {
+  min-height: 44px;
+}
+
+.letter-page .letter-style-tabs button {
+  min-height: 44px;
+  padding: 6px 8px;
+}
+
+.letter-page .letter-card {
+  min-height: 258px;
+  padding-top: 26px;
+  padding-bottom: 24px;
+}
+
+.letter-page .letter-content {
+  line-height: 1.58;
+}
+
+.letter-page .signature {
+  margin-top: 13px;
+}
+
+.letter-page .letter-actions {
+  margin-top: -3px;
+  min-height: 34px;
+  padding-top: 0;
+}
+
+.letter-page .letter-actions button {
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.letter-page .advice-section {
+  transform: translateY(-14px);
+}
+
+.letter-page .advice-row button {
+  min-height: 31px;
+  padding: 5px 10px;
+}
+
+.letter-page .advice-copy {
+  margin-top: 8px;
+}
+
+.tool-page {
+  gap: 10px;
+}
+
+.tool-page .feature-card {
+  height: 132px;
+  min-height: 132px;
+  padding: 14px 16px;
+}
+
+.tool-page .feature-card h2 {
+  font-size: 17px;
+  line-height: 1.22;
+}
+
+.tool-page .feature-card p {
+  margin: 6px 0 8px;
+  line-height: 1.35;
+}
+
+.tool-page .feature-card .primary {
+  min-height: 36px;
+  padding: 7px 18px;
+}
+
+.tool-page .feature-card::after {
+  right: 12px;
+  bottom: 8px;
+  width: 110px;
+  height: 110px;
+}
+
+.tool-page .tool-grid {
+  gap: 9px;
+}
+
+.tool-page .tool-tile {
+  grid-template-columns: 58px minmax(0, 1fr);
+  height: 76px;
+  min-height: 76px;
+  padding: 9px 11px;
+  gap: 8px;
+}
+
+.tool-page .tool-icon {
+  width: 52px;
+  height: 52px;
+}
+
+.tool-page .tool-copy {
+  gap: 3px;
+}
+
+.tool-page .tool-copy strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.tool-page .tool-copy small {
+  font-size: 10.5px;
+  line-height: 1.32;
+}
+
+.tool-page .bottom-slogan {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin-top: -2px;
+  padding: 7px 42px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 220, 194, 0.82);
+  border-radius: 19px;
+  background: linear-gradient(90deg, rgba(255, 251, 229, 0.9), rgba(246, 250, 229, 0.96), rgba(255, 251, 229, 0.9));
+  color: var(--gn-leaf-deep);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.tool-page .bottom-slogan::before,
+.tool-page .bottom-slogan::after {
+  position: absolute;
+  top: 50%;
+  width: 34px;
+  height: 24px;
+  transform: translateY(-50%);
+  background: url("./assets/goodnight/growth-leaves.png") center / contain no-repeat;
+  opacity: 0.58;
+  content: "";
+}
+
+.tool-page .bottom-slogan::before {
+  left: 10px;
+}
+
+.tool-page .bottom-slogan::after {
+  right: 10px;
+  transform: translateY(-50%) scaleX(-1);
+}
+
+.me-page .growth-card {
+  min-height: 160px;
+  padding: 14px 20px 12px;
+  gap: 6px;
+}
+
+.me-page .growth-card::after {
+  right: 8px;
+  bottom: -12px;
+  width: 98px;
+  height: 64px;
+  opacity: 0.32;
+}
+
+.me-page .growth-card h2,
+.me-page .growth-metrics,
+.me-page .growth-card button {
+  position: relative;
+  z-index: 1;
+}
+
+.me-page .growth-metrics {
+  align-items: stretch;
+}
+
+.me-page .growth-metrics div {
+  min-height: 62px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.me-page .growth-metrics span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.me-page .growth-metrics span::before {
+  color: var(--gn-leaf);
+  font-size: 14px;
+  line-height: 1;
+  content: "芽";
+}
+
+.me-page .growth-metrics div:nth-child(2) span::before {
+  content: "♡";
+}
+
+.me-page .growth-metrics div:nth-child(3) span::before {
+  content: "▣";
+}
+
+.me-page .growth-metrics strong {
+  font-size: 25px;
+  line-height: 1.04;
+}
+
+.me-page .growth-metrics small {
+  font-size: 12px;
+  line-height: 1.16;
+}
+
+.me-page .growth-card button {
+  min-height: 32px;
+  margin-top: -1px;
+}
+
+.me-page .clear-wide {
+  min-height: 38px;
+}
+
+/* Front layout repair: detail dock, report actions and dense list cards. */
+.detail-page .reply-dock {
+  bottom: max(0px, env(safe-area-inset-bottom));
+}
+
+.detail-page .reply-section {
+  padding-bottom: 94px;
+}
+
+.detail-page .reply-card {
+  min-height: 104px;
+  padding: 12px;
+  align-items: start;
+}
+
+.detail-page .reply-card .avatar-bubble {
+  width: 52px;
+  height: 52px;
+}
+
+.detail-page .reply-card strong {
+  display: block;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.detail-page .reply-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.detail-page .reply-like {
+  align-self: center;
+  font-size: 16px;
+}
+
+.report-page {
+  gap: 9px;
+}
+
+.report-page .report-summary-card {
+  min-height: 170px;
+  padding: 18px;
+}
+
+.report-page .report-summary-card h2 {
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.report-page .report-summary-card .growth-metrics div {
+  min-height: 58px;
+}
+
+.report-page .report-panel {
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.report-page .report-panel h2 {
+  font-size: 20px;
+}
+
+.report-page .line-chart {
+  height: 120px;
+  align-items: end;
+  padding: 18px 12px 12px;
+}
+
+.report-page .distribution-row {
+  gap: 8px;
+  min-height: 26px;
+}
+
+.report-page .report-panel p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.report-page .report-actions {
+  position: fixed;
+  left: 50%;
+  bottom: 76px;
+  z-index: 19;
+  width: min(400px, calc(100vw - 30px));
+  margin: 0;
+  padding: 0;
+  transform: translateX(-50%);
+}
+
+.report-page .report-actions button {
+  min-height: 42px;
+  font-size: 14px;
+}
+
+.list-page .letter-list-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-height: 160px;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(218, 224, 202, 0.92);
+  border-radius: 22px;
+  background: rgba(255, 254, 249, 0.96);
+  box-shadow: 0 10px 24px rgba(76, 90, 62, 0.08);
+}
+
+.list-page .letter-list-card::after {
+  position: absolute;
+  right: 12px;
+  bottom: 18px;
+  width: 84px;
+  height: 84px;
+  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center / contain no-repeat;
+  opacity: 0.82;
+  content: "";
+  pointer-events: none;
+}
+
+.list-page .letter-list-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.list-page .letter-list-card .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 84px;
+}
+
+.list-page .letter-list-card .row strong {
+  min-width: 0;
+  color: var(--gn-leaf-deep);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.list-page .letter-list-card p {
+  max-width: calc(100% - 92px);
+  margin: 0;
+  color: #2f3d32;
+  font-size: 14px;
+  line-height: 1.52;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.list-page .letter-list-card .sheet-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 8px;
+  padding-right: 92px;
+}
+
+.list-page .letter-list-card .sheet-actions button {
+  min-height: 34px;
+  padding: 5px 8px;
+  border-radius: 18px;
+  font-size: 13px;
+}
+
+.feedback-page .faq-list {
+  gap: 8px;
+}
+
+.feedback-page .faq-card button {
+  min-height: 46px;
+  padding: 8px 12px;
+}
+
+.feedback-page .faq-card p {
+  margin: 0;
+  padding: 0 12px 10px 42px;
+  font-size: 13px;
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.feedback-page .faq-list > button {
+  min-height: 38px;
+  padding: 7px 12px;
+}
+
+.feedback-page .feedback-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  padding-bottom: 14px;
+}
+
+.feedback-page .feedback-form h2,
+.feedback-page .feedback-form select,
+.feedback-page .feedback-form textarea,
+.feedback-page .feedback-form .soft-note {
+  grid-column: 1 / -1;
+}
+
+.feedback-page .feedback-form h2 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.feedback-page .feedback-form select {
+  min-height: 40px;
+}
+
+.feedback-page .feedback-form textarea {
+  min-height: 92px;
+}
+
+.feedback-page .feedback-form button {
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.feedback-page .feedback-form::after {
+  display: none;
+  content: none;
+}
+
+.back-icon {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  font-size: 34px;
+}
+
+/* Goodnight visual layout refinement: front 01-06 and 08. */
+html,
+body {
+  overflow-x: hidden;
+}
+
+.phone-shell:has(.goodnight-page) {
+  padding: 0 15px;
+  overflow-x: hidden;
+  background: var(--gn-bg);
+}
+
+.goodnight-page {
+  min-height: 100vh;
+  padding-bottom: calc(130px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+}
+
+.goodnight-page *,
+.goodnight-page *::before,
+.goodnight-page *::after {
+  max-width: 100%;
+}
+
+.front-hero,
+.rest-hero,
+.me-hero,
+.detail-top {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 84% 15%, rgba(233, 215, 161, 0.2), transparent 32%),
+    linear-gradient(180deg, rgba(255, 254, 247, 0.92), rgba(251, 248, 239, 0.78) 72%, var(--gn-bg));
+}
+
+.front-hero::before,
+.rest-hero::before,
+.me-hero::before,
+.detail-top::before {
+  top: -3px;
+  right: -28px;
+  width: 258px;
+  height: 184px;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  opacity: 0.92;
+  filter: drop-shadow(0 12px 18px rgba(92, 95, 60, 0.08));
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
+}
+
+.front-hero::after,
+.rest-hero::after,
+.me-hero::after,
+.detail-top::after {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 2;
+  display: block;
+  height: 54px;
+  background: linear-gradient(180deg, transparent, var(--gn-bg));
+  pointer-events: none;
+  content: "";
+}
+
+.status-row,
+.hero-copy,
+.letter-heading,
+.detail-top .back-icon,
+.detail-top h1 {
+  position: relative;
+  z-index: 4;
+}
+
+.tree-scene,
+.card-illustration,
+.letter-intro::before,
+.letter-card::before,
+.letter-card::after,
+.feature-card::after,
+.growth-card::after,
+.bottom-slogan::before,
+.bottom-slogan::after {
+  pointer-events: none;
+}
+
+.tabbar {
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  width: min(398px, calc(100vw - 28px));
+  height: 72px;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--gn-border);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 34px rgba(54, 66, 50, 0.12);
+}
+
+.tabbar a {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  border: 1px solid transparent;
+  border-radius: 22px;
+  color: #8a908a;
+  outline: 0;
+  box-shadow: none;
+}
+
+.tabbar a.router-link-active {
+  color: var(--gn-green-dark);
+  border-color: rgba(95, 127, 62, 0.2);
+  background: linear-gradient(180deg, rgba(238, 244, 229, 0.72), rgba(255, 255, 255, 0.32));
+  box-shadow: inset 0 0 0 1px rgba(95, 127, 62, 0.08);
+  font-weight: 700;
+}
+
+.tabbar a:focus-visible {
+  outline: 2px solid rgba(95, 127, 62, 0.36);
+  outline-offset: 2px;
+}
+
+.tab-icon {
+  color: inherit;
+}
+
+.square-page {
+  gap: 0;
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
+.square-hero {
+  min-height: 168px;
+  padding-bottom: 24px;
+}
+
+.square-hero::before {
+  right: -36px;
+  width: 272px;
+  height: 194px;
+}
+
+.square-hero .hero-copy {
+  max-width: 258px;
+  margin-top: 32px;
+}
+
+.mood-filter-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: auto;
+  margin: 0 -15px 10px;
+  padding: 8px 18px 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-padding-inline: 18px;
+  scrollbar-width: none;
+}
+
+.mood-filter-row::-webkit-scrollbar,
+.style-row::-webkit-scrollbar,
+.preset-row::-webkit-scrollbar {
+  display: none;
+}
+
+.mood-pill {
+  flex: 0 0 auto;
+  min-width: 58px;
+  gap: 4px;
+  padding: 8px 9px;
+  font-size: 14px;
+}
+
+.treehole-card {
+  min-height: 188px;
+  padding: 18px 16px 0;
+  border-color: var(--gn-border);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-card);
+  box-shadow: var(--gn-shadow-card);
+}
+
+.post-main {
+  grid-template-columns: 54px minmax(0, 1fr) 78px;
+  gap: 11px;
+  align-items: start;
+}
+
+.post-copy {
+  min-width: 0;
+}
+
+.post-meta {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) auto minmax(54px, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-height: 30px;
+  padding-right: 34px;
+  overflow: hidden;
+}
+
+.post-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-meta .tag {
+  justify-self: start;
+  white-space: nowrap;
+}
+
+.post-meta .muted {
+  justify-self: start;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.post-content {
+  margin: 12px 0 9px;
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+.avatar-bubble {
+  width: 52px;
+  height: 52px;
+}
+
+.card-illustration {
+  width: 78px;
+  height: 84px;
+  margin-top: 30px;
+  border: 0;
+  background: url("./assets/goodnight/square-baby-cutout.png") center / contain no-repeat;
+  box-shadow: none;
+}
+
+.wish-tag {
+  margin-top: 2px;
+}
+
+.reply-count {
+  margin-top: 10px;
+  white-space: nowrap;
+}
+
+.post-actions {
+  min-height: 50px;
+  margin-top: 12px;
+}
+
+.plain-action {
+  min-width: 0;
+}
+
+.card-more {
+  right: 16px;
+  top: 16px;
+}
+
+.write-fab {
+  right: max(18px, calc((100vw - 430px) / 2 + 18px));
+  bottom: calc(124px + env(safe-area-inset-bottom));
+  width: 84px;
+  height: 84px;
+  border: 3px solid rgba(255, 255, 255, 0.96);
+  background: linear-gradient(135deg, #779451, var(--gn-green-dark));
+}
+
+.mood-create-page.goodnight-page {
+  gap: 10px;
+  padding-bottom: 72px;
+}
+
+.mood-create-page .compact-hero {
+  height: 146px;
+  min-height: 146px;
+  max-height: 146px;
+}
+
+.mood-create-page .write-card {
+  min-height: 178px;
+  padding: 14px;
+}
+
+.mood-create-page .write-card textarea {
+  min-height: 140px;
+  padding: 18px 18px 44px;
+  resize: none;
+}
+
+.mood-create-page .counter,
+.reply-compose .counter {
+  right: 28px;
+  bottom: 24px;
+  z-index: 3;
+  padding: 3px 8px;
+  border-radius: var(--gn-radius-pill);
+  background: rgba(255, 254, 249, 0.86);
+  line-height: 1.2;
+}
+
+.mood-create-page .textarea-seed,
+.reply-compose .textarea-seed {
+  display: none;
+}
+
+.mood-create-page .panel-card {
+  height: auto;
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.mood-create-page .panel-card:nth-of-type(2),
+.mood-create-page .panel-card:nth-of-type(3),
+.mood-create-page .panel-card:nth-of-type(4),
+.mood-create-page .panel-card:nth-of-type(5) {
+  height: auto;
+}
+
+.mood-create-page .emotion-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.mood-create-page .emotion-choice {
+  min-height: 74px;
+  overflow: visible;
+}
+
+.mood-create-page .emotion-choice .face {
+  width: 42px;
+  height: 42px;
+}
+
+.mood-create-page .visibility-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mood-create-page .visibility-card {
+  min-height: 68px;
+  padding: 10px;
+  overflow: visible;
+}
+
+.mood-create-page .visibility-card strong,
+.mood-create-page .visibility-card small {
+  overflow-wrap: anywhere;
+}
+
+.mood-create-page .visibility-card.active {
+  color: var(--gn-text);
+  border: 2px solid var(--gn-green-dark);
+  background: rgba(255, 254, 249, 0.96);
+  box-shadow: none;
+}
+
+.mood-create-page .visibility-card.active small {
+  color: var(--gn-ink-soft);
+}
+
+.mood-create-page .style-row {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.mood-create-page .style-pill {
+  flex: 1 1 108px;
+  min-height: 34px;
+}
+
+.mood-create-page .submit-bar {
+  min-height: 52px;
+  margin-top: 4px;
+}
+
+/* Real media upload states: thumbnails replace any text-only upload placeholders. */
+.mood-create-page .file-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mood-create-page .media-panel .image-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mood-create-page .media-panel .image-box {
+  position: relative;
+  width: 100%;
+  min-height: 112px;
+  overflow: hidden;
+}
+
+.mood-create-page .media-panel .image-box.filled {
+  display: block;
+  padding: 0;
+  border: 1px solid rgba(89, 125, 69, .2);
+  background: #eef2e9;
+}
+
+.mood-create-page .media-panel .image-box.filled img {
+  display: block;
+  width: 100%;
+  height: 112px;
+  object-fit: cover;
+}
+
+.mood-create-page .media-panel .image-box.filled button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(35, 43, 30, .76);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.mood-create-page .upload-state {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 6px;
+  background: rgba(35, 43, 30, .62);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+}
+
+.letter-page {
+  gap: 14px;
+}
+
+.letter-page .letter-hero {
+  min-height: 84px;
+  padding-bottom: 4px;
+}
+
+.letter-intro {
+  min-height: 104px;
+  padding: 14px 22px 14px 132px;
+  border-radius: var(--gn-radius-card);
+}
+
+.letter-intro::before {
+  left: 16px;
+  top: 50%;
+  width: 104px;
+  height: 72px;
+  background: url("./assets/goodnight/letter-envelope-cutout.png") center / contain no-repeat;
+  filter: drop-shadow(0 10px 14px rgba(108, 96, 58, 0.1));
+  transform: translateY(-50%);
+}
+
+.letter-intro::after,
+.letter-intro > .envelope-illustration {
+  display: none;
+}
+
+.letter-intro h2 {
+  font-size: 25px;
+}
+
+.letter-intro p {
+  line-height: 1.68;
+}
+
+.letter-card {
+  min-height: 198px;
+  padding: 18px 28px 16px;
+  border-radius: var(--gn-radius-card);
+}
+
+.letter-page .letter-card {
+  min-height: 198px;
+}
+
+.letter-content,
+.letter-page .letter-content {
+  line-height: 1.75;
+}
+
+.letter-page .letter-line {
+  margin-top: 7px;
+  margin-bottom: 8px;
+}
+
+.letter-page .signature {
+  margin-top: 7px;
+}
+
+.letter-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 52px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.letter-actions button,
+.letter-page .letter-actions button {
+  min-height: 52px;
+  padding: 8px 10px;
+}
+
+.advice-section,
+.letter-page .advice-section {
+  transform: none;
+}
+
+.advice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.advice-row button,
+.letter-page .advice-row button {
+  flex: 1 1 105px;
+  min-height: 42px;
+  padding: 7px 8px;
+  font-size: 13px;
+}
+
+.advice-row button span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advice-copy {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.tool-page.goodnight-page {
+  gap: 12px;
+}
+
+.tool-page .tool-hero {
+  min-height: 142px;
+}
+
+.tool-page .feature-card {
+  grid-template-columns: minmax(0, 1fr) 124px;
+  height: auto;
+  min-height: 122px;
+  padding: 13px 18px 13px 20px;
+  border-radius: var(--gn-radius-card);
+}
+
+.tool-page .feature-card::after {
+  right: 10px;
+  bottom: 6px;
+  width: 108px;
+  height: 108px;
+  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center / contain no-repeat;
+  filter: drop-shadow(0 10px 16px rgba(100, 88, 54, 0.08));
+}
+
+.tool-page .tool-grid {
+  gap: 8px;
+}
+
+.tool-page .tool-tile {
+  grid-template-columns: 50px minmax(0, 1fr);
+  height: 70px;
+  min-height: 70px;
+  padding: 8px 10px;
+  border-radius: 20px;
+}
+
+.tool-page .tool-icon {
+  width: 44px;
+  height: 44px;
+  background-color: transparent;
+}
+
+.tool-page .tool-copy strong {
+  font-size: 12.5px;
+  line-height: 1.22;
+}
+
+.tool-page .tool-copy small {
+  font-size: 10px;
+  line-height: 1.24;
+}
+
+.tool-page .bottom-slogan {
+  min-height: 34px;
+  margin: 0 0 4px;
+  padding: 6px 42px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 220, 194, 0.82);
+  border-radius: 22px;
+  background: linear-gradient(90deg, rgba(255, 251, 229, 0.92), rgba(246, 250, 229, 0.96), rgba(255, 251, 229, 0.92));
+  color: var(--gn-green-dark);
+  line-height: 1.2;
+}
+
+.me-page.goodnight-page {
+  gap: 16px;
+}
+
+.me-hero {
+  overflow: visible;
+  min-height: 262px;
+  margin-bottom: 52px;
+  padding-bottom: 40px;
+}
+
+.me-hero::before {
+  right: -24px;
+  width: 270px;
+  height: 198px;
+}
+
+.me-hero .me-copy {
+  margin-top: 18px;
+}
+
+.me-hero .me-user-card {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: -42px;
+  z-index: 5;
+  width: auto;
+  min-height: 92px;
+  margin: 0;
+  padding: 12px 18px;
+  border: 1px solid var(--gn-border);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--gn-shadow-card);
+}
+
+.me-page .growth-card {
+  min-height: 194px;
+  padding: 20px 22px 18px;
+  gap: 14px;
+  border-radius: var(--gn-radius-card);
+}
+
+.me-page .growth-card h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.me-page .growth-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.me-page .growth-metrics div {
+  position: relative;
+  display: grid;
+  grid-template-rows: 24px 38px 34px;
+  align-items: center;
+  min-height: 96px;
+  padding: 4px 8px;
+  border-right: 0;
+}
+
+.me-page .growth-metrics div:not(:last-child)::after {
+  position: absolute;
+  top: 15px;
+  right: 0;
+  bottom: 15px;
+  width: 1px;
+  background: rgba(95, 127, 62, 0.16);
+  content: "";
+}
+
+.me-page .growth-metrics span {
+  display: block;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.me-page .growth-metrics span::before {
+  display: none;
+}
+
+.me-page .growth-metrics strong {
+  font-size: 31px;
+  line-height: 1;
+}
+
+.me-page .growth-metrics small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.me-page .growth-card button {
+  min-height: 40px;
+  margin-top: 0;
+}
+
+.me-list {
+  border-radius: 28px;
+}
+
+.me-entry {
+  grid-template-columns: 42px minmax(0, 1fr) 24px;
+  min-height: 68px;
+  padding: 0 20px;
+}
+
+.me-entry span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(238, 244, 229, 0.8);
+  color: var(--gn-green-dark);
+  font-size: 20px;
+}
+
+.me-entry strong {
+  font-size: 18px;
+}
+
+.me-entry em {
+  color: var(--gn-green-dark);
+}
+
+.me-page .clear-wide {
+  min-height: 54px;
+  margin-top: 2px;
+  border-radius: 20px;
+}
+
+.detail-page.goodnight-page {
+  gap: 14px;
+  padding-bottom: 154px;
+}
+
+.detail-top {
+  min-height: 142px;
+}
+
+.detail-top::before {
+  right: -30px;
+  width: 248px;
+  height: 180px;
+}
+
+.detail-card {
+  padding: 20px 16px 0;
+  border-radius: var(--gn-radius-card);
+}
+
+.detail-author {
+  grid-template-columns: 62px minmax(0, 1fr);
+}
+
+.detail-content {
+  line-height: 1.72;
+}
+
+.detail-page .reply-section {
+  padding-bottom: 110px;
+}
+
+.detail-page .reply-card {
+  border-radius: 24px;
+}
+
+.detail-page .reply-dock {
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  width: min(398px, calc(100vw - 28px));
+}
+
+.reply-sheet {
+  height: auto;
+  min-height: 420px;
+  max-height: calc(100vh - 72px);
+  overflow: auto;
+}
+
+.reply-compose textarea {
+  min-height: 118px;
+  padding-bottom: 42px;
+  resize: none;
+}
+
+@media (max-width: 380px) {
+  .front-hero::before,
+  .rest-hero::before,
+  .me-hero::before,
+  .detail-top::before {
+    right: -44px;
+    width: 238px;
+  }
+
+  .post-main {
+    grid-template-columns: 50px minmax(0, 1fr) 66px;
+    gap: 9px;
+  }
+
+  .card-illustration {
+    display: block;
+    width: 66px;
+    height: 72px;
+  }
+
+  .post-meta {
+    grid-template-columns: minmax(56px, auto) auto minmax(48px, 1fr);
+    gap: 5px;
+    padding-right: 32px;
+  }
+
+  .letter-intro {
+    padding-left: 132px;
+  }
+
+  .letter-intro::before {
+    width: 108px;
+  }
+
+  .tool-page .tool-tile {
+    grid-template-columns: 48px minmax(0, 1fr);
+    padding: 9px 10px;
+  }
+
+  .tool-page .tool-icon {
+    width: 46px;
+    height: 46px;
+  }
+
+  .me-page .growth-metrics div {
+    padding-inline: 4px;
+  }
+}
+
+/* Regression guard: square emotion filters must stay compact after route/filter changes. */
+.square-page .square-hero {
+  height: 154px;
+  min-height: 154px;
+  max-height: 154px;
+}
+
+.square-page .mood-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  margin: 0 -15px;
+  padding: 4px 15px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.square-page .mood-filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.square-page .mood-filter-row .mood-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 84px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  padding: 0 12px;
+  gap: 6px;
+  line-height: 1;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.square-page .mood-filter-row .mood-pill span {
+  display: inline-block;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.square-page .mood-filter-row .mood-pill.active {
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+}
+
+.detail-page .detail-top {
+  min-height: 70px;
+  height: 70px;
+  padding-bottom: 8px;
+}
+
+.detail-page .detail-top::before {
+  height: 124px;
+}
+
+.detail-page .detail-top h1 {
+  position: absolute;
+  top: 38px;
+  left: 48px;
+  margin: 0;
+  line-height: 1;
+}
+
+.detail-page .detail-top .back-icon {
+  position: absolute;
+  top: 36px;
+  left: 14px;
+}
+
+
+.detail-page .detail-card {
+  min-height: 0;
+  padding: 14px 16px 0;
+}
+
+.detail-page .detail-content {
+  margin: 8px 0;
+  line-height: 1.58;
+}
+
+.detail-page .detail-actions {
+  min-height: 38px;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+
+.detail-page .detail-actions .plain-action {
+  min-height: 34px;
+}
+
+/* Detail and reply sheet: match the reference's compact, viewport-bound
+   composition without removing any real controls or reducing their behavior. */
+.detail-page .detail-top h1 {
+  font-size: 17px;
+}
+
+.detail-page .detail-top .back-icon {
+  font-size: 28px;
+}
+
+.detail-page .detail-author {
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.detail-page .detail-author .avatar-bubble.large {
+  width: 58px;
+  height: 58px;
+  background-size: 74px auto;
+}
+
+.detail-page .detail-author p {
+  margin: 4px 0 0;
+}
+
+.detail-page .reply-link {
+  min-height: 30px;
+  margin-top: 6px;
+}
+
+.detail-page .style-row.no-wrap {
+  margin-top: 8px;
+}
+
+.detail-page .style-row.no-wrap .style-pill {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.detail-page .detail-actions {
+  min-height: 36px;
+  margin-top: 6px;
+  padding-top: 3px;
+}
+
+.detail-page .detail-actions .plain-action {
+  min-height: 32px;
+  font-size: 15px;
+}
+
+.reply-sheet-mask {
+  padding: 0;
+}
+
+.reply-sheet {
+  width: min(430px, 100vw);
+  max-width: 430px;
+  height: 371px;
+  min-height: 371px;
+  max-height: calc(100vh - 20px);
+  padding: 10px 18px;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.reply-sheet .sheet-handle {
+  margin-bottom: 2px;
+}
+
+.reply-compose textarea {
+  height: 104px;
+  min-height: 104px;
+  padding: 10px 12px 34px;
+  line-height: 1.55;
+}
+
+.reply-compose .counter {
+  right: 20px;
+  bottom: 14px;
+}
+
+.reply-sheet .setting-row {
+  height: 40px;
+  min-height: 40px;
+  padding: 3px 12px;
+}
+
+.reply-sheet .setting-row select {
+  min-height: 32px;
+  height: 32px;
+}
+
+.reply-sheet .sheet-actions {
+  height: 42px;
+  min-height: 42px;
+  margin-top: 6px;
+  padding-top: 0;
+}
+
+.reply-sheet .outline-wide,
+.reply-sheet .submit-wide {
+  min-height: 40px;
+}
+
+/* Page 05 keeps the generated letter readable instead of clipping it into a
+   short card. The surrounding controls remain the same server-backed actions. */
+.letter-page.goodnight-page {
+  gap: 8px;
+}
+
+.letter-page .letter-style-tabs {
+  height: 40px;
+}
+
+.letter-page .letter-style-tabs button {
+  min-height: 40px;
+  font-size: 15px;
+}
+
+.letter-page .letter-card {
+  min-height: 310px;
+  height: auto;
+  padding: 24px 28px 22px;
+}
+
+.letter-page .letter-actions {
+  min-height: 40px;
+  margin-top: 0;
+}
+
+.letter-page .letter-actions button {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.phone-shell:has(.letter-page) .tabbar {
+  height: 54px;
+  min-height: 54px;
+  padding: 5px 8px;
+  border-radius: 22px;
+}
+
+.phone-shell:has(.letter-page) .tabbar a {
+  min-height: 42px;
+  font-size: 11px;
+}
+
+.phone-shell:has(.letter-page) .tab-icon {
+  font-size: 20px;
+}
+
+/* Page 06: preserve the real tool links while restoring the reference card
+   density and the breathing room between the grid and its footer slogan. */
+.tool-page .feature-card {
+  min-height: 142px;
+}
+
+.tool-page .tool-tile {
+  grid-template-columns: 68px minmax(0, 1fr);
+  height: 82px;
+  min-height: 82px;
+  padding: 10px 12px;
+}
+
+.tool-page .tool-icon {
+  width: 62px;
+  height: 62px;
+}
+
+.tool-page .tool-copy strong {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.tool-page .tool-copy small {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.phone-shell:has(.tool-page) .tabbar {
+  bottom: 0;
+  height: 54px;
+  min-height: 54px;
+  padding: 5px 8px;
+  border-radius: 22px;
+}
+
+.phone-shell:has(.tool-page) .tabbar a {
+  min-height: 42px;
+  font-size: 11px;
+}
+
+.phone-shell:has(.tool-page) .tab-icon {
+  font-size: 20px;
+}
+
+/* Page 07 is content-driven: an empty or completed AI result must not cause
+   CSS grid tracks to stretch. The field rows remain live result data. */
+.decompose-page {
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 20px;
+  padding-inline: 6px;
+}
+
+.decompose-page .rest-topbar {
+  min-height: 84px;
+  height: 84px;
+  margin-top: 16px;
+}
+
+.decompose-page .rest-topbar h1 {
+  font-size: 19px;
+}
+
+.decompose-page .decompose-input-card {
+  min-height: 219px;
+  padding: 14px;
+  gap: 10px;
+}
+
+.decompose-page .decompose-input-card h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.decompose-page .section-heading {
+  min-height: 22px;
+}
+
+.decompose-page .decompose-input-card textarea {
+  min-height: 110px;
+  height: 110px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+}
+
+.decompose-page .decompose-input-card .submit-wide {
+  min-height: 40px;
+  padding-block: 6px;
+  font-size: 16px;
+}
+
+.decompose-page .decompose-result-card {
+  gap: 0;
+  padding: 14px;
+}
+
+.decompose-page .decompose-result-card h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.decompose-page .result-block {
+  gap: 3px;
+  min-height: 42px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px dashed rgba(118, 139, 91, 0.2);
+  border-radius: 0;
+  background: transparent;
+}
+
+.decompose-page .result-block span {
+  font-size: 13px;
+}
+
+.decompose-page .result-block p {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.decompose-page .decompose-result-card .soft-note {
+  margin: 6px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.decompose-page .decompose-result-card .sheet-actions {
+  min-height: 36px;
+  margin-top: 6px;
+  padding-top: 0;
+}
+
+.decompose-page .decompose-result-card .sheet-actions button {
+  min-height: 36px;
+  padding: 5px 6px;
+  font-size: 12px;
+}
+
+/* Page 08: the profile, all six navigation entries and the guarded clear
+   action belong in the first viewport; only density changes here. */
+.me-page.goodnight-page {
+  gap: 12px;
+}
+
+.me-page .me-hero {
+  min-height: 212px;
+  height: 212px;
+  margin-bottom: 43px;
+  padding-bottom: 18px;
+}
+
+.me-page .me-user-card {
+  min-height: 88px;
+  padding: 10px 16px;
+}
+
+.me-page .growth-card {
+  min-height: 156px;
+  height: 156px;
+  padding: 14px 20px 12px;
+  gap: 6px;
+}
+
+.me-page .growth-card h2 {
+  font-size: 19px;
+}
+
+.me-page .growth-metrics div {
+  grid-template-rows: 18px 28px 18px;
+  min-height: 62px;
+  padding: 2px 4px;
+}
+
+.me-page .growth-metrics strong {
+  font-size: 25px;
+}
+
+.me-page .growth-card button {
+  min-height: 32px;
+  font-size: 14px;
+}
+
+.me-page .me-list {
+  border-radius: 22px;
+}
+
+.me-page .me-entry {
+  grid-template-columns: 38px minmax(0, 1fr) 20px;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 16px;
+}
+
+.me-page .me-entry span {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+}
+
+.me-page .me-entry strong {
+  font-size: 15px;
+}
+
+.me-page .me-entry em {
+  font-size: 18px;
+}
+
+.me-page .clear-wide {
+  min-height: 38px;
+  height: 38px;
+  margin-top: 0;
+  font-size: 15px;
+}
+
+.phone-shell:has(.me-page) .tabbar {
+  bottom: 0;
+  height: 64px;
+  min-height: 64px;
+  padding: 6px 8px;
+  border-radius: 22px;
+}
+
+.phone-shell:has(.me-page) .tabbar a {
+  min-height: 48px;
+  font-size: 11px;
+}
+
+.phone-shell:has(.me-page) .tab-icon {
+  font-size: 20px;
+}
+
+
+.square-page .mood-filter-row .mood-pill:focus,
+.square-page .mood-filter-row .mood-pill:focus-visible {
+  outline: 2px solid rgba(95, 127, 62, 0.34);
+  outline-offset: 2px;
+  box-shadow: 0 12px 24px rgba(95, 127, 62, 0.14);
+}
+
+.square-empty-card {
+  display: grid;
+  gap: 16px;
+  align-content: center;
+  min-height: 188px;
+}
+
+.square-empty-card p {
+  margin: 0;
+}
+
+.square-empty-card button {
+  justify-self: start;
+  min-height: 42px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--gn-radius-pill);
+  background: var(--gn-green);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Final front 01–08 density pass.  These selectors deliberately stay scoped to
+   the matching views so the diary, favourite, privacy and help flows retain
+   their independently reviewed layouts. */
+.square-page .treehole-card {
+  min-height: 0;
+  padding: 14px 14px 0;
+}
+
+.square-page .post-main {
+  grid-template-columns: 50px minmax(0, 1fr) 74px;
+  gap: 10px;
+}
+
+.square-page .avatar-bubble {
+  width: 48px;
+  height: 48px;
+}
+
+.square-page .post-meta {
+  min-height: 24px;
+  padding-right: 30px;
+}
+
+.square-page .post-meta strong {
+  font-size: 16px;
+}
+
+.square-page .post-meta .muted {
+  font-size: 12px;
+}
+
+.square-page .post-content {
+  display: -webkit-box;
+  margin: 7px 0 6px;
+  overflow: hidden;
+  color: #2d372e;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.square-page .wish-tag {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 13px;
+}
+
+.square-page .reply-count {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.square-page .card-illustration {
+  width: 74px;
+  height: 76px;
+  margin-top: 23px;
+}
+
+.square-page .post-actions {
+  min-height: 40px;
+  margin-top: 7px;
+  padding-top: 3px;
+}
+
+.square-page .plain-action {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.mood-create-page .write-card {
+  min-height: 165px;
+  padding: 12px;
+}
+
+.mood-create-page .write-card textarea {
+  min-height: 129px;
+  padding: 16px 16px 38px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mood-create-page .counter {
+  right: 22px;
+  bottom: 18px;
+}
+
+.mood-create-page .panel-card {
+  padding: 12px 14px;
+}
+
+.mood-create-page .panel-card h2 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.mood-create-page .emotion-grid {
+  gap: 5px;
+}
+
+.mood-create-page .emotion-choice {
+  min-height: 64px;
+  padding: 5px 2px;
+  font-size: 12px;
+}
+
+.mood-create-page .emotion-choice .face {
+  width: 38px;
+  height: 38px;
+}
+
+.mood-create-page .visibility-grid {
+  gap: 8px;
+}
+
+.mood-create-page .visibility-card {
+  min-height: 62px;
+  padding: 8px;
+}
+
+.mood-create-page .visibility-card strong {
+  font-size: 13px;
+}
+
+.mood-create-page .visibility-card small {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.mood-create-page .media-panel .image-row {
+  gap: 10px;
+}
+
+.mood-create-page .media-panel .image-box {
+  min-height: 56px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.mood-create-page .media-panel .image-box.filled img {
+  height: 56px;
+}
+
+.mood-create-page .submit-bar {
+  min-height: 48px;
+  margin-top: 0;
+}
+
+.decompose-page .decompose-guide {
+  position: absolute;
+  top: 81px;
+  left: 34px;
+  z-index: 2;
+  min-height: 30px;
+  margin: 0;
+  padding: 7px 8px 7px 48px;
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-display);
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.decompose-page .decompose-guide::before {
+  position: absolute;
+  left: 0;
+  top: -10px;
+  width: 46px;
+  height: 46px;
+  background: url("./assets/goodnight/tool-icon-decompose.png") center / contain no-repeat;
+  content: "";
+}
+
+.decompose-page .decompose-input-card {
+  min-height: 208px;
+  padding: 12px;
+}
+
+.decompose-page .decompose-input-card textarea {
+  min-height: 102px;
+  height: 102px;
+  padding: 9px 11px;
+}
+
+.decompose-page .decompose-input-card .submit-wide {
+  min-height: 38px;
+}
+
+@media (max-width: 380px) {
+  .square-page .post-main {
+    grid-template-columns: 48px minmax(0, 1fr) 64px;
+    gap: 8px;
+  }
+
+  .square-page .card-illustration {
+    width: 64px;
+    height: 68px;
+  }
+
+  .mood-create-page .emotion-choice .face {
+    width: 34px;
+    height: 34px;
+  }
+
+  .decompose-page .decompose-guide {
+    left: 70px;
+    font-size: 14px;
+  }
+}
+
+/* Page 09: a compact diary index. The cards still render only persisted diary
+   data; these rules establish the reading hierarchy without inventing records. */
+.diary-list-page.goodnight-page {
+  min-height: calc(100vh - 118px);
+  gap: 13px;
+  padding-bottom: 138px;
+}
+
+.diary-list-page::before {
+  position: absolute;
+  top: -22px;
+  right: -18px;
+  z-index: 0;
+  width: 236px;
+  height: 164px;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  content: "";
+  opacity: 0.88;
+  pointer-events: none;
+}
+
+.diary-list-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+.diary-list-page .rest-topbar {
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  min-height: 46px;
+  gap: 8px;
+}
+
+.diary-list-page .rest-topbar h1 {
+  color: var(--gn-leaf-deep);
+  text-align: left;
+  font-size: 27px;
+  letter-spacing: 0.02em;
+}
+
+.diary-list-page .back-icon {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gn-leaf-deep);
+  font-size: 36px;
+  line-height: 1;
+}
+
+.diary-intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  min-height: 68px;
+  max-width: 260px;
+  padding-left: 1px;
+}
+
+.diary-intro p {
+  margin: 0;
+  color: #53713c;
+  font-size: 16px;
+  line-height: 1.7;
+  letter-spacing: 0.03em;
+}
+
+.diary-intro > span {
+  margin: 0 2px 8px 0;
+  color: #789352;
+  font-size: 22px;
+}
+
+.diary-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+}
+
+.diary-month-control,
+.diary-filter-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  border-color: rgba(117, 138, 82, 0.2);
+  background: rgba(255, 253, 246, 0.88);
+  box-shadow: 0 10px 26px rgba(82, 91, 62, 0.07);
+  color: #314b2b;
+  font-size: 17px;
+}
+
+.diary-month-control {
+  flex: 0 0 154px;
+  gap: 9px;
+  padding: 8px 14px;
+}
+
+.diary-filter-control {
+  flex: 0 0 92px;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.diary-calendar-mark {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #66834a;
+  border-radius: 5px;
+}
+
+.diary-calendar-mark::before {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  left: 3px;
+  height: 2px;
+  background: #66834a;
+  content: "";
+}
+
+.diary-calendar-mark::after {
+  position: absolute;
+  top: -4px;
+  left: 4px;
+  width: 8px;
+  height: 4px;
+  border-right: 2px solid #66834a;
+  border-left: 2px solid #66834a;
+  content: "";
+}
+
+.diary-control-chevron {
+  color: #66834a;
+  font-size: 18px;
+  transform: translateY(-2px);
+}
+
+.diary-filter-mark {
+  position: relative;
+  width: 20px;
+  height: 18px;
+  overflow: hidden;
+}
+
+.diary-filter-mark::before {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 20px;
+  height: 10px;
+  border: 2px solid #66834a;
+  border-radius: 4px 4px 9px 9px;
+  content: "";
+}
+
+.diary-filter-mark::after {
+  position: absolute;
+  top: 9px;
+  left: 8px;
+  width: 4px;
+  height: 9px;
+  border-radius: 0 0 4px 4px;
+  background: #66834a;
+  content: "";
+}
+
+.diary-list-page .diary-timeline {
+  gap: 10px;
+}
+
+.diary-list-page .diary-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  align-items: stretch;
+  min-height: 110px;
+  overflow: hidden;
+  border-color: rgba(219, 224, 204, 0.9);
+  border-radius: 22px;
+  background: rgba(255, 255, 252, 0.96);
+  box-shadow: 0 10px 24px rgba(76, 90, 62, 0.08);
+}
+
+.diary-list-page .diary-main {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-height: 110px;
+  padding: 12px 8px 12px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.diary-entry-visual {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(124, 143, 93, 0.13);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 72% 20%, rgba(247, 223, 164, 0.62), transparent 20%),
+    linear-gradient(145deg, #faf5df, #eef4e7);
+}
+
+.diary-entry-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.diary-entry-placeholder {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid rgba(101, 132, 76, 0.24);
+  border-radius: 50% 50% 50% 8px;
+  color: #719052;
+  font-size: 17px;
+  transform: rotate(-12deg);
+}
+
+.diary-entry-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  align-content: center;
+}
+
+.diary-entry-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.diary-entry-date {
+  color: #26342a;
+  font-size: 19px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.diary-list-page .diary-main .tag {
+  max-width: 70px;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: #6b7b44;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.diary-list-page .diary-main strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #2d372e;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.diary-list-page .diary-main small {
+  color: #8a9186;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.diary-letter-action,
+.diary-letter-state {
+  display: grid;
+  min-height: 0;
+  place-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 12px 6px;
+  border: 0;
+  border-left: 1px solid rgba(118, 136, 90, 0.1);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #667e44;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.28;
+}
+
+.diary-letter-action:hover {
+  background: rgba(241, 246, 235, 0.7);
+}
+
+.diary-letter-state {
+  color: #a6a79d;
+}
+
+.diary-letter-icon {
+  color: currentColor;
+  font-size: 27px;
+  line-height: 1;
+}
+
+.diary-list-page .empty-card {
+  display: grid;
+  gap: 10px;
+  min-height: 136px;
+  align-content: center;
+  padding: 22px;
+  border: 1px solid rgba(219, 224, 204, 0.9);
+  border-radius: 22px;
+  background: rgba(255, 254, 249, 0.9);
+  box-shadow: 0 10px 24px rgba(76, 90, 62, 0.06);
+}
+
+.diary-list-page .empty-card strong {
+  color: #416037;
+  font-size: 16px;
+}
+
+.diary-list-page .empty-card p {
+  margin: 0;
+  color: #5e7256;
+  line-height: 1.6;
+}
+
+.diary-write-cta {
+  position: fixed;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 19;
+  display: inline-flex;
+  width: min(400px, calc(100vw - 30px));
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 20px;
+  border-radius: 26px;
+  box-shadow: 0 12px 24px rgba(75, 98, 46, 0.22);
+  font-size: 18px;
+  font-weight: 700;
+  transform: translateX(-50%);
+}
+
+.diary-write-cta span {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.phone-shell:has(.diary-list-page) .tabbar {
+  bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+@media (max-width: 374px) {
+  .diary-list-page .rest-topbar h1 {
+    font-size: 25px;
+  }
+
+  .diary-intro p {
+    font-size: 15px;
+  }
+
+  .diary-month-control {
+    flex-basis: 146px;
+  }
+
+  .diary-list-page .diary-card {
+    grid-template-columns: minmax(0, 1fr) 80px;
+  }
+}
+
+/* Keep every actionable chip in the 01/03/04 first viewport.  The underlying
+   filter, reply-style and preset requests are unchanged; this only removes
+   accidental off-canvas controls at narrow mobile widths. */
+.square-page .mood-filter-row {
+  gap: 4px;
+  padding-inline: 12px;
+  overflow: hidden;
+}
+
+.square-page .mood-filter-row .mood-pill {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-inline: 4px;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.detail-page .style-row.no-wrap {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  overflow: visible;
+}
+
+.detail-page .style-row.no-wrap .style-pill {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.detail-page .hug-section .style-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  overflow: visible;
+}
+
+.detail-page .hug-section .style-pill {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.reply-sheet .preset-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  overflow: visible;
+}
+
+.reply-sheet .preset-row .style-pill {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  font-size: 11px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+/* The page has a viewport-height base from .goodnight-page. Keep its content
+   pinned to the reading start instead of stretching every grid row into empty
+   vertical bands when the diary query is empty. */
+.diary-list-page.goodnight-page {
+  align-content: start;
+  gap: 10px;
+}
+
+.diary-list-page .rest-topbar {
+  height: 92px;
+}
+
+.diary-list-page .rest-topbar h1 {
+  font-size: 22px;
+}
+
+.diary-intro {
+  min-height: 50px;
+  margin-top: -24px;
+}
+
+.diary-intro p {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.diary-controls {
+  min-height: 42px;
+}
+
+.diary-month-control,
+.diary-filter-control {
+  min-height: 42px;
+  font-size: 15px;
+}
+
+.diary-month-control {
+  flex-basis: 144px;
+}
+
+.diary-filter-control {
+  flex-basis: 84px;
+}
+
+.diary-list-page .empty-card {
+  min-height: 122px;
+  padding: 18px;
+}
+
+.diary-list-page .diary-card,
+.diary-list-page .diary-main {
+  min-height: 100px;
+}
+
+.diary-list-page .diary-main {
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 9px;
+  padding: 9px 6px 9px 10px;
+}
+
+.diary-entry-visual {
+  width: 64px;
+  height: 64px;
+}
+
+.diary-list-page .diary-main strong {
+  font-size: 13px;
+  line-height: 1.38;
+}
+
+.diary-list-page .diary-main small {
+  font-size: 11px;
+}
+
+/* Page 10: the report is composed from live monthly statistics and terminal AI
+   results. Keep every panel in normal document flow so neither action controls
+   nor the tabbar cover report content. */
+.report-page.goodnight-page {
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 9px;
+  padding-bottom: 104px;
+}
+
+.report-hero {
+  position: relative;
+  min-height: 122px;
+  overflow: hidden;
+  padding: 14px 0 10px;
+}
+
+.report-hero::before {
+  position: absolute;
+  top: -16px;
+  right: -12px;
+  width: 230px;
+  height: 148px;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  content: "";
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.report-topbar,
+.report-brand {
+  position: relative;
+  z-index: 1;
+}
+
+.report-topbar {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-topbar .back-icon {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gn-leaf-deep);
+  font-size: 36px;
+  line-height: 1;
+}
+
+.report-topbar h1 {
+  margin: 0;
+  color: #26362c;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.report-brand {
+  margin: 13px 0 0 16px;
+}
+
+.report-brand strong {
+  display: block;
+  color: #496d35;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-size: 37px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.04;
+}
+
+.report-brand p {
+  margin: 8px 0 0;
+  color: #52713b;
+  font-size: 15px;
+}
+
+.report-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.report-stat-card,
+.report-trend-card,
+.report-insight-card,
+.report-reflection {
+  border: 1px solid rgba(218, 224, 202, 0.92);
+  border-radius: 20px;
+  background: rgba(255, 254, 249, 0.96);
+  box-shadow: 0 10px 24px rgba(76, 90, 62, 0.07);
+}
+
+.report-stat-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 80px;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 8px;
+}
+
+.report-stat-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #f9f4df, #eef3df);
+  color: #6b884d;
+  font-size: 20px;
+}
+
+.report-stat-card small,
+.report-stat-card p {
+  display: block;
+  overflow: hidden;
+  margin: 0;
+  color: #6e776b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.report-stat-card strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  color: #516f39;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.04;
+}
+
+.report-stat-card strong em {
+  margin-left: 2px;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.report-trend-card {
+  display: grid;
+  gap: 7px;
+  padding: 10px 14px 8px;
+}
+
+.report-card-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.report-card-heading h2,
+.report-insight-card h2,
+.report-reflection h2 {
+  margin: 0;
+  color: #26362c;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.22;
+}
+
+.report-card-heading h2::before,
+.report-insight-card h2::before {
+  margin-right: 7px;
+  color: #7e9657;
+  content: "❧";
+}
+
+.report-card-heading p {
+  margin: 4px 0 0;
+  color: #727a71;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.report-month-select {
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border-color: rgba(119, 140, 84, 0.16);
+  box-shadow: none;
+  font-size: 13px;
+}
+
+.report-trend-plot {
+  position: relative;
+  min-height: 86px;
+  padding: 0 0 0 31px;
+}
+
+.report-trend-plot svg {
+  display: block;
+  width: 100%;
+  height: 70px;
+  overflow: visible;
+}
+
+.trend-grid {
+  fill: none;
+  stroke: rgba(120, 138, 97, 0.18);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+}
+
+.trend-line {
+  fill: none;
+  stroke: #6f8a4d;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.trend-point {
+  fill: #788f52;
+  stroke: #fffdf8;
+  stroke-width: 2;
+}
+
+.trend-levels {
+  position: absolute;
+  top: 2px;
+  bottom: 17px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #747b72;
+  font-size: 10px;
+}
+
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+  color: #7d827b;
+  font-size: 9px;
+}
+
+.trend-empty {
+  position: absolute;
+  top: 27px;
+  right: 0;
+  left: 31px;
+  color: #81877f;
+  text-align: center;
+  font-size: 12px;
+}
+
+.report-insights-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+  gap: 8px;
+}
+
+.report-insight-card {
+  min-height: 116px;
+  padding: 10px;
+}
+
+.distribution-content {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.report-donut {
+  position: relative;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.report-donut::before {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fffefa;
+  content: "";
+}
+
+.report-donut span {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  color: #425a35;
+}
+
+.report-donut strong {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.report-donut small {
+  margin-top: 3px;
+  color: #777d73;
+  font-size: 8px;
+}
+
+.distribution-legend {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.distribution-legend li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  color: #596158;
+  font-size: 9px;
+}
+
+.distribution-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.distribution-legend b {
+  color: #687d48;
+  font-weight: 650;
+}
+
+.distribution-legend small {
+  color: #858a83;
+  font-size: 8px;
+}
+
+.keywords-card {
+  display: grid;
+  align-content: start;
+}
+
+.keyword-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.keyword-row {
+  display: grid;
+  grid-template-columns: minmax(0, 36px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  color: #5c6259;
+  font-size: 10px;
+}
+
+.keyword-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keyword-row i {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #efeee5;
+}
+
+.keyword-row i b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #93a66a, #b4bd7e);
+}
+
+.keyword-row strong {
+  color: #668044;
+  font-size: 9px;
+}
+
+.report-insight-card .muted {
+  margin: 14px 0 0;
+  color: #83897f;
+  font-size: 12px;
+}
+
+.report-reflection {
+  position: relative;
+  display: grid;
+  min-height: 94px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  overflow: hidden;
+  padding: 11px;
+  background: linear-gradient(145deg, #fffdf4, #f8f5e9);
+}
+
+.reflection-illustration {
+  align-self: end;
+  width: 64px;
+  height: 64px;
+  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center bottom / contain no-repeat;
+}
+
+.report-reflection h2 {
+  color: #4c6c36;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-size: 16px;
+}
+
+.report-reflection p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: #5d655b;
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.report-page .report-actions {
+  position: static;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  transform: none;
+}
+
+.report-page .report-actions button {
+  display: grid;
+  min-height: 54px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 6px;
+  padding: 7px 10px;
+  border-radius: 22px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.report-page .report-actions button > span {
+  grid-row: span 2;
+  color: currentColor;
+  font-size: 22px;
+}
+
+.report-page .report-actions button small {
+  overflow: hidden;
+  color: inherit;
+  opacity: 0.76;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.report-poster-preview {
+  display: block;
+  width: min(100%, 300px);
+  max-height: 52vh;
+  margin: 0 auto;
+  border-radius: 14px;
+  object-fit: contain;
+}
+
+@media (max-width: 374px) {
+  .report-brand strong {
+    font-size: 33px;
+  }
+
+  .report-stat-card {
+    grid-template-columns: 1fr;
+    min-height: 78px;
+    gap: 2px;
+    padding: 8px;
+  }
+
+  .report-stat-icon {
+    display: none;
+  }
+
+  .report-stat-card strong {
+    font-size: 19px;
+  }
+
+  .report-insight-card {
+    padding: 11px;
+  }
+
+  .distribution-content {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .report-donut {
+    width: 70px;
+    height: 70px;
+  }
+
+  .report-donut::before {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* Page 11: retain the server-backed read, favorite and like actions while
+   presenting each letter as a compact reading card rather than a stretched
+   generic list row. */
+.letter-list-page.goodnight-page {
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 10px;
+  padding-bottom: 98px;
+}
+
+.letter-list-hero {
+  position: relative;
+  min-height: 144px;
+  overflow: hidden;
+  padding: 18px 0 12px;
+}
+
+.letter-list-hero::before {
+  position: absolute;
+  top: -20px;
+  right: -16px;
+  width: 242px;
+  height: 164px;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  content: "";
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.letter-list-hero .back-icon,
+.letter-list-heading {
+  position: relative;
+  z-index: 1;
+}
+
+.letter-list-hero .back-icon {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gn-leaf-deep);
+  font-size: 36px;
+  line-height: 1;
+}
+
+.letter-list-heading {
+  max-width: 285px;
+  margin: 18px 0 0 16px;
+}
+
+.letter-list-heading h1 {
+  margin: 0;
+  color: #496d35;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.letter-list-heading p {
+  margin: 10px 0 0;
+  color: #56723d;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.letter-list-page .letter-list-tabs {
+  width: min(232px, 100%);
+  min-height: 40px;
+  justify-self: start;
+  padding: 3px;
+  border-color: rgba(118, 137, 88, 0.16);
+  background: rgba(255, 254, 249, 0.92);
+}
+
+.letter-list-page .letter-list-tabs button {
+  min-height: 34px;
+  padding: 5px 8px;
+  font-size: 14px;
+}
+
+.letter-list-page .letter-list-card {
+  position: relative;
+  display: grid;
+  min-height: 142px;
+  grid-template-columns: 68px minmax(0, 1fr) 78px;
+  align-items: start;
+  gap: 9px;
+  overflow: hidden;
+  padding: 12px 10px;
+  border-color: rgba(218, 224, 202, 0.92);
+  border-radius: 22px;
+  background: rgba(255, 254, 249, 0.97);
+  box-shadow: 0 10px 24px rgba(76, 90, 62, 0.08);
+}
+
+.letter-list-page .letter-list-card::after {
+  display: none;
+  content: none;
+}
+
+.letter-card-portrait {
+  display: block;
+  width: 68px;
+  height: 68px;
+  border: 1px solid rgba(125, 144, 95, 0.12);
+  border-radius: 50%;
+  background:
+    url("./assets/goodnight/avatar-baby.png") center / cover no-repeat,
+    linear-gradient(145deg, #faf6e7, #eef4e7);
+}
+
+.letter-card-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.letter-card-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.letter-card-meta .tag {
+  max-width: 84px;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: #6b8248;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.letter-card-meta time {
+  overflow: hidden;
+  color: #7a8179;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.letter-unread-dot {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #dc4c43;
+}
+
+.letter-card-copy > small {
+  color: #668244;
+  font-size: 12px;
+}
+
+.letter-card-copy > strong {
+  overflow: hidden;
+  color: #314032;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.letter-list-page .letter-list-card p {
+  display: -webkit-box;
+  max-width: none;
+  min-height: 34px;
+  overflow: hidden;
+  margin: 0;
+  color: #374139;
+  font-size: 12px;
+  line-height: 1.42;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.letter-card-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+}
+
+.letter-card-actions button {
+  min-height: 26px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #6a7d49;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.letter-card-actions button:last-child {
+  margin-left: auto;
+  color: #496d35;
+}
+
+.letter-card-illustration {
+  align-self: end;
+  width: 78px;
+  height: 78px;
+  margin: 0 -2px -3px -8px;
+  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center bottom / contain no-repeat;
+  opacity: 0.92;
+}
+
+.letter-list-empty {
+  display: grid;
+  min-height: 150px;
+  gap: 10px;
+  align-content: center;
+  padding: 22px;
+  border: 1px solid rgba(218, 224, 202, 0.92);
+  border-radius: 22px;
+  background: rgba(255, 254, 249, 0.92);
+}
+
+.letter-list-empty p {
+  margin: 0;
+  color: #64755b;
+  line-height: 1.55;
+}
+
+.letter-list-empty button {
+  justify-self: start;
+  min-height: 38px;
+}
+
+@media (max-width: 374px) {
+  .letter-list-heading h1 {
+    font-size: 34px;
+  }
+
+  .letter-list-page .letter-list-card {
+    min-height: 130px;
+    grid-template-columns: 58px minmax(0, 1fr) 62px;
+    gap: 7px;
+    padding: 10px 8px;
+  }
+
+  .letter-card-portrait {
+    width: 58px;
+    height: 58px;
+  }
+
+  .letter-card-illustration {
+    width: 62px;
+    height: 62px;
+  }
+
+  .letter-card-meta time {
+    font-size: 10px;
+  }
+
+  .letter-card-actions button {
+    font-size: 10px;
+  }
+}
+
+/* Page 12: compact, type-aware favorite cards. The remove action remains a
+   real per-record API delete rather than a detached first-row test control. */
+.favorite-list-page.goodnight-page {
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 10px;
+  padding-bottom: 96px;
+}
+
+.favorite-list-hero {
+  position: relative;
+  min-height: 128px;
+  overflow: hidden;
+  padding: 14px 0 8px;
+}
+
+.favorite-list-hero::before {
+  position: absolute;
+  top: -26px;
+  right: -12px;
+  width: 254px;
+  height: 168px;
+  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
+  content: "";
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.favorite-list-hero .back-icon,
+.favorite-list-heading {
+  position: relative;
+  z-index: 1;
+}
+
+.favorite-list-hero .back-icon {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gn-leaf-deep);
+  font-size: 36px;
+  line-height: 1;
+}
+
+.favorite-list-heading {
+  max-width: 295px;
+  margin: 14px 0 0 16px;
+}
+
+.favorite-list-heading h1 {
+  margin: 0;
+  color: #496d35;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.favorite-list-heading p {
+  margin: 10px 0 0;
+  color: #56723d;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.favorite-list-page .favorite-list-tabs {
+  width: 100%;
+  min-height: 48px;
+  justify-self: stretch;
+  padding: 4px;
+  border-color: rgba(118, 137, 88, 0.16);
+  background: rgba(255, 254, 249, 0.92);
+}
+
+.favorite-list-page .favorite-list-tabs button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 5px 7px;
+  color: #425a32;
+  font-size: 15px;
+}
+
+.favorite-tab-icon {
+  color: #697f48;
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.favorite-list-page .favorite-list-tabs button.active .favorite-tab-icon {
+  color: #fff;
+}
+
+.favorite-list-page .favorite-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 66px;
+  min-height: 106px;
+  overflow: hidden;
+  border-color: rgba(218, 224, 202, 0.92);
+  border-radius: 22px;
+  background: rgba(255, 254, 249, 0.97);
+  box-shadow: 0 10px 24px rgba(76, 90, 62, 0.08);
+}
+
+.favorite-list-page .favorite-main {
+  display: grid;
+  width: 100%;
+  min-height: 106px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.favorite-illustration {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border: 1px solid rgba(124, 144, 94, 0.12);
+  border-radius: 50%;
+  background:
+    url("./assets/goodnight/avatar-baby.png") center / cover no-repeat,
+    linear-gradient(145deg, #faf6e7, #eef4e7);
+}
+
+.favorite-illustration.is-post {
+  background-image: url("./assets/goodnight/square-baby-cutout.png"), linear-gradient(145deg, #faf6e7, #eef4e7);
+}
+
+.favorite-illustration.is-diary {
+  background-image: url("./assets/goodnight/tool-baby-letter-cutout.png"), linear-gradient(145deg, #faf6e7, #eef4e7);
+}
+
+.favorite-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.favorite-source {
+  color: #638044;
+  font-size: 12px;
+}
+
+.favorite-source b {
+  margin-left: 5px;
+  font-weight: 650;
+}
+
+.favorite-copy strong {
+  overflow: hidden;
+  color: #303b31;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.favorite-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #3f4940;
+  font-size: 12px;
+  line-height: 1.42;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.favorite-copy small {
+  color: #858a82;
+  font-size: 10px;
+}
+
+.favorite-remove {
+  display: grid;
+  min-height: 0;
+  place-content: center;
+  justify-items: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border: 0;
+  border-left: 1px solid rgba(118, 136, 90, 0.1);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #668044;
+  font-size: 12px;
+}
+
+.favorite-remove > span {
+  color: #eea625;
+  font-size: 27px;
+  line-height: 1;
+}
+
+.favorite-remove:hover {
+  background: rgba(247, 245, 230, 0.7);
+}
+
+.favorite-list-empty {
+  display: grid;
+  min-height: 144px;
+  gap: 10px;
+  align-content: center;
+  padding: 22px;
+  border: 1px solid rgba(218, 224, 202, 0.92);
+  border-radius: 22px;
+  background: rgba(255, 254, 249, 0.92);
+}
+
+.favorite-list-empty strong {
+  color: #416037;
+  font-size: 16px;
+}
+
+.favorite-list-empty p {
+  margin: 0;
+  color: #64755b;
+  line-height: 1.55;
+}
+
+.favorite-list-slogan {
+  min-height: 54px;
+  margin: 0;
+  padding: 17px 84px 14px 18px;
+  border: 1px solid rgba(218, 224, 202, 0.78);
+  border-radius: 24px;
+  background:
+    url("./assets/goodnight/tool-baby-letter-cutout.png") right 12px bottom / 72px auto no-repeat,
+    linear-gradient(145deg, #fffdf2, #f4f4e7);
+  color: #59733d;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+@media (max-width: 374px) {
+  .favorite-list-heading h1 {
+    font-size: 34px;
+  }
+
+  .favorite-list-page .favorite-main {
+    grid-template-columns: 60px minmax(0, 1fr);
+    min-height: 100px;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .favorite-illustration {
+    width: 60px;
+    height: 60px;
+  }
+
+  .favorite-list-page .favorite-card {
+    min-height: 100px;
+    grid-template-columns: minmax(0, 1fr) 58px;
+  }
+}
+
+/* Final mobile density pass for the persisted diary, letter and favorite lists. */
+.letter-list-hero {
+  min-height: 128px;
+  padding: 12px 0 6px;
+}
+
+.letter-list-hero::before {
+  top: -14px;
+  right: -24px;
+  width: 286px;
+  height: 190px;
+}
+
+.letter-list-hero .back-icon {
+  width: 32px;
+  min-height: 32px;
+  font-size: 33px;
+}
+
+.letter-list-heading { margin-top: 8px; }
+.letter-list-heading h1 { font-size: 35px; }
+.letter-list-heading p { margin-top: 5px; font-size: 14px; }
+
+.letter-list-page .letter-list-tabs {
+  margin-left: 7px;
+  min-height: 40px;
+}
+
+.letter-list-page .letter-list-card {
+  min-height: 128px;
+  grid-template-columns: 60px minmax(0, 1fr) 70px;
+  gap: 8px;
+  padding: 10px 9px;
+}
+
+.letter-card-portrait { width: 60px; height: 60px; }
+.letter-card-illustration { width: 70px; height: 70px; margin-right: -2px; }
+.letter-card-copy { gap: 3px; }
+.letter-card-meta { gap: 5px; }
+.letter-card-meta .tag { padding: 3px 7px; font-size: 10px; }
+.letter-card-meta time { font-size: 10px; }
+.letter-card-copy > small { font-size: 11px; }
+.letter-card-copy > strong { font-size: 13px; }
+.letter-list-page .letter-list-card p { min-height: 30px; font-size: 11px; line-height: 1.35; }
+.letter-card-actions button { min-height: 22px; padding: 2px 3px; font-size: 10px; }
+
+.favorite-list-hero::before {
+  top: -18px;
+  right: -25px;
+  width: 286px;
+  height: 184px;
+}
+
+.favorite-list-heading h1 { font-size: 35px; }
+.favorite-list-heading p { margin-top: 6px; font-size: 14px; }
+
+.favorite-list-page .favorite-list-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 49px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.favorite-list-page .favorite-list-tabs button {
+  min-width: 0;
+  min-height: 45px;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid rgba(118, 137, 88, .16);
+  border-radius: 24px;
+  background: rgba(255, 254, 249, .92);
+  font-size: 14px;
+}
+
+.favorite-list-page .favorite-list-tabs button.active {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #8ba45d, #607d39);
+  box-shadow: 0 8px 17px rgba(86, 112, 51, .18);
+}
+
+.favorite-list-page .favorite-list-tabs button.active .favorite-tab-icon { color: #fff; }
+.favorite-tab-icon { font-size: 17px; }
+
+.favorite-list-empty { min-height: 128px; padding: 18px; }
+.favorite-list-slogan { min-height: 50px; padding-top: 14px; padding-bottom: 12px; font-size: 15px; }
+
+@media (max-width: 374px) {
+  .letter-list-heading h1, .favorite-list-heading h1 { font-size: 31px; }
+  .letter-list-page .letter-list-card { grid-template-columns: 54px minmax(0, 1fr) 58px; }
+  .letter-card-portrait { width: 54px; height: 54px; }
+  .letter-card-illustration { width: 58px; height: 58px; }
+  .favorite-list-page .favorite-list-tabs { gap: 6px; }
+  .favorite-list-page .favorite-list-tabs button { font-size: 13px; }
+}
+
+/* Native-reference alignment for the first seven front views.  These rules
+   only correct the shared handset gutters and ornamental header layer; all
+   post, diary, letter and AI values remain the live API values. */
+.phone-shell:has(.square-page),
+.phone-shell:has(.mood-create-page),
+.phone-shell:has(.detail-page),
+.phone-shell:has(.letter-page),
+.phone-shell:has(.tool-page) {
+  padding-inline: 18px;
+}
+
+.square-page .square-hero,
+.mood-create-page .compact-hero,
+.detail-page .detail-top,
+.letter-page .letter-hero,
+.tool-page .tool-hero {
+  max-width: none;
+  margin-right: -18px;
+  margin-left: -18px;
+}
+
+/* The reference frame keeps the title high in its fixed-height header and
+   puts the complete filter strip immediately below it. */
+.square-page .square-hero .hero-copy {
+  margin-top: 3px;
+  margin-left: 4px;
+}
+
+.square-page .square-hero .hero-copy h1 {
+  font-size: 48px;
+  line-height: 1.05;
+}
+
+.mood-create-page .compact-hero .hero-copy {
+  margin-top: 38px;
+  margin-left: 3px;
+}
+
+.mood-create-page .compact-hero .hero-copy h1 {
+  font-size: 44px;
+  line-height: 1.06;
+}
+
+.square-page .mood-filter-row {
+  max-width: none;
+  height: 46px;
+  min-height: 46px;
+  max-height: 46px;
+  margin-right: -18px;
+  margin-left: -18px;
+  padding-inline: 15px;
+}
+
+.phone-shell:has(.square-page) .tabbar {
+  bottom: 0;
+  height: 54px;
+  min-height: 54px;
+  padding: 5px 8px;
+  border-radius: 22px;
+}
+
+.phone-shell:has(.square-page) .tabbar a {
+  min-height: 42px;
+  font-size: 11px;
+}
+
+.phone-shell:has(.square-page) .tab-icon {
+  font-size: 20px;
+}
+
+.square-page .write-fab {
+  bottom: calc(85px + env(safe-area-inset-bottom));
+}
+
+/* The detail design uses a tree layer that continues around the upper card.
+   Let the existing asset paint beyond the compact semantic topbar while the
+   real card remains above it. */
+.detail-page .detail-top {
+  overflow: visible;
+}
+
+.detail-page .detail-card {
+  position: relative;
+  z-index: 1;
+}
+
+/* Page 07 has no hero element, so its decorative tree belongs to the page
+   pseudo-element.  This changes only the background extent, never the AI
+   result state or input data. */
+.decompose-page::before {
+  top: -6px;
+  right: -28px;
+  width: 228px;
+  height: 174px;
+  opacity: 0.7;
+}
+
+/* Native-reference refinement for pages 08–12.  These are deliberately
+   isolated from the first-seven pass above: they only tune the document
+   composition around live data, never replace the data-driven cards. */
+.report-page .report-topbar {
+  transform: translateY(11px);
+}
+
+.report-page .report-brand {
+  margin-top: 6px;
+}
+
+/* Page 06 uses separately extracted, reusable illustration assets.  Keep the
+   live links and copy in DOM, but place those assets on the same handset grid
+   used by the supplied reference instead of scaling each image through a
+   generic card rule. */
+.tool-page .tool-hero::before {
+  top: 32.9px;
+  right: auto;
+  bottom: auto;
+  left: 214.77px;
+  width: 214.77px;
+  height: 113.33px;
+  background-image: url("./assets/goodnight/tree-top-cutout.png");
+  background-size: 100% 100%;
+}
+
+.tool-page .feature-card::after {
+  top: 14.9px;
+  right: 19px;
+  bottom: auto;
+  width: 118.81px;
+  height: 128px;
+  background-image: url("./assets/goodnight/tool-baby-letter-cutout.png");
+  background-size: 100% 100%;
+  filter: none;
+}
+
+.tool-page .tool-tile {
+  grid-template-columns: 66.25px minmax(0, 1fr);
+  gap: 5px;
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.tool-page .tool-icon {
+  width: 66.25px;
+  height: 66.25px;
+  transform: translateY(4px);
+}
+
+.tool-page .tool-copy strong {
+  font-size: 13.5px;
+}
+
+.tool-page .bottom-slogan {
+  top: -4px;
+}
+
+/* Each reference uses the same reusable tree crop at a different position.
+   Keep those positions page-scoped: a global hero transform would move live
+   controls and cards together with a decorative asset. */
+.square-page .square-hero::before,
+.mood-create-page .compact-hero::before,
+.detail-page .detail-top::before,
+.letter-page .letter-hero::before,
+.me-page .me-hero::before {
+  right: auto;
+  bottom: auto;
+  background-image: url("./assets/goodnight/tree-top-cutout.png");
+  background-size: 100% 100%;
+  /* This is a decorative blend, not a visual-test mask. The supplied tree
+     crop has a light paper matte; retaining the edge fade lets the real
+     illustration merge with each live hero instead of exposing a rectangle. */
+  opacity: .94;
+  filter: drop-shadow(0 12px 18px rgba(92, 95, 60, 0.08));
+  mix-blend-mode: multiply;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
+}
+
+.square-page .square-hero::before {
+  top: 30.16px;
+  left: 215.23px;
+  width: 214.77px;
+  height: 113.33px;
+}
+
+.mood-create-page .compact-hero::before {
+  top: 42.04px;
+  left: 245.85px;
+  width: 182.55px;
+  height: 96.34px;
+}
+
+.detail-page .detail-top::before {
+  top: 28.79px;
+  left: 233.05px;
+  width: 193.29px;
+  height: 102px;
+}
+
+.detail-page:has(.sheet-mask) .detail-top::before {
+  top: 29.7px;
+  left: 246.31px;
+  width: 182.55px;
+  height: 96.34px;
+}
+
+.letter-page .letter-hero::before {
+  top: 39.76px;
+  left: 268.69px;
+  width: 161.08px;
+  height: 84.97px;
+}
+
+.me-page .me-hero::before {
+  top: 40.67px;
+  left: 217.97px;
+  width: 204.03px;
+  height: 107.63px;
+}
+
+.square-page .square-hero h1,
+.mood-create-page .compact-hero h1,
+.detail-page .detail-top h1,
+.letter-page .letter-hero h1,
+.tool-page .tool-hero h1,
+.me-page .me-hero h1 {
+  font-family: var(--gn-font-display);
+  font-weight: 400;
+}
+
+
+.square-page .square-hero::after,
+.mood-create-page .compact-hero::after,
+.detail-page .detail-top::after,
+.letter-page .letter-hero::after,
+.me-page .me-hero::after {
+  display: none;
+}
+
+.decompose-page::before,
+.diary-list-page::before,
+.report-hero::before,
+.letter-list-hero::before,
+.favorite-list-hero::before {
+  right: auto;
+  bottom: auto;
+  background-image: url("./assets/goodnight/tree-top-cutout.png");
+  background-size: 100% 100%;
+  /* Same real decorative matte treatment for the document/list headers. */
+  opacity: .92;
+  filter: drop-shadow(0 12px 18px rgba(92, 95, 60, 0.08));
+  mix-blend-mode: multiply;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
+}
+
+.decompose-page::before {
+  top: 42.96px;
+  left: 229.94px;
+  width: 182.55px;
+  height: 96.34px;
+}
+
+.diary-list-page::before {
+  top: 37.93px;
+  left: 195.2px;
+  width: 214.77px;
+  height: 113.33px;
+}
+
+.report-hero::before {
+  top: 35.64px;
+  left: 212.11px;
+  width: 193.29px;
+  height: 102px;
+}
+
+.letter-list-hero::before {
+  top: 44.78px;
+  left: 210.74px;
+  width: 204.03px;
+  height: 107.63px;
+}
+
+.favorite-list-hero::before {
+  top: 28.33px;
+  left: 210.74px;
+  width: 204.03px;
+  height: 107.63px;
+}
+
+/* The reply-sheet reference darkens the underlying post but keeps it legible;
+   the generic sheet blur is reserved for other modal contexts. */
+.detail-page .reply-sheet-mask {
+  backdrop-filter: none;
+}
+
+/* A completed, persisted decomposition remains an ordinary result state. Keep
+   its headings, fields, and actions in the same handset order as the design
+   instead of expanding arbitrary AI prose into the first viewport. */
+.decompose-page .decompose-result-section {
+  display: grid;
+  gap: 2px;
+}
+
+.decompose-page .decompose-result-section > h2 {
+  margin: 0 14px;
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-display);
+  font-size: 23px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.decompose-page .decompose-result-section .decompose-result-card {
+  display: grid;
+  gap: 0;
+  padding: 14px;
+}
+
+.decompose-page .decompose-result-section .result-block {
+  min-height: 44px;
+  padding: 7px 0;
+}
+
+.decompose-page .decompose-result-section .result-block span {
+  font-family: var(--gn-font-display);
+  font-size: 15px;
+}
+
+.decompose-page .decompose-result-section .result-block p {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.decompose-page .decompose-summary {
+  margin-top: 8px;
+  color: #5e7850;
+  font-size: 12px;
+}
+
+.decompose-page .decompose-summary summary {
+  cursor: pointer;
+}
+
+.decompose-page .decompose-summary p {
+  margin: 8px 0 0;
+  color: #657062;
+  line-height: 1.55;
+}
+
+.decompose-page .decompose-result-section > .sheet-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.decompose-page .decompose-result-section > .sheet-actions button {
+  min-width: 0;
+  min-height: 42px;
+  padding: 6px 4px;
+  font-size: 13px;
+}
+
+/* The persisted decomposition result follows the supplied reading rhythm:
+   stable four-field rows, compact real copy, and a separate gentle note.
+   It deliberately keeps all AI text in DOM rather than turning result state
+   into a static reference image. */
+.decompose-page .decompose-input-card {
+  min-height: 211px;
+}
+
+.decompose-page .decompose-input-card h2 {
+  color: #526e36;
+  font-family: var(--gn-font-display);
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.decompose-page .decompose-result-section {
+  gap: 6px;
+}
+
+.decompose-page .decompose-result-section > h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 13px;
+  font-size: 24px;
+}
+
+.decompose-result-title-mark {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  color: #9baa6b;
+  font-family: "KaiTi", "STKaiti", serif;
+  font-size: 25px;
+  line-height: 1;
+  transform: rotate(-18deg);
+}
+
+.decompose-page .decompose-result-section .decompose-result-card {
+  box-sizing: border-box;
+  grid-template-rows: repeat(4, minmax(0, 1fr)) auto;
+  min-height: 272px;
+  height: 272px;
+  padding: 0 14px;
+  overflow: hidden;
+}
+
+.decompose-page .decompose-result-section .result-block {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  min-height: 0;
+  padding: 5px 0;
+  border-bottom-color: rgba(160, 170, 129, 0.28);
+}
+
+.decompose-page .decompose-result-section .result-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border: 1px solid rgba(218, 208, 175, 0.5);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #fffefa 0 30%, #f6f1e3 72%, #ece5d1 100%);
+  color: #7b9350;
+  font-family: "KaiTi", "STKaiti", serif;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.decompose-page .result-block[data-tone="emotion"] .result-icon {
+  color: #cf887e;
+}
+
+.decompose-page .result-block[data-tone="need"] .result-icon {
+  color: #72935d;
+}
+
+.decompose-page .result-block[data-tone="action"] .result-icon {
+  color: #93a06f;
+}
+
+.decompose-page .decompose-result-section .result-copy {
+  min-width: 0;
+}
+
+.decompose-page .decompose-result-section .result-block strong {
+  display: block;
+  color: #4e6c37;
+  font-family: var(--gn-font-display);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.decompose-page .decompose-result-section .result-block p {
+  margin: 4px 0 0;
+  color: #596364;
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.decompose-page .decompose-summary {
+  display: none;
+}
+
+.decompose-page .decompose-result-section > .sheet-actions {
+  gap: 9px;
+  margin: 4px 0 0;
+}
+
+.decompose-page .decompose-result-section > .sheet-actions button {
+  min-height: 40px;
+  border-color: rgba(196, 201, 173, 0.64);
+  border-radius: 21px;
+  background: rgba(255, 254, 250, 0.88);
+  color: #506c39;
+  font-family: var(--gn-font-display);
+  font-size: 13px;
+}
+
+.decompose-page .decompose-result-section > .sheet-actions button.primary {
+  border-color: transparent;
+  background: linear-gradient(120deg, #849d5c, #66833f);
+  color: #fff;
+}
+
+.decompose-encouragement {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  min-height: 55px;
+  margin-top: 3px;
+  padding: 4px 14px 4px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(216, 211, 189, 0.68);
+  border-radius: 25px;
+  background: linear-gradient(110deg, #fffdf4, #f6f5e9);
+}
+
+.decompose-encouragement > span {
+  width: 68px;
+  height: 55px;
+  background: url("./assets/goodnight/tool-icon-decompose.png") center / contain no-repeat;
+}
+
+.decompose-encouragement p {
+  margin: 0;
+  color: #577242;
+  font-family: var(--gn-font-display);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Final reference geometry for the real decomposition state. The header uses
+   symmetric columns so its semantic title remains centred while the back
+   control can sit at the visual edge. */
+.decompose-page .rest-topbar {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  transform: translateY(-8px);
+}
+
+.decompose-page .rest-topbar h1 {
+  color: #262823;
+  font-family: var(--gn-font-display);
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.decompose-page .rest-topbar .back-icon {
+  margin-left: -18px;
+  color: #262823;
+}
+
+.decompose-page::before {
+  top: -4px;
+}
+
+.decompose-page .decompose-guide {
+  left: 20px;
+  padding-left: 36px;
+}
+
+.decompose-page .decompose-result-section {
+  gap: 2px;
+}
+
+.decompose-page {
+  gap: 8px;
+}
+
+.decompose-page .decompose-result-section > .sheet-actions button {
+  min-height: 32px;
+  padding-block: 4px;
+}
+
+/* Keep the page's two semantic blocks on the native handset rhythm. The
+   previous 8px grid gap pulled the real input and result above their intended
+   positions; this is layout spacing, not a comparison-only offset. */
+.decompose-page {
+  gap: 20px;
+}
+
+.decompose-page .decompose-input-card textarea {
+  min-height: 110px;
+  height: 110px;
+}
+
+/* The guide is absolute, so a local input margin is the honest way to keep
+   the whole live result stack aligned without doubling the input/result gap. */
+.decompose-page {
+  gap: 8px;
+}
+
+.decompose-page::before {
+  top: 42.96px;
+}
+
+.decompose-page .decompose-input-card {
+  box-sizing: border-box;
+  height: 211px;
+  min-height: 211px;
+  margin-top: 12px;
+  gap: 6px;
+}
+
+/* These three information-heavy views share the compact handset navigation
+   used by their supplied layouts. The control remains fixed and all pages
+   retain enough lower padding for real content to scroll above it. */
+.phone-shell:has(.diary-list-page) .tabbar,
+.phone-shell:has(.report-page) .tabbar,
+.phone-shell:has(.feedback-help-page) .tabbar {
+  bottom: 0;
+  height: 54px;
+  min-height: 54px;
+  padding: 5px 8px;
+  border-radius: 22px;
+}
+
+.phone-shell:has(.diary-list-page) .tabbar a,
+.phone-shell:has(.report-page) .tabbar a,
+.phone-shell:has(.feedback-help-page) .tabbar a {
+  min-height: 42px;
+  font-size: 11px;
+}
+
+.phone-shell:has(.diary-list-page) .tab-icon,
+.phone-shell:has(.report-page) .tab-icon,
+.phone-shell:has(.feedback-help-page) .tab-icon {
+  font-size: 20px;
+}
+
+.report-page .report-insight-card {
+  min-height: 148px;
+  padding: 13px;
+}
+
+.report-page .report-reflection {
+  min-height: 108px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  padding: 13px;
+}
+
+.report-page .reflection-illustration {
+  width: 72px;
+  height: 72px;
+}
+
+.report-page .report-reflection p {
+  -webkit-line-clamp: 2;
+}
+
+/* All tab routes share one compact, icon-led navigation footprint. Keeping
+   this geometry stable prevents a route change from moving content under a
+   fixed control while the links themselves remain the real router links. */
+.phone-shell .tabbar,
+.phone-shell:has(.square-page) .tabbar,
+.phone-shell:has(.letter-page) .tabbar,
+.phone-shell:has(.tool-page) .tabbar,
+.phone-shell:has(.me-page) .tabbar,
+.phone-shell:has(.diary-list-page) .tabbar,
+.phone-shell:has(.report-page) .tabbar,
+.phone-shell:has(.feedback-help-page) .tabbar {
+  bottom: 0;
+  height: 54px;
+  min-height: 54px;
+  padding: 5px 8px;
+  border-radius: 22px;
+}
+
+.phone-shell .tabbar a,
+.phone-shell:has(.square-page) .tabbar a,
+.phone-shell:has(.letter-page) .tabbar a,
+.phone-shell:has(.tool-page) .tabbar a,
+.phone-shell:has(.me-page) .tabbar a,
+.phone-shell:has(.diary-list-page) .tabbar a,
+.phone-shell:has(.report-page) .tabbar a,
+.phone-shell:has(.feedback-help-page) .tabbar a {
+  min-height: 42px;
+  font-size: 11px;
+}
+
+.phone-shell .tab-icon,
+.phone-shell:has(.square-page) .tab-icon,
+.phone-shell:has(.letter-page) .tab-icon,
+.phone-shell:has(.tool-page) .tab-icon,
+.phone-shell:has(.me-page) .tab-icon,
+.phone-shell:has(.diary-list-page) .tab-icon,
+.phone-shell:has(.report-page) .tab-icon,
+.phone-shell:has(.feedback-help-page) .tab-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  margin-bottom: 1px;
+  font-size: 0;
+  place-items: center;
+}
+
+.tab-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+/* The report has two distinct decorative elements: the page shell and the
+   report header. Keep the page-local header scene and remove only the shell
+   layer. List pages reuse a single `::before` pseudo-element through their
+   shared selector, so they must remain untouched. */
+.report-page::before {
+  display: none;
+  content: none;
+}

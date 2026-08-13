@@ -1,0 +1,100 @@
+[
+  {
+    "fileName": "01-square.png",
+    "pageSemantic": "广场",
+    "route": "/pages/square/index",
+    "source": "C:\\Users\\zyu33\\Downloads\\c03a68ee79bca6a5ce800a133cd2fe7d.png",
+    "copied": true
+  },
+  {
+    "fileName": "02-mood-create.png",
+    "pageSemantic": "写下心情",
+    "route": "/pages/mood/create",
+    "source": "C:\\Users\\zyu33\\Downloads\\239910cc6c7e40cdd5efdb9cd990b8af.png",
+    "copied": true
+  },
+  {
+    "fileName": "03-post-detail.png",
+    "pageSemantic": "树洞详情",
+    "route": "/pages/post/detail",
+    "source": "C:\\Users\\zyu33\\Downloads\\546a8933c78faa352abc646e576fc29c.png",
+    "copied": true
+  },
+  {
+    "fileName": "04-post-detail-reply-sheet.png",
+    "pageSemantic": "树洞详情-回复抽屉打开态",
+    "route": "/pages/post/detail?sheet=reply",
+    "source": "C:\\Users\\zyu33\\Downloads\\0d597efc40495c606e06b5aeba4145ad.png",
+    "copied": true
+  },
+  {
+    "fileName": "05-letter-today.png",
+    "pageSemantic": "今日回信",
+    "route": "/pages/letter/index",
+    "source": "C:\\Users\\zyu33\\Downloads\\afb493f27297d623ddaa46437e676b33.png",
+    "copied": true
+  },
+  {
+    "fileName": "06-tool-index.png",
+    "pageSemantic": "情绪工具",
+    "route": "/pages/tool/index",
+    "source": "C:\\Users\\zyu33\\Downloads\\8fe59c98897b7bdbf6f6b1e5d96ffaa4.png",
+    "copied": true
+  },
+  {
+    "fileName": "07-tool-decompose.png",
+    "pageSemantic": "情绪拆解",
+    "route": "/pages/tool/decompose",
+    "source": "C:\\Users\\zyu33\\Downloads\\32130ac7ba0d6e95b95457e6bbcf1a19.png",
+    "copied": true
+  },
+  {
+    "fileName": "08-me.png",
+    "pageSemantic": "我的",
+    "route": "/pages/me/index",
+    "source": "C:\\Users\\zyu33\\Downloads\\1d6850d25ead9b9866abc09856a6afb8.png",
+    "copied": true
+  },
+  {
+    "fileName": "09-diary-list.png",
+    "pageSemantic": "我的日记",
+    "route": "/pages/diary/list",
+    "source": "C:\\Users\\zyu33\\Downloads\\f9664ad292de04c55358151282565396.png",
+    "copied": true
+  },
+  {
+    "fileName": "10-report-month.png",
+    "pageSemantic": "情绪月报",
+    "route": "/pages/report/month",
+    "source": "C:\\Users\\zyu33\\Downloads\\c494f96ffa1ae4834bb9dee78fc2640b.png",
+    "copied": true
+  },
+  {
+    "fileName": "11-letter-list.png",
+    "pageSemantic": "我的回信",
+    "route": "/pages/letter/list",
+    "source": "C:\\Users\\zyu33\\Downloads\\20a8cb30e0d5c07e6ccb2b04911d7eae.png",
+    "copied": true
+  },
+  {
+    "fileName": "12-favorite-list.png",
+    "pageSemantic": "我的收藏",
+    "route": "/pages/favorite/list",
+    "source": "C:\\Users\\zyu33\\Downloads\\d21d86f3fe2a4b4fb461e5cd3a9eb72c.png",
+    "copied": true
+  },
+  {
+    "fileName": "13-privacy-settings.png",
+    "pageSemantic": "隐私设置",
+    "route": "/pages/settings/privacy",
+    "source": "C:\\Users\\zyu33\\Downloads\\d8669d703fcde0942de98a11cee350b3.png",
+    "copied": true
+  },
+  {
+    "fileName": "14-feedback-help.png",
+    "pageSemantic": "帮助与反馈",
+    "route": "/pages/feedback/index",
+    "source": "C:\\Users\\zyu33\\Downloads\\8a1c88b7f1a5f3f1c18485a53741a581.png",
+    "copied": true
+  }
+]

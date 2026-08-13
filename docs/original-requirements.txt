@@ -1,0 +1,1553 @@
+你是一个必须交付可运行结果的资深全栈工程代理。
+
+项目名称：晚安树洞。
+
+现在你要从 0 到 1 完整落地这个项目，不是做静态 UI，不是做 demo，不是只生成页面壳，而是做一个真正可运行、可联调、可测试、可部署、可持续扩展的完整工程。
+
+你必须进入“长任务执行模式”：
+- 不要每完成一个小步骤就停下来问我确认。
+- 不要只输出计划。
+- 不要说“我可以继续做”。
+- 除非遇到无法继续的致命阻塞，否则你必须自己判断、自己执行、自己修复、自己复测。
+- 每完成一个阶段必须写入 progress.md。
+- 如果上下文变长，优先读取 progress.md、docs 文档、当前代码和测试结果，不要重新猜需求。
+- 你必须持续执行：规划 -> 编码 -> 运行 -> 测试 -> 修复 -> 复测 -> 记录，直到达到交付标准。
+
+====================================================
+一、必须先读取的资料
+====================================================
+
+请先扫描并读取以下目录和文件：
+
+1. docs/
+   - docs/晚安树洞前后台联动与 Codex 落地总方案.docx
+   - 如果还存在其他晚安树洞相关 Word 文档，也必须读取。
+
+2. design_refs/front/
+   这是用户前台小程序参考图目录，共 14 张图，必须按语义映射为：
+   01 广场
+   02 写下心情
+   03 树洞详情
+   04 树洞详情-回复抽屉打开态
+   05 今日回信
+   06 情绪工具
+   07 情绪拆解
+   08 我的
+   09 我的日记
+   10 情绪月报
+   11 我的回信
+   12 我的收藏
+   13 隐私设置
+   14 帮助与反馈
+
+3. design_refs/admin/
+   这是管理员后台参考图目录，至少包含：
+   admin-login
+   admin-dashboard
+   admin-user-list
+   admin-post-content
+   admin-reply-moderation
+   admin-ai-provider-center
+   admin-ai-style-routing
+   admin-ai-job-log
+   admin-feedback-ticket
+   admin-system-settings
+
+如果 design_refs/admin 里的图片命名不规范，你必须先自动扫描图片内容和页面标题，生成：
+- design_refs/admin/admin.refs.manifest.json
+
+manifest 必须记录：
+- 文件名
+- 页面语义
+- 页面标题
+- 左侧菜单高亮项
+- 主要表格字段
+- 主要按钮
+- 是否有右侧详情栏
+- 对应路由
+
+====================================================
+二、最终交付目标
+====================================================
+
+你最终要交付一个 monorepo 工程，包含：
+
+1. 用户前台 apps/mp
+   - uni-app
+   - Vue 3
+   - TypeScript
+   - Pinia
+   - SCSS
+   - 支持 H5 预览
+   - 支持 mp-weixin 构建
+   - 页面必须尽量贴合 design_refs/front 的 14 张参考图
+   - 不是静态图，所有主链路必须能交互
+
+2. 管理员后台 apps/admin
+   - Web Admin
+   - Vue 3
+   - Vite
+   - TypeScript
+   - Pinia
+   - Vue Router
+   - TDesign Vue Next 作为基础组件库
+   - 必须按 design_refs/admin 的后台图实现
+   - 后台不是假页面，必须真实调用后端管理接口
+
+3. 统一业务后端 apps/api
+   - NestJS
+   - Prisma
+   - PostgreSQL
+   - Redis
+   - BullMQ
+   - MinIO
+   - LiteLLM
+   - REST API
+   - Swagger / OpenAPI
+   - JWT
+   - Admin RBAC
+   - Rate Limit
+   - Audit Log
+
+4. 共享包 packages/
+   - packages/shared-types
+   - packages/api-sdk
+   - packages/ui-tokens
+   - packages/config
+   - packages/test-utils
+
+5. 自动化测试与验收
+   - 单元测试
+   - API 测试
+   - 前台 E2E
+   - 后台 E2E
+   - 前后台联动 E2E
+   - 视觉回归测试
+   - 自动截图
+   - 自动 diff
+   - 自动修复循环
+
+====================================================
+三、核心原则，禁止违反
+====================================================
+
+1. 禁止只做 UI。
+2. 禁止只做静态页面。
+3. 禁止只做前台，不做后台。
+4. 禁止只做后台，不做前台。
+5. 禁止前台和后台各自写 mock 数据，假装联动。
+6. 禁止前台直接调用第三方 AI API。
+7. 禁止把 AI 模型写死成一家。
+8. 禁止把 FAQ、回复预设、反馈分类写死在前端常量里。
+9. 禁止把“树洞详情”和“回复抽屉打开态”拆成两个独立页面。
+10. 禁止把用户隐私设置和系统默认设置混成一张表。
+11. 禁止留下主链路 TODO。
+12. 禁止没有测试就说完成。
+13. 禁止视觉完全偏离参考图。
+14. 禁止直接照搬 GPL 仓库代码；可借鉴结构，不可整仓复制。
+
+前台和后台不得直接相互调用页面，也不得通过 localStorage 共享业务状态。
+正确结构必须是：
+
+用户前台 apps/mp
+  -> 调用 /api/v1/*
+
+管理员后台 apps/admin
+  -> 调用 /api/admin/v1/*
+
+统一业务后端 apps/api
+  -> 共享同一套 Domain Services
+  -> PostgreSQL / Redis / BullMQ / MinIO / LiteLLM
+
+前台和后台必须共享同一套数据库、领域模型和服务层。
+后台的审核、屏蔽、AI 路由、FAQ、回复预设、系统设置修改，必须真实影响前台展示和行为。
+
+====================================================
+四、推荐 monorepo 结构
+====================================================
+
+请创建如下目录结构：
+
+/
+  apps/
+    mp/
+    admin/
+    api/
+  packages/
+    shared-types/
+    api-sdk/
+    ui-tokens/
+    config/
+    test-utils/
+  design_refs/
+    front/
+    admin/
+  docs/
+  scripts/
+  prisma/
+  artifacts/
+    screenshots/
+    diffs/
+    test-report/
+  docker-compose.yml
+  pnpm-workspace.yaml
+  package.json
+  README.md
+  progress.md
+  .env.example
+
+====================================================
+五、开发顺序
+====================================================
+
+不要先死磕 UI 像素。
+最优执行顺序如下：
+
+阶段 0：读取资料与生成理解报告
+- 扫描 docs
+- 扫描 design_refs/front
+- 扫描 design_refs/admin
+- 生成 docs/implementation-plan.md
+- 生成 design_refs/admin/admin.refs.manifest.json
+- 生成 progress.md
+
+阶段 1：初始化工程骨架
+- 初始化 pnpm monorepo
+- 创建 apps/mp
+- 创建 apps/admin
+- 创建 apps/api
+- 创建 packages/shared-types
+- 创建 packages/ui-tokens
+- 创建 packages/test-utils
+- 配置 TypeScript strict
+- 配置 ESLint
+- 配置 Prettier
+
+阶段 2：后端优先
+- 建 Prisma schema
+- 建数据库迁移
+- 建 seed
+- 建 NestJS 模块
+- 建 Auth
+- 建 RBAC
+- 建前台 API
+- 建后台 API
+- 建 Swagger
+- 建 BullMQ 队列
+- 建 MinIO 上传
+- 建 LiteLLM / AI Router
+- 建 AuditLog
+
+阶段 3：前台主链路
+- 实现 4 个 tabBar 页
+- 实现所有非 tab 页
+- 实现回复抽屉、筛选抽屉、海报预览、详细建议、更多菜单、确认弹窗
+- 接入真实 API
+- 接入上传服务
+- 接入隐私授权
+- 接入月报图表
+
+阶段 4：后台管理端
+- 实现登录
+- 实现数据总览
+- 实现用户管理
+- 实现树洞内容
+- 实现回应审核
+- 实现 AI 配置中心
+- 实现风格路由
+- 实现 AI 任务记录
+- 实现反馈工单
+- 实现 FAQ 管理
+- 实现回复预设
+- 实现反馈分类
+- 实现系统设置
+- 接入真实后台 API
+- 接入权限控制
+
+阶段 5：联动闭环
+- 前台发布公开树洞 -> 后台审核 -> 前台广场展示
+- 前台发布回应 -> 后台审核 -> 前台详情页变化
+- 后台修改 AI 路由 -> 前台新 AI 任务使用新路由
+- 前台提交反馈 -> 后台回复 -> 前台可见状态变化
+- 后台更新 FAQ -> 前台帮助页刷新可见
+- 后台修改系统默认隐私 -> 新用户/新草稿生效，不覆盖老用户
+
+阶段 6：测试与自动修复
+- lint
+- typecheck
+- unit
+- api
+- e2e
+- visual
+- cross
+- qa:all
+- 失败后自动修复并复跑
+
+====================================================
+六、前台正式路由
+====================================================
+
+必须实现以下前台路由：
+
+TabBar 页面：
+- /pages/square/index
+- /pages/letter/index
+- /pages/tool/index
+- /pages/me/index
+
+非 Tab 页面：
+- /pages/mood/create
+- /pages/post/detail
+- /pages/tool/decompose
+- /pages/diary/list
+- /pages/report/month
+- /pages/letter/list
+- /pages/favorite/list
+- /pages/settings/privacy
+- /pages/feedback/index
+
+必须实现的隐式状态：
+- /pages/post/detail 内的回复抽屉状态
+- /pages/post/detail 内的更多菜单 action sheet
+- /pages/diary/list 内的筛选抽屉
+- /pages/report/month 内的分享海报预览
+- /pages/report/month 内的详细建议弹层或子视图
+- 删除确认弹窗
+- 清空记录确认弹窗
+- 空状态
+- 加载态
+- 错误态
+- 重试态
+
+路由规则：
+- switchTab 只用于 4 个 tabBar 页面。
+- navigateTo 只用于非 tabBar 页面。
+- navigateBack 用于返回。
+- 不允许用 switchTab 打开详情页。
+- 不允许把回复抽屉做成独立页面。
+
+====================================================
+七、前台页面功能要求
+====================================================
+
+1. 广场页 /pages/square/index
+必须实现：
+- 情绪分类筛选：委屈、焦虑、失眠、恋爱、工作、全部
+- 树洞列表
+- 抱抱数
+- 回应数
+- AI 温柔回应数量
+- 点击卡片进入树洞详情
+- 点击写心情进入 /pages/mood/create
+- 下拉刷新
+- 分页加载
+- 空状态
+- 加载态
+
+2. 写下心情 /pages/mood/create
+必须实现：
+- 文本输入
+- 字数统计
+- 心情选择
+- 仅自己可见 / 匿名发布到广场
+- 选择想收到的回应风格
+- 添加图片，最多 2 张
+- 发布心情
+- 如果仅自己可见：创建 Mood / Diary / Letter 任务
+- 如果匿名发布到广场：创建 Mood + Post，并进入审核流程
+- 发布成功后跳转正确页面
+- 图片上传失败可重试
+
+3. 树洞详情 /pages/post/detail
+必须实现：
+- 帖子详情
+- AI / 真人回应列表
+- 5 种风格回应
+- 抱抱
+- 收藏
+- 快捷回应
+- 写下回应输入框
+- 回复抽屉 bottom sheet
+- 匿名回复开关
+- 可见范围
+- 发布回应
+- 更多菜单：举报、屏蔽、删除、复制
+- 被后台拦截的回应前台不得展示
+
+4. 今日回信 /pages/letter/index
+必须实现：
+- 今日回信
+- 风格切换：温柔、理性、轻松、文艺
+- 换一种风格
+- 保存到日记
+- 分享图片
+- 今日小建议
+- 调用 AI 任务
+- AI 失败时温和兜底
+
+5. 情绪工具 /pages/tool/index
+必须实现：
+- 一键生成温柔回信
+- 情绪拆解
+- 负面改写
+- 发疯文案
+- 治愈短句
+- 失眠安慰
+- 工作破防
+- 写给未来的自己
+- 情绪月报
+- 工具入口可以由后台配置排序和文案
+
+6. 情绪拆解 /pages/tool/decompose
+必须实现：
+- 输入情绪文本
+- 开始拆解
+- 返回触发事件、核心情绪、真实需求、可以先做的小事
+- 保存到日记
+- 复制结果
+- 重新拆解
+- AI 任务进入队列并记录
+
+7. 我的 /pages/me/index
+必须实现：
+- 用户资料
+- 情绪成长卡
+- 我的日记入口
+- 我的回信入口
+- 我的收藏入口
+- 情绪月报入口
+- 隐私设置入口
+- 帮助与反馈入口
+- 清空记录入口
+- 清空确认弹窗
+
+8. 我的日记 /pages/diary/list
+必须实现：
+- 按月份筛选
+- 按情绪筛选
+- 是否已有回信筛选
+- 日记列表
+- 点击已有回信进入回信详情
+- 写新日记入口
+- 筛选抽屉
+
+9. 情绪月报 /pages/report/month
+必须实现：
+- 本月记录天数
+- 高频情绪
+- 温柔回应次数
+- 情绪趋势图
+- 情绪分布图
+- 高频关键词
+- AI 总结
+- 生成分享图
+- 查看详细建议
+- 海报预览
+- 保存到相册隐私授权
+
+10. 我的回信 /pages/letter/list
+必须实现：
+- 全部 / 未读 / 已收藏筛选
+- 回信列表
+- 来源日记或广场树洞
+- 查看全文
+- 收藏
+- 未读红点
+
+11. 我的收藏 /pages/favorite/list
+必须实现：
+- 回信 / 树洞 / 日记筛选
+- 收藏列表
+- 取消收藏
+- 点击进入对应详情
+
+12. 隐私设置 /pages/settings/privacy
+必须实现：
+- 默认仅自己可见
+- 匿名发布到广场
+- 允许接收真人回应
+- 情绪月报可生成分享图
+- 清空本地缓存
+- 导出我的日记
+- 账号与数据说明
+- 用户隐私设置必须保存到 PrivacySetting
+
+13. 帮助与反馈 /pages/feedback/index
+必须实现：
+- FAQ 列表
+- 查看全部问题
+- 提交反馈
+- 反馈截图上传，最多 4 张
+- 紧急支持说明
+- FAQ、反馈分类必须来自后台配置，不允许写死
+
+====================================================
+八、后台正式路由
+====================================================
+
+必须实现以下后台路由：
+
+- /login
+- /dashboard
+- /users
+- /posts
+- /replies/moderation
+- /ai/providers
+- /ai/routes
+- /ai/jobs
+- /ops/feedback
+- /ops/faqs
+- /ops/reply-presets
+- /ops/feedback-categories
+- /ops/config
+- /audit-logs
+
+如果为了简洁，可以把 FAQ、回复预设、反馈分类放进 /ops/config 或 /ops/feedback 的二级 Tab，但功能不能缺失，API 不能缺失。
+
+====================================================
+九、后台页面功能要求
+====================================================
+
+1. 登录页 /login
+- 管理员账号
+- 密码
+- 验证码或安全提示
+- 记住我
+- 登录
+- 登录失败提示
+- JWT 保存
+- 路由守卫
+
+2. 数据总览 /dashboard
+- 今日新增用户
+- 今日树洞发布
+- 待审核内容
+- AI 成功率
+- 最近 7 天活跃趋势
+- 情绪分类分布
+- 最新树洞动态
+- AI 任务概览
+- 快捷操作：审核内容、查看 AI 配置、处理反馈
+
+3. 用户管理 /users
+- 用户搜索
+- 用户状态筛选
+- 注册时间筛选
+- 用户列表
+- 用户详情侧栏
+- 用户状态：正常、限制、封禁
+- 操作：查看、禁言、恢复、备注、删除
+- 用户隐私偏好只可查看或有限调整，不得粗暴覆盖用户选择
+
+4. 树洞内容 /posts
+必须补齐，不允许遗漏。
+- 搜索内容
+- 情绪分类筛选
+- 可见范围筛选
+- 审核状态筛选
+- 时间筛选
+- 帖子列表
+- 查看帖子详情
+- 查看图片
+- 查看举报数
+- 审核通过
+- 隐藏
+- 删除
+- 标记高风险
+- 重新生成 AI 回应
+- 后台审核结果必须影响前台广场和详情页
+
+5. 回应审核 /replies/moderation
+- 全部回应
+- 用户回应
+- AI 回应
+- 待审核
+- 已拦截
+- 风险等级
+- 回应详情
+- 通过
+- 拦截
+- 修改后通过
+- 操作记录
+- 后台审核结果必须影响前台 replies 返回
+
+6. AI 配置中心 /ai/providers
+必须支持多模型，不允许只有一家。
+字段包括：
+- 供应商
+- 模型名称
+- 类型：本地 / 云端 / 模板
+- 调用地址
+- API Key 状态
+- 用途
+- 优先级
+- 状态：启用 / 备用 / 停用
+- 失败率
+- 平均耗时
+- 今日调用量
+- 每日上限
+- 操作：编辑、测试、启用、停用
+
+默认 seed 至少包含：
+- 本地模型 / Qwen2.5-1.5B
+- DeepSeek / deepseek-chat
+- Kimi / moonshot-v1-128k
+- 豆包 / doubao-pro
+- OpenAI / gpt-4o-mini
+- Claude / claude-3-haiku
+- 模板兜底 / fallback-template
+
+API Key 不允许明文展示。
+只能展示已配置 / 未配置 / 有效 / 失效。
+支持重新配置。
+
+7. 风格路由 /ai/routes
+前端展示的是风格，不是模型。
+必须实现以下风格：
+- warm 暖心陪伴
+- rational 理性分析
+- light 轻松一下
+- clear 清醒提醒
+- poetic 诗意治愈
+
+每个风格必须支持：
+- 主模型
+- 备用模型
+- 兜底模板
+- Prompt 版本
+- 启用状态
+- 测试生成
+- 保存配置
+
+示例：
+warm: 本地 Qwen -> DeepSeek -> 模板兜底
+rational: DeepSeek -> 本地 Qwen -> 模板兜底
+light: 本地 Qwen -> 豆包 -> 模板兜底
+clear: DeepSeek -> OpenAI -> 模板兜底
+poetic: Kimi -> Qwen -> 模板兜底
+
+8. AI 任务记录 /ai/jobs
+- 任务 ID
+- 用户 ID
+- 内容 ID
+- 任务类型
+- 风格
+- 供应商 / 模型
+- 状态：成功、排队、失败、兜底完成
+- 耗时
+- 失败原因
+- 创建时间
+- 查看详情
+- 重试
+- 切换模型重试
+- 使用模板兜底
+- 任务 trace
+
+任务类型至少包括：
+- 树洞温柔回应
+- 今日回信
+- 情绪拆解
+- 月报总结
+- 月报建议
+- 月报海报文案
+- 安全审核
+
+9. 反馈工单 /ops/feedback
+- 待处理工单
+- 今日新增反馈
+- 高优先级
+- 已解决
+- 工单列表
+- 来源页面
+- 问题类型
+- 截图
+- 回复用户
+- 标记已解决
+- 处理记录
+- 后台回复必须回写到前台可见状态
+
+10. FAQ 管理 /ops/faqs
+- FAQ 列表
+- 新增 FAQ
+- 编辑 FAQ
+- 删除 FAQ
+- 排序
+- 启用 / 停用
+- 前台帮助页必须从这里读取
+
+11. 回复预设 /ops/reply-presets
+- 快捷短语列表
+- 适用场景
+- 启用 / 停用
+- 排序
+- 前台回复抽屉必须从这里读取
+
+12. 反馈分类 /ops/feedback-categories
+- 分类名称
+- 排序
+- 启用 / 停用
+- 前台反馈页必须从这里读取
+
+13. 系统设置 /ops/config
+必须区分 SystemSetting 和 PrivacySetting。
+系统设置影响平台默认策略，不得直接覆盖历史用户隐私偏好。
+配置包括：
+- 小程序名称
+- 默认发布可见范围
+- 默认分页数量
+- 高危词拦截开关
+- 人工审核阈值
+- 允许真人回应默认值
+- 本地模型优先
+- 云模型备用
+- AI 请求超时时间
+- 日志保留天数
+- 数据导出
+- 异常邮件通知
+- 隐私协议更新时间
+
+14. 审计日志 /audit-logs
+- 管理员
+- 操作类型
+- 操作对象
+- 操作前
+- 操作后
+- IP
+- UserAgent
+- 时间
+
+====================================================
+十、数据库领域模型
+====================================================
+
+必须使用 Prisma 建模，至少实现以下实体：
+
+User
+- id
+- openid
+- nickname
+- anonymousCode
+- avatarUrl
+- status
+- createdAt
+- updatedAt
+
+AdminUser
+- id
+- username
+- passwordHash
+- displayName
+- roleId
+- status
+- lastLoginAt
+- createdAt
+- updatedAt
+
+AdminRole
+- id
+- code
+- name
+- permissions
+
+PrivacySetting
+- id
+- userId
+- defaultVisibility
+- allowAnonymousPublic
+- allowHumanReplies
+- allowMonthlyReportShare
+- createdAt
+- updatedAt
+
+SystemSetting
+- id
+- key
+- value
+- description
+- updatedBy
+- updatedAt
+
+Mood
+- id
+- userId
+- emotion
+- content
+- visibility
+- riskLevel
+- riskScore
+- status
+- createdAt
+- updatedAt
+
+Post
+- id
+- moodId
+- userId
+- emotion
+- content
+- visibility
+- status
+- reviewStatus
+- hugCount
+- replyCount
+- favoriteCount
+- reportCount
+- publishedAt
+- createdAt
+- updatedAt
+
+Reply
+- id
+- postId
+- userId nullable
+- type: USER / AI
+- style
+- content
+- status
+- riskLevel
+- likeCount
+- aiJobId nullable
+- createdAt
+- updatedAt
+
+Letter
+- id
+- userId
+- sourceMoodId nullable
+- style
+- title
+- content
+- status
+- savedToDiary
+- createdAt
+- updatedAt
+
+Diary
+- id
+- userId
+- moodId nullable
+- letterId nullable
+- emotion
+- content
+- hasLetter
+- createdAt
+- updatedAt
+
+Favorite
+- id
+- userId
+- targetType
+- targetId
+- createdAt
+
+MonthlyReport
+- id
+- userId
+- month
+- recordDays
+- topEmotion
+- replyCount
+- trendJson
+- distributionJson
+- keywordsJson
+- summary
+- createdAt
+- updatedAt
+
+ReportAdvice
+- id
+- reportId
+- content
+- createdAt
+
+Asset
+- id
+- userId
+- bucket
+- objectKey
+- url
+- mimeType
+- size
+- usageType
+- status
+- createdAt
+
+FeedbackTicket
+- id
+- userId
+- categoryId
+- sourcePage
+- content
+- status
+- priority
+- reply
+- repliedBy
+- repliedAt
+- createdAt
+- updatedAt
+
+FeedbackCategory
+- id
+- name
+- sortOrder
+- enabled
+
+FaqItem
+- id
+- question
+- answer
+- sortOrder
+- enabled
+- createdAt
+- updatedAt
+
+ReplyPreset
+- id
+- text
+- scene
+- sortOrder
+- enabled
+- createdAt
+- updatedAt
+
+HugAction
+- id
+- userId
+- postId
+- presetCode
+- createdAt
+
+AIProvider
+- id
+- name
+- type
+- baseUrl
+- modelName
+- apiKeySecretRef
+- enabled
+- priority
+- dailyLimit
+- timeoutSeconds
+- failoverEnabled
+- usageTags
+- createdAt
+- updatedAt
+
+AIStyleRoute
+- id
+- style
+- primaryProviderId
+- backupProviderId
+- fallbackTemplateId
+- promptVersion
+- promptTemplate
+- enabled
+- updatedAt
+
+AIJob
+- id
+- userId
+- contentId
+- contentType
+- jobType
+- style
+- providerId
+- modelName
+- status
+- promptSummary
+- result
+- errorMessage
+- durationMs
+- retryCount
+- traceJson
+- createdAt
+- updatedAt
+
+ModerationLog
+- id
+- targetType
+- targetId
+- action
+- reason
+- operatorId
+- createdAt
+
+AuditLog
+- id
+- adminUserId
+- action
+- resourceType
+- resourceId
+- beforeJson
+- afterJson
+- ip
+- userAgent
+- createdAt
+
+要求：
+- 所有枚举必须清晰。
+- 所有外键必须完整。
+- 常用查询字段必须加索引。
+- 软删除和状态字段要区分。
+- seed 必须创建演示用户、演示帖子、演示回复、演示后台账号、演示 AI 配置。
+
+====================================================
+十一、前台 API
+====================================================
+
+必须实现以下前台 API：
+
+GET    /api/v1/posts
+GET    /api/v1/posts/:id
+POST   /api/v1/posts/:id/hug
+POST   /api/v1/posts/:id/favorite
+POST   /api/v1/posts/:id/report
+DELETE /api/v1/posts/:id
+
+POST   /api/v1/moods
+POST   /api/v1/moods/:id/queue-ai-replies
+
+GET    /api/v1/posts/:id/replies
+GET    /api/v1/reply-presets
+POST   /api/v1/posts/:id/replies
+
+GET    /api/v1/letters/today
+GET    /api/v1/letters/:id
+GET    /api/v1/letters
+POST   /api/v1/letters/:id/regenerate
+POST   /api/v1/letters/:id/poster
+POST   /api/v1/letters/:id/save-to-diary
+
+GET    /api/v1/tools
+POST   /api/v1/tools/emotion-decompose
+POST   /api/v1/tools/emotion-decompose/:taskId/save
+
+GET    /api/v1/me/profile
+GET    /api/v1/me/stats
+GET    /api/v1/me/growth-card
+DELETE /api/v1/me/data
+
+GET    /api/v1/diaries
+GET    /api/v1/diaries/:id
+DELETE /api/v1/diaries/:id
+
+GET    /api/v1/favorites
+
+GET    /api/v1/reports/monthly
+GET    /api/v1/reports/monthly/:month/advice
+POST   /api/v1/reports/monthly/:month/poster
+
+GET    /api/v1/settings/privacy
+PUT    /api/v1/settings/privacy
+
+GET    /api/v1/feedback/categories
+GET    /api/v1/feedback/faqs
+POST   /api/v1/feedback
+
+POST   /api/v1/uploads/sign
+POST   /api/v1/assets/complete
+
+====================================================
+十二、后台 API
+====================================================
+
+必须实现以下后台 API：
+
+POST   /api/admin/v1/auth/login
+POST   /api/admin/v1/auth/logout
+GET    /api/admin/v1/me
+
+GET    /api/admin/v1/dashboard/overview
+
+GET    /api/admin/v1/users
+GET    /api/admin/v1/users/:id
+PATCH  /api/admin/v1/users/:id/status
+PATCH  /api/admin/v1/users/:id/tags
+
+GET    /api/admin/v1/posts
+GET    /api/admin/v1/posts/:id
+PATCH  /api/admin/v1/posts/:id/moderation
+PATCH  /api/admin/v1/posts/:id/visibility
+DELETE /api/admin/v1/posts/:id
+
+GET    /api/admin/v1/replies
+GET    /api/admin/v1/replies/:id
+PATCH  /api/admin/v1/replies/:id/moderation
+
+GET    /api/admin/v1/ai/providers
+POST   /api/admin/v1/ai/providers
+PUT    /api/admin/v1/ai/providers/:id
+POST   /api/admin/v1/ai/providers/:id/test
+
+GET    /api/admin/v1/ai/routes
+PUT    /api/admin/v1/ai/routes/:style
+
+GET    /api/admin/v1/ai/jobs
+GET    /api/admin/v1/ai/jobs/:id
+POST   /api/admin/v1/ai/jobs/:id/retry
+POST   /api/admin/v1/ai/jobs/:id/fallback
+
+GET    /api/admin/v1/feedback/tickets
+GET    /api/admin/v1/feedback/tickets/:id
+POST   /api/admin/v1/feedback/tickets/:id/reply
+PATCH  /api/admin/v1/feedback/tickets/:id/status
+
+GET    /api/admin/v1/faqs
+POST   /api/admin/v1/faqs
+PUT    /api/admin/v1/faqs/:id
+DELETE /api/admin/v1/faqs/:id
+
+GET    /api/admin/v1/reply-presets
+POST   /api/admin/v1/reply-presets
+PUT    /api/admin/v1/reply-presets/:id
+DELETE /api/admin/v1/reply-presets/:id
+
+GET    /api/admin/v1/feedback-categories
+POST   /api/admin/v1/feedback-categories
+PUT    /api/admin/v1/feedback-categories/:id
+DELETE /api/admin/v1/feedback-categories/:id
+
+GET    /api/admin/v1/system/settings
+PUT    /api/admin/v1/system/settings
+
+GET    /api/admin/v1/audit-logs
+
+====================================================
+十三、AI 架构
+====================================================
+
+禁止实现成开放聊天机器人。
+本项目只做情绪辅助，不做心理诊断，不做医疗建议，不宣称治疗或治愈。
+
+允许的 AI 能力：
+- 树洞 5 风格温柔回应
+- 今日回信
+- 情绪拆解
+- 月报总结
+- 月报建议
+- 月报海报文案
+- 内容安全审核辅助
+
+AI 架构：
+- LiteLLM 作为统一 AI Gateway
+- NestJS 后端实现 AI Router
+- 前台永远只传业务意图和风格
+- 前台永远不知道底层供应商
+- 后台配置供应商、模型、路由、兜底和上限
+
+AI Router 必须支持：
+- 主模型
+- 备用模型
+- 模板兜底
+- 失败重试
+- 超时切换
+- 供应商启停
+- 风格级路由
+- 任务日志
+- 成本统计预留
+- 失败原因记录
+- trace 记录
+
+AI 输出必须经过安全过滤。
+AI 输出中不得出现：
+- 医疗诊断
+- 疾病判断
+- “你一定会好”
+- “我能治愈你”
+- 鼓励自伤、自杀、暴力、攻击的话术
+
+高风险内容处理：
+- 检测自伤、自杀、暴力、极端攻击内容
+- 前台显示温和提示
+- 内容进入后台风险预警或待审核
+- 不要让 AI 继续深聊危险内容
+- 提示用户联系专业帮助或紧急热线
+
+====================================================
+十四、上传与隐私授权
+====================================================
+
+必须建立统一 UploadService。
+
+UploadService 需要支持：
+- selectAssets(policy)
+- appendSelectionUntilMax()
+- enqueueUploads()
+- uploadOneByOne()
+- completeAssetMeta()
+- return assetIds[]
+
+页面策略：
+- moodCreate: max 2
+- feedback: max 4
+- globalGallery: max 14
+
+注意：
+- 微信小程序 chooseImage 不作为首选。
+- 优先使用 chooseMedia。
+- 多文件上传按单文件循环 uploadFile。
+- 业务发布只提交 assetIds。
+- 不要每个页面重复实现上传逻辑。
+
+隐私授权：
+- 保存海报到相册前必须处理授权。
+- 选择媒体前必须处理隐私协议。
+- 如果用户拒绝授权，要给出温和提示和重试入口。
+- 不允许授权失败后页面崩溃。
+
+====================================================
+十五、前后台联动验收
+====================================================
+
+必须实现并自动验证以下闭环：
+
+1. 公开树洞审核闭环
+用户前台发布公开树洞
+-> 后端创建 Mood + Post
+-> Post 进入 pending_review 或自动 published
+-> 后台树洞内容列表出现该内容
+-> 管理员审核通过
+-> 前台广场刷新后可见
+
+2. 回应审核闭环
+用户前台发表回应
+-> Reply 创建为 pending_review
+-> 后台回应审核出现该回应
+-> 管理员拦截
+-> 前台树洞详情 replies 不再返回该回应
+
+3. AI 路由闭环
+管理员修改 warm 风格主模型
+-> 用户重新生成今日回信
+-> AIJob 使用新路由
+-> 后台 AI 任务记录显示新 provider / model / routeVersion
+
+4. 反馈工单闭环
+用户前台提交反馈并上传截图
+-> 后台反馈工单可见内容和图片
+-> 管理员回复并标记已解决
+-> 前台反馈状态可见变化
+
+5. FAQ 联动闭环
+管理员新增 FAQ
+-> 前台帮助与反馈页刷新
+-> 新 FAQ 可见
+
+6. 回复预设联动闭环
+管理员新增快捷回复
+-> 前台树洞详情回复抽屉刷新
+-> 新快捷回复可见
+
+7. 系统隐私默认值闭环
+管理员修改默认隐私策略
+-> 新用户或新草稿默认值变化
+-> 历史用户 PrivacySetting 不被覆盖
+
+8. AI 失败兜底闭环
+模拟主模型失败
+-> 自动切备用模型
+-> 备用也失败则模板兜底
+-> 前台得到温和响应
+-> 后台 AIJob 记录失败链路和兜底结果
+
+====================================================
+十六、测试要求
+====================================================
+
+必须实现以下测试：
+
+Unit Test：
+- DTO 校验
+- AI Router 选择模型
+- AI 失败兜底
+- 审核状态流转
+- 上传 policy
+- FAQ 服务
+- ReplyPreset 服务
+- PrivacySetting 与 SystemSetting 分离逻辑
+
+API Test：
+- 前台 API
+- 后台 API
+- 登录
+- RBAC 权限
+- 文件上传签名
+- assets complete
+- AI job 创建
+- AI job retry
+- AI job fallback
+- 后台审核
+- 后台 FAQ 修改后前台可见
+
+前台 E2E：
+- 广场 -> 树洞详情 -> 回复抽屉 -> 发布回应
+- 广场 -> 写下心情 -> 仅自己可见 -> 今日回信
+- 广场 -> 写下心情 -> 匿名发布到广场 -> 后台审核 -> 广场展示
+- 今日回信 -> 切换风格 -> 保存到日记 -> 分享图片
+- 工具 -> 情绪拆解 -> 保存到日记
+- 我的 -> 我的日记 -> 已有回信
+- 我的 -> 我的回信 -> 查看全文
+- 我的 -> 我的收藏 -> 进入详情
+- 我的 -> 情绪月报 -> 生成分享图 -> 预览
+- 我的 -> 隐私设置 -> 修改 -> 持久化
+- 我的 -> 帮助与反馈 -> 上传截图 -> 提交
+
+后台 E2E：
+- 登录成功
+- 登录失败
+- 数据总览加载
+- 用户管理筛选
+- 用户详情侧栏
+- 树洞内容审核
+- 回应审核通过
+- 回应审核拦截
+- 回应修改后通过
+- AI 供应商测试
+- AI 供应商启停
+- 风格路由修改保存
+- AI 任务重试
+- AI 任务兜底
+- 反馈工单回复
+- FAQ 新增
+- 回复预设新增
+- 系统设置保存
+
+跨端 E2E：
+- 必须覆盖所有前后台联动验收闭环。
+
+====================================================
+十七、视觉回归要求
+====================================================
+
+前台：
+- H5 预览视口固定为 864x1536
+- 对 14 个前台页面截图
+- 对回复抽屉、筛选抽屉、海报预览、更多菜单截图
+- 截图输出到 artifacts/screenshots/front
+- diff 输出到 artifacts/diffs/front
+
+后台：
+- Web 视口固定为 1448x1086
+- 对所有后台页面截图
+- 截图输出到 artifacts/screenshots/admin
+- diff 输出到 artifacts/diffs/admin
+
+视觉比对工具：
+- Playwright
+- pixelmatch
+- jest-image-snapshot
+
+视觉阈值：
+- 前台总体像素差异率 <= 1.5%
+- 后台总体像素差异率 <= 1.8%
+- 关键区域差异率 <= 0.8%
+
+如果第一次达不到，不要停止。
+必须：
+1. 读取 diff
+2. 分析差异
+3. 修改样式
+4. 重新截图
+5. 重新比对
+6. 直到通过或输出明确残差报告
+
+允许误差：
+- 状态栏时间、电量可以有轻微差异
+- 真实字体渲染可有轻微差异
+
+不允许：
+- 主布局漂移
+- 卡片结构明显不一致
+- 底部 tab 错位
+- 后台侧栏错位
+- CTA 尺寸严重不一致
+- 参考图里的主要信息缺失
+
+====================================================
+十八、必须生成的命令
+====================================================
+
+package.json 必须提供以下命令：
+
+pnpm install
+pnpm dev
+pnpm dev:mp
+pnpm dev:h5
+pnpm dev:admin
+pnpm dev:api
+pnpm db:migrate
+pnpm db:seed
+pnpm test
+pnpm test:unit
+pnpm test:api
+pnpm test:e2e
+pnpm test:visual
+pnpm test:cross
+pnpm lint
+pnpm typecheck
+pnpm qa:all
+
+qa:all 必须依次执行：
+- lint
+- typecheck
+- unit
+- api
+- e2e
+- visual
+- cross
+
+====================================================
+十九、Docker 与环境变量
+====================================================
+
+必须提供 docker-compose.yml，至少包含：
+- postgres
+- redis
+- minio
+- litellm 可选服务或代理预留
+- api
+
+必须提供 .env.example，包含：
+- DATABASE_URL
+- REDIS_URL
+- JWT_SECRET
+- MINIO_ENDPOINT
+- MINIO_ACCESS_KEY
+- MINIO_SECRET_KEY
+- MINIO_BUCKET
+- LITELLM_BASE_URL
+- OPENAI_API_KEY
+- DEEPSEEK_API_KEY
+- MOONSHOT_API_KEY
+- DOUBAO_API_KEY
+- CLAUDE_API_KEY
+- ADMIN_INIT_USERNAME
+- ADMIN_INIT_PASSWORD
+
+真实 API Key 不要写入仓库。
+
+====================================================
+二十、自动修复循环
+====================================================
+
+你必须按以下循环工作：
+
+A. 初始化 monorepo
+B. 建 Prisma schema、migration、seed
+C. 建 NestJS API、Swagger、Auth、RBAC、Queue、Storage、AI Router
+D. 建 uni-app 前台
+E. 建 Web 后台
+F. 建 mock 与 real API 双模式
+G. 建测试
+H. 跑 lint
+I. 跑 typecheck
+J. 跑 unit
+K. 跑 api
+L. 跑 e2e
+M. 跑 visual
+N. 跑 cross
+O. 如果任一步失败：
+   - 读取错误
+   - 定位文件
+   - 修改代码
+   - 重新执行失败步骤
+P. 全部通过后输出最终交付报告
+
+不得跳过失败项。
+不得只说明失败原因不修。
+不得把失败测试删掉来通过。
+不得降低测试要求来通过。
+不得把真实联动改成 mock 来通过。
+
+====================================================
+二十一、progress.md 要求
+====================================================
+
+每完成一个阶段，必须更新 progress.md，格式如下：
+
+# 晚安树洞开发进度
+
+## 当前阶段
+...
+
+## 已完成
+- ...
+
+## 修改文件
+- ...
+
+## 当前可运行命令
+- ...
+
+## 测试结果
+- lint:
+- typecheck:
+- unit:
+- api:
+- e2e:
+- visual:
+- cross:
+
+## 失败项
+- ...
+
+## 修复动作
+- ...
+
+## 下一步
+- ...
+
+如果遇到上下文中断，继续时必须先读 progress.md。
+
+====================================================
+二十二、完成定义
+====================================================
+
+只有满足以下全部条件，才允许宣布完成：
+
+1. 前台 14 个页面全部可打开。
+2. 前台所有隐式状态可打开。
+3. 后台所有页面全部可打开。
+4. 前台主链路跑通。
+5. 后台主链路跑通。
+6. 前后台共享业务闭环跑通。
+7. API 可通。
+8. Swagger 完整。
+9. PostgreSQL schema 完整。
+10. seed 可执行。
+11. 管理员初始账号可登录。
+12. 上传链路可用。
+13. 隐私授权链路完成。
+14. AI Router 完成。
+15. 多模型供应商配置完成。
+16. 风格路由完成。
+17. AI 任务记录完成。
+18. 失败重试完成。
+19. 模板兜底完成。
+20. FAQ 不是写死常量。
+21. 回复预设不是写死常量。
+22. 反馈分类不是写死常量。
+23. 所有测试通过，或者输出明确失败报告和可复现命令。
+24. 视觉回归通过，或者输出明确残差报告。
+25. README 完整。
+26. .env.example 完整。
+27. docker-compose 可用。
+28. progress.md 完整。
+29. 不允许留下主链路 TODO。
+30. 不允许只做 UI 壳。
+
+====================================================
+二十三、现在立即开始
+====================================================
+
+现在开始执行。
+
+第一步：
+- 扫描 docs 和 design_refs
+- 输出需求理解报告
+- 输出信息架构修正说明
+- 输出开发任务拆解
+- 生成 progress.md
+- 创建项目骨架
+
+然后不要停，继续编码、运行、测试、修复、复测，直到达到完成定义。

@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@goodnight/shared-types": ["packages/shared-types/src/index.ts"],
+      "@goodnight/api-sdk": ["packages/api-sdk/src/index.ts"],
+      "@goodnight/ui-tokens": ["packages/ui-tokens/src/index.ts"]
+    }
+  }
+}

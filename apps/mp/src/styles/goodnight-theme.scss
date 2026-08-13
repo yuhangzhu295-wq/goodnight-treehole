@@ -1,0 +1,23 @@
+:root {
+  --gn-font-body: Inter, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --gn-font-display: "STKaiti", "KaiTi", "SimKai", "Microsoft YaHei", serif;
+  --gn-bg: #fbf8ef;
+  --gn-green: #5f7f3e;
+  --gn-green-dark: #3f6330;
+  --gn-green-light: #eef4e5;
+  --gn-card: rgba(255, 255, 255, 0.88);
+  --gn-border: rgba(95, 127, 62, 0.18);
+  --gn-text: #1f2f24;
+  --gn-subtext: #75806f;
+  --gn-danger: #e8665a;
+  --gn-radius-card: 28px;
+  --gn-radius-pill: 999px;
+  --gn-shadow-card: 0 14px 36px rgba(93, 98, 62, 0.08);
+}
+
+.goodnight-page {
+  min-height: 100vh;
+  background: var(--gn-bg);
+  overflow-x: hidden;
+  padding-bottom: calc(130px + env(safe-area-inset-bottom));
+}

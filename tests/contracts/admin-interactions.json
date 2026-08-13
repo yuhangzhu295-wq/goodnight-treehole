@@ -1,0 +1,473 @@
+{
+  "generatedAt": "2026-07-09T12:33:03.387Z",
+  "rules": [
+    "admin controls use /api/admin/v1/* unless explicitly crossing to front API",
+    "management actions must update shared backend state"
+  ],
+  "controls": [
+    {
+      "page": "admin-login",
+      "route": "/login",
+      "selector": "admin-login-username",
+      "fill": "admin",
+      "expectedAction": "type username",
+      "expectedUrl": "/login",
+      "expectedApi": null,
+      "priority": "P0"
+    },
+    {
+      "page": "admin-login",
+      "route": "/login",
+      "selector": "admin-login-password",
+      "fill": "admin123",
+      "expectedAction": "type password",
+      "expectedUrl": "/login",
+      "expectedApi": null,
+      "priority": "P0"
+    },
+    {
+      "page": "admin-login",
+      "route": "/login",
+      "selector": "admin-login-submit",
+      "expectedAction": "login",
+      "expectedUrl": "/dashboard",
+      "expectedApi": "POST /api/admin/v1/auth/login",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-users",
+      "expectedAction": "navigate users",
+      "expectedUrl": "/users",
+      "expectedApi": "GET /api/admin/v1/users",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-posts",
+      "expectedAction": "navigate posts",
+      "expectedUrl": "/posts",
+      "expectedApi": "GET /api/admin/v1/posts",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-replies",
+      "expectedAction": "navigate replies",
+      "expectedUrl": "/replies/moderation",
+      "expectedApi": "GET /api/admin/v1/replies",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-providers",
+      "expectedAction": "navigate providers",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": "GET /api/admin/v1/ai/providers",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-routes",
+      "expectedAction": "navigate routes",
+      "expectedUrl": "/ai/routes",
+      "expectedApi": "GET /api/admin/v1/ai/routes",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-jobs",
+      "expectedAction": "navigate jobs",
+      "expectedUrl": "/ai/jobs",
+      "expectedApi": "GET /api/admin/v1/ai/jobs",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-feedback",
+      "expectedAction": "navigate feedback tickets",
+      "expectedUrl": "/ops/feedback",
+      "expectedApi": "GET /api/admin/v1/feedback/tickets",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-config",
+      "expectedAction": "navigate config",
+      "expectedUrl": "/ops/config",
+      "expectedApi": "GET /api/admin/v1/system/settings",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-nav-audit",
+      "expectedAction": "navigate audit",
+      "expectedUrl": "/audit-logs",
+      "expectedApi": "GET /api/admin/v1/audit-logs",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-shortcut-posts",
+      "expectedAction": "shortcut posts",
+      "expectedUrl": "/posts",
+      "expectedApi": "GET /api/admin/v1/posts",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-shortcut-ai",
+      "expectedAction": "shortcut ai",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": "GET /api/admin/v1/ai/providers",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-dashboard",
+      "route": "/dashboard",
+      "selector": "admin-shortcut-feedback",
+      "expectedAction": "shortcut feedback",
+      "expectedUrl": "/ops/feedback",
+      "expectedApi": "GET /api/admin/v1/feedback/tickets",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-users",
+      "route": "/users",
+      "selector": "admin-user-search",
+      "fill": "demo",
+      "expectedAction": "type user search",
+      "expectedUrl": "/users",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-users",
+      "route": "/users",
+      "selector": "admin-user-status-filter",
+      "select": "normal",
+      "expectedAction": "filter user status",
+      "expectedUrl": "/users",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-users",
+      "route": "/users",
+      "selector": "users-row-first",
+      "expectedAction": "open first user detail",
+      "expectedUrl": "/users",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-users",
+      "route": "/users",
+      "selector": "admin-user-ban",
+      "expectedAction": "ban user",
+      "expectedUrl": "/users",
+      "expectedApi": "PATCH /api/admin/v1/users/:id/status",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-users",
+      "route": "/users",
+      "selector": "admin-user-restore",
+      "expectedAction": "restore user",
+      "expectedUrl": "/users",
+      "expectedApi": "PATCH /api/admin/v1/users/:id/status",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-users",
+      "route": "/users",
+      "selector": "admin-user-export",
+      "expectedAction": "export users",
+      "expectedUrl": "/users",
+      "expectedApi": null,
+      "priority": "P2"
+    },
+    {
+      "page": "admin-posts",
+      "route": "/posts",
+      "selector": "admin-post-search",
+      "fill": "post",
+      "expectedAction": "type post search",
+      "expectedUrl": "/posts",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-posts",
+      "route": "/posts",
+      "selector": "posts-row-first",
+      "expectedAction": "open first post detail",
+      "expectedUrl": "/posts",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-posts",
+      "route": "/posts",
+      "selector": "admin-post-approve",
+      "expectedAction": "approve post",
+      "expectedUrl": "/posts",
+      "expectedApi": "PATCH /api/admin/v1/posts/:id/moderation",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-posts",
+      "route": "/posts",
+      "selector": "admin-post-hide",
+      "expectedAction": "hide post",
+      "expectedUrl": "/posts",
+      "expectedApi": "PATCH /api/admin/v1/posts/:id/moderation",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-posts",
+      "route": "/posts",
+      "selector": "admin-post-risk",
+      "expectedAction": "mark risk",
+      "expectedUrl": "/posts",
+      "expectedApi": "PATCH /api/admin/v1/posts/:id/moderation",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-posts",
+      "route": "/posts",
+      "selector": "admin-post-ai-reply",
+      "expectedAction": "queue ai reply",
+      "expectedUrl": "/posts",
+      "expectedApi": "POST /api/v1/moods/:id/queue-ai-replies",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-replies",
+      "route": "/replies/moderation",
+      "selector": "replies-row-first",
+      "expectedAction": "open first reply detail",
+      "expectedUrl": "/replies/moderation",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-replies",
+      "route": "/replies/moderation",
+      "selector": "admin-reply-approve",
+      "expectedAction": "approve reply",
+      "expectedUrl": "/replies/moderation",
+      "expectedApi": "PATCH /api/admin/v1/replies/:id/moderation",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-replies",
+      "route": "/replies/moderation",
+      "selector": "admin-reply-block",
+      "expectedAction": "block reply",
+      "expectedUrl": "/replies/moderation",
+      "expectedApi": "PATCH /api/admin/v1/replies/:id/moderation",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-replies",
+      "route": "/replies/moderation",
+      "selector": "admin-reply-edit-approve",
+      "expectedAction": "edit approve reply",
+      "expectedUrl": "/replies/moderation",
+      "expectedApi": "PATCH /api/admin/v1/replies/:id/moderation",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-providers",
+      "route": "/ai/providers",
+      "selector": "providers-row-first",
+      "expectedAction": "open first provider detail",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-providers",
+      "route": "/ai/providers",
+      "selector": "admin-provider-add",
+      "expectedAction": "add provider",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": "POST /api/admin/v1/ai/providers",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-providers",
+      "route": "/ai/providers",
+      "selector": "admin-provider-edit",
+      "expectedAction": "edit provider",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": "PUT /api/admin/v1/ai/providers/:id",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-providers",
+      "route": "/ai/providers",
+      "selector": "admin-provider-toggle",
+      "expectedAction": "toggle provider",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": "PUT /api/admin/v1/ai/providers/:id",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-providers",
+      "route": "/ai/providers",
+      "selector": "admin-provider-test",
+      "expectedAction": "test provider",
+      "expectedUrl": "/ai/providers",
+      "expectedApi": "POST /api/admin/v1/ai/providers/:id/test",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-routes",
+      "route": "/ai/routes",
+      "selector": "routes-row-first",
+      "expectedAction": "open first route detail",
+      "expectedUrl": "/ai/routes",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-routes",
+      "route": "/ai/routes",
+      "selector": "admin-route-save",
+      "expectedAction": "save route",
+      "expectedUrl": "/ai/routes",
+      "expectedApi": "PUT /api/admin/v1/ai/routes/:style",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-routes",
+      "route": "/ai/routes",
+      "selector": "admin-route-test",
+      "expectedAction": "test route",
+      "expectedUrl": "/ai/routes",
+      "expectedApi": "POST /api/admin/v1/ai/routes/:style/test",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-jobs",
+      "route": "/ai/jobs",
+      "selector": "jobs-row-first",
+      "expectedAction": "open first job detail",
+      "expectedUrl": "/ai/jobs",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-jobs",
+      "route": "/ai/jobs",
+      "selector": "admin-job-retry",
+      "expectedAction": "retry job",
+      "expectedUrl": "/ai/jobs",
+      "expectedApi": "POST /api/admin/v1/ai/jobs/:id/retry",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-jobs",
+      "route": "/ai/jobs",
+      "selector": "admin-job-fallback",
+      "expectedAction": "fallback job",
+      "expectedUrl": "/ai/jobs",
+      "expectedApi": "POST /api/admin/v1/ai/jobs/:id/fallback",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-feedback",
+      "route": "/ops/feedback",
+      "selector": "tickets-row-first",
+      "expectedAction": "open first ticket detail",
+      "expectedUrl": "/ops/feedback",
+      "expectedApi": null,
+      "priority": "P1"
+    },
+    {
+      "page": "admin-feedback",
+      "route": "/ops/feedback",
+      "selector": "admin-ticket-reply",
+      "expectedAction": "reply ticket",
+      "expectedUrl": "/ops/feedback",
+      "expectedApi": "POST /api/admin/v1/feedback/tickets/:id/reply",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-feedback",
+      "route": "/ops/feedback",
+      "selector": "admin-ticket-resolve",
+      "expectedAction": "resolve ticket",
+      "expectedUrl": "/ops/feedback",
+      "expectedApi": "PATCH /api/admin/v1/feedback/tickets/:id/status",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-config",
+      "route": "/ops/config",
+      "selector": "admin-config-save",
+      "expectedAction": "save config",
+      "expectedUrl": "/ops/config",
+      "expectedApi": "PUT /api/admin/v1/system/settings",
+      "priority": "P0"
+    },
+    {
+      "page": "admin-config",
+      "route": "/ops/config",
+      "selector": "admin-config-reset",
+      "expectedAction": "reset config",
+      "expectedUrl": "/ops/config",
+      "expectedApi": "PUT /api/admin/v1/system/settings",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-faqs",
+      "route": "/ops/faqs",
+      "selector": "admin-faq-add",
+      "expectedAction": "add faq",
+      "expectedUrl": "/ops/faqs",
+      "expectedApi": "POST /api/admin/v1/faqs",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-presets",
+      "route": "/ops/reply-presets",
+      "selector": "admin-preset-add",
+      "expectedAction": "add preset",
+      "expectedUrl": "/ops/reply-presets",
+      "expectedApi": "POST /api/admin/v1/reply-presets",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-categories",
+      "route": "/ops/feedback-categories",
+      "selector": "admin-category-add",
+      "expectedAction": "add category",
+      "expectedUrl": "/ops/feedback-categories",
+      "expectedApi": "POST /api/admin/v1/feedback-categories",
+      "priority": "P1"
+    },
+    {
+      "page": "admin-audit",
+      "route": "/audit-logs",
+      "selector": "admin-audit-refresh",
+      "expectedAction": "refresh audit",
+      "expectedUrl": "/audit-logs",
+      "expectedApi": "GET /api/admin/v1/audit-logs",
+      "priority": "P1"
+    }
+  ]
+}

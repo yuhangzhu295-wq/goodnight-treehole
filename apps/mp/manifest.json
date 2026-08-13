@@ -1,0 +1,10 @@
+{
+  "name": "晚安树洞",
+  "appid": "__UNI__GOODNIGHT",
+  "mp-weixin": {
+    "appid": "touristappid"
+  },
+  "h5": {
+    "title": "晚安树洞"
+  }
+}

@@ -1,0 +1,509 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  normal
+  limited
+  banned
+}
+
+enum AdminStatus {
+  active
+  disabled
+}
+
+enum Visibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum ReviewStatus {
+  pending_review
+  published
+  hidden
+  rejected
+}
+
+enum ReplyStatus {
+  pending_review
+  published
+  blocked
+}
+
+enum ReplyType {
+  USER
+  AI
+}
+
+enum AIStyle {
+  warm
+  rational
+  light
+  clear
+  poetic
+}
+
+enum ProviderType {
+  local
+  cloud
+  template
+}
+
+enum AIJobStatus {
+  queued
+  running
+  succeeded
+  success
+  failed
+  fallback
+  fallback_completed
+  cancelled
+}
+
+enum TargetType {
+  post
+  letter
+  diary
+}
+
+enum FeedbackStatus {
+  open
+  processing
+  resolved
+  closed
+}
+
+model User {
+  id            String   @id @default(cuid())
+  openid        String   @unique
+  nickname      String
+  anonymousCode String
+  avatarUrl     String?
+  status        UserStatus @default(normal)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  privacySetting PrivacySetting?
+  moods         Mood[]
+  posts         Post[]
+  replies       Reply[]
+  letters       Letter[]
+  diaries       Diary[]
+  favorites     Favorite[]
+  assets         MediaAsset[]
+  feedbackTickets FeedbackTicket[]
+  hugActions    HugAction[]
+  hiddenPosts   HiddenPost[]
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AdminUser {
+  id           String @id @default(cuid())
+  username     String @unique
+  passwordHash String
+  displayName  String
+  roleId       String
+  role         AdminRole @relation(fields: [roleId], references: [id])
+  status       AdminStatus @default(active)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  auditLogs    AuditLog[]
+  moderationLogs ModerationLog[]
+}
+
+model AdminRole {
+  id          String @id @default(cuid())
+  code        String @unique
+  name        String
+  permissions Json
+  adminUsers  AdminUser[]
+}
+
+model PrivacySetting {
+  id                       String @id @default(cuid())
+  userId                   String @unique
+  user                     User @relation(fields: [userId], references: [id])
+  defaultVisibility         Visibility @default(PRIVATE)
+  allowAnonymousPublic      Boolean @default(true)
+  allowHumanReplies         Boolean @default(true)
+  allowMonthlyReportShare   Boolean @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+model SystemSetting {
+  id          String @id @default(cuid())
+  key         String @unique
+  value       Json
+  description String
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}
+
+model Mood {
+  id         String @id @default(cuid())
+  userId     String
+  user       User @relation(fields: [userId], references: [id])
+  emotion    String
+  content    String
+  visibility Visibility
+  riskLevel  String
+  riskScore  Float
+  status     String @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  post       Post?
+  letters    Letter[]
+  diaries    Diary[]
+  attachments MoodAttachment[]
+  @@index([userId, createdAt])
+  @@index([emotion, visibility])
+}
+
+model Post {
+  id            String @id @default(cuid())
+  moodId        String @unique
+  mood          Mood @relation(fields: [moodId], references: [id])
+  userId        String
+  user          User @relation(fields: [userId], references: [id])
+  emotion       String
+  content       String
+  visibility    Visibility
+  status        String @default("active")
+  reviewStatus  ReviewStatus @default(pending_review)
+  hugCount      Int @default(0)
+  replyCount    Int @default(0)
+  favoriteCount Int @default(0)
+  reportCount   Int @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  replies       Reply[]
+  hugActions    HugAction[]
+  hiddenByUsers HiddenPost[]
+  @@index([reviewStatus, createdAt])
+  @@index([emotion, visibility])
+}
+
+model Reply {
+  id        String @id @default(cuid())
+  postId    String
+  post      Post @relation(fields: [postId], references: [id])
+  userId    String?
+  user      User? @relation(fields: [userId], references: [id])
+  type      ReplyType
+  style     String
+  content   String
+  status    ReplyStatus @default(pending_review)
+  riskLevel String
+  likeCount Int @default(0)
+  aiJobId   String?
+  aiJob     AIJob? @relation(fields: [aiJobId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([postId, status])
+  @@index([type, status])
+}
+
+model Letter {
+  id           String @id @default(cuid())
+  userId       String
+  user         User @relation(fields: [userId], references: [id])
+  sourceMoodId String?
+  sourceMood   Mood? @relation(fields: [sourceMoodId], references: [id])
+  legacySourceMoodId String?
+  style        String
+  title        String
+  content      String
+  status       String @default("unread")
+  savedToDiary Boolean @default(false)
+  aiJobId      String?
+  generationStatus String?
+  favorite     Boolean @default(false)
+  likeCount    Int @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  diaries      Diary[]
+  @@index([userId, createdAt])
+}
+
+model Diary {
+  id       String @id @default(cuid())
+  userId   String
+  user     User @relation(fields: [userId], references: [id])
+  moodId   String?
+  mood     Mood? @relation(fields: [moodId], references: [id])
+  letterId String?
+  letter   Letter? @relation(fields: [letterId], references: [id])
+  emotion  String
+  content  String
+  hasLetter Boolean @default(false)
+  source    String?
+  toolResult Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  attachments DiaryAttachment[]
+  @@index([userId, createdAt])
+  @@index([emotion, hasLetter])
+}
+
+model Favorite {
+  id         String @id @default(cuid())
+  userId     String
+  user       User @relation(fields: [userId], references: [id])
+  targetType TargetType
+  targetId   String
+  createdAt  DateTime @default(now())
+  @@unique([userId, targetType, targetId])
+  @@index([targetType, targetId])
+}
+
+model MonthlyReport {
+  id               String @id @default(cuid())
+  userId           String
+  month            String
+  recordDays       Int
+  topEmotion       String
+  replyCount       Int
+  trendJson        Json
+  distributionJson Json
+  keywordsJson     Json
+  summary          String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  advices          ReportAdvice[]
+  @@unique([userId, month])
+}
+
+model ReportAdvice {
+  id        String @id @default(cuid())
+  reportId  String
+  report    MonthlyReport @relation(fields: [reportId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model MediaAsset {
+  id        String @id @default(cuid())
+  userId    String
+  user      User @relation(fields: [userId], references: [id])
+  storageKey String
+  url       String
+  mimeType  String
+  size      Int
+  width     Int @default(0)
+  height    Int @default(0)
+  usageType String
+  status    String
+  createdAt DateTime @default(now())
+  moodAttachments MoodAttachment[]
+  diaryAttachments DiaryAttachment[]
+  @@index([userId, usageType])
+}
+
+model MoodAttachment {
+  moodId       String
+  mediaAssetId String
+  sortOrder    Int @default(0)
+  mood         Mood       @relation(fields: [moodId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  @@id([moodId, mediaAssetId])
+  @@index([mediaAssetId])
+}
+
+model DiaryAttachment {
+  diaryId      String
+  mediaAssetId String
+  sortOrder    Int @default(0)
+  diary        Diary      @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  @@id([diaryId, mediaAssetId])
+  @@index([mediaAssetId])
+}
+
+model RuntimeState {
+  id        String   @id
+  payload   Json
+  updatedAt DateTime @updatedAt
+}
+
+model FeedbackTicket {
+  id         String @id @default(cuid())
+  userId     String
+  user       User @relation(fields: [userId], references: [id])
+  categoryId String
+  category   FeedbackCategory @relation(fields: [categoryId], references: [id])
+  sourcePage String
+  content    String
+  status     FeedbackStatus @default(open)
+  priority   String
+  screenshots Json @default("[]")
+  reply      String?
+  repliedBy  String?
+  repliedAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([status, priority])
+}
+
+model FeedbackCategory {
+  id        String @id @default(cuid())
+  name      String
+  sortOrder Int @default(0)
+  enabled   Boolean @default(true)
+  tickets   FeedbackTicket[]
+}
+
+model FaqItem {
+  id        String @id @default(cuid())
+  question  String
+  answer    String
+  sortOrder Int @default(0)
+  enabled   Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ReplyPreset {
+  id        String @id @default(cuid())
+  text      String
+  scene     String
+  sortOrder Int @default(0)
+  enabled   Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model HugAction {
+  id         String @id @default(cuid())
+  userId     String
+  user       User @relation(fields: [userId], references: [id])
+  postId     String
+  post       Post @relation(fields: [postId], references: [id])
+  presetCode String
+  createdAt  DateTime @default(now())
+  @@unique([userId, postId, presetCode])
+}
+
+model HiddenPost {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@index([userId, createdAt])
+}
+
+model AIProvider {
+  id              String @id @default(cuid())
+  name            String
+  type            ProviderType
+  baseUrl         String
+  modelName       String
+  apiKeySecretRef String?
+  enabled         Boolean @default(true)
+  priority        Int @default(0)
+  dailyLimit      Int @default(1000)
+  timeoutSeconds  Int @default(10)
+  failoverEnabled Boolean @default(true)
+  usageTags       Json
+  providerKind    String @default("other")
+  apiKeyStatus    String @default("missing")
+  failureRate     Float @default(0)
+  avgLatencyMs    Int @default(0)
+  todayCalls      Int @default(0)
+  modelMeta       Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  primaryRoutes   AIStyleRoute[] @relation("PrimaryProvider")
+  backupRoutes    AIStyleRoute[] @relation("BackupProvider")
+  fallbackRoutes  AIStyleRoute[] @relation("FallbackProvider")
+  jobs            AIJob[]
+  @@index([enabled, priority])
+}
+
+model AIStyleRoute {
+  id                 String @id @default(cuid())
+  style              AIStyle @unique
+  primaryProviderId  String
+  primaryProvider    AIProvider @relation("PrimaryProvider", fields: [primaryProviderId], references: [id])
+  backupProviderId   String
+  backupProvider     AIProvider @relation("BackupProvider", fields: [backupProviderId], references: [id])
+  fallbackTemplateId String
+  fallbackTemplate   AIProvider @relation("FallbackProvider", fields: [fallbackTemplateId], references: [id])
+  promptVersion      String
+  promptTemplate     String
+  label              String @default("")
+  taskTypes          Json @default("[]")
+  routeVersion       Int @default(1)
+  enabled            Boolean @default(true)
+  updatedAt          DateTime @updatedAt
+}
+
+model AIJob {
+  id            String @id @default(cuid())
+  userId        String
+  contentId     String
+  contentType   String
+  jobType       String
+  taskType      String?
+  style         AIStyle
+  providerId    String
+  provider      AIProvider @relation(fields: [providerId], references: [id])
+  modelName     String
+  status        AIJobStatus
+  promptSummary String
+  promptVersion String?
+  result        String?
+  structuredResult Json?
+  errorMessage  String?
+  durationMs    Int?
+  retryCount    Int @default(0)
+  fallbackUsed  Boolean @default(false)
+  routeVersion  Int @default(0)
+  traceJson     Json
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+  updatedAt     DateTime @updatedAt
+  replies       Reply[]
+  @@index([status, createdAt])
+  @@index([style, jobType])
+}
+
+model ModerationLog {
+  id         String @id @default(cuid())
+  targetType String
+  targetId   String
+  action     String
+  reason     String?
+  operatorId String
+  operator   AdminUser @relation(fields: [operatorId], references: [id])
+  createdAt  DateTime @default(now())
+  @@index([targetType, targetId])
+}
+
+model AuditLog {
+  id           String @id @default(cuid())
+  adminUserId  String
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id])
+  action       String
+  resourceType String
+  resourceId   String
+  beforeJson   Json?
+  afterJson    Json?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  @@index([adminUserId, createdAt])
+  @@index([resourceType, resourceId])
+}
