@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { ActionBarrier } from '@goodnight/shared-types';
+import type { ActionBarrier, ActionRecommendation, AdaptiveActionResult } from '@goodnight/shared-types';
 import { api } from '../api';
 import { useDeviceClock } from '../composables/useDeviceClock';
+import PrimaryActionCard from '../components/action/PrimaryActionCard.vue';
+import AdaptiveActionSheet from '../components/action/AdaptiveActionSheet.vue';
+import ActionFollowupStrip from '../components/action/ActionFollowupStrip.vue';
+import SupportShortcutGrid from '../components/action/SupportShortcutGrid.vue';
+
+type ActionRecord = { id: string; title: string; description?: string; status: string; dueAt?: string; reminderAt?: string };
+type ShortcutSheet = 'cooldown' | 'decision' | null;
+type AdaptiveResult = AdaptiveActionResult & { description: string };
 
 const router = useRouter();
 const route = useRoute();
@@ -12,124 +20,383 @@ const home = ref<any>(null);
 const journeyDetail = ref<any>(null);
 const loading = ref(true);
 const error = ref('');
-const reflection = ref('');
-const advanced = ref({ decisionQuestion: '', decisionOptions: '', cooldownTitle: '', cooldownReason: '', cooldownHours: 24, handoffRecipient: '', handoffChannel: '当面聊', handoffSummary: '', supportTitle: '', supportPlan: '', memoryCategory: 'journey', memoryContent: '', memoryDays: 30 });
-const cooldowns = ref<any[]>([]);
-const decisions = ref<any[]>([]);
-const handoffs = ref<any[]>([]);
-const memories = ref<any[]>([]);
-const advancedBusy = ref(false);
-const missedAction = ref<{ id: string; title: string } | null>(null);
-const selectedBarrier = ref<ActionBarrier>('too_hard');
-const adapting = ref(false);
-const adaptiveResult = ref<{ result: string; title: string; description: string } | null>(null);
-const recommendation = ref<{ title: string; why?: string; description?: string; expectedDuration?: string; completionDefinition?: string; dueInDays?: number } | null>(null);
 const planning = ref(false);
-const barrierOptions: Array<{ value: ActionBarrier; label: string }> = [
-  { value: 'forgot', label: '忘了' }, { value: 'too_hard', label: '太难了' }, { value: 'emotion_too_strong', label: '情绪太强' }, { value: 'environment', label: '环境不允许' }, { value: 'something_else', label: '临时发生别的事' }, { value: 'did_not_want_to', label: '其实我不想做' }, { value: 'other', label: '其他' },
-];
-const currentJourney = computed(() => journeyDetail.value?.journey ?? home.value?.journey ?? null);
-const activeActions = computed(() => journeyDetail.value?.commitments?.filter((item: { status: string }) => item.status === 'active') ?? home.value?.activeActions ?? []);
-const dueCheckins = computed(() => journeyDetail.value?.checkins?.filter((item: { status: string }) => item.status === 'pending') ?? home.value?.dueCheckins ?? []);
+const recommendation = ref<ActionRecommendation | null>(null);
+const completionSheetOpen = ref(false);
+const completionReflection = ref('');
+const completing = ref(false);
+const missedAction = ref<ActionRecord | null>(null);
+const selectedBarrier = ref<ActionBarrier | undefined>(undefined);
+const adaptiveResult = ref<AdaptiveResult | null>(null);
+const adapting = ref(false);
+const missedRecorded = ref(false);
+const shortcutSheet = ref<ShortcutSheet>(null);
+const shortcutBusy = ref(false);
+const cooldownTitle = ref('');
+const decisionQuestion = ref('');
+const shortcutNotice = ref('');
 
-async function loadAdvanced() {
-  const results = await Promise.allSettled([api.get<any>('/api/v1/cooldown'), api.get<any>('/api/v1/decisions'), api.get<any>('/api/v1/handoffs'), api.get<any>('/api/v1/me/memories')]);
-  cooldowns.value = results[0].status === 'fulfilled' ? results[0].value.items ?? [] : [];
-  decisions.value = results[1].status === 'fulfilled' ? results[1].value.items ?? [] : [];
-  handoffs.value = results[2].status === 'fulfilled' ? results[2].value.items ?? [] : [];
-  memories.value = results[3].status === 'fulfilled' ? results[3].value.items ?? [] : [];
+const currentJourney = computed(() => journeyDetail.value?.journey ?? home.value?.journey ?? null);
+const activeActions = computed<ActionRecord[]>(() => journeyDetail.value?.commitments?.filter((item: ActionRecord) => item.status === 'active') ?? home.value?.activeActions ?? []);
+const activeAction = computed<ActionRecord | null>(() => activeActions.value[0] ?? null);
+const dueCheckins = computed<any[]>(() => journeyDetail.value?.checkins?.filter((item: { status: string }) => item.status === 'pending') ?? home.value?.dueCheckins ?? []);
+const primaryFollowUp = computed(() => dueCheckins.value[0] ?? null);
+const mainMode = computed<'no-journey' | 'empty' | 'recommendation' | 'accepted'>(() => {
+  if (!currentJourney.value) return 'no-journey';
+  if (activeAction.value) return 'accepted';
+  return recommendation.value ? 'recommendation' : 'empty';
+});
+const actionDescription = computed(() => activeAction.value?.description || '先完成一个最小的版本，做到就够了。');
+
+function shortDifficulty(value?: string) {
+  return value === 'tiny' ? '低' : value === 'easy' ? '轻' : value === 'moderate' ? '适中' : '';
 }
-async function load() { loading.value = true; try { home.value = (await api.get<any>('/api/v1/tonight')).item; const requestedJourneyId = String(route.query.journeyId ?? home.value?.journey?.id ?? ''); journeyDetail.value = requestedJourneyId ? (await api.get<any>(`/api/v1/journeys/${requestedJourneyId}`)).item : null; await loadAdvanced(); } catch (cause: any) { error.value = cause?.message ?? '行动加载失败'; } finally { loading.value = false; } }
-const waitForPlan = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+function followUpMessage(action: ActionRecord | null) {
+  const dueAt = action?.reminderAt ?? action?.dueAt ?? primaryFollowUp.value?.dueAt;
+  if (!dueAt || Number.isNaN(Date.parse(dueAt))) return '明晚，我会回来问你，后来怎么样了。';
+  const date = new Date(dueAt);
+  const time = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date).replace('/', '月').replace(' ', '日 ');
+  return `${time}，我会回来问你，后来怎么样了。`;
+}
+
+async function load() {
+  loading.value = true;
+  error.value = '';
+  try {
+    home.value = (await api.get<any>('/api/v1/tonight')).item;
+    const journeyId = String(route.query.journeyId ?? home.value?.journey?.id ?? '');
+    journeyDetail.value = journeyId ? (await api.get<any>(`/api/v1/journeys/${journeyId}`)).item : null;
+  } catch (cause: any) {
+    error.value = cause?.message ?? '行动加载失败';
+  } finally {
+    loading.value = false;
+  }
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function waitForJob<T extends Record<string, unknown>>(jobId: string) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await wait(400);
+    const task = await api.get<{ status: string; result?: string; structured?: T }>(`/api/v1/ai/tasks/${jobId}`);
+    if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
+      if (task.status === 'failed') throw new Error('这次没有形成可确认的行动');
+      return task;
+    }
+  }
+  throw new Error('整理这一步花的时间有点久，请稍后再试');
+}
+
 async function requestTonightAction() {
   const journeyId = String(route.query.journeyId ?? currentJourney.value?.id ?? '');
-  if (!journeyId) { error.value = '先在今晚入口说说发生了什么'; return; }
-  planning.value = true; error.value = ''; recommendation.value = null;
+  if (!journeyId) {
+    router.push('/pages/tonight/index');
+    return;
+  }
+  planning.value = true;
+  recommendation.value = null;
+  error.value = '';
   try {
-    const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, { content: home.value?.journey?.summary });
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      await waitForPlan(400);
-      const task = await api.get<{ status: string; result?: string; structured?: Record<string, unknown> }>(`/api/v1/ai/tasks/${queued.job.id}`);
-      if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
-        if (task.status === 'failed') throw new Error('这次没有形成可确认的行动');
-        const structured = task.structured ?? {};
-        recommendation.value = { title: typeof structured.title === 'string' ? structured.title : '', why: typeof structured.why === 'string' ? structured.why : undefined, description: typeof structured.description === 'string' ? structured.description : task.result, completionDefinition: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : undefined, expectedDuration: typeof structured.expectedDuration === 'string' ? structured.expectedDuration : undefined, dueInDays: typeof structured.dueInDays === 'number' ? structured.dueInDays : 1 };
-        break;
-      }
-    }
-    if (!recommendation.value?.title) throw new Error('没有形成可以确认的小行动');
-  } catch (cause: any) { error.value = cause?.message ?? '行动建议暂时不可用'; } finally { planning.value = false; }
+    const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, { content: currentJourney.value?.summary });
+    const task = await waitForJob<Record<string, unknown>>(queued.job.id);
+    const structured = task.structured ?? {};
+    const title = typeof structured.title === 'string' ? structured.title : '';
+    if (!title.trim()) throw new Error('没有形成可以确认的小行动');
+    recommendation.value = {
+      title,
+      why: typeof structured.why === 'string' ? structured.why : undefined,
+      description: typeof structured.description === 'string' ? structured.description : task.result,
+      completionDefinition: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : undefined,
+      expectedDuration: typeof structured.expectedDuration === 'string' ? structured.expectedDuration : undefined,
+      difficulty: typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty) ? structured.difficulty as ActionRecommendation['difficulty'] : undefined,
+      dueInDays: typeof structured.dueInDays === 'number' ? structured.dueInDays : 1,
+    };
+  } catch (cause: any) {
+    error.value = cause?.message ?? '行动建议暂时不可用';
+  } finally {
+    planning.value = false;
+  }
 }
+
 async function acceptTonightAction() {
   const journeyId = String(route.query.journeyId ?? currentJourney.value?.id ?? '');
   if (!journeyId || !recommendation.value?.title) return;
   planning.value = true;
-  try { await api.post(`/api/v1/journeys/${journeyId}/actions`, { title: recommendation.value.title, description: recommendation.value.completionDefinition || recommendation.value.description, dueAt: new Date(Date.now() + Math.max(1, recommendation.value.dueInDays ?? 1) * 86_400_000).toISOString() }); recommendation.value = null; await load(); } catch (cause: any) { error.value = cause?.message ?? '这一步没有保存成功'; } finally { planning.value = false; }
+  error.value = '';
+  try {
+    const days = Math.max(1, recommendation.value.dueInDays ?? 1);
+    await api.post(`/api/v1/journeys/${journeyId}/actions`, {
+      title: recommendation.value.title,
+      description: recommendation.value.completionDefinition || recommendation.value.description,
+      dueAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+    });
+    recommendation.value = null;
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这一步没有保存成功';
+  } finally {
+    planning.value = false;
+  }
 }
-async function checkin(id: string, status: 'completed' | 'missed' = 'completed') {
-  if (status === 'missed') {
-    const action = activeActions.value.find((item: { id: string; title: string }) => item.id === id);
-    if (action) { missedAction.value = action; adaptiveResult.value = null; }
+
+function openCompletionSheet() {
+  if (!activeAction.value) return;
+  completionReflection.value = '';
+  completionSheetOpen.value = true;
+}
+
+async function completeAction() {
+  if (!activeAction.value) return;
+  completing.value = true;
+  error.value = '';
+  try {
+    await api.post(`/api/v1/actions/${activeAction.value.id}/checkin`, {
+      status: 'completed',
+      reflection: completionReflection.value.trim() || '我完成了今天约定的小一步。',
+    });
+    completionSheetOpen.value = false;
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这次回顾没有保存成功';
+  } finally {
+    completing.value = false;
+  }
+}
+
+function openAdaptive(action = activeAction.value) {
+  if (!action) return;
+  missedAction.value = action;
+  selectedBarrier.value = undefined;
+  adaptiveResult.value = null;
+  missedRecorded.value = false;
+}
+
+function closeAdaptive(force = false) {
+  if (adapting.value && !force) return;
+  missedAction.value = null;
+  selectedBarrier.value = undefined;
+  adaptiveResult.value = null;
+}
+
+async function chooseBarrier(barrier: ActionBarrier) {
+  if (!missedAction.value || adapting.value) return;
+  selectedBarrier.value = barrier;
+  adaptiveResult.value = null;
+  adapting.value = true;
+  error.value = '';
+  try {
+    if (!missedRecorded.value) {
+      await api.post(`/api/v1/actions/${missedAction.value.id}/checkin`, {
+        status: 'missed',
+        reflection: '这一步今天没有做到，我想先找一个更现实的版本。',
+        barrier,
+      });
+      missedRecorded.value = true;
+    }
+    const response = await api.post<{ job: { id: string } }>(`/api/v1/actions/${missedAction.value.id}/adaptive-plan`, { barrier });
+    const task = await waitForJob<Record<string, unknown>>(response.job.id);
+    const structured = task.structured ?? {};
+    const title = typeof structured.title === 'string' ? structured.title : '';
+    if (!title.trim()) throw new Error('没有形成更小的一步');
+    adaptiveResult.value = {
+      title,
+      description: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : task.result || '',
+      why: typeof structured.why === 'string' ? structured.why : '',
+      difficulty: typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty) ? structured.difficulty as AdaptiveActionResult['difficulty'] : 'tiny',
+      expectedDuration: typeof structured.expectedDuration === 'string' ? structured.expectedDuration : '',
+      completionDefinition: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : task.result || '',
+      adaptationReason: barrier,
+    };
+  } catch (cause: any) {
+    error.value = cause?.message ?? '没能生成更小的一步';
+  } finally {
+    adapting.value = false;
+  }
+}
+
+function resetAdaptive() {
+  adaptiveResult.value = null;
+}
+
+async function confirmAdaptiveAction() {
+  if (!missedAction.value || !adaptiveResult.value?.title.trim() || !selectedBarrier.value) return;
+  adapting.value = true;
+  error.value = '';
+  try {
+    await api.post(`/api/v1/actions/${missedAction.value.id}/adapt`, {
+      title: adaptiveResult.value.title,
+      description: adaptiveResult.value.description,
+      barrier: selectedBarrier.value,
+    });
+    closeAdaptive(true);
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '新的行动保存失败';
+  } finally {
+    adapting.value = false;
+  }
+}
+
+function openShortcut(key: 'cooldown' | 'decision' | 'handoff' | 'future') {
+  shortcutNotice.value = '';
+  if (key === 'handoff') {
+    router.push(`/pages/reality-handoff/index${currentJourney.value?.id ? `?journeyId=${currentJourney.value.id}` : ''}`);
     return;
   }
-  try { await api.post(`/api/v1/actions/${id}/checkin`, { status, reflection: reflection.value.trim() || '我完成了今天约定的小一步。' }); reflection.value = ''; await load(); } catch (cause: any) { error.value = cause?.message ?? '打卡失败'; }
+  if (key === 'future') {
+    router.push(`/pages/future-self/index${currentJourney.value?.id ? `?journeyId=${currentJourney.value.id}` : ''}`);
+    return;
+  }
+  shortcutSheet.value = key;
 }
-const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-async function createAdaptiveDraft() {
-  if (!missedAction.value) return;
-  adapting.value = true; error.value = '';
+
+function closeShortcutSheet() {
+  if (!shortcutBusy.value) shortcutSheet.value = null;
+}
+
+async function saveCooldown() {
+  if (!cooldownTitle.value.trim()) return;
+  shortcutBusy.value = true;
+  error.value = '';
   try {
-    await api.post(`/api/v1/actions/${missedAction.value.id}/checkin`, { status: 'missed', reflection: reflection.value.trim() || '这一步今天没有做到，我想先找一个更现实的版本。', barrier: selectedBarrier.value });
-    const response = await api.post<{ job: { id: string } }>(`/api/v1/actions/${missedAction.value.id}/adaptive-plan`, { barrier: selectedBarrier.value });
-    let result = '';
-    let title = '';
-    let description = '';
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      await wait(450);
-      const task = await api.get<{ status: string; result: string; structured: Record<string, unknown> }>(`/api/v1/ai/tasks/${response.job.id}`);
-      if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
-        result = task.result;
-        title = typeof task.structured.title === 'string' ? task.structured.title : '';
-        description = typeof task.structured.completionDefinition === 'string' ? task.structured.completionDefinition : result;
-        break;
-      }
-    }
-    adaptiveResult.value = { result, title, description };
-    reflection.value = '';
-  } catch (cause: any) { error.value = cause?.message ?? '没能生成调整建议'; } finally { adapting.value = false; }
+    await api.post('/api/v1/cooldowns', { title: cooldownTitle.value.trim(), hours: 24 });
+    shortcutNotice.value = '已经替你先放一晚。';
+    cooldownTitle.value = '';
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这句话暂时没能放进去';
+  } finally {
+    shortcutBusy.value = false;
+  }
 }
-async function confirmAdaptiveAction() {
-  if (!missedAction.value || !adaptiveResult.value?.title.trim()) { error.value = '请先确认一个你愿意尝试的新行动'; return; }
-  adapting.value = true;
+
+async function saveDecision() {
+  if (!decisionQuestion.value.trim()) return;
+  shortcutBusy.value = true;
+  error.value = '';
   try {
-    await api.post(`/api/v1/actions/${missedAction.value.id}/adapt`, { title: adaptiveResult.value.title, description: adaptiveResult.value.description, barrier: selectedBarrier.value });
-    missedAction.value = null; adaptiveResult.value = null; await load();
-  } catch (cause: any) { error.value = cause?.message ?? '新的行动保存失败'; } finally { adapting.value = false; }
+    await api.post('/api/v1/decisions', { journeyId: currentJourney.value?.id, question: decisionQuestion.value.trim(), options: [] });
+    shortcutNotice.value = '这个决定已经先替你留住。';
+    decisionQuestion.value = '';
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这个决定暂时没能保存';
+  } finally {
+    shortcutBusy.value = false;
+  }
 }
-async function runAdvanced(task: () => Promise<void>) { advancedBusy.value = true; error.value = ''; try { await task(); } catch (cause: any) { error.value = cause?.message ?? '保存失败，请检查隐私设置'; } finally { advancedBusy.value = false; } }
-async function createDecision() { if (!advanced.value.decisionQuestion.trim()) return; await runAdvanced(async () => { const response = await api.post<any>('/api/v1/decisions', { journeyId: currentJourney.value?.id, question: advanced.value.decisionQuestion, options: advanced.value.decisionOptions.split(/[,，]/).map((item) => item.trim()).filter(Boolean) }); decisions.value.unshift(response.item); advanced.value.decisionQuestion = ''; advanced.value.decisionOptions = ''; }); }
-async function createCooldown() { if (!advanced.value.cooldownTitle.trim()) return; await runAdvanced(async () => { await api.post('/api/v1/cooldowns', { title: advanced.value.cooldownTitle, reason: advanced.value.cooldownReason, hours: advanced.value.cooldownHours }); advanced.value.cooldownTitle = ''; advanced.value.cooldownReason = ''; await loadAdvanced(); }); }
-async function createHandoff() { if (!advanced.value.handoffRecipient.trim() || !advanced.value.handoffChannel.trim() || !advanced.value.handoffSummary.trim()) { error.value = '请补全交接对象、联系渠道和说明'; return; } await runAdvanced(async () => { const response = await api.post<any>('/api/v1/handoffs', { journeyId: currentJourney.value?.id, recipient: advanced.value.handoffRecipient, channel: advanced.value.handoffChannel, summary: advanced.value.handoffSummary }); handoffs.value.unshift(response.item); advanced.value.handoffRecipient = ''; advanced.value.handoffChannel = ''; advanced.value.handoffSummary = ''; }); }
-async function shareHandoff(id: string) { await runAdvanced(async () => { const response = await api.post<any>(`/api/v1/handoffs/${id}/share`); const index = handoffs.value.findIndex((item) => item.id === id); if (index >= 0) handoffs.value[index] = response.item; }); }
-async function saveSupportPlan() { if (!advanced.value.supportPlan.trim()) return; await runAdvanced(async () => { await api.put('/api/v1/me/support-plan', { journeyId: currentJourney.value?.id, title: advanced.value.supportTitle || '我的现实支持计划', plan: { steps: advanced.value.supportPlan } }); advanced.value.supportPlan = ''; }); }
-async function saveMemory() { if (!advanced.value.memoryContent.trim()) return; await runAdvanced(async () => { const response = await api.post<any>('/api/v1/memory', { journeyId: currentJourney.value?.id, category: advanced.value.memoryCategory, content: advanced.value.memoryContent, days: advanced.value.memoryDays }); memories.value.unshift(response.item); advanced.value.memoryContent = ''; }); }
-async function removeMemory(id: string) { await runAdvanced(async () => { await api.delete(`/api/v1/me/memories/${id}`); memories.value = memories.value.filter((item) => item.id !== id); }); }
+
+watch(() => route.query.journeyId, () => { recommendation.value = null; closeAdaptive(); void load(); });
 onMounted(load);
 </script>
+
 <template>
-  <section class="page goodnight-page modern-page action-page">
-    <header class="modern-hero compact"><div class="status-row"><span>{{ timeLabel }}</span><span aria-hidden="true"></span></div><p class="eyebrow">行动</p><h1>把想法变成一小步</h1><p>行动不是证明自己，是给现实一个可以观察的回应。</p></header>
-    <p v-if="error" class="error-text">{{ error }}</p><p v-if="loading" class="soft-note">正在读取行动...</p>
-    <template v-else>
-      <section v-if="currentJourney && !activeActions.length" class="main-action-card" data-testid="primary-action-card"><span class="section-kicker">今晚的行动</span><h2>今晚，只做这一件事</h2><p>不需要证明自己，只要给现实一个可以观察的小回应。</p><div v-if="!recommendation" class="action-empty"><span aria-hidden="true">✎</span><strong>先让系统根据已确认的经历，整理一个足够小的动作。</strong><button class="primary-button" :disabled="planning" data-testid="action-request-plan" @click="requestTonightAction">{{ planning ? '正在整理一个现实动作…' : '给我一个可确认的建议' }}</button></div><div v-else class="recommendation"><h3>{{ recommendation.title }}</h3><p v-if="recommendation.why">为什么：{{ recommendation.why }}</p><p>{{ recommendation.completionDefinition || recommendation.description }}</p><small v-if="recommendation.expectedDuration">预计 {{ recommendation.expectedDuration }}</small><div class="checkin-actions"><button class="secondary-small" :disabled="planning" @click="requestTonightAction">换一个</button><button class="primary-small" :disabled="planning" data-testid="action-accept-plan" @click="acceptTonightAction">我愿意试试</button></div></div></section>
-      <section class="modern-card" v-if="activeActions.length"><div class="card-heading"><div><span class="section-kicker">今晚的行动</span><h2>{{ activeActions[0].title }}</h2></div><button class="text-button" @click="router.push(`/pages/journey/detail?id=${currentJourney?.id}`)">看时间线</button></div><p>只完成这一个小动作，做完回来告诉我真实发生了什么。</p><label class="reflection-field">后来怎么样？<textarea v-model="reflection" maxlength="800" placeholder="可以写做到、没做到，或遇到的阻碍" /></label><div class="checkin-actions"><button class="primary-small" @click="checkin(activeActions[0].id, 'completed')">完成并回顾</button><button class="secondary-small" @click="checkin(activeActions[0].id, 'missed')">没做到</button></div></section>
-      <section v-if="!currentJourney" class="modern-card"><h2>今晚，只做这一件事</h2><p>先在今晚入口说说发生了什么，系统才会根据你的真实经历整理下一步。</p><button class="outline-button full" @click="router.push('/pages/tonight/index')">去今晚建立旅程</button></section>
-      <section v-if="missedAction" class="modern-card barrier-card"><span class="section-kicker">没做到也没关系。</span><h2>“{{ missedAction.title }}”为什么变难了？</h2><p>我们把这一步，再缩小一点。选一个最接近的原因就好。</p><div class="barrier-list"><button v-for="option in barrierOptions" :key="option.value" :class="{ selected: selectedBarrier === option.value }" @click="selectedBarrier = option.value">{{ option.label }}</button></div><button class="primary-button" :disabled="adapting" @click="createAdaptiveDraft">{{ adapting ? '正在整理更小的一步...' : '那我们再缩小一点' }}</button><template v-if="adaptiveResult"><p class="adaptive-source">{{ adaptiveResult.result || '任务已完成，请由你写下愿意尝试的新行动。' }}</p><label class="reflection-field">接下来 10 分钟，愿意先做什么？<input v-model="adaptiveResult.title" placeholder="例如：只打开文档写下第一行" /></label><label class="reflection-field">怎样算完成？<textarea v-model="adaptiveResult.description" maxlength="500" placeholder="由你定义一个足够小的完成标准" /></label><div class="checkin-actions"><button class="secondary-small" :disabled="adapting" @click="createAdaptiveDraft">我想换一个</button><button class="primary-small" :disabled="adapting" @click="confirmAdaptiveAction">试试这个更小一步</button></div></template></section>
-      <section v-if="dueCheckins.length" class="modern-card"><div class="card-heading"><h2>待回顾</h2><span class="count-badge">{{ dueCheckins.length }}</span></div><button v-for="item in dueCheckins" :key="item.id" class="checkin-row" @click="item.commitmentId && checkin(item.commitmentId)"><span>回顾这次行动</span><b>›</b></button></section>
-      <details class="modern-card advanced-tools"><summary>把支持带回现实</summary><p class="soft-note">下面每件事都只会在你明确保存后留下记录，系统不会替你联系任何人。</p><div class="tool-grid"><form @submit.prevent="createDecision"><h3>我现在很想做一个决定</h3><input v-model="advanced.decisionQuestion" placeholder="你现在想做什么？" required /><input v-model="advanced.decisionOptions" placeholder="可能的做法（可选，用逗号分开）" /><button class="outline-button full" :disabled="advancedBusy">先放这里</button></form><form @submit.prevent="createCooldown"><h3>先别发出去</h3><input v-model="advanced.cooldownTitle" placeholder="想先留住的那句话或决定" required /><input v-model="advanced.cooldownReason" placeholder="为什么想先缓一缓？" /><select v-model.number="advanced.cooldownHours" aria-label="先缓一缓多久"><option :value="1">1 小时后再看</option><option :value="12">12 小时后再看</option><option :value="24">24 小时后再看</option><option :value="72">72 小时后再看</option></select><button class="outline-button full" :disabled="advancedBusy">放进冷静箱</button></form><form @submit.prevent="createHandoff"><h3>帮我告诉现实中的一个人</h3><input v-model="advanced.handoffRecipient" placeholder="朋友、家人或同事" required /><select v-model="advanced.handoffChannel" aria-label="希望怎样联系"><option value="当面聊">当面聊</option><option value="电话">打电话</option><option value="消息">发消息</option></select><textarea v-model="advanced.handoffSummary" placeholder="希望对方怎么陪你？" required /><button class="outline-button full" :disabled="advancedBusy">保存这张求助卡</button></form><form @submit.prevent="saveSupportPlan"><h3>我的低谷预案</h3><input v-model="advanced.supportTitle" placeholder="给这份预案起个名字（可选）" /><textarea v-model="advanced.supportPlan" placeholder="下次很难受时，希望别人先怎样陪你？" required /><button class="outline-button full" :disabled="advancedBusy">保存预案</button></form><form @submit.prevent="saveMemory"><h3>AI 记得什么</h3><textarea v-model="advanced.memoryContent" placeholder="只留下你明确同意记住的一句话" required /><input v-model="advanced.memoryCategory" type="hidden" /><input v-model.number="advanced.memoryDays" type="hidden" /><button class="outline-button full" :disabled="advancedBusy">保存这段记忆</button></form></div><div v-if="cooldowns.length || decisions.length || handoffs.length || memories.length" class="saved-tools"><h3>已经保存的现实记录</h3><p v-for="item in decisions" :key="item.id">决定：{{ item.question }} · {{ item.status }}</p><p v-for="item in cooldowns" :key="item.id">冷静箱：{{ item.title }} · {{ item.status }}</p><p v-for="item in handoffs" :key="item.id">求助卡：{{ item.recipient }} · {{ item.status }} <button data-testid="action-share-handoff" class="text-button" v-if="item.status === 'ready'" @click="shareHandoff(item.id)">标记已分享</button></p><p v-for="item in memories" :key="item.id">记忆：{{ item.content }} <button class="text-button" @click="removeMemory(item.id)">立即忘记</button></p></div><div class="friendly-links"><button class="text-button" @click="router.push('/pages/future-self/index')">给清醒时候的自己留句话 ›</button><button class="text-button" @click="router.push('/pages/reality-handoff/index')">管理现实支持 ›</button><button class="text-button" @click="router.push('/pages/recovery/index')">记录生活恢复 ›</button></div><button class="text-button settings-link" @click="router.push('/pages/settings/privacy')">查看隐私边界</button></details>
-    </template>
+  <AdaptiveActionSheet
+    v-if="missedAction"
+    :action="missedAction"
+    :selected-barrier="selectedBarrier"
+    :loading="adapting"
+    :result="adaptiveResult ? { title: adaptiveResult.title, description: adaptiveResult.description, expectedDuration: adaptiveResult.expectedDuration, difficulty: shortDifficulty(adaptiveResult.difficulty) } : null"
+    @close="closeAdaptive"
+    @barrier="chooseBarrier"
+    @retry="resetAdaptive"
+    @accept="confirmAdaptiveAction"
+  />
+
+  <section v-else class="page goodnight-page action-page">
+    <header class="action-hero">
+      <div class="hero-topline"><span class="brand-mark">晚安树洞</span><span>{{ timeLabel }}</span></div>
+      <h1>今晚，只做这一件事</h1>
+      <p>不需要证明自己，只要向现实迈出一小步。</p>
+    </header>
+
+    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <p v-if="loading" class="loading-note">正在读取今晚的行动...</p>
+
+    <main v-else class="action-content">
+      <PrimaryActionCard
+        :mode="mainMode"
+        :title="mainMode === 'accepted' ? activeAction?.title : recommendation?.title"
+        :description="mainMode === 'accepted' ? actionDescription : recommendation?.completionDefinition || recommendation?.description"
+        :expected-duration="recommendation?.expectedDuration"
+        :difficulty="recommendation?.difficulty"
+        :follow-up-message="mainMode === 'accepted' ? followUpMessage(activeAction) : undefined"
+        :loading="planning"
+        @request="requestTonightAction"
+        @accept="acceptTonightAction"
+        @smaller="requestTonightAction"
+        @complete="openCompletionSheet"
+        @missed="openAdaptive()"
+        @timeline="router.push(`/pages/journey/detail?id=${currentJourney?.id}`)"
+        @tonight="router.push('/pages/tonight/index')"
+      />
+
+      <ActionFollowupStrip
+        v-if="mainMode === 'recommendation' || mainMode === 'accepted'"
+        :message="mainMode === 'accepted' ? followUpMessage(activeAction) : '接受后，明晚我会回来问你，后来怎么样了。'"
+        @open="router.push('/pages/notifications/index')"
+      />
+
+      <SupportShortcutGrid @select="openShortcut" />
+    </main>
+
+    <div v-if="completionSheetOpen" class="sheet-backdrop" @click.self="completionSheetOpen = false">
+      <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="completion-title">
+        <span class="sheet-handle" aria-hidden="true" />
+        <button class="close-sheet" aria-label="关闭回顾" @click="completionSheetOpen = false">×</button>
+        <h2 id="completion-title">后来怎么样？</h2>
+        <p>写一句就好，也可以留空。完成已经是一件很具体的事。</p>
+        <textarea v-model="completionReflection" maxlength="800" placeholder="这一小步带来了什么变化？" />
+        <button class="sheet-primary" :disabled="completing" data-testid="action-complete-submit" @click="completeAction">{{ completing ? '正在保存...' : '保存这次回顾' }}</button>
+      </section>
+    </div>
+
+    <div v-if="shortcutSheet" class="sheet-backdrop" @click.self="closeShortcutSheet">
+      <section class="shortcut-sheet" role="dialog" aria-modal="true" :aria-label="shortcutSheet === 'cooldown' ? '先别发出去' : '一个重要决定'">
+        <span class="sheet-handle" aria-hidden="true" />
+        <button class="close-sheet" aria-label="关闭" @click="closeShortcutSheet">×</button>
+        <template v-if="shortcutSheet === 'cooldown'">
+          <h2>先别发出去</h2>
+          <p>把想说的话先留在这里，明天再决定要不要发送。</p>
+          <input v-model="cooldownTitle" maxlength="120" placeholder="想先留住的一句话" />
+          <button class="sheet-primary" :disabled="shortcutBusy || !cooldownTitle.trim()" @click="saveCooldown">{{ shortcutBusy ? '正在保存...' : '先放一晚' }}</button>
+        </template>
+        <template v-else>
+          <h2>一个重要决定</h2>
+          <p>先把问题留住，不急着在此刻作答。</p>
+          <input v-model="decisionQuestion" maxlength="300" placeholder="这个决定现在最让你为难的是什么？" />
+          <button class="sheet-primary" :disabled="shortcutBusy || !decisionQuestion.trim()" @click="saveDecision">{{ shortcutBusy ? '正在保存...' : '先留在这里' }}</button>
+        </template>
+        <p v-if="shortcutNotice" class="shortcut-notice">{{ shortcutNotice }}</p>
+      </section>
+    </div>
   </section>
 </template>
+
 <style scoped>
-.modern-page { display:grid; gap:16px; padding:0 14px 150px; }.modern-hero {position:relative; min-height:214px; padding:28px 12px 24px; overflow:hidden; border-radius:0 0 34px 34px; background:radial-gradient(circle at 72% 68%,rgba(231,168,115,.46),transparent 24%),linear-gradient(165deg,#11202f,#293d4b 54%,#74655c)}.modern-hero.compact{min-height:184px}.modern-hero::after{position:absolute;right:-14px;bottom:-18px;width:190px;height:190px;background:url('../assets/goodnight/tree-top-cutout.png') center/cover no-repeat;opacity:.4;content:'';filter:brightness(.7);pointer-events:none}.modern-hero .status-row{position:relative;z-index:1;display:flex;justify-content:space-between;color:#fffaf0;font-weight:700}.eyebrow,.section-kicker{color:var(--gn-green);font-size:12px;letter-spacing:.06em}.modern-hero .eyebrow{position:relative;z-index:1;color:rgba(255,250,240,.75)}.modern-hero h1{position:relative;z-index:1;max-width:300px;margin:34px 0 8px;color:#fffaf1;font-family:var(--gn-font-display);font-size:32px;line-height:1.28}.modern-hero p:last-child{position:relative;z-index:1;margin:0;color:rgba(255,250,240,.78)}.modern-card,.main-action-card{border:1px solid var(--gn-border);border-radius:var(--gn-radius-card);background:var(--gn-card);box-shadow:var(--gn-shadow-card);padding:22px}.modern-card h2,.main-action-card h2{margin:6px 0 8px;color:var(--gn-text);font-size:21px}.modern-card p,.main-action-card p{color:var(--gn-subtext);line-height:1.7}.main-action-card{display:grid;gap:10px;background:linear-gradient(145deg,#fffdf7,#eef2e5)}.main-action-card>h2{font-size:28px;color:#344e38}.action-empty{display:grid;gap:12px;border-radius:17px;background:rgba(255,253,247,.72);padding:17px}.action-empty>span{font-size:29px;color:#69825a}.action-empty strong{color:#596d52;font-weight:400;line-height:1.55}.recommendation{display:grid;gap:8px;border-radius:16px;background:#fffdf7;padding:15px}.recommendation h3{margin:0;color:#365635;font-size:20px;line-height:1.45}.recommendation p{margin:0}.recommendation small{color:#788175}.card-heading{display:flex;justify-content:space-between;align-items:start;gap:10px}.text-button,.outline-button{border:0;background:transparent;color:var(--gn-green);font:inherit;cursor:pointer}.count-badge{min-width:24px;padding:4px 8px;border-radius:99px;background:var(--gn-green-light);color:var(--gn-green-dark);text-align:center}.reflection-field{display:grid;gap:7px;margin:14px 0;color:var(--gn-subtext);font-size:13px}.reflection-field input,.reflection-field textarea{min-height:44px;resize:none;box-sizing:border-box;width:100%;border:1px solid var(--gn-border);border-radius:14px;padding:10px 12px;background:#fffdf8;font:inherit;line-height:1.5}.reflection-field textarea{min-height:74px}.commitment-list{display:grid;gap:10px}.commitment-list article{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid var(--gn-border)}.commitment-list strong,.commitment-list small{display:block}.commitment-list small{margin-top:5px;color:var(--gn-subtext);line-height:1.5}.checkin-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}.primary-small,.secondary-small{flex:0 0 auto;border:0;border-radius:14px;padding:10px 12px;background:var(--gn-green);color:#fff;cursor:pointer;font:inherit}.secondary-small{background:transparent;border:1px solid var(--gn-border);color:var(--gn-green-dark)}.primary-button{width:100%;min-height:48px;border:0;border-radius:15px;background:var(--gn-green);color:#fff;font:inherit;cursor:pointer}.barrier-card{border-color:rgba(95,127,62,.35)}.barrier-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.barrier-list button{border:1px solid var(--gn-border);border-radius:999px;padding:9px 12px;background:#fffdf8;color:var(--gn-green-dark);font:inherit;cursor:pointer}.barrier-list button.selected{background:var(--gn-green);border-color:var(--gn-green);color:#fff}.adaptive-source{padding:12px;border-radius:14px;background:var(--gn-green-light);font-size:13px}.checkin-row{display:flex;width:100%;justify-content:space-between;border:0;border-bottom:1px solid var(--gn-border);background:transparent;padding:14px 0;color:var(--gn-text);font:inherit;text-align:left}.empty-note{margin-bottom:0}.full{width:100%;margin-top:14px;padding:12px;border:1px solid var(--gn-border);border-radius:15px}.error-text{margin:0 4px;color:var(--gn-danger)}.advanced-tools summary{cursor:pointer;color:var(--gn-green-dark);font-size:18px;font-weight:700}.advanced-tools .soft-note{font-size:13px}.tool-grid{display:grid;gap:12px}.tool-grid form{display:grid;gap:8px;padding-top:12px;border-top:1px solid var(--gn-border)}.tool-grid h3,.saved-tools h3{margin:0;color:var(--gn-green-dark);font-size:16px}.tool-grid input,.tool-grid textarea,.tool-grid select{width:100%;box-sizing:border-box;border:1px solid var(--gn-border);border-radius:12px;padding:10px;background:#fffdf8;font:inherit}.tool-grid textarea{min-height:72px;resize:vertical;line-height:1.5}.saved-tools{margin-top:16px;padding-top:12px;border-top:1px solid var(--gn-border)}.saved-tools p{margin:8px 0;font-size:13px}.friendly-links{display:grid;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--gn-border)}.settings-link{margin-top:14px}
+.action-page { box-sizing:border-box; width:100%; max-width:430px; margin:0 auto; background:#f8f4ea; color:#263c31; padding:0 16px calc(138px + env(safe-area-inset-bottom)); }
+.action-hero { position:relative; min-height:190px; margin:0 -16px; overflow:hidden; background:radial-gradient(circle at 76% 68%, rgba(235,177,124,.62), transparent 26%), linear-gradient(154deg,#17293a,#263b49 49%,#7a655b); padding:calc(18px + env(safe-area-inset-top)) 28px 21px; color:#fffaf0; }
+.action-hero::before { position:absolute; top:-34px; right:-28px; width:240px; height:240px; background:url('../assets/goodnight/tree-top-cutout.png') top right/cover no-repeat; opacity:.56; content:''; filter:brightness(.78) saturate(.85); pointer-events:none; }
+.action-hero::after { position:absolute; right:43px; top:63px; width:24px; height:24px; border:2px solid #fff6dc; border-radius:50%; box-shadow:-8px 2px 0 -1px #1c3040; content:''; opacity:.95; }
+.hero-topline,.action-hero h1,.action-hero > p { position:relative; z-index:1; }.hero-topline { display:flex; justify-content:space-between; color:rgba(255,249,236,.72); font-size:13px; }.brand-mark { font-weight:650; letter-spacing:.03em; }.action-hero h1 { max-width:350px; margin:34px 0 8px; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:30px; font-weight:650; letter-spacing:0; line-height:1.28; }.action-hero > p { max-width:300px; margin:0; color:rgba(255,249,237,.84); font-size:15px; line-height:1.6; }
+.action-content { display:grid; gap:10px; margin-top:-17px; position:relative; z-index:2; }.loading-note,.error-text { margin:20px 4px; color:#687566; }.error-text { color:var(--gn-danger); }
+.sheet-backdrop { position:fixed; z-index:20; inset:0; display:flex; align-items:flex-end; justify-content:center; background:rgba(16,28,34,.48); padding:16px; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }.completion-sheet,.shortcut-sheet { position:relative; box-sizing:border-box; width:min(100%, 430px); border-radius:28px 28px 20px 20px; background:#fffdf7; padding:28px 20px 20px; box-shadow:0 -14px 36px rgba(14,26,33,.2); }.sheet-handle { position:absolute; top:10px; left:50%; width:44px; height:4px; border-radius:999px; background:#d9dbd0; transform:translateX(-50%); }.close-sheet { position:absolute; top:18px; right:16px; display:grid; width:30px; height:30px; place-items:center; border:0; border-radius:50%; background:#f3f1e8; color:#5d6b5b; font:inherit; font-size:22px; line-height:1; cursor:pointer; }.completion-sheet h2,.shortcut-sheet h2 { margin:8px 0 8px; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; color:#2d4434; font-size:24px; font-weight:650; }.completion-sheet p,.shortcut-sheet p { margin:0; color:#737d70; font-size:14px; line-height:1.65; }.completion-sheet textarea,.shortcut-sheet input { box-sizing:border-box; width:100%; margin-top:18px; border:1px solid rgba(101,122,91,.2); border-radius:17px; background:#fbf9f1; padding:13px; color:#2e4034; font:inherit; line-height:1.55; resize:none; }.completion-sheet textarea { min-height:108px; }.shortcut-sheet input { min-height:50px; }.sheet-primary { width:100%; min-height:50px; margin-top:13px; border:1px solid #436b52; border-radius:999px; background:#436b52; color:#fffdf6; font:inherit; font-size:15px; cursor:pointer; }.sheet-primary:disabled { cursor:wait; opacity:.64; }.shortcut-notice { margin-top:12px !important; color:#527151 !important; text-align:center; }
+@media (max-width:374px) { .action-page { padding-inline:12px; }.action-hero { margin-inline:-12px; padding-inline:24px; min-height:186px; }.action-hero h1 { margin-top:28px; font-size:28px; }.sheet-backdrop { padding-inline:10px; } }
+@media (max-width:390px) {
+  .action-page { padding-bottom:calc(126px + env(safe-area-inset-bottom)); }
+  .action-hero { min-height:180px; padding-top:calc(16px + env(safe-area-inset-top)); padding-bottom:18px; }
+  .action-hero h1 { margin-top:26px; font-size:28px; }
+  .action-content { gap:8px; }
+  :deep(.action-paper) { padding:17px 17px 14px; }
+  :deep(.action-paper .paper-label) { margin-bottom:8px; }
+  :deep(.action-paper .action-title) { font-size:24px; line-height:1.3; }
+  :deep(.action-paper .paper-copy) { margin-top:9px; font-size:14px; line-height:1.52; }
+  :deep(.action-paper .action-meta) { margin-top:9px; }
+  :deep(.action-paper .completion-note) { margin-top:9px; }
+  :deep(.action-paper .card-actions) { margin-top:12px; }
+  :deep(.action-paper .primary-cta), :deep(.action-paper .secondary-cta) { min-height:43px; }
+  :deep(.shortcut-card) { min-height:78px; padding-top:7px; }
+  :deep(.shortcut-icon) { width:27px; height:27px; }
+}
 </style>

@@ -42,6 +42,7 @@
     "test:real-browser-cross-flow": "tsx scripts/real-browser-cross-flow.ts",
     "test:real-browser-goodnight-2": "tsx scripts/real-browser-goodnight-2.ts",
     "test:real-browser-first-batch": "tsx scripts/real-browser-first-batch.ts",
+    "test:reference-qa-action": "tsx scripts/reference-qa-action.ts",
     "test:admin-sync-full": "tsx scripts/admin-sync-full-report.ts",
     "test:admin-phase3-phase4-real": "tsx scripts/admin-phase3-phase4-real.ts",
     "test:final-live-admin-crud": "tsx scripts/final-live-admin-crud.ts",

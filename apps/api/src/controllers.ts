@@ -176,6 +176,12 @@ export class PublicController {
     return await this.store.createJourney(body, runtimeUserId(userId));
   }
 
+  @Post('testing/cleanup-browser-fixtures')
+  async cleanupBrowserFixtures(@Headers('x-goodnight-test-cleanup') token: string, @Body() body: { journeyIds?: string[]; notificationIds?: string[]; decisionIds?: string[]; cooldownIds?: string[]; legacy?: boolean }) {
+    if (token !== 'first-batch-browser') throw new NotFoundException('测试清理入口不可用。');
+    return await this.store.cleanupBrowserFixtures(body);
+  }
+
   @Get('journeys/:id')
   journey(@Param('id') id: string) {
     return { item: this.store.journeyDetail(id) };

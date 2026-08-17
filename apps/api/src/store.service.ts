@@ -1469,6 +1469,81 @@ export class StoreService implements OnModuleInit {
     return { journey, snapshot, job, safety: risk.level === 'high' ? { level: 'high', needsRealWorldSupport: true } : { level: risk.level, needsRealWorldSupport: false } };
   }
 
+  async cleanupBrowserFixtures(input: { journeyIds?: unknown; notificationIds?: unknown; decisionIds?: unknown; cooldownIds?: unknown; legacy?: unknown }) {
+    if (process.env.NODE_ENV === 'production') throw new ForbiddenException('生产环境不提供测试数据清理。');
+
+    const demoUserId = this.getDemoUserId();
+    const explicitJourneyIds = new Set(Array.isArray(input.journeyIds) ? input.journeyIds.map(String).filter(Boolean) : []);
+    const explicitNotificationIds = new Set(Array.isArray(input.notificationIds) ? input.notificationIds.map(String).filter(Boolean) : []);
+    const explicitDecisionIds = new Set(Array.isArray(input.decisionIds) ? input.decisionIds.map(String).filter(Boolean) : []);
+    const explicitCooldownIds = new Set(Array.isArray(input.cooldownIds) ? input.cooldownIds.map(String).filter(Boolean) : []);
+    const fixtureText = /(?:第一批浏览器回归|第二段浏览器回归|浏览器回归记录|浏览器回归行动|通知验证行动|浏览器决策|浏览器冷静箱|可信任的人-\d+|direct-check|我想先留住这个决定，明天再回答|今晚先不发送这句话)/i;
+    const legacy = input.legacy === true;
+
+    if (legacy) {
+      for (const update of this.journeyUpdates) {
+        if (update.userId === demoUserId && fixtureText.test(update.content)) explicitJourneyIds.add(update.journeyId);
+      }
+      for (const journey of this.lifeJourneys) {
+        if (journey.userId === demoUserId && fixtureText.test(`${journey.title}\n${journey.summary ?? ''}`)) explicitJourneyIds.add(journey.id);
+      }
+    }
+
+    const ownedJourneys = this.lifeJourneys.filter((journey) => explicitJourneyIds.has(journey.id));
+    if (ownedJourneys.some((journey) => journey.userId !== demoUserId)) throw new ForbiddenException('测试清理只能处理当前演示用户创建的 Journey。');
+    const journeyIds = new Set(ownedJourneys.map((journey) => journey.id));
+    const actionIds = new Set(this.actionCommitments
+      .filter((action) => journeyIds.has(action.journeyId) || (legacy && action.userId === demoUserId && fixtureText.test(action.title)))
+      .map((action) => action.id));
+    const actionJourneyIds = new Set(this.actionCommitments.filter((action) => actionIds.has(action.id)).map((action) => action.journeyId));
+    for (const journeyId of actionJourneyIds) journeyIds.add(journeyId);
+
+    const before = {
+      journeys: this.lifeJourneys.length,
+      actions: this.actionCommitments.length,
+      notifications: this.notifications.length,
+      jobs: this.aiJobs.length,
+      handoffs: this.realityHandoffs.length,
+      decisions: this.decisionRecords.length,
+      cooldowns: this.cooldownItems.length,
+    };
+    const hasJourney = (journeyId?: string) => Boolean(journeyId && journeyIds.has(journeyId));
+    const hasAction = (actionId?: string) => Boolean(actionId && actionIds.has(actionId));
+    const notificationMatches = (item: UserNotification) => explicitNotificationIds.has(item.id)
+      || [...journeyIds].some((journeyId) => item.targetRoute?.includes(journeyId));
+
+    this.data.lifeJourneys = this.data.lifeJourneys.filter((item) => !journeyIds.has(item.id));
+    this.data.situationSnapshots = this.data.situationSnapshots.filter((item) => !journeyIds.has(item.journeyId));
+    this.data.journeyUpdates = this.data.journeyUpdates.filter((item) => !journeyIds.has(item.journeyId));
+    this.data.actionCommitments = this.data.actionCommitments.filter((item) => !actionIds.has(item.id));
+    this.data.outcomeCheckins = this.data.outcomeCheckins.filter((item) => !hasJourney(item.journeyId) && !hasAction(item.commitmentId));
+    this.data.peerExperiences = this.data.peerExperiences.filter((item) => !hasJourney(item.journeyId));
+    this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
+    this.data.decisionRecords = this.data.decisionRecords.filter((item) => !explicitDecisionIds.has(item.id) && !hasJourney(item.journeyId) && !(legacy && item.userId === demoUserId && fixtureText.test(item.question)));
+    this.data.cooldownItems = this.data.cooldownItems.filter((item) => !explicitCooldownIds.has(item.id) && !(legacy && item.userId === demoUserId && fixtureText.test(`${item.title}\n${item.reason ?? ''}`)));
+    this.data.realityHandoffs = this.data.realityHandoffs.filter((item) => !hasJourney(item.journeyId) && !(legacy && item.userId === demoUserId && fixtureText.test(`${item.recipient}\n${item.summary}`)));
+    this.data.messagesToFutureSelf = this.data.messagesToFutureSelf.filter((item) => !hasJourney(item.journeyId));
+    this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
+    this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
+    this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
+    this.data.safetyEvents = this.data.safetyEvents.filter((item) => !hasJourney(item.journeyId));
+    this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
+    this.data.followUpJobs = this.data.followUpJobs.filter((item) => !hasJourney(item.journeyId) && !hasAction(String(item.payload?.actionId ?? '')) && !explicitCooldownIds.has(String(item.payload?.cooldownId ?? '')));
+    this.data.notifications = this.data.notifications.filter((item) => !notificationMatches(item));
+    this.data.aiJobs = this.data.aiJobs.filter((item) => !journeyIds.has(item.contentId) && !actionIds.has(item.contentId) && !(legacy && item.userId === demoUserId && fixtureText.test(`${item.contentId}\n${item.promptSummary}`)));
+
+    await this.persistAndFlush();
+    return {
+      journeys: before.journeys - this.lifeJourneys.length,
+      actions: before.actions - this.actionCommitments.length,
+      notifications: before.notifications - this.notifications.length,
+      jobs: before.jobs - this.aiJobs.length,
+      handoffs: before.handoffs - this.realityHandoffs.length,
+      decisions: before.decisions - this.decisionRecords.length,
+      cooldowns: before.cooldowns - this.cooldownItems.length,
+    };
+  }
+
   fingerprint(journeyId: string) {
     const journey = this.requireJourney(journeyId);
     const snapshot = this.situationSnapshots.find((item) => item.journeyId === journey.id);
