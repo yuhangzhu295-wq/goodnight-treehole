@@ -242,11 +242,23 @@ async function main() {
     spawnLogged('click-all-front', pnpm, [...pnpmPrefix, '--dir', 'apps/mp', 'dev', '--host', '127.0.0.1', '--port', String(frontPort), '--strictPort'], env),
     spawnLogged('click-all-admin', pnpm, [...pnpmPrefix, '--dir', 'apps/admin', 'dev', '--host', '127.0.0.1', '--port', String(adminPort), '--strictPort'], env),
   ];
+  let previousPeerMatching: boolean | undefined;
 
   try {
     await wait(`${apiBase}/api/v1/posts`);
     await wait(`${frontBase}/pages/square/index`);
     await wait(`${adminBase}/login`);
+    const privacyResponse = await fetch(`${apiBase}/api/v1/me/privacy`);
+    const privacyPayload = await privacyResponse.json() as { item?: { allowPeerMatching?: boolean } };
+    previousPeerMatching = privacyPayload.item?.allowPeerMatching;
+    if (previousPeerMatching === false) {
+      const enableResponse = await fetch(`${apiBase}/api/v1/me/privacy`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ allowPeerMatching: true, allowAnonymousExperienceStats: true }),
+      });
+      if (!enableResponse.ok) throw new Error(`Could not enable peer matching for click-all precondition: ${enableResponse.status}`);
+    }
 
     const frontManifest = JSON.parse(await fs.readFile('tests/interaction-manifest.front.json', 'utf8')) as ManifestItem[];
     const adminManifest = JSON.parse(await fs.readFile('tests/interaction-manifest.admin.json', 'utf8')) as ManifestItem[];
@@ -299,6 +311,13 @@ async function main() {
       process.exit(1);
     }
   } finally {
+    if (previousPeerMatching === false) {
+      await fetch(`${apiBase}/api/v1/me/privacy`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ allowPeerMatching: false, allowAnonymousExperienceStats: false }),
+      }).catch(() => undefined);
+    }
     for (const proc of procs) kill(proc);
     cleanupTestPorts();
     await fs.rm(storeFile, { force: true });

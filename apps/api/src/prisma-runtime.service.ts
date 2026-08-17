@@ -3,7 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import { isRelationalPrimary, loadRelationalRuntimeState, saveRelationalRuntimeState } from './relational-runtime.mapper.js';
 import { assertVisualFixtureRuntime } from './runtime-environment.js';
 
-export const RUNTIME_DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://goodnight@127.0.0.1:55432/goodnight_treehole?schema=public';
+// Keep local development aligned with docker-compose/.env.example. Production
+// and tests always override this through DATABASE_URL.
+export const RUNTIME_DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://goodnight:goodnight@127.0.0.1:5432/goodnight_treehole?schema=public';
 
 @Injectable()
 export class PrismaRuntimeService extends PrismaClient implements OnModuleDestroy {

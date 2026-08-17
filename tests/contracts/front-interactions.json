@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T12:33:03.387Z",
+  "generatedAt": "2026-08-17T06:13:50.286Z",
   "rules": [
     "data-testid must be on the visible Chinese control itself",
     "reply sheet is a state of /pages/post/detail",
@@ -10,27 +10,27 @@
       "page": "front-square",
       "route": "/pages/square/index",
       "selector": "tab-square",
-      "expectedAction": "navigate square",
-      "expectedUrl": "/pages/square/index",
-      "expectedApi": null,
+      "expectedAction": "navigate tonight home",
+      "expectedUrl": "/pages/tonight/index",
+      "expectedApi": "GET /api/v1/tonight",
       "priority": "P0"
     },
     {
       "page": "front-square",
       "route": "/pages/square/index",
       "selector": "tab-letter",
-      "expectedAction": "navigate letter",
-      "expectedUrl": "/pages/letter/index",
-      "expectedApi": "GET /api/v1/letters/today",
+      "expectedAction": "navigate peer network",
+      "expectedUrl": "/pages/peers/index",
+      "expectedApi": "GET /api/v1/peers",
       "priority": "P0"
     },
     {
       "page": "front-square",
       "route": "/pages/square/index",
       "selector": "tab-tool",
-      "expectedAction": "navigate tool",
-      "expectedUrl": "/pages/tool/index",
-      "expectedApi": "GET /api/v1/tools",
+      "expectedAction": "navigate action center",
+      "expectedUrl": "/pages/action/index",
+      "expectedApi": "GET /api/v1/tonight",
       "priority": "P0"
     },
     {
@@ -127,9 +127,40 @@
       "page": "front-square",
       "route": "/pages/square/index",
       "selector": "btn-square-reply-first",
-      "expectedAction": "open reply sheet",
-      "expectedUrl": "sheet=reply",
-      "expectedApi": "GET /api/v1/reply-presets",
+      "expectedAction": "open post detail when owner disabled human replies",
+      "expectedUrl": "/pages/post/detail",
+      "expectedApi": null,
+      "priority": "P0"
+    },
+    {
+      "page": "front-square",
+      "route": "/pages/square/index",
+      "selector": "square-menu-copy",
+      "setupClick": "post-more-first",
+      "expectedAction": "copy real post content",
+      "expectedUrl": "/pages/square/index",
+      "expectedText": "内容已复制",
+      "priority": "P1"
+    },
+    {
+      "page": "front-square",
+      "route": "/pages/square/index",
+      "selector": "square-menu-report",
+      "setupClick": "post-more-first",
+      "expectedAction": "report post",
+      "expectedUrl": "/pages/square/index",
+      "expectedApi": "POST /api/v1/posts/:id/report",
+      "priority": "P0"
+    },
+    {
+      "page": "front-square",
+      "route": "/pages/square/index",
+      "selector": "square-menu-hide",
+      "setupClick": "post-more-first",
+      "expectedAction": "persist current-user hidden post",
+      "expectedUrl": "/pages/square/index",
+      "expectedApi": "POST /api/v1/posts/:id/hide",
+      "expectedText": "已为你减少类似内容",
       "priority": "P0"
     },
     {
@@ -172,10 +203,11 @@
     {
       "page": "front-mood",
       "route": "/pages/post/create",
-      "selector": "btn-add-image",
-      "expectedAction": "register asset",
+      "selector": "input-mood-images",
+      "file": "tests/fixtures/upload-test-1.png",
+      "expectedAction": "upload and persist a real image",
       "expectedUrl": "/pages/post/create",
-      "expectedApi": "POST /api/v1/assets/complete",
+      "expectedApi": "POST /api/v1/media/upload",
       "priority": "P1"
     },
     {
@@ -230,6 +262,45 @@
       "priority": "P0"
     },
     {
+      "page": "front-detail",
+      "route": "/pages/post/detail?id=post_1",
+      "selector": "reply-like-first",
+      "expectedAction": "persist reply like",
+      "expectedUrl": "/pages/post/detail",
+      "expectedApi": "POST /api/v1/replies/:id/like",
+      "priority": "P0"
+    },
+    {
+      "page": "front-detail",
+      "route": "/pages/post/detail?id=post_1",
+      "selector": "detail-menu-copy",
+      "setupClick": "btn-open-more",
+      "expectedAction": "copy real detail content",
+      "expectedUrl": "/pages/post/detail",
+      "expectedText": "内容已复制",
+      "priority": "P1"
+    },
+    {
+      "page": "front-detail",
+      "route": "/pages/post/detail?id=post_1",
+      "selector": "detail-menu-report",
+      "setupClick": "btn-open-more",
+      "expectedAction": "report detail post",
+      "expectedUrl": "/pages/post/detail",
+      "expectedApi": "POST /api/v1/posts/:id/report",
+      "priority": "P0"
+    },
+    {
+      "page": "front-detail",
+      "route": "/pages/post/detail?id=post_1",
+      "selector": "detail-menu-block",
+      "setupClick": "btn-open-more",
+      "expectedAction": "persist hidden post and return square",
+      "expectedUrl": "/pages/square/index",
+      "expectedApi": "POST /api/v1/posts/:id/hide",
+      "priority": "P0"
+    },
+    {
       "page": "front-reply-sheet",
       "route": "/pages/post/detail?id=post_1&sheet=reply",
       "selector": "input-reply-content",
@@ -260,6 +331,15 @@
     {
       "page": "front-reply-sheet",
       "route": "/pages/post/detail?id=post_1&sheet=reply",
+      "selector": "btn-close-reply",
+      "expectedAction": "close reply sheet",
+      "expectedUrl": "/pages/post/detail?id=post_1",
+      "expectedHiddenTestId": "input-reply-content",
+      "priority": "P1"
+    },
+    {
+      "page": "front-reply-sheet",
+      "route": "/pages/post/detail?id=post_1&sheet=reply",
       "selector": "btn-submit-reply",
       "setup": [
         {
@@ -274,38 +354,38 @@
     },
     {
       "page": "front-letter",
-      "route": "/pages/reply/today",
+      "route": "/pages/letter/today",
       "selector": "btn-letter-warm",
-      "expectedAction": "regenerate warm letter",
-      "expectedUrl": "/pages/reply/today",
-      "expectedApi": "POST /api/v1/ai/generate",
+      "expectedAction": "regenerate warm letter through a real AiJob",
+      "expectedUrl": "/pages/letter/today",
+      "expectedApi": "POST /api/v1/letters/:id/regenerate",
       "priority": "P0"
     },
     {
       "page": "front-letter",
-      "route": "/pages/reply/today",
+      "route": "/pages/letter/today",
       "selector": "btn-letter-rational",
-      "expectedAction": "regenerate rational letter",
-      "expectedUrl": "/pages/reply/today",
-      "expectedApi": "POST /api/v1/ai/generate",
+      "expectedAction": "regenerate rational letter through a real AiJob",
+      "expectedUrl": "/pages/letter/today",
+      "expectedApi": "POST /api/v1/letters/:id/regenerate",
       "priority": "P1"
     },
     {
       "page": "front-letter",
-      "route": "/pages/reply/today",
+      "route": "/pages/letter/today",
       "selector": "btn-letter-light",
-      "expectedAction": "regenerate light letter",
-      "expectedUrl": "/pages/reply/today",
-      "expectedApi": "POST /api/v1/ai/generate",
+      "expectedAction": "regenerate light letter through a real AiJob",
+      "expectedUrl": "/pages/letter/today",
+      "expectedApi": "POST /api/v1/letters/:id/regenerate",
       "priority": "P1"
     },
     {
       "page": "front-letter",
-      "route": "/pages/reply/today",
+      "route": "/pages/letter/today",
       "selector": "btn-letter-poetic",
-      "expectedAction": "regenerate poetic letter",
-      "expectedUrl": "/pages/reply/today",
-      "expectedApi": "POST /api/v1/ai/generate",
+      "expectedAction": "regenerate poetic letter through a real AiJob",
+      "expectedUrl": "/pages/letter/today",
+      "expectedApi": "POST /api/v1/letters/:id/regenerate",
       "priority": "P1"
     },
     {
@@ -331,7 +411,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-letter",
       "expectedAction": "open letter tool",
-      "expectedUrl": "/pages/reply/today",
+      "expectedUrl": "/pages/letter/today",
       "expectedApi": "GET /api/v1/letters/today",
       "priority": "P0"
     },
@@ -340,7 +420,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-decompose",
       "expectedAction": "open decompose tool",
-      "expectedUrl": "/pages/tool/breakdown",
+      "expectedUrl": "/pages/tool/decompose",
       "expectedApi": null,
       "priority": "P0"
     },
@@ -349,7 +429,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-rewrite",
       "expectedAction": "open rewrite tool",
-      "expectedUrl": "/pages/tool/rewrite",
+      "expectedUrl": "/pages/tool/run?type=negative_rewrite",
       "expectedApi": null,
       "priority": "P1"
     },
@@ -358,7 +438,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-rant",
       "expectedAction": "open rant tool",
-      "expectedUrl": "/pages/tool/rant",
+      "expectedUrl": "/pages/tool/run?type=rant",
       "expectedApi": null,
       "priority": "P1"
     },
@@ -367,7 +447,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-healing-quote",
       "expectedAction": "open heal tool",
-      "expectedUrl": "/pages/tool/heal",
+      "expectedUrl": "/pages/tool/run?type=healing_phrase",
       "expectedApi": null,
       "priority": "P1"
     },
@@ -376,7 +456,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-sleep-comfort",
       "expectedAction": "open sleep tool",
-      "expectedUrl": "/pages/tool/sleep",
+      "expectedUrl": "/pages/tool/run?type=sleep_comfort",
       "expectedApi": null,
       "priority": "P1"
     },
@@ -385,7 +465,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-work-support",
       "expectedAction": "open work tool",
-      "expectedUrl": "/pages/tool/work",
+      "expectedUrl": "/pages/tool/run?type=work_support",
       "expectedApi": null,
       "priority": "P1"
     },
@@ -394,7 +474,7 @@
       "route": "/pages/tool/index",
       "selector": "tool-future-letter",
       "expectedAction": "open future tool",
-      "expectedUrl": "/pages/tool/future",
+      "expectedUrl": "/pages/tool/run?type=future_letter",
       "expectedApi": null,
       "priority": "P1"
     },
@@ -403,57 +483,73 @@
       "route": "/pages/tool/index",
       "selector": "tool-report",
       "expectedAction": "open report",
-      "expectedUrl": "/pages/me/month-report",
-      "expectedApi": "GET /api/v1/reports/monthly",
+      "expectedUrl": "/pages/report/month",
+      "expectedApi": "GET /api/v1/reports/monthly/months",
       "priority": "P1"
     },
     {
       "page": "front-decompose",
-      "route": "/pages/tool/breakdown",
+      "route": "/pages/tool/decompose",
       "selector": "input-decompose",
       "fill": "Click-all decompose content",
       "expectedAction": "type decompose",
-      "expectedUrl": "/pages/tool/breakdown",
+      "expectedUrl": "/pages/tool/decompose",
       "expectedApi": null,
       "priority": "P0"
     },
     {
       "page": "front-decompose",
-      "route": "/pages/tool/breakdown",
+      "route": "/pages/tool/decompose",
       "selector": "btn-decompose-run",
-      "expectedAction": "run decompose",
-      "expectedUrl": "/pages/tool/breakdown",
-      "expectedApi": "POST /api/v1/tools/emotion-decompose",
+      "setup": [
+        {
+          "selector": "input-decompose",
+          "fill": "Click-all decompose content"
+        }
+      ],
+      "expectedAction": "run decompose as a real asynchronous AiJob",
+      "expectedUrl": "/pages/tool/decompose",
+      "expectedApi": "POST /api/v1/ai/tasks",
       "priority": "P0"
     },
     {
       "page": "front-decompose",
-      "route": "/pages/tool/breakdown",
+      "route": "/pages/tool/decompose",
       "selector": "btn-decompose-save",
       "setupClick": "btn-decompose-run",
       "expectedAction": "save decompose",
-      "expectedUrl": "/pages/tool/breakdown",
+      "expectedUrl": "/pages/tool/decompose",
       "expectedApi": "POST /api/v1/diaries",
       "priority": "P0"
     },
     {
       "page": "front-tool-run",
-      "route": "/pages/tool/rewrite",
+      "route": "/pages/tool/run?type=rewrite",
       "selector": "btn-tool-run-submit",
-      "expectedAction": "run generic tool",
-      "expectedUrl": "/pages/tool/rewrite",
+      "expectedAction": "create asynchronous AI tool job",
+      "expectedUrl": "/pages/tool/run?type=rewrite",
       "expectedApi": "POST /api/v1/ai/tasks",
       "priority": "P0"
     },
     {
       "page": "front-tool-run",
-      "route": "/pages/tool/rewrite",
+      "route": "/pages/tool/run?type=rewrite",
       "selector": "btn-tool-run-save",
       "setupClick": "btn-tool-run-submit",
       "expectedAction": "save generic tool",
-      "expectedUrl": "/pages/tool/rewrite",
+      "expectedUrl": "/pages/tool/run?type=rewrite",
       "expectedApi": "POST /api/v1/diaries",
       "priority": "P0"
+    },
+    {
+      "page": "front-tool-run",
+      "route": "/pages/tool/run?type=rewrite",
+      "selector": "btn-tool-run-copy",
+      "setupClick": "btn-tool-run-submit",
+      "expectedAction": "copy generated tool result",
+      "expectedUrl": "/pages/tool/run?type=rewrite",
+      "expectedText": "已复制",
+      "priority": "P1"
     },
     {
       "page": "front-me",
@@ -488,7 +584,7 @@
       "selector": "entry-report",
       "expectedAction": "open report",
       "expectedUrl": "/pages/me/month-report",
-      "expectedApi": "GET /api/v1/reports/monthly",
+      "expectedApi": "GET /api/v1/reports/monthly/months",
       "priority": "P0"
     },
     {
@@ -508,6 +604,25 @@
       "expectedUrl": "/pages/help/feedback",
       "expectedApi": "GET /api/v1/feedback/faqs",
       "priority": "P0"
+    },
+    {
+      "page": "front-me",
+      "route": "/pages/me/index",
+      "selector": "btn-clear-data",
+      "expectedAction": "open clear-data confirmation",
+      "expectedUrl": "/pages/me/index",
+      "expectedVisibleTestId": "clear-confirm-panel",
+      "priority": "P1"
+    },
+    {
+      "page": "front-me",
+      "route": "/pages/me/index",
+      "selector": "btn-clear-cancel",
+      "setupClick": "btn-clear-data",
+      "expectedAction": "cancel clear-data confirmation",
+      "expectedUrl": "/pages/me/index",
+      "expectedHiddenTestId": "clear-confirm-panel",
+      "priority": "P1"
     },
     {
       "page": "front-report",
@@ -546,6 +661,42 @@
       "priority": "P0"
     },
     {
+      "page": "front-privacy",
+      "route": "/pages/settings/privacy",
+      "selector": "toggle-privacy-anonymous",
+      "expectedAction": "update anonymous publishing",
+      "expectedUrl": "/pages/settings/privacy",
+      "expectedApi": "PUT /api/v1/settings/privacy",
+      "priority": "P1"
+    },
+    {
+      "page": "front-privacy",
+      "route": "/pages/settings/privacy",
+      "selector": "toggle-privacy-report-share",
+      "expectedAction": "update report sharing",
+      "expectedUrl": "/pages/settings/privacy",
+      "expectedApi": "PUT /api/v1/settings/privacy",
+      "priority": "P1"
+    },
+    {
+      "page": "front-privacy",
+      "route": "/pages/settings/privacy",
+      "selector": "btn-data-explain",
+      "expectedAction": "open data explanation",
+      "expectedUrl": "/pages/settings/privacy",
+      "expectedVisibleTestId": "privacy-explain-panel",
+      "priority": "P1"
+    },
+    {
+      "page": "front-privacy",
+      "route": "/pages/settings/privacy",
+      "selector": "btn-data-policy-route",
+      "setupClick": "btn-data-explain",
+      "expectedAction": "open full data policy",
+      "expectedUrl": "/pages/settings/data-policy",
+      "priority": "P1"
+    },
+    {
       "page": "front-feedback",
       "route": "/pages/help/feedback",
       "selector": "input-feedback-content",
@@ -559,6 +710,12 @@
       "page": "front-feedback",
       "route": "/pages/help/feedback",
       "selector": "btn-feedback-submit",
+      "setup": [
+        {
+          "selector": "input-feedback-content",
+          "fill": "Click-all feedback ticket"
+        }
+      ],
       "expectedAction": "submit feedback",
       "expectedUrl": "/pages/help/feedback",
       "expectedApi": "POST /api/v1/feedback",

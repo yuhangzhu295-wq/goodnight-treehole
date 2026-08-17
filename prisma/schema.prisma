@@ -79,68 +79,135 @@ enum FeedbackStatus {
   closed
 }
 
+enum JourneyStatus {
+  active
+  paused
+  completed
+  archived
+}
+
+enum PeerExperienceStatus {
+  draft
+  pending_review
+  published
+  hidden
+  rejected
+}
+
+enum PeerMatchStatus {
+  suggested
+  requested
+  connected
+  declined
+  blocked
+}
+
+enum ActionCommitmentStatus {
+  active
+  completed
+  skipped
+  paused
+}
+
+enum CheckinStatus {
+  pending
+  completed
+  missed
+}
+
+enum HandoffStatus {
+  draft
+  ready
+  shared
+  completed
+}
+
 model User {
-  id            String   @id @default(cuid())
-  openid        String   @unique
-  nickname      String
-  anonymousCode String
-  avatarUrl     String?
-  status        UserStatus @default(normal)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  privacySetting PrivacySetting?
-  moods         Mood[]
-  posts         Post[]
-  replies       Reply[]
-  letters       Letter[]
-  diaries       Diary[]
-  favorites     Favorite[]
-  assets         MediaAsset[]
-  feedbackTickets FeedbackTicket[]
-  hugActions    HugAction[]
-  hiddenPosts   HiddenPost[]
+  id                   String                @id @default(cuid())
+  openid               String                @unique
+  nickname             String
+  anonymousCode        String
+  avatarUrl            String?
+  status               UserStatus            @default(normal)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  privacySetting       PrivacySetting?
+  moods                Mood[]
+  posts                Post[]
+  replies              Reply[]
+  letters              Letter[]
+  diaries              Diary[]
+  favorites            Favorite[]
+  assets               MediaAsset[]
+  feedbackTickets      FeedbackTicket[]
+  hugActions           HugAction[]
+  hiddenPosts          HiddenPost[]
+  lifeJourneys         LifeJourney[]
+  journeyUpdates       JourneyUpdate[]
+  actionCommitments    ActionCommitment[]
+  outcomeCheckins      OutcomeCheckin[]
+  peerExperiences      PeerExperience[]
+  peerMatches          PeerMatch[]
+  peerReputation       PeerReputation?
+  decisionRecords      DecisionRecord[]
+  cooldownItems        CooldownItem[]
+  realityHandoffs      RealityHandoff[]
+  trustedContacts      TrustedContact[]
+  messagesToFutureSelf MessageToFutureSelf[]
+  personalSupportPlans PersonalSupportPlan[]
+  memoryItems          MemoryItem[]
+  recoverySnapshots    RecoverySnapshot[]
+  safetyEvents         SafetyEvent[]
+  agentDecisionLogs    AgentDecisionLog[]
+  followUpJobs         FollowUpJob[]
+
   @@index([status])
   @@index([createdAt])
 }
 
 model AdminUser {
-  id           String @id @default(cuid())
-  username     String @unique
-  passwordHash String
-  displayName  String
-  roleId       String
-  role         AdminRole @relation(fields: [roleId], references: [id])
-  status       AdminStatus @default(active)
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  auditLogs    AuditLog[]
+  id             String          @id @default(cuid())
+  username       String          @unique
+  passwordHash   String
+  displayName    String
+  roleId         String
+  role           AdminRole       @relation(fields: [roleId], references: [id])
+  status         AdminStatus     @default(active)
+  lastLoginAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  auditLogs      AuditLog[]
   moderationLogs ModerationLog[]
 }
 
 model AdminRole {
-  id          String @id @default(cuid())
-  code        String @unique
+  id          String      @id @default(cuid())
+  code        String      @unique
   name        String
   permissions Json
   adminUsers  AdminUser[]
 }
 
 model PrivacySetting {
-  id                       String @id @default(cuid())
-  userId                   String @unique
-  user                     User @relation(fields: [userId], references: [id])
-  defaultVisibility         Visibility @default(PRIVATE)
-  allowAnonymousPublic      Boolean @default(true)
-  allowHumanReplies         Boolean @default(true)
-  allowMonthlyReportShare   Boolean @default(true)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  id                            String     @id @default(cuid())
+  userId                        String     @unique
+  user                          User       @relation(fields: [userId], references: [id])
+  defaultVisibility             Visibility @default(PRIVATE)
+  allowAnonymousPublic          Boolean    @default(true)
+  allowHumanReplies             Boolean    @default(true)
+  allowMonthlyReportShare       Boolean    @default(true)
+  allowPeerMatching             Boolean    @default(false)
+  allowAnonymousExperienceStats Boolean    @default(false)
+  allowRecoveryData             Boolean    @default(false)
+  allowJourneyLongTermAnalysis  Boolean    @default(false)
+  allowLongTermMemory           Boolean    @default(false)
+  createdAt                     DateTime   @default(now())
+  updatedAt                     DateTime   @updatedAt
 }
 
 model SystemSetting {
-  id          String @id @default(cuid())
-  key         String @unique
+  id          String   @id @default(cuid())
+  key         String   @unique
   value       Json
   description String
   updatedBy   String?
@@ -148,125 +215,463 @@ model SystemSetting {
 }
 
 model Mood {
-  id         String @id @default(cuid())
-  userId     String
-  user       User @relation(fields: [userId], references: [id])
-  emotion    String
-  content    String
-  visibility Visibility
-  riskLevel  String
-  riskScore  Float
-  status     String @default("active")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  post       Post?
-  letters    Letter[]
-  diaries    Diary[]
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+  emotion     String
+  content     String
+  visibility  Visibility
+  riskLevel   String
+  riskScore   Float
+  status      String           @default("active")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  post        Post?
+  letters     Letter[]
+  diaries     Diary[]
   attachments MoodAttachment[]
+  journeyId   String?
+  journey     LifeJourney?     @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+
   @@index([userId, createdAt])
   @@index([emotion, visibility])
+  @@index([journeyId, createdAt])
 }
 
 model Post {
-  id            String @id @default(cuid())
-  moodId        String @unique
-  mood          Mood @relation(fields: [moodId], references: [id])
+  id            String       @id @default(cuid())
+  moodId        String       @unique
+  mood          Mood         @relation(fields: [moodId], references: [id])
   userId        String
-  user          User @relation(fields: [userId], references: [id])
+  user          User         @relation(fields: [userId], references: [id])
   emotion       String
   content       String
   visibility    Visibility
-  status        String @default("active")
+  status        String       @default("active")
   reviewStatus  ReviewStatus @default(pending_review)
-  hugCount      Int @default(0)
-  replyCount    Int @default(0)
-  favoriteCount Int @default(0)
-  reportCount   Int @default(0)
+  hugCount      Int          @default(0)
+  replyCount    Int          @default(0)
+  favoriteCount Int          @default(0)
+  reportCount   Int          @default(0)
   publishedAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
   replies       Reply[]
   hugActions    HugAction[]
   hiddenByUsers HiddenPost[]
+  journeyId     String?
+  journey       LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+
   @@index([reviewStatus, createdAt])
   @@index([emotion, visibility])
+  @@index([journeyId, createdAt])
 }
 
 model Reply {
-  id        String @id @default(cuid())
+  id        String      @id @default(cuid())
   postId    String
-  post      Post @relation(fields: [postId], references: [id])
+  post      Post        @relation(fields: [postId], references: [id])
   userId    String?
-  user      User? @relation(fields: [userId], references: [id])
+  user      User?       @relation(fields: [userId], references: [id])
   type      ReplyType
   style     String
   content   String
   status    ReplyStatus @default(pending_review)
   riskLevel String
-  likeCount Int @default(0)
+  likeCount Int         @default(0)
   aiJobId   String?
-  aiJob     AIJob? @relation(fields: [aiJobId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  aiJob     AIJob?      @relation(fields: [aiJobId], references: [id])
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
   @@index([postId, status])
   @@index([type, status])
 }
 
 model Letter {
-  id           String @id @default(cuid())
-  userId       String
-  user         User @relation(fields: [userId], references: [id])
-  sourceMoodId String?
-  sourceMood   Mood? @relation(fields: [sourceMoodId], references: [id])
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  sourceMoodId       String?
+  sourceMood         Mood?    @relation(fields: [sourceMoodId], references: [id])
   legacySourceMoodId String?
-  style        String
-  title        String
-  content      String
-  status       String @default("unread")
-  savedToDiary Boolean @default(false)
-  aiJobId      String?
-  generationStatus String?
-  favorite     Boolean @default(false)
-  likeCount    Int @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  diaries      Diary[]
+  style              String
+  title              String
+  content            String
+  status             String   @default("unread")
+  savedToDiary       Boolean  @default(false)
+  aiJobId            String?
+  generationStatus   String?
+  favorite           Boolean  @default(false)
+  likeCount          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  diaries            Diary[]
+
   @@index([userId, createdAt])
 }
 
 model Diary {
-  id       String @id @default(cuid())
-  userId   String
-  user     User @relation(fields: [userId], references: [id])
-  moodId   String?
-  mood     Mood? @relation(fields: [moodId], references: [id])
-  letterId String?
-  letter   Letter? @relation(fields: [letterId], references: [id])
-  emotion  String
-  content  String
-  hasLetter Boolean @default(false)
-  source    String?
-  toolResult Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  moodId      String?
+  mood        Mood?             @relation(fields: [moodId], references: [id])
+  letterId    String?
+  letter      Letter?           @relation(fields: [letterId], references: [id])
+  emotion     String
+  content     String
+  hasLetter   Boolean           @default(false)
+  source      String?
+  toolResult  Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
   attachments DiaryAttachment[]
+  journeyId   String?
+  journey     LifeJourney?      @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+
   @@index([userId, createdAt])
   @@index([emotion, hasLetter])
+  @@index([journeyId, createdAt])
+}
+
+model LifeJourney {
+  id                String                @id @default(cuid())
+  userId            String
+  user              User                  @relation(fields: [userId], references: [id])
+  title             String
+  domain            String
+  status            JourneyStatus         @default(active)
+  stage             String                @default("clarifying")
+  visibility        Visibility            @default(PRIVATE)
+  intensity         Int?
+  summary           String?
+  nextReviewAt      DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  snapshot          SituationSnapshot?
+  updates           JourneyUpdate[]
+  commitments       ActionCommitment[]
+  checkins          OutcomeCheckin[]
+  posts             Post[]
+  moods             Mood[]
+  diaries           Diary[]
+  peerExperiences   PeerExperience[]
+  peerMatches       PeerMatch[]
+  decisions         DecisionRecord[]
+  handoffs          RealityHandoff[]
+  futureMessages    MessageToFutureSelf[]
+  supportPlans      PersonalSupportPlan[]
+  memoryItems       MemoryItem[]
+  recoverySnapshots RecoverySnapshot[]
+  safetyEvents      SafetyEvent[]
+  agentDecisionLogs AgentDecisionLog[]
+  followUpJobs      FollowUpJob[]
+
+  @@index([userId, status, updatedAt])
+  @@index([domain, status])
+}
+
+model SituationSnapshot {
+  id          String      @id @default(cuid())
+  journeyId   String      @unique
+  journey     LifeJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  facts       Json
+  feelings    Json
+  needs       Json
+  constraints Json
+  risks       Json
+  confidence  String      @default("user_confirmed")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model JourneyUpdate {
+  id        String      @id @default(cuid())
+  journeyId String
+  journey   LifeJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+  kind      String
+  content   String
+  payload   Json?
+  createdAt DateTime    @default(now())
+
+  @@index([journeyId, createdAt])
+}
+
+model ActionCommitment {
+  id          String                 @id @default(cuid())
+  journeyId   String
+  journey     LifeJourney            @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                   @relation(fields: [userId], references: [id])
+  title       String
+  description String?
+  status      ActionCommitmentStatus @default(active)
+  dueAt       DateTime?
+  reminderAt  DateTime?
+  evidence    Json?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  checkins    OutcomeCheckin[]
+
+  @@index([userId, status, dueAt])
+  @@index([journeyId, createdAt])
+}
+
+model OutcomeCheckin {
+  id           String            @id @default(cuid())
+  journeyId    String
+  journey      LifeJourney       @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  commitmentId String?
+  commitment   ActionCommitment? @relation(fields: [commitmentId], references: [id], onDelete: SetNull)
+  userId       String
+  user         User              @relation(fields: [userId], references: [id])
+  status       CheckinStatus     @default(pending)
+  reflection   String?
+  result       String?
+  intensity    Int?
+  checkedAt    DateTime?
+  dueAt        DateTime?
+  createdAt    DateTime          @default(now())
+
+  @@index([journeyId, createdAt])
+  @@index([userId, status, dueAt])
+}
+
+model PeerExperience {
+  id          String               @id @default(cuid())
+  userId      String
+  user        User                 @relation(fields: [userId], references: [id])
+  journeyId   String?
+  journey     LifeJourney?         @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  title       String
+  domain      String
+  stage       String
+  content     String
+  tags        Json
+  consentedAt DateTime
+  status      PeerExperienceStatus @default(draft)
+  reportCount Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  matches     PeerMatch[]
+
+  @@index([status, domain, stage])
+  @@index([userId, createdAt])
+}
+
+model PeerMatch {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id])
+  journeyId        String?
+  journey          LifeJourney?    @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  peerExperienceId String
+  peerExperience   PeerExperience  @relation(fields: [peerExperienceId], references: [id], onDelete: Cascade)
+  score            Float
+  reasons          Json
+  status           PeerMatchStatus @default(suggested)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([userId, peerExperienceId])
+  @@index([userId, status, createdAt])
+}
+
+model PeerReputation {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  helpfulCount    Int       @default(0)
+  reportCount     Int       @default(0)
+  restrictedUntil DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+model DecisionRecord {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  journeyId String?
+  journey   LifeJourney?   @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  question  String
+  options   Json
+  criteria  Json
+  decision  String?
+  status    String         @default("draft")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  cooldowns CooldownItem[]
+
+  @@index([userId, status, updatedAt])
+}
+
+model CooldownItem {
+  id         String          @id @default(cuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id])
+  decisionId String?
+  decision   DecisionRecord? @relation(fields: [decisionId], references: [id], onDelete: SetNull)
+  title      String
+  reason     String?
+  releaseAt  DateTime
+  status     String          @default("active")
+  createdAt  DateTime        @default(now())
+
+  @@index([userId, status, releaseAt])
+}
+
+model RealityHandoff {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  journeyId String?
+  journey   LifeJourney?  @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  recipient String
+  channel   String
+  summary   String
+  status    HandoffStatus @default(draft)
+  sharedAt  DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([userId, status, updatedAt])
+}
+
+model TrustedContact {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  nickname    String
+  relation    String
+  contactHint String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, enabled])
+}
+
+model MessageToFutureSelf {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  journeyId   String?
+  journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  content     String
+  deliverAt   DateTime
+  deliveredAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([userId, deliverAt])
+}
+
+model PersonalSupportPlan {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  journeyId String?
+  journey   LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  title     String
+  plan      Json
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId, active, updatedAt])
+}
+
+model MemoryItem {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  journeyId   String?
+  journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  category    String
+  content     String
+  consentedAt DateTime
+  expiresAt   DateTime
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model RecoverySnapshot {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  journeyId String?
+  journey   LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  summary   String
+  signals   Json
+  createdAt DateTime     @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model SafetyEvent {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  journeyId String?
+  journey   LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  level     String
+  source    String
+  action    String
+  payload   Json?
+  createdAt DateTime     @default(now())
+
+  @@index([level, createdAt])
+}
+
+model AgentDecisionLog {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  journeyId String?
+  journey   LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  aiJobId   String?
+  taskType  String
+  decision  Json
+  createdAt DateTime     @default(now())
+
+  @@index([taskType, createdAt])
+}
+
+model FollowUpJob {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  journeyId   String?
+  journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  kind        String
+  dueAt       DateTime
+  status      String       @default("pending")
+  payload     Json?
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([status, dueAt])
 }
 
 model Favorite {
-  id         String @id @default(cuid())
+  id         String     @id @default(cuid())
   userId     String
-  user       User @relation(fields: [userId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
   targetType TargetType
   targetId   String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime   @default(now())
+
   @@unique([userId, targetType, targetId])
   @@index([targetType, targetId])
 }
 
 model MonthlyReport {
-  id               String @id @default(cuid())
+  id               String         @id @default(cuid())
   userId           String
   month            String
   recordDays       Int
@@ -276,44 +681,47 @@ model MonthlyReport {
   distributionJson Json
   keywordsJson     Json
   summary          String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
   advices          ReportAdvice[]
+
   @@unique([userId, month])
 }
 
 model ReportAdvice {
-  id        String @id @default(cuid())
+  id        String        @id @default(cuid())
   reportId  String
   report    MonthlyReport @relation(fields: [reportId], references: [id])
   content   String
-  createdAt DateTime @default(now())
+  createdAt DateTime      @default(now())
 }
 
 model MediaAsset {
-  id        String @id @default(cuid())
-  userId    String
-  user      User @relation(fields: [userId], references: [id])
-  storageKey String
-  url       String
-  mimeType  String
-  size      Int
-  width     Int @default(0)
-  height    Int @default(0)
-  usageType String
-  status    String
-  createdAt DateTime @default(now())
-  moodAttachments MoodAttachment[]
+  id               String            @id @default(cuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id])
+  storageKey       String
+  url              String
+  mimeType         String
+  size             Int
+  width            Int               @default(0)
+  height           Int               @default(0)
+  usageType        String
+  status           String
+  createdAt        DateTime          @default(now())
+  moodAttachments  MoodAttachment[]
   diaryAttachments DiaryAttachment[]
+
   @@index([userId, usageType])
 }
 
 model MoodAttachment {
   moodId       String
   mediaAssetId String
-  sortOrder    Int @default(0)
+  sortOrder    Int        @default(0)
   mood         Mood       @relation(fields: [moodId], references: [id], onDelete: Cascade)
   mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
   @@id([moodId, mediaAssetId])
   @@index([mediaAssetId])
 }
@@ -321,9 +729,10 @@ model MoodAttachment {
 model DiaryAttachment {
   diaryId      String
   mediaAssetId String
-  sortOrder    Int @default(0)
+  sortOrder    Int        @default(0)
   diary        Diary      @relation(fields: [diaryId], references: [id], onDelete: Cascade)
   mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
   @@id([diaryId, mediaAssetId])
   @@index([mediaAssetId])
 }
@@ -335,60 +744,62 @@ model RuntimeState {
 }
 
 model FeedbackTicket {
-  id         String @id @default(cuid())
-  userId     String
-  user       User @relation(fields: [userId], references: [id])
-  categoryId String
-  category   FeedbackCategory @relation(fields: [categoryId], references: [id])
-  sourcePage String
-  content    String
-  status     FeedbackStatus @default(open)
-  priority   String
-  screenshots Json @default("[]")
-  reply      String?
-  repliedBy  String?
-  repliedAt  DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+  categoryId  String
+  category    FeedbackCategory @relation(fields: [categoryId], references: [id])
+  sourcePage  String
+  content     String
+  status      FeedbackStatus   @default(open)
+  priority    String
+  screenshots Json             @default("[]")
+  reply       String?
+  repliedBy   String?
+  repliedAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
   @@index([status, priority])
 }
 
 model FeedbackCategory {
-  id        String @id @default(cuid())
+  id        String           @id @default(cuid())
   name      String
-  sortOrder Int @default(0)
-  enabled   Boolean @default(true)
+  sortOrder Int              @default(0)
+  enabled   Boolean          @default(true)
   tickets   FeedbackTicket[]
 }
 
 model FaqItem {
-  id        String @id @default(cuid())
+  id        String   @id @default(cuid())
   question  String
   answer    String
-  sortOrder Int @default(0)
-  enabled   Boolean @default(true)
+  sortOrder Int      @default(0)
+  enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model ReplyPreset {
-  id        String @id @default(cuid())
+  id        String   @id @default(cuid())
   text      String
   scene     String
-  sortOrder Int @default(0)
-  enabled   Boolean @default(true)
+  sortOrder Int      @default(0)
+  enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model HugAction {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   userId     String
-  user       User @relation(fields: [userId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
   postId     String
-  post       Post @relation(fields: [postId], references: [id])
+  post       Post     @relation(fields: [postId], references: [id])
   presetCode String
   createdAt  DateTime @default(now())
+
   @@unique([userId, postId, presetCode])
 }
 
@@ -405,36 +816,37 @@ model HiddenPost {
 }
 
 model AIProvider {
-  id              String @id @default(cuid())
+  id              String         @id @default(cuid())
   name            String
   type            ProviderType
   baseUrl         String
   modelName       String
   apiKeySecretRef String?
-  enabled         Boolean @default(true)
-  priority        Int @default(0)
-  dailyLimit      Int @default(1000)
-  timeoutSeconds  Int @default(10)
-  failoverEnabled Boolean @default(true)
+  enabled         Boolean        @default(true)
+  priority        Int            @default(0)
+  dailyLimit      Int            @default(1000)
+  timeoutSeconds  Int            @default(10)
+  failoverEnabled Boolean        @default(true)
   usageTags       Json
-  providerKind    String @default("other")
-  apiKeyStatus    String @default("missing")
-  failureRate     Float @default(0)
-  avgLatencyMs    Int @default(0)
-  todayCalls      Int @default(0)
+  providerKind    String         @default("other")
+  apiKeyStatus    String         @default("missing")
+  failureRate     Float          @default(0)
+  avgLatencyMs    Int            @default(0)
+  todayCalls      Int            @default(0)
   modelMeta       Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
   primaryRoutes   AIStyleRoute[] @relation("PrimaryProvider")
   backupRoutes    AIStyleRoute[] @relation("BackupProvider")
   fallbackRoutes  AIStyleRoute[] @relation("FallbackProvider")
   jobs            AIJob[]
+
   @@index([enabled, priority])
 }
 
 model AIStyleRoute {
-  id                 String @id @default(cuid())
-  style              AIStyle @unique
+  id                 String     @id @default(cuid())
+  style              AIStyle    @unique
   primaryProviderId  String
   primaryProvider    AIProvider @relation("PrimaryProvider", fields: [primaryProviderId], references: [id])
   backupProviderId   String
@@ -443,57 +855,59 @@ model AIStyleRoute {
   fallbackTemplate   AIProvider @relation("FallbackProvider", fields: [fallbackTemplateId], references: [id])
   promptVersion      String
   promptTemplate     String
-  label              String @default("")
-  taskTypes          Json @default("[]")
-  routeVersion       Int @default(1)
-  enabled            Boolean @default(true)
-  updatedAt          DateTime @updatedAt
+  label              String     @default("")
+  taskTypes          Json       @default("[]")
+  routeVersion       Int        @default(1)
+  enabled            Boolean    @default(true)
+  updatedAt          DateTime   @updatedAt
 }
 
 model AIJob {
-  id            String @id @default(cuid())
-  userId        String
-  contentId     String
-  contentType   String
-  jobType       String
-  taskType      String?
-  style         AIStyle
-  providerId    String
-  provider      AIProvider @relation(fields: [providerId], references: [id])
-  modelName     String
-  status        AIJobStatus
-  promptSummary String
-  promptVersion String?
-  result        String?
+  id               String      @id @default(cuid())
+  userId           String
+  contentId        String
+  contentType      String
+  jobType          String
+  taskType         String?
+  style            AIStyle
+  providerId       String
+  provider         AIProvider  @relation(fields: [providerId], references: [id])
+  modelName        String
+  status           AIJobStatus
+  promptSummary    String
+  promptVersion    String?
+  result           String?
   structuredResult Json?
-  errorMessage  String?
-  durationMs    Int?
-  retryCount    Int @default(0)
-  fallbackUsed  Boolean @default(false)
-  routeVersion  Int @default(0)
-  traceJson     Json
-  createdAt     DateTime @default(now())
-  completedAt   DateTime?
-  updatedAt     DateTime @updatedAt
-  replies       Reply[]
+  errorMessage     String?
+  durationMs       Int?
+  retryCount       Int         @default(0)
+  fallbackUsed     Boolean     @default(false)
+  routeVersion     Int         @default(0)
+  traceJson        Json
+  createdAt        DateTime    @default(now())
+  completedAt      DateTime?
+  updatedAt        DateTime    @updatedAt
+  replies          Reply[]
+
   @@index([status, createdAt])
   @@index([style, jobType])
 }
 
 model ModerationLog {
-  id         String @id @default(cuid())
+  id         String    @id @default(cuid())
   targetType String
   targetId   String
   action     String
   reason     String?
   operatorId String
   operator   AdminUser @relation(fields: [operatorId], references: [id])
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
+
   @@index([targetType, targetId])
 }
 
 model AuditLog {
-  id           String @id @default(cuid())
+  id           String    @id @default(cuid())
   adminUserId  String
   adminUser    AdminUser @relation(fields: [adminUserId], references: [id])
   action       String
@@ -503,7 +917,8 @@ model AuditLog {
   afterJson    Json?
   ip           String?
   userAgent    String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
+
   @@index([adminUserId, createdAt])
   @@index([resourceType, resourceId])
 }

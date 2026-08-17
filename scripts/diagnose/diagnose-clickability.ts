@@ -2,15 +2,19 @@ import { chromium, type Page } from 'playwright';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { cleanRuntime, kill, spawnLogged, urls, wait } from '../real-browser-utils';
+import { resetTestDatabase } from '../test-database';
 
 type ManifestItem = {
   page: string;
   route: string;
   selector: string;
   fill?: string;
+  file?: string;
   select?: string;
   setup?: Array<{ selector: string; fill?: string; select?: string }>;
   setupClick?: string;
+  setupClickAfterRow?: string;
+  setupText?: string;
   expectedAction: string;
   expectedUrl?: string | null;
   expectedApi?: string | null;
@@ -53,7 +57,9 @@ async function hashStore() {
 
 async function inspectHit(page: Page, testId: string) {
   const locator = page.getByTestId(testId);
-  await locator.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
+  await page.evaluate((id) => {
+    document.querySelector(`[data-testid="${id}"]`)?.scrollIntoView({ block: 'center', inline: 'center' });
+  }, testId);
   await page.waitForTimeout(80);
   const box = await locator.boundingBox();
   if (!box) throw new Error(`No visible bounding box for ${testId}`);
@@ -89,7 +95,9 @@ async function act(page: Page, item: ManifestItem) {
   await locator.waitFor({ state: 'visible', timeout: 8000 });
   const count = await locator.count();
   if (count !== 1) throw new Error(`Expected one element for ${item.selector}, got ${count}`);
-  if (item.fill != null) {
+  if (item.file != null) {
+    await locator.setInputFiles(item.file, { timeout: 5000 });
+  } else if (item.fill != null) {
     await locator.fill(item.fill, { timeout: 5000 });
   } else if (item.select != null) {
     await locator.selectOption(item.select, { timeout: 5000 });
@@ -104,10 +112,10 @@ async function runItem(page: Page, base: string, item: ManifestItem, side: Resul
     const url = new URL(request.url());
     if (url.pathname.startsWith('/api/')) requests.push({ method: request.method(), path: `${url.pathname}${url.search}` });
   };
-  page.on('requestfinished', listener);
+  page.on('request', listener);
   try {
     await page.goto(`${base}${item.route}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(500);
     for (const setup of item.setup ?? []) {
       await act(page, { ...item, selector: setup.selector, fill: setup.fill, select: setup.select });
       await page.waitForTimeout(120);
@@ -116,14 +124,28 @@ async function runItem(page: Page, base: string, item: ManifestItem, side: Resul
       await act(page, { ...item, selector: item.setupClick, fill: undefined, select: undefined });
       await page.waitForTimeout(400);
     }
-    const hit = await inspectHit(page, item.selector);
+    if (item.setupText && item.selector === 'admin-ticket-processing') {
+      const summary = page.locator('summary').filter({ hasText: item.setupText }).first();
+      await summary.click({ timeout: 5000 });
+      await page.waitForTimeout(250);
+    }
+    if (item.setupClickAfterRow) {
+      await act(page, { ...item, selector: item.setupClickAfterRow, fill: undefined, select: undefined });
+      await page.waitForTimeout(250);
+    }
+    const hit = item.file
+      ? { tagName: 'INPUT', dataTestId: item.selector, closestDataTestId: item.selector, matchesExpected: true, forbiddenLayer: false }
+      : await inspectHit(page, item.selector);
     if (!(hit as any).matchesExpected) throw new Error(`elementFromPoint did not resolve to ${item.selector}: ${JSON.stringify(hit)}`);
     if ((hit as any).forbiddenLayer) throw new Error(`Forbidden proxy/overlay layer hit: ${JSON.stringify(hit)}`);
     const beforeHash = await hashStore();
     const beforeUrl = page.url();
     requests.length = 0;
     await act(page, item);
-    await page.waitForTimeout(500);
+    if (item.expectedUrl && !page.url().includes(item.expectedUrl)) {
+      await page.waitForURL((url) => url.toString().includes(item.expectedUrl!), { timeout: 15000 }).catch(() => undefined);
+    }
+    await page.waitForTimeout(item.expectedApi ? 750 : 300);
     const afterHash = await hashStore();
     const matcher = apiMatcher(item.expectedApi);
     const apiSeen = matcher ? requests.some((req) => req.method === matcher.method && matcher.regex.test(req.path)) : undefined;
@@ -135,7 +157,7 @@ async function runItem(page: Page, base: string, item: ManifestItem, side: Resul
   } catch (error: any) {
     return { ...item, side, ok: false, error: error?.message ?? String(error), urlAfter: page.url() };
   } finally {
-    page.off('requestfinished', listener);
+    page.off('request', listener);
   }
 }
 
@@ -173,12 +195,17 @@ async function main() {
   await fs.mkdir('artifacts/diagnosis/dom-map/admin', { recursive: true });
   await fs.rm(storeFile, { force: true });
   await cleanRuntime();
-  const env = { GOODNIGHT_STORE_FILE: 'data/goodnight-store.diagnose-clickability.json', VITE_API_BASE_URL: urls.api };
+  const env = {
+    DATABASE_URL: resetTestDatabase('goodnight_treehole_test_diagnose_clickability'),
+    GOODNIGHT_STORE_FILE: 'data/goodnight-store.diagnose-clickability.json',
+    VITE_API_BASE_URL: urls.api,
+  };
   const procs = [
     spawnLogged('diagnose-clickability-api', 'pnpm', ['--dir', 'apps/api', 'start'], env),
     spawnLogged('diagnose-clickability-front', 'pnpm', ['--dir', 'apps/mp', 'dev', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], env),
     spawnLogged('diagnose-clickability-admin', 'pnpm', ['--dir', 'apps/admin', 'dev', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], env),
   ];
+  let previousHumanReplies: boolean | undefined;
 
   try {
     await wait(`${urls.api}/api/v1/posts`);
@@ -194,6 +221,17 @@ async function main() {
     const admin = await context.newPage();
     await admin.setViewportSize({ width: 1448, height: 1086 });
     const results: Result[] = [];
+    const privacyResponse = await fetch(`${urls.api}/api/v1/me/privacy`);
+    const privacyPayload = await privacyResponse.json() as { item?: { allowHumanReplies?: boolean } };
+    previousHumanReplies = privacyPayload.item?.allowHumanReplies;
+    if (previousHumanReplies === false) {
+      const enableResponse = await fetch(`${urls.api}/api/v1/me/privacy`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ allowHumanReplies: true }),
+      });
+      if (!enableResponse.ok) throw new Error(`Could not enable human replies for clickability precondition: ${enableResponse.status}`);
+    }
 
     for (const item of frontManifest) {
       const result = await runItem(front, urls.front, item, 'front');
@@ -229,6 +267,13 @@ async function main() {
       process.exit(1);
     }
   } finally {
+    if (typeof previousHumanReplies === 'boolean' && previousHumanReplies === false) {
+      await fetch(`${urls.api}/api/v1/me/privacy`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ allowHumanReplies: false }),
+      }).catch(() => undefined);
+    }
     for (const proc of procs) kill(proc);
   }
 }

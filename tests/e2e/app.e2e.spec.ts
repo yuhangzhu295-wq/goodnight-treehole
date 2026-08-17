@@ -1,11 +1,13 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { createServer } from '../../apps/api/src/main.js';
+import { resetTestDatabase } from '../../scripts/test-database.js';
+
+process.env.DATABASE_URL = resetTestDatabase(`goodnight_treehole_test_e2e_${process.pid}_${process.env.VITEST_POOL_ID ?? '0'}`);
 
 describe('main user/admin flows', () => {
   let app: INestApplication;
-  beforeAll(async () => { app = await createServer(); await app.init(); });
+  beforeAll(async () => { const { createServer } = await import('../../apps/api/src/main.js'); app = await createServer(); await app.init(); });
   afterAll(async () => { await app.close(); });
   it('reply bottom-sheet flow creates pending reply and admin blocks it', async () => {
     const server = app.getHttpServer();

@@ -64,6 +64,7 @@ async function load() {
     allowHumanReplies.value = true;
   }
   post.value = (await api.get<any>(`/api/v1/posts/${id}`)).item;
+  allowHumanReplies.value = post.value.allowHumanReplies ?? allowHumanReplies.value;
   replies.value = (await api.get<any>(`/api/v1/posts/${id}/replies`)).items;
 }
 

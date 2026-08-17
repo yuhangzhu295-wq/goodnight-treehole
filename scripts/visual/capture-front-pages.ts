@@ -86,10 +86,20 @@ async function main(): Promise<void> {
 
   const started = await ensureRuntime();
   const report: Array<Record<string, unknown>> = [];
+  const apiBase = new URL(API_URL).origin;
+  let previousHumanReplies: boolean | undefined;
   let browser: Browser | undefined;
   let context: BrowserContext | undefined;
   let page: Page | undefined;
   try {
+    // The reply-sheet reference is only meaningful with real human replies
+    // enabled. Preserve the caller's privacy choice and restore it afterwards.
+    const privacy = await fetch(`${apiBase}/api/v1/me/privacy`).then((response) => response.json()) as { item?: { allowHumanReplies?: boolean } };
+    previousHumanReplies = privacy.item?.allowHumanReplies;
+    if (previousHumanReplies === false) {
+      const enabled = await fetch(`${apiBase}/api/v1/me/privacy`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ allowHumanReplies: true }) });
+      if (!enabled.ok) throw new Error(`Unable to enable reply-sheet visual precondition: ${enabled.status}`);
+    }
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext({
       viewport: { width: 430, height: 764 },
@@ -130,6 +140,9 @@ async function main(): Promise<void> {
     await page?.close().catch(() => undefined);
     await context?.close().catch(() => undefined);
     await browser?.close().catch(() => undefined);
+    if (previousHumanReplies === false) {
+      await fetch(`${apiBase}/api/v1/me/privacy`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ allowHumanReplies: false }) }).catch(() => undefined);
+    }
     stopStarted(started);
   }
 

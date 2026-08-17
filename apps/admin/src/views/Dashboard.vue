@@ -120,6 +120,17 @@ onMounted(load);
         </article>
       </div>
 
+      <section class="panel journey-ops-strip" aria-label="现实陪跑实时统计">
+        <div class="panel-heading"><h2>现实陪跑实时统计</h2><span>与用户端同一数据源</span></div>
+        <div class="journey-ops-grid">
+          <button type="button" @click="router.push('/experience/journeys')"><strong>{{ overview.journeySummary?.active ?? 0 }}</strong><span>进行中旅程</span></button>
+          <button type="button" @click="router.push('/experience/actions')"><strong>{{ overview.journeySummary?.actions ?? 0 }}</strong><span>进行中行动</span></button>
+          <button type="button" @click="router.push('/experience/checkins')"><strong>{{ overview.journeySummary?.dueCheckins ?? 0 }}</strong><span>到期回访</span></button>
+          <button type="button" @click="router.push('/experience/peers')"><strong>{{ overview.journeySummary?.peerExperiences ?? 0 }}</strong><span>已发布经历</span></button>
+          <button type="button" @click="router.push('/safety/events')"><strong>{{ overview.journeySummary?.safetyEvents ?? 0 }}</strong><span>高风险事件</span></button>
+        </div>
+      </section>
+
       <div class="dashboard-grid dashboard-primary-grid">
         <section class="panel trend-panel">
           <div class="panel-heading">
@@ -218,6 +229,14 @@ onMounted(load);
 
 <style scoped>
 .dashboard-page { gap: 24px; }
+.journey-ops-strip { padding: 20px 22px; }
+.journey-ops-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.journey-ops-grid button { display: grid; gap: 5px; min-height: 74px; border: 1px solid rgba(95, 127, 62, .16); border-radius: 14px; background: #fbfaf3; color: #3f6330; cursor: pointer; font: inherit; text-align: left; padding: 12px; }
+.journey-ops-grid button:hover { border-color: rgba(95, 127, 62, .42); background: #f1f6e9; }
+.journey-ops-grid strong { font-size: 24px; }
+.journey-ops-grid span { color: #75806f; font-size: 13px; }
+@media (max-width: 960px) { .journey-ops-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .journey-ops-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .dashboard-metrics .metric { position: relative; overflow: hidden; }
 .dashboard-metrics .metric small { margin-top: auto; color: #75826f; font-size: 13px; }
 .metric-art { position: absolute; top: 24px; right: 22px; display: grid; width: 54px; height: 54px; place-items: center; border-radius: 50%; font-style: normal; font-size: 25px; }

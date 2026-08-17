@@ -10,9 +10,9 @@ describe('clickability contracts', () => {
     expect(selectors).toContain('btn-submit-mood');
     expect(selectors).toContain('btn-submit-reply');
     expect(selectors).toContain('admin-post-approve');
-    expect(selectors).toContain('admin-route-test');
+    expect(selectors).toContain('admin-route-test-warm');
     expect(front.some((item) => item.selector === 'filter-jiaolv' && item.expectedApi === 'GET /api/v1/posts?mood=anxious')).toBe(true);
-    expect(admin.some((item) => item.selector === 'admin-ticket-reply' && item.expectedApi === 'POST /api/admin/v1/feedback/tickets/:id/reply')).toBe(true);
+    expect(admin.some((item) => item.selector === 'admin-ticket-resolve' && item.expectedApi === 'PATCH /api/admin/v1/feedback/:id/status')).toBe(true);
   });
 
   it('does not depend on transparent proxy layers or English debug buttons', () => {

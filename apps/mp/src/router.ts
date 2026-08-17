@@ -18,12 +18,20 @@ import FeedbackHelp from './views/FeedbackHelp.vue';
 import HelpFaqs from './views/HelpFaqs.vue';
 import DataPolicy from './views/DataPolicy.vue';
 import MeProfile from './views/MeProfile.vue';
+import TonightHome from './views/TonightHome.vue';
+import PeerNetwork from './views/PeerNetwork.vue';
+import ActionCenter from './views/ActionCenter.vue';
+import JourneyDetail from './views/JourneyDetail.vue';
 
-export const tabRoutes = ['/pages/square/index', '/pages/letter/index', '/pages/tool/index', '/pages/me/index'];
+export const tabRoutes = ['/pages/tonight/index', '/pages/peers/index', '/pages/action/index', '/pages/me/index'];
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/pages/square/index' },
+    { path: '/', redirect: '/pages/tonight/index' },
+    { path: '/pages/tonight/index', component: TonightHome },
+    { path: '/pages/peers/index', component: PeerNetwork },
+    { path: '/pages/action/index', component: ActionCenter },
+    { path: '/pages/journey/detail', component: JourneyDetail },
     { path: '/pages/square/index', component: Square },
     { path: '/pages/mood/create', component: MoodCreate },
     { path: '/pages/post/create', component: MoodCreate },

@@ -3,8 +3,14 @@ export type Visibility = 'PRIVATE' | 'PUBLIC';
 export type ReviewStatus = 'pending_review' | 'published' | 'hidden' | 'rejected';
 export type ReplyStatus = 'pending_review' | 'published' | 'blocked';
 export type ReplyType = 'USER' | 'AI';
+export type ReplyAuthorType = 'HUMAN' | 'AI' | 'SYSTEM';
 export type AIStyle = 'warm' | 'rational' | 'light' | 'clear' | 'poetic';
 export type AIJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'fallback' | 'cancelled';
+export type JourneyStatus = 'active' | 'paused' | 'completed' | 'archived';
+export type PeerExperienceStatus = 'draft' | 'pending_review' | 'published' | 'hidden' | 'rejected';
+export type PeerMatchStatus = 'suggested' | 'requested' | 'connected' | 'declined' | 'blocked';
+export type ActionCommitmentStatus = 'active' | 'completed' | 'skipped' | 'paused';
+export type CheckinStatus = 'pending' | 'completed' | 'missed';
 
 export interface UserProfile {
   id: string;
@@ -28,10 +34,12 @@ export interface PostItem {
   replyCount: number;
   favoriteCount: number;
   reportCount: number;
+  allowHumanReplies?: boolean;
   attachmentIds?: string[];
   attachments?: MediaAsset[];
   createdAt: string;
   publishedAt?: string;
+  journeyId?: string;
 }
 
 export interface MediaAsset {
@@ -58,6 +66,7 @@ export interface ReplyItem {
   status: ReplyStatus;
   riskLevel: 'low' | 'medium' | 'high';
   likeCount?: number;
+  authorType?: ReplyAuthorType;
   createdAt: string;
 }
 
@@ -66,6 +75,106 @@ export interface PrivacySetting {
   allowAnonymousPublic: boolean;
   allowHumanReplies: boolean;
   allowMonthlyReportShare: boolean;
+  allowPeerMatching?: boolean;
+  allowAnonymousExperienceStats?: boolean;
+  allowRecoveryData?: boolean;
+  allowJourneyLongTermAnalysis?: boolean;
+  allowLongTermMemory?: boolean;
+}
+
+export interface LifeJourney {
+  id: string;
+  userId: string;
+  title: string;
+  domain: string;
+  status: JourneyStatus;
+  stage: string;
+  visibility: Visibility;
+  intensity?: number;
+  summary?: string;
+  nextReviewAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface SituationSnapshot {
+  id: string;
+  journeyId: string;
+  facts: string[];
+  feelings: string[];
+  needs: string[];
+  constraints: string[];
+  risks: string[];
+  confidence: 'user_confirmed' | 'agent_draft';
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface JourneyUpdate {
+  id: string;
+  journeyId: string;
+  userId: string;
+  kind: string;
+  content: string;
+  payload?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ActionCommitment {
+  id: string;
+  journeyId: string;
+  userId: string;
+  title: string;
+  description?: string;
+  status: ActionCommitmentStatus;
+  dueAt?: string;
+  reminderAt?: string;
+  evidence?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface OutcomeCheckin {
+  id: string;
+  journeyId: string;
+  commitmentId?: string;
+  userId: string;
+  status: CheckinStatus;
+  reflection?: string;
+  result?: string;
+  intensity?: number;
+  checkedAt?: string;
+  dueAt?: string;
+  createdAt: string;
+}
+
+export interface PeerExperience {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  title: string;
+  domain: string;
+  stage: string;
+  content: string;
+  tags: string[];
+  consentedAt: string;
+  status: PeerExperienceStatus;
+  reportCount: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PeerMatch {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  peerExperienceId: string;
+  score: number;
+  reasons: string[];
+  status: PeerMatchStatus;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface AIProvider {

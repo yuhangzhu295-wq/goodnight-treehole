@@ -157,6 +157,207 @@ export class PublicController {
     return { item };
   }
 
+  @Get('tonight')
+  tonight() {
+    return { item: this.store.tonightHome() };
+  }
+
+  @Get('journeys')
+  journeys() {
+    return { items: this.store.lifeJourneys.filter((item) => item.userId === this.store.getDemoUserId()).map((item) => this.store.journeyDetail(item.id)) };
+  }
+
+  @Post('journeys')
+  async createJourney(@Body() body: { title?: string; domain?: string; content?: string; facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; visibility?: Visibility; intensity?: number }) {
+    return await this.store.createJourney(body);
+  }
+
+  @Get('journeys/:id')
+  journey(@Param('id') id: string) {
+    return { item: this.store.journeyDetail(id) };
+  }
+
+  @Patch('journeys/:id')
+  async patchJourney(@Param('id') id: string, @Body() body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string }) {
+    if (body.status) return await this.store.updateJourneyStatus(id, body.status);
+    const item = this.store.journeyDetail(id).journey;
+    if (typeof body.title === 'string' && body.title.trim()) item.title = body.title.trim().slice(0, 120);
+    if (typeof body.summary === 'string') item.summary = body.summary.trim().slice(0, 500);
+    item.updatedAt = new Date().toISOString();
+    await this.store.flush();
+    return { item };
+  }
+
+  @Patch('journeys/:id/situation')
+  async confirmSituation(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[] }) {
+    return await this.store.confirmSituation(id, body);
+  }
+
+  @Post('journeys/:id/snapshots')
+  async confirmSnapshot(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[] }) {
+    return await this.store.confirmSituation(id, body);
+  }
+
+  @Post('journeys/:id/updates')
+  async journeyUpdate(@Param('id') id: string, @Body() body: { content?: string; kind?: string }) {
+    return await this.store.addJourneyUpdate(id, body);
+  }
+
+  @Post('journeys/:id/action-plan')
+  async actionPlan(@Param('id') id: string, @Body() body: { content?: string }) {
+    return await this.store.generateActionPlan(id, body.content);
+  }
+
+  @Post('journeys/:id/actions')
+  async createAction(@Param('id') id: string, @Body() body: { title?: string; description?: string; dueAt?: string; reminderAt?: string }) {
+    return await this.store.createActionCommitment(id, body);
+  }
+
+  @Get('journeys/:id/actions')
+  journeyActions(@Param('id') id: string) {
+    return { items: this.store.journeyActions(id) };
+  }
+
+  @Get('journeys/:id/timeline')
+  journeyTimeline(@Param('id') id: string) {
+    return { items: this.store.journeyTimeline(id) };
+  }
+
+  @Patch('journeys/:id/status')
+  async journeyStatus(@Param('id') id: string, @Body() body: { status: 'active' | 'paused' | 'archived' }) {
+    return await this.store.updateJourneyStatus(id, body.status);
+  }
+
+  @Post('journeys/:id/graduate')
+  async graduate(@Param('id') id: string) {
+    return await this.store.graduateJourney(id);
+  }
+
+  @Post('actions/:id/checkin')
+  async actionCheckin(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number }) {
+    return await this.store.checkinAction(id, body);
+  }
+
+  @Post('actions/:id/checkins')
+  async actionCheckins(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number }) {
+    return await this.store.checkinAction(id, body);
+  }
+
+  @Get('peers')
+  peers() {
+    return { item: this.store.peerNetwork() };
+  }
+
+  @Post('peer-experiences')
+  async createPeerExperience(@Body() body: { journeyId?: string; title?: string; domain?: string; stage?: string; content?: string; tags?: string[]; consented?: boolean }) {
+    return await this.store.createPeerExperience(body.journeyId, body);
+  }
+
+  @Post('journeys/:id/peer-matches')
+  async peerMatches(@Param('id') id: string) {
+    return await this.store.suggestPeerMatches(id);
+  }
+
+  @Get('journeys/:id/peers')
+  journeyPeers(@Param('id') id: string) {
+    return { items: this.store.journeyPeers(id) };
+  }
+
+  @Patch('peer-matches/:id')
+  async peerMatch(@Param('id') id: string, @Body() body: { status: 'requested' | 'connected' | 'declined' | 'blocked' }) {
+    return await this.store.updatePeerMatch(id, body.status);
+  }
+
+  @Post('decisions')
+  async decision(@Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[] }) {
+    return await this.store.createDecision(body);
+  }
+
+  @Patch('decisions/:id')
+  async updateDecision(@Param('id') id: string, @Body() body: { decision?: string; status?: string }) {
+    return await this.store.updateDecision(id, body);
+  }
+
+  @Post('cooldowns')
+  async cooldown(@Body() body: { decisionId?: string; title?: string; reason?: string; hours?: number }) {
+    return await this.store.createCooldown(body);
+  }
+
+  @Get('cooldown')
+  cooldowns() {
+    return { items: this.store.cooldownList() };
+  }
+
+  @Post('handoffs')
+  async handoff(@Body() body: { journeyId?: string; recipient?: string; channel?: string; summary?: string }) {
+    return await this.store.createRealityHandoff(body);
+  }
+
+  @Post('handoffs/:id/share')
+  async shareHandoff(@Param('id') id: string) {
+    return await this.store.shareRealityHandoff(id);
+  }
+
+  @Get('handoffs')
+  handoffs() {
+    return { items: this.store.handoffList() };
+  }
+
+  @Post('trusted-contacts')
+  async trustedContact(@Body() body: { nickname?: string; relation?: string; contactHint?: string }) {
+    return await this.store.saveTrustedContact(body);
+  }
+
+  @Post('future-messages')
+  async futureMessage(@Body() body: { journeyId?: string; content?: string; deliverAt?: string }) {
+    return await this.store.saveFutureMessage(body);
+  }
+
+  @Post('support-plans')
+  async supportPlan(@Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> }) {
+    return await this.store.saveSupportPlan(body);
+  }
+
+  @Get('me/support-plan')
+  supportPlanCurrent() {
+    return { item: this.store.supportPlan() };
+  }
+
+  @Put('me/support-plan')
+  async supportPlanPut(@Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> }) {
+    return await this.store.saveSupportPlan(body);
+  }
+
+  @Get('me/recovery')
+  recovery() {
+    return { items: this.store.recoveryList() };
+  }
+
+  @Get('memory')
+  memories() {
+    return { items: this.store.memoryItems.filter((item) => item.userId === this.store.getDemoUserId() && !item.deletedAt && Date.parse(item.expiresAt) > Date.now()) };
+  }
+
+  @Get('me/memories')
+  memoriesAlias() {
+    return this.memories();
+  }
+
+  @Post('memory')
+  async memory(@Body() body: { journeyId?: string; category?: string; content?: string; days?: number }) {
+    return await this.store.saveMemory(body);
+  }
+
+  @Delete('memory/:id')
+  async deleteMemory(@Param('id') id: string) {
+    return await this.store.deleteMemory(id);
+  }
+
+  @Delete('me/memories/:id')
+  async deleteMemoryAlias(@Param('id') id: string) {
+    return await this.store.deleteMemory(id);
+  }
+
   @Get('posts/:id')
   post(@Param('id') id: string) {
     return { item: this.store.getPost(id, true) };
@@ -226,7 +427,7 @@ export class PublicController {
   }
 
   @Post('posts')
-  async createPost(@Body() body: { content: string; emotion?: Emotion; mood?: string; visibility?: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[] }) {
+  async createPost(@Body() body: { content: string; emotion?: Emotion; mood?: string; visibility?: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[]; journeyId?: string }) {
     return this.store.createMood({
       content: body.content,
       emotion: normalizeEmotion(body.emotion ?? body.mood),
@@ -234,16 +435,18 @@ export class PublicController {
       style: body.style,
       replyStyles: body.replyStyles,
       assetIds: body.assetIds,
+      journeyId: body.journeyId,
     });
   }
 
   @Post('moods')
-  async mood(@Body() body: { content: string; emotion?: Emotion; mood?: string; visibility: Visibility; style?: AIStyle; replyStyle?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[] }) {
+  async mood(@Body() body: { content: string; emotion?: Emotion; mood?: string; visibility: Visibility; style?: AIStyle; replyStyle?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[]; journeyId?: string }) {
     return this.store.createMood({
       ...body,
       emotion: normalizeEmotion(body.emotion ?? body.mood),
       style: body.style ?? body.replyStyle,
       replyStyles: body.replyStyles ?? (body.replyStyle ? [body.replyStyle] : undefined),
+      journeyId: body.journeyId,
     });
   }
 
@@ -952,6 +1155,15 @@ export class AdminController {
       todayUsers: this.store.users.filter((u) => u.createdAt?.startsWith(today)).length,
       todayPosts: this.store.posts.filter((p) => p.createdAt?.startsWith(today)).length,
       pendingReviews: this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length + this.store.replies.filter((r) => r.status === 'pending_review').length,
+      journeySummary: {
+        total: this.store.lifeJourneys.length,
+        active: this.store.lifeJourneys.filter((item) => item.status === 'active').length,
+        actions: this.store.actionCommitments.filter((item) => item.status === 'active').length,
+        dueCheckins: this.store.outcomeCheckins.filter((item) => item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now())).length,
+        peerExperiences: this.store.peerExperiences.filter((item) => item.status === 'published').length,
+        safetyEvents: this.store.safetyEvents.filter((item) => item.level === 'high').length,
+        supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
+      },
       aiSuccessRate: this.store.aiJobs.length ? Math.round((successfulJobs / this.store.aiJobs.length) * 1000) / 10 : 100,
       activeTrend,
       emotionDistribution,
@@ -1028,6 +1240,69 @@ export class AdminController {
   @Get('dashboard/emotion-distribution')
   dashboardEmotionDistribution() {
     return { item: this.dashboardData().emotionDistribution };
+  }
+
+  @Get('journeys')
+  adminJourneys(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    const items = this.store.lifeJourneys.filter((item) => !status || status === 'all' || item.status === status).map((item) => ({ ...item, updates: this.store.journeyUpdates.filter((update) => update.journeyId === item.id).length, actions: this.store.actionCommitments.filter((action) => action.journeyId === item.id).length }));
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('actions')
+  adminActions(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    return this.list(this.store.actionCommitments.filter((item) => !status || status === 'all' || item.status === status), page, pageSize);
+  }
+
+  @Get('checkins')
+  adminCheckins(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    return this.list(this.store.outcomeCheckins.filter((item) => !status || status === 'all' || item.status === status), page, pageSize);
+  }
+
+  @Get('peer-experiences')
+  adminPeerExperiences(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    const items = this.store.peerExperiences.filter((item) => !status || status === 'all' || item.status === status);
+    return this.list(items, page, pageSize);
+  }
+
+  @Patch('peer-experiences/:id/review')
+  async reviewPeerExperience(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status: 'published' | 'hidden' | 'rejected' }) {
+    const admin = this.admin(auth);
+    const item = this.store.peerExperiences.find((experience) => experience.id === id);
+    if (!item) throw new NotFoundException('同路经历不存在');
+    const before = { ...item };
+    item.status = body.status;
+    this.store.audit(admin.id, 'PEER_EXPERIENCE_REVIEW', 'PeerExperience', id, before, item);
+    await this.store.persistAndFlush();
+    return { item };
+  }
+
+  @Get('peer-matches')
+  adminPeerMatches(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    const items = this.store.peerMatches.filter((item) => !status || status === 'all' || item.status === status);
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('safety/events')
+  safetyEvents(@Headers('authorization') auth: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    return this.list(this.store.safetyEvents, page, pageSize);
+  }
+
+  @Get('support/plans')
+  supportPlans(@Headers('authorization') auth: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    return this.list(this.store.personalSupportPlans, page, pageSize);
+  }
+
+  @Get('memory')
+  adminMemory(@Headers('authorization') auth: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    return this.list(this.store.memoryItems.filter((item) => !item.deletedAt), page, pageSize);
   }
 
   @Get('dashboard/ai-summary')

@@ -59,6 +59,24 @@ export const menuGroups: AdminMenuGroup[] = [
     ],
   },
   {
+    label: '体验网络',
+    items: [
+      { path: '/experience/journeys', label: '现实旅程', resource: 'journeys', group: '体验网络' },
+      { path: '/experience/actions', label: '行动承诺', resource: 'actions', group: '体验网络' },
+      { path: '/experience/checkins', label: '结果回访', resource: 'checkins', group: '体验网络' },
+      { path: '/experience/peers', label: '同路经历', resource: 'peer-experiences', group: '体验网络' },
+      { path: '/experience/matches', label: '匹配记录', resource: 'peer-matches', group: '体验网络' },
+    ],
+  },
+  {
+    label: '安全与陪伴',
+    items: [
+      { path: '/safety/events', label: '安全事件', resource: 'safety-events', group: '安全与陪伴' },
+      { path: '/safety/support-plans', label: '支持计划', resource: 'support-plans', group: '安全与陪伴' },
+      { path: '/safety/memory', label: '有限记忆', resource: 'memory', group: '安全与陪伴' },
+    ],
+  },
+  {
     label: '系统',
     items: [
       { path: '/ops/config', label: '系统设置', resource: 'settings', group: '系统' },

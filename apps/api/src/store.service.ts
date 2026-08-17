@@ -69,7 +69,12 @@ export type AITaskType =
   | 'sleep'
   | 'work'
   | 'future'
-  | 'month_report';
+  | 'month_report'
+  | 'situation_analysis'
+  | 'action_plan'
+  | 'journey_summary'
+  | 'support_plan'
+  | 'decision_clarify';
 
 export interface AIGenerateInput {
   taskType?: AITaskType | string;
@@ -145,6 +150,7 @@ export interface Mood {
   riskScore: number;
   status: 'active' | 'deleted';
   attachmentIds?: string[];
+  journeyId?: string;
   createdAt: string;
 }
 
@@ -168,6 +174,7 @@ export interface Diary {
   id: string;
   userId: string;
   moodId?: string;
+  journeyId?: string;
   letterId?: string;
   emotion: Emotion;
   content: string;
@@ -222,6 +229,113 @@ export interface AIJob {
   completedAt?: string;
 }
 
+export interface LifeJourneyRecord {
+  id: string;
+  userId: string;
+  title: string;
+  domain: string;
+  status: 'active' | 'paused' | 'completed' | 'archived';
+  stage: string;
+  visibility: Visibility;
+  intensity?: number;
+  summary?: string;
+  nextReviewAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SituationSnapshotRecord {
+  id: string;
+  journeyId: string;
+  facts: string[];
+  feelings: string[];
+  needs: string[];
+  constraints: string[];
+  risks: string[];
+  confidence: 'user_confirmed' | 'agent_draft';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JourneyUpdateRecord {
+  id: string;
+  journeyId: string;
+  userId: string;
+  kind: string;
+  content: string;
+  payload?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ActionCommitmentRecord {
+  id: string;
+  journeyId: string;
+  userId: string;
+  title: string;
+  description?: string;
+  status: 'active' | 'completed' | 'skipped' | 'paused';
+  dueAt?: string;
+  reminderAt?: string;
+  evidence?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OutcomeCheckinRecord {
+  id: string;
+  journeyId: string;
+  commitmentId?: string;
+  userId: string;
+  status: 'pending' | 'completed' | 'missed';
+  reflection?: string;
+  result?: string;
+  intensity?: number;
+  checkedAt?: string;
+  dueAt?: string;
+  createdAt: string;
+}
+
+export interface PeerExperienceRecord {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  title: string;
+  domain: string;
+  stage: string;
+  content: string;
+  tags: string[];
+  consentedAt: string;
+  status: 'draft' | 'pending_review' | 'published' | 'hidden' | 'rejected';
+  reportCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeerMatchRecord {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  peerExperienceId: string;
+  score: number;
+  reasons: string[];
+  status: 'suggested' | 'requested' | 'connected' | 'declined' | 'blocked';
+  createdAt: string;
+  updatedAt: string;
+}
+
+type DecisionRecord = { id: string; userId: string; journeyId?: string; question: string; options: string[]; criteria: string[]; decision?: string; status: string; createdAt: string; updatedAt: string };
+type CooldownItem = { id: string; userId: string; decisionId?: string; title: string; reason?: string; releaseAt: string; status: string; createdAt: string };
+type RealityHandoff = { id: string; userId: string; journeyId?: string; recipient: string; channel: string; summary: string; status: 'draft' | 'ready' | 'shared' | 'completed'; sharedAt?: string; createdAt: string; updatedAt: string };
+type TrustedContact = { id: string; userId: string; nickname: string; relation: string; contactHint: string; enabled: boolean; createdAt: string; updatedAt: string };
+type MessageToFutureSelf = { id: string; userId: string; journeyId?: string; content: string; deliverAt: string; deliveredAt?: string; createdAt: string };
+type PersonalSupportPlan = { id: string; userId: string; journeyId?: string; title: string; plan: Record<string, unknown>; active: boolean; createdAt: string; updatedAt: string };
+type MemoryItem = { id: string; userId: string; journeyId?: string; category: string; content: string; consentedAt: string; expiresAt: string; deletedAt?: string; createdAt: string };
+type RecoverySnapshot = { id: string; userId: string; journeyId?: string; summary: string; signals: Record<string, unknown>; createdAt: string };
+type SafetyEvent = { id: string; userId: string; journeyId?: string; level: string; source: string; action: string; payload?: Record<string, unknown>; createdAt: string };
+type AgentDecisionLog = { id: string; userId: string; journeyId?: string; aiJobId?: string; taskType: string; decision: Record<string, unknown>; createdAt: string };
+type FollowUpJob = { id: string; userId: string; journeyId?: string; kind: string; dueAt: string; status: string; payload?: Record<string, unknown>; completedAt?: string; createdAt: string };
+
 interface StoreData {
   users: Array<{ id: string; openid: string; nickname: string; anonymousCode: string; avatarUrl: string; status: 'normal' | 'limited' | 'banned'; createdAt: string }>;
   adminUsers: Array<{ id: string; username: string; passwordHash: string; displayName: string; role: string; status: string; lastLoginAt?: string }>;
@@ -242,6 +356,25 @@ interface StoreData {
   aiJobs: AIJob[];
   assets: MediaAsset[];
   auditLogs: Array<{ id: string; adminUserId: string; action: string; resourceType: string; resourceId: string; beforeJson: unknown; afterJson: unknown; ip: string; userAgent: string; createdAt: string }>;
+  lifeJourneys: LifeJourneyRecord[];
+  situationSnapshots: SituationSnapshotRecord[];
+  journeyUpdates: JourneyUpdateRecord[];
+  actionCommitments: ActionCommitmentRecord[];
+  outcomeCheckins: OutcomeCheckinRecord[];
+  peerExperiences: PeerExperienceRecord[];
+  peerMatches: PeerMatchRecord[];
+  peerReputations: Array<{ id: string; userId: string; helpfulCount: number; reportCount: number; restrictedUntil?: string; updatedAt: string }>;
+  decisionRecords: DecisionRecord[];
+  cooldownItems: CooldownItem[];
+  realityHandoffs: RealityHandoff[];
+  trustedContacts: TrustedContact[];
+  messagesToFutureSelf: MessageToFutureSelf[];
+  personalSupportPlans: PersonalSupportPlan[];
+  memoryItems: MemoryItem[];
+  recoverySnapshots: RecoverySnapshot[];
+  safetyEvents: SafetyEvent[];
+  agentDecisionLogs: AgentDecisionLog[];
+  followUpJobs: FollowUpJob[];
 }
 
 function seedData(): StoreData {
@@ -327,6 +460,25 @@ function seedData(): StoreData {
     aiJobs: [],
     assets: [],
     auditLogs: [],
+    lifeJourneys: [],
+    situationSnapshots: [],
+    journeyUpdates: [],
+    actionCommitments: [],
+    outcomeCheckins: [],
+    peerExperiences: [],
+    peerMatches: [],
+    peerReputations: [],
+    decisionRecords: [],
+    cooldownItems: [],
+    realityHandoffs: [],
+    trustedContacts: [],
+    messagesToFutureSelf: [],
+    personalSupportPlans: [],
+    memoryItems: [],
+    recoverySnapshots: [],
+    safetyEvents: [],
+    agentDecisionLogs: [],
+    followUpJobs: [],
   };
 }
 
@@ -353,6 +505,7 @@ export class StoreService implements OnModuleInit {
     this.recoverInterruptedAiJobs();
     this.reconcileFavoriteCounts();
     this.reconcileLetterFavorites();
+    this.ensureGoodnightTwoCoverage();
     this.ensureSeedCoverage();
     if (!visualFixtureMode) this.enforceRemoteAiProviderPolicy();
     await this.flush();
@@ -383,6 +536,25 @@ export class StoreService implements OnModuleInit {
   get aiJobs() { return this.data.aiJobs; }
   get assets() { return this.data.assets; }
   get auditLogs() { return this.data.auditLogs; }
+  get lifeJourneys() { return this.data.lifeJourneys; }
+  get situationSnapshots() { return this.data.situationSnapshots; }
+  get journeyUpdates() { return this.data.journeyUpdates; }
+  get actionCommitments() { return this.data.actionCommitments; }
+  get outcomeCheckins() { return this.data.outcomeCheckins; }
+  get peerExperiences() { return this.data.peerExperiences; }
+  get peerMatches() { return this.data.peerMatches; }
+  get peerReputations() { return this.data.peerReputations; }
+  get decisionRecords() { return this.data.decisionRecords; }
+  get cooldownItems() { return this.data.cooldownItems; }
+  get realityHandoffs() { return this.data.realityHandoffs; }
+  get trustedContacts() { return this.data.trustedContacts; }
+  get messagesToFutureSelf() { return this.data.messagesToFutureSelf; }
+  get personalSupportPlans() { return this.data.personalSupportPlans; }
+  get memoryItems() { return this.data.memoryItems; }
+  get recoverySnapshots() { return this.data.recoverySnapshots; }
+  get safetyEvents() { return this.data.safetyEvents; }
+  get agentDecisionLogs() { return this.data.agentDecisionLogs; }
+  get followUpJobs() { return this.data.followUpJobs; }
 
   isFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
     return this.data.favorites.some((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
@@ -737,6 +909,9 @@ export class StoreService implements OnModuleInit {
   decoratePost(post: PostItem) {
     const attachmentIds = post.attachmentIds ?? [];
     post.attachments = this.mediaByIds(attachmentIds);
+    const ownerPrivacy = this.privacySettings[post.userId];
+    const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
+    post.allowHumanReplies = post.visibility === 'PUBLIC' && post.reviewStatus === 'published' && ownerPrivacy?.allowHumanReplies !== false && systemAllowsHumanReplies;
     (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser = this.favorites.some(
       (item) => item.userId === this.getDemoUserId() && item.targetType === 'post' && item.targetId === post.id,
     );
@@ -1062,11 +1237,337 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
+  private ensureGoodnightTwoCoverage() {
+    const arrayKeys = ['lifeJourneys', 'situationSnapshots', 'journeyUpdates', 'actionCommitments', 'outcomeCheckins', 'peerExperiences', 'peerMatches', 'peerReputations', 'decisionRecords', 'cooldownItems', 'realityHandoffs', 'trustedContacts', 'messagesToFutureSelf', 'personalSupportPlans', 'memoryItems', 'recoverySnapshots', 'safetyEvents', 'agentDecisionLogs', 'followUpJobs'] as const;
+    let changed = false;
+    for (const key of arrayKeys) {
+      if (!Array.isArray((this.data as any)[key])) { (this.data as any)[key] = []; changed = true; }
+    }
+    for (const userId of Object.keys(this.data.privacySettings)) {
+      const privacy = this.data.privacySettings[userId] as PrivacySetting & Record<string, unknown>;
+      for (const key of ['allowPeerMatching', 'allowAnonymousExperienceStats', 'allowRecoveryData', 'allowJourneyLongTermAnalysis', 'allowLongTermMemory']) {
+        if (privacy[key] === undefined) { privacy[key] = false; changed = true; }
+      }
+    }
+    const envFlag = (name: string, fallback: boolean) => process.env[name] == null ? fallback : ['1', 'true', 'yes', 'on'].includes(String(process.env[name]).toLowerCase());
+    const flags = {
+      journeyModeEnabled: envFlag('ENABLE_JOURNEY_V2', true),
+      peerExperienceNetworkEnabled: envFlag('ENABLE_PEER_MATCHING', true),
+      actionLoopEnabled: envFlag('ENABLE_REALITY_ACTION', true),
+      followUpEnabled: envFlag('ENABLE_FOLLOW_UP', true),
+      boundedMemoryEnabled: envFlag('ENABLE_LONG_TERM_MEMORY', true),
+      safetyEngineEnabled: envFlag('ENABLE_SAFETY_ENGINE', true),
+      cooldownBoxEnabled: envFlag('ENABLE_COOLDOWN_BOX', true),
+      decisionVaultEnabled: envFlag('ENABLE_DECISION_VAULT', true),
+      dapiOnlyAiEnabled: true,
+    };
+    const current = this.data.systemSettings.goodnightTwoFeatureFlags?.value;
+    if (JSON.stringify(current) !== JSON.stringify(flags)) {
+      this.data.systemSettings.goodnightTwoFeatureFlags = { value: flags, description: 'GoodnightTreeHole 2.0 功能开关', updatedBy: 'system', updatedAt: now() };
+      changed = true;
+    }
+    if (changed) this.persist();
+  }
+
   private assertCanWrite() {
     const user = this.users.find((item) => item.id === this.getDemoUserId());
     if (user?.status === 'limited' || user?.status === 'banned') {
       throw new ForbiddenException('当前账号已被禁言或限制发布，请联系管理员');
     }
+  }
+
+  private requireJourney(journeyId: string, userId = this.getDemoUserId()) {
+    const journey = this.lifeJourneys.find((item) => item.id === journeyId && item.userId === userId);
+    if (!journey) throw new NotFoundException('旅程不存在或无权访问');
+    return journey;
+  }
+
+  private text(value: unknown, label: string, max = 500) {
+    const result = typeof value === 'string' ? value.trim() : '';
+    if (!result) throw new BadRequestException(`${label}不能为空`);
+    if (result.length > max) throw new BadRequestException(`${label}不能超过 ${max} 字`);
+    return result;
+  }
+
+  private optionalDate(value: unknown, label: string) {
+    if (value === undefined || value === null || value === '') return undefined;
+    const parsed = new Date(String(value));
+    if (Number.isNaN(parsed.getTime())) throw new BadRequestException(`${label}日期不合法`);
+    return parsed.toISOString();
+  }
+
+  private privacyAllows(userId: string, key: keyof PrivacySetting, message: string) {
+    if (this.privacySettings[userId]?.[key] !== true) throw new ForbiddenException(message);
+  }
+
+  tonightHome(userId = this.getDemoUserId()) {
+    const journey = this.lifeJourneys.find((item) => item.userId === userId && item.status === 'active');
+    const activeActions = this.actionCommitments.filter((item) => item.userId === userId && item.status === 'active').slice(0, 3);
+    const dueCheckins = this.outcomeCheckins.filter((item) => item.userId === userId && item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now())).slice(0, 3);
+    const followUps = this.followUpJobs.filter((item) => item.userId === userId && item.status === 'pending' && Date.parse(item.dueAt) <= Date.now()).slice(0, 3);
+    const matches = this.peerMatches.filter((item) => item.userId === userId && !['declined', 'blocked'].includes(item.status)).slice(0, 3);
+    const latestLetter = this.letters.find((item) => item.userId === userId && item.content);
+    return { journey: journey ?? null, activeActions, dueCheckins, followUps, matches, latestLetter: latestLetter ? this.decorateLetter(latestLetter) : null, counts: { activeActions: activeActions.length, dueCheckins: dueCheckins.length, followUps: followUps.length, matches: matches.length } };
+  }
+
+  async createJourney(input: { title?: unknown; domain?: unknown; content?: unknown; facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; visibility?: Visibility; intensity?: number }) {
+    this.assertCanWrite();
+    const userId = this.getDemoUserId();
+    const title = this.text(input.title ?? '今晚想理清的一件事', '旅程标题', 80);
+    const domain = this.text(input.domain ?? '生活', '困境领域', 40);
+    const content = this.text(input.content, '事情描述', 1000);
+    const risk = this.detectRisk(content);
+    const createdAt = now();
+    const journey: LifeJourneyRecord = { id: id('journey'), userId, title, domain, status: 'active', stage: risk.level === 'high' ? 'safety_first' : 'clarifying', visibility: input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE', intensity: input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity))), summary: '', createdAt, updatedAt: createdAt };
+    const toArray = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8) : [];
+    const snapshot: SituationSnapshotRecord = { id: id('snapshot'), journeyId: journey.id, facts: toArray(input.facts).length ? toArray(input.facts) : [content], feelings: toArray(input.feelings), needs: toArray(input.needs), constraints: toArray(input.constraints), risks: risk.level === 'high' ? ['检测到需要优先确认现实安全的表达'] : [], confidence: 'user_confirmed', createdAt, updatedAt: createdAt };
+    this.lifeJourneys.unshift(journey);
+    this.situationSnapshots.unshift(snapshot);
+    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: journey.id, userId, kind: 'created', content, createdAt });
+    if (risk.level === 'high') this.safetyEvents.unshift({ id: id('safety'), userId, journeyId: journey.id, level: 'high', source: 'journey_create', action: 'real_world_support_prompt', payload: { escalation: true }, createdAt });
+    const job = this.queueAI({ taskType: 'situation_analysis', userId, sourceId: journey.id, content, mood: this.inferMood(content), style: 'rational' });
+    void this.waitForAiJob(job.id).then(async (completed) => {
+      const target = this.lifeJourneys.find((item) => item.id === journey.id);
+      const current = this.situationSnapshots.find((item) => item.journeyId === journey.id);
+      if (!target || !current || !['succeeded', 'fallback'].includes(completed.status)) return;
+      const structured = completed.structuredResult ?? {};
+      // A user confirmation is authoritative. The asynchronous AI completion
+      // may still be audited, but it must never overwrite confirmed facts or
+      // downgrade the snapshot back to an agent draft.
+      if (current.confidence !== 'user_confirmed') {
+        if (Array.isArray(structured.facts)) current.facts = structured.facts.map(String).filter(Boolean).slice(0, 8);
+        if (Array.isArray(structured.feelings)) current.feelings = structured.feelings.map(String).filter(Boolean).slice(0, 8);
+        if (Array.isArray(structured.needs)) current.needs = structured.needs.map(String).filter(Boolean).slice(0, 8);
+        if (Array.isArray(structured.constraints)) current.constraints = structured.constraints.map(String).filter(Boolean).slice(0, 8);
+        if (Array.isArray(structured.risks)) current.risks = structured.risks.map(String).filter(Boolean).slice(0, 8);
+        current.confidence = 'agent_draft';
+        current.updatedAt = now();
+        target.summary = String(structured.summary ?? completed.result).slice(0, 500);
+        target.updatedAt = now();
+      }
+      this.agentDecisionLogs.unshift({ id: id('agent_decision'), userId, journeyId: journey.id, aiJobId: completed.id, taskType: 'situation_analysis', decision: structured, createdAt: now() });
+      await this.persistAndFlush();
+    }).catch(() => undefined);
+    await this.persistAndFlush();
+    return { journey, snapshot, job, safety: risk.level === 'high' ? { level: 'high', needsRealWorldSupport: true } : { level: risk.level, needsRealWorldSupport: false } };
+  }
+
+  journeyDetail(journeyId: string, userId = this.getDemoUserId()) {
+    const journey = this.requireJourney(journeyId, userId);
+    return { journey, snapshot: this.situationSnapshots.find((item) => item.journeyId === journeyId) ?? null, updates: this.journeyUpdates.filter((item) => item.journeyId === journeyId), commitments: this.actionCommitments.filter((item) => item.journeyId === journeyId), checkins: this.outcomeCheckins.filter((item) => item.journeyId === journeyId), recovery: this.recoverySnapshots.filter((item) => item.journeyId === journeyId), peerMatches: this.peerMatches.filter((item) => item.journeyId === journeyId) };
+  }
+
+  journeyActions(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    return this.actionCommitments.filter((item) => item.journeyId === journey.id);
+  }
+
+  journeyTimeline(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    return this.journeyUpdates.filter((item) => item.journeyId === journey.id);
+  }
+
+  journeyPeers(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    return this.peerMatches.filter((item) => item.journeyId === journey.id).map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })).filter((item) => item.experience);
+  }
+
+  async confirmSituation(journeyId: string, input: { facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; risks?: unknown }) {
+    const journey = this.requireJourney(journeyId);
+    const item = this.situationSnapshots.find((snapshot) => snapshot.journeyId === journeyId);
+    if (!item) throw new NotFoundException('情境快照不存在');
+    const array = (value: unknown, fallback: string[]) => Array.isArray(value) ? value.map(String).map((part) => part.trim()).filter(Boolean).slice(0, 8) : fallback;
+    item.facts = array(input.facts, item.facts); item.feelings = array(input.feelings, item.feelings); item.needs = array(input.needs, item.needs); item.constraints = array(input.constraints, item.constraints); item.risks = array(input.risks, item.risks); item.confidence = 'user_confirmed'; item.updatedAt = now(); journey.updatedAt = now();
+    await this.persistAndFlush();
+    return { item };
+  }
+
+  async addJourneyUpdate(journeyId: string, input: { content?: unknown; kind?: unknown }) {
+    const journey = this.requireJourney(journeyId);
+    const item: JourneyUpdateRecord = { id: id('journey_update'), journeyId, userId: journey.userId, kind: typeof input.kind === 'string' && input.kind.trim() ? input.kind.trim() : 'note', content: this.text(input.content, '进展记录', 1000), createdAt: now() };
+    this.journeyUpdates.unshift(item); journey.updatedAt = now(); await this.persistAndFlush(); return { item };
+  }
+
+  async generateActionPlan(journeyId: string, content?: string) {
+    const journey = this.requireJourney(journeyId);
+    const source = content?.trim() || this.journeyUpdates.find((item) => item.journeyId === journeyId)?.content || this.situationSnapshots.find((item) => item.journeyId === journeyId)?.facts.join('、') || journey.title;
+    const job = this.queueAI({ taskType: 'action_plan', userId: journey.userId, sourceId: journeyId, content: source, mood: '焦虑', style: 'rational' });
+    await this.flush();
+    return { job };
+  }
+
+  async createActionCommitment(journeyId: string, input: { title?: unknown; description?: unknown; dueAt?: unknown; reminderAt?: unknown }) {
+    const journey = this.requireJourney(journeyId);
+    const createdAt = now();
+    const dueAt = this.optionalDate(input.dueAt, '完成时间') ?? new Date(Date.now() + 24 * 3_600_000).toISOString();
+    const item: ActionCommitmentRecord = { id: id('action'), journeyId, userId: journey.userId, title: this.text(input.title, '行动标题', 120), description: typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined, status: 'active', dueAt, reminderAt: this.optionalDate(input.reminderAt, '提醒时间'), createdAt, updatedAt: createdAt };
+    const checkin: OutcomeCheckinRecord = { id: id('checkin'), journeyId, commitmentId: item.id, userId: journey.userId, status: 'pending', dueAt, createdAt };
+    const followUp: FollowUpJob = { id: id('follow_up'), userId: journey.userId, journeyId, kind: 'action_checkin', dueAt, status: 'pending', payload: { actionId: item.id, title: item.title }, createdAt };
+    this.actionCommitments.unshift(item); this.outcomeCheckins.unshift(checkin); this.followUpJobs.unshift(followUp); this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'commitment_created', content: item.title, createdAt }); journey.stage = 'acting'; journey.updatedAt = createdAt; await this.persistAndFlush(); return { item, checkin, followUp };
+  }
+
+  async checkinAction(actionId: string, input: { status?: string; reflection?: unknown; result?: unknown; intensity?: number }) {
+    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+    if (!action) throw new NotFoundException('行动不存在');
+    const status = ['completed', 'skipped', 'missed'].includes(String(input.status)) ? String(input.status) : 'completed';
+    action.status = status === 'completed' ? 'completed' : status === 'skipped' ? 'skipped' : 'paused'; action.updatedAt = now();
+    const checkin = this.outcomeCheckins.find((item) => item.commitmentId === action.id && item.status === 'pending') ?? { id: id('checkin'), journeyId: action.journeyId, commitmentId: action.id, userId: action.userId, status: 'pending' as const, dueAt: action.dueAt, createdAt: now() };
+    checkin.status = status === 'completed' ? 'completed' : 'missed';
+    checkin.reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
+    checkin.result = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
+    checkin.intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
+    checkin.checkedAt = now();
+    if (!this.outcomeCheckins.some((item) => item.id === checkin.id)) this.outcomeCheckins.unshift(checkin);
+    const followUp = this.followUpJobs.find((item) => item.status === 'pending' && item.payload?.actionId === action.id);
+    if (followUp) { followUp.status = 'completed'; followUp.completedAt = checkin.checkedAt; }
+    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: action.journeyId, userId: action.userId, kind: 'checkin', content: checkin.reflection || `行动${action.status === 'completed' ? '已完成' : '已更新'}`, createdAt: now() }); await this.persistAndFlush(); return { action, checkin, followUp: followUp ?? null };
+  }
+
+  async graduateJourney(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    const completed = this.actionCommitments.filter((item) => item.journeyId === journeyId && item.status === 'completed').length;
+    if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
+    journey.status = 'completed'; journey.stage = 'graduated'; journey.completedAt = now(); journey.updatedAt = now();
+    if (this.privacySettings[journey.userId]?.allowRecoveryData === true) this.recoverySnapshots.unshift({ id: id('recovery'), userId: journey.userId, journeyId, summary: `已完成 ${completed} 个小行动，留下了可回看的变化记录。`, signals: { completedActions: completed }, createdAt: now() });
+    await this.persistAndFlush(); return this.journeyDetail(journeyId);
+  }
+
+  async createPeerExperience(journeyId: string | undefined, input: { title?: unknown; domain?: unknown; stage?: unknown; content?: unknown; tags?: unknown; consented?: unknown }) {
+    const userId = this.getDemoUserId();
+    this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    if (input.consented !== true) throw new BadRequestException('发布经历前必须明确同意匿名分享');
+    const journey = journeyId ? this.requireJourney(journeyId, userId) : undefined;
+    const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title: this.text(input.title, '经历标题', 100), domain: this.text(input.domain, '经历领域', 40), stage: this.text(input.stage, '经历阶段', 40), content: this.text(input.content, '经历内容', 1600), tags: Array.isArray(input.tags) ? input.tags.map(String).map((tag) => tag.trim()).filter(Boolean).slice(0, 8) : [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
+    this.peerExperiences.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  peerNetwork(userId = this.getDemoUserId()) {
+    this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    const published = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
+    const matches = this.peerMatches.filter((item) => item.userId === userId).map((match) => ({ ...match, experience: this.peerExperiences.find((item) => item.id === match.peerExperienceId) })).filter((item) => item.experience);
+    return { experiences: published.map(({ content: _content, ...item }) => item), matches };
+  }
+
+  async suggestPeerMatches(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    const existing = new Set(this.peerMatches.filter((item) => item.userId === journey.userId).map((item) => item.peerExperienceId));
+    const candidates = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== journey.userId && !existing.has(item.id));
+    const created = candidates.map((experience) => {
+      const domainScore = experience.domain === journey.domain ? 0.7 : 0.25;
+      const match: PeerMatchRecord = { id: id('peer_match'), userId: journey.userId, journeyId, peerExperienceId: experience.id, score: domainScore, reasons: experience.domain === journey.domain ? ['经历领域相近'] : ['可以提供不同视角'], status: 'suggested', createdAt: now(), updatedAt: now() };
+      this.peerMatches.unshift(match); return match;
+    });
+    await this.persistAndFlush(); return { items: created.map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })) };
+  }
+
+  async updatePeerMatch(matchId: string, status: 'requested' | 'connected' | 'declined' | 'blocked') {
+    const item = this.peerMatches.find((match) => match.id === matchId && match.userId === this.getDemoUserId());
+    if (!item) throw new NotFoundException('同路匹配不存在');
+    item.status = status; item.updatedAt = now(); await this.persistAndFlush(); return { item };
+  }
+
+  async createDecision(input: { journeyId?: string; question?: unknown; options?: unknown; criteria?: unknown }) {
+    const userId = this.getDemoUserId();
+    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+    const values = (value: unknown) => Array.isArray(value) ? value.map(String).map((part) => part.trim()).filter(Boolean).slice(0, 10) : [];
+    const item: DecisionRecord = { id: id('decision'), userId, journeyId: journey?.id, question: this.text(input.question, '决策问题', 400), options: values(input.options), criteria: values(input.criteria), status: 'draft', createdAt: now(), updatedAt: now() };
+    this.decisionRecords.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  async updateDecision(decisionId: string, input: { decision?: unknown; status?: unknown }) {
+    const item = this.decisionRecords.find((record) => record.id === decisionId && record.userId === this.getDemoUserId());
+    if (!item) throw new NotFoundException('决策记录不存在');
+    if (typeof input.decision === 'string') item.decision = input.decision.trim().slice(0, 400) || undefined;
+    if (typeof input.status === 'string' && ['draft', 'decided', 'archived'].includes(input.status)) item.status = input.status;
+    item.updatedAt = now();
+    await this.persistAndFlush();
+    return { item };
+  }
+
+  async createCooldown(input: { decisionId?: string; title?: unknown; reason?: unknown; hours?: number }) {
+    const userId = this.getDemoUserId();
+    if (input.decisionId && !this.decisionRecords.some((item) => item.id === input.decisionId && item.userId === userId)) throw new NotFoundException('决策记录不存在');
+    const hours = Math.max(1, Math.min(168, Number(input.hours ?? 24)));
+    const item: CooldownItem = { id: id('cooldown'), userId, decisionId: input.decisionId, title: this.text(input.title, '冷静事项', 120), reason: typeof input.reason === 'string' ? input.reason.trim().slice(0, 400) : undefined, releaseAt: new Date(Date.now() + hours * 3_600_000).toISOString(), status: 'active', createdAt: now() };
+    this.cooldownItems.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  cooldownList() {
+    const userId = this.getDemoUserId();
+    return this.cooldownItems.filter((item) => item.userId === userId).map((item) => ({ ...item, status: Date.parse(item.releaseAt) <= Date.now() ? 'released' : item.status }));
+  }
+
+  async createRealityHandoff(input: { journeyId?: string; recipient?: unknown; channel?: unknown; summary?: unknown }) {
+    const userId = this.getDemoUserId();
+    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+    const item: RealityHandoff = { id: id('handoff'), userId, journeyId: journey?.id, recipient: this.text(input.recipient, '交接对象', 80), channel: this.text(input.channel, '联系渠道', 40), summary: this.text(input.summary, '交接摘要', 1000), status: 'ready', createdAt: now(), updatedAt: now() };
+    this.realityHandoffs.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  async shareRealityHandoff(idValue: string) {
+    const item = this.realityHandoffs.find((handoff) => handoff.id === idValue && handoff.userId === this.getDemoUserId());
+    if (!item) throw new NotFoundException('现实交接不存在');
+    item.status = 'shared'; item.sharedAt = now(); item.updatedAt = now(); await this.persistAndFlush(); return { item };
+  }
+
+  handoffList() {
+    const userId = this.getDemoUserId();
+    return this.realityHandoffs.filter((item) => item.userId === userId);
+  }
+
+  async saveTrustedContact(input: { nickname?: unknown; relation?: unknown; contactHint?: unknown }) {
+    const item: TrustedContact = { id: id('contact'), userId: this.getDemoUserId(), nickname: this.text(input.nickname, '联系人称呼', 60), relation: this.text(input.relation, '关系', 40), contactHint: this.text(input.contactHint, '联系方式提示', 120), enabled: true, createdAt: now(), updatedAt: now() };
+    this.trustedContacts.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  async saveFutureMessage(input: { journeyId?: string; content?: unknown; deliverAt?: unknown }) {
+    const userId = this.getDemoUserId();
+    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+    const deliverAt = this.optionalDate(input.deliverAt, '送达时间');
+    if (!deliverAt || Date.parse(deliverAt) <= Date.now()) throw new BadRequestException('送达时间必须晚于现在');
+    const item: MessageToFutureSelf = { id: id('future_message'), userId, journeyId: journey?.id, content: this.text(input.content, '写给未来自己的话', 1200), deliverAt, createdAt: now() };
+    this.messagesToFutureSelf.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  async saveSupportPlan(input: { journeyId?: string; title?: unknown; plan?: Record<string, unknown> }) {
+    const userId = this.getDemoUserId();
+    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存支持计划');
+    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+    const item: PersonalSupportPlan = { id: id('support_plan'), userId, journeyId: journey?.id, title: this.text(input.title ?? '我的现实支持计划', '支持计划标题', 100), plan: input.plan ?? {}, active: true, createdAt: now(), updatedAt: now() };
+    this.personalSupportPlans.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  supportPlan() {
+    const userId = this.getDemoUserId();
+    return this.personalSupportPlans.find((item) => item.userId === userId && item.active) ?? null;
+  }
+
+  recoveryList() {
+    const userId = this.getDemoUserId();
+    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
+    return this.recoverySnapshots.filter((item) => item.userId === userId);
+  }
+
+  async saveMemory(input: { journeyId?: string; category?: unknown; content?: unknown; days?: number }) {
+    const userId = this.getDemoUserId();
+    this.privacyAllows(userId, 'allowLongTermMemory', '请先在隐私设置中允许保存有限记忆');
+    const days = Math.max(1, Math.min(90, Number(input.days ?? 30)));
+    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+    const item: MemoryItem = { id: id('memory'), userId, journeyId: journey?.id, category: this.text(input.category, '记忆分类', 50), content: this.text(input.content, '记忆内容', 500), consentedAt: now(), expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(), createdAt: now() };
+    this.memoryItems.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  async deleteMemory(idValue: string) {
+    const item = this.memoryItems.find((memory) => memory.id === idValue && memory.userId === this.getDemoUserId());
+    if (!item) throw new NotFoundException('记忆不存在');
+    item.deletedAt = now(); await this.persistAndFlush(); return { ok: true, item };
+  }
+
+  async updateJourneyStatus(journeyId: string, status: 'active' | 'paused' | 'archived') {
+    const journey = this.requireJourney(journeyId);
+    journey.status = status; journey.updatedAt = now(); await this.persistAndFlush(); return { journey };
   }
 
   async publicPosts(emotion?: string) {
@@ -1107,7 +1608,7 @@ export class StoreService implements OnModuleInit {
     return this.decoratePost(post);
   }
 
-  async createMood(input: { content: string; emotion: Emotion; visibility: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[] }) {
+  async createMood(input: { content: string; emotion: Emotion; visibility: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[]; journeyId?: string }) {
     if (!input.content?.trim()) throw new NotFoundException('内容不能为空');
     const userId = this.getDemoUserId();
     this.assertCanWrite();
@@ -1117,10 +1618,11 @@ export class StoreService implements OnModuleInit {
     if (attachmentIds.length > 2) throw new NotFoundException('最多添加 2 张图片');
     const media = this.mediaByIds(attachmentIds);
     if (media.length !== attachmentIds.length || media.some((asset) => asset.userId !== userId)) throw new NotFoundException('图片不存在、尚未上传完成或不属于当前用户');
-    const mood: Mood = { id: id('mood'), userId, emotion, content: input.content.trim(), visibility: input.visibility, riskLevel: risk.level, riskScore: risk.score, status: 'active', attachmentIds, createdAt: now() };
+    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+    const mood: Mood = { id: id('mood'), userId, emotion, content: input.content.trim(), visibility: input.visibility, riskLevel: risk.level, riskScore: risk.score, status: 'active', attachmentIds, journeyId: journey?.id, createdAt: now() };
     this.moods.unshift(mood);
     if (input.visibility === 'PUBLIC') {
-      const post: PostItem = { id: id('post'), moodId: mood.id, userId, emotion, content: mood.content, visibility: 'PUBLIC', status: 'active', reviewStatus: 'pending_review', hugCount: 0, replyCount: 0, favoriteCount: 0, reportCount: 0, attachmentIds, attachments: media, createdAt: now() };
+      const post: PostItem = { id: id('post'), moodId: mood.id, userId, emotion, content: mood.content, visibility: 'PUBLIC', status: 'active', reviewStatus: 'pending_review', hugCount: 0, replyCount: 0, favoriteCount: 0, reportCount: 0, journeyId: journey?.id, attachmentIds, attachments: media, createdAt: now() };
       this.posts.unshift(post);
       const requestedStyles = Array.isArray(input.replyStyles)
         ? input.replyStyles.filter(isSupportedAiReplyStyle)
@@ -1168,7 +1670,7 @@ export class StoreService implements OnModuleInit {
       await this.flush();
       return { mood, post, job: queuedJobs[0], jobs: queuedJobs, next: '/pages/post/detail', reviewStatus: post.reviewStatus };
     }
-    const diary: Diary = { id: id('diary'), userId, moodId: mood.id, emotion, content: mood.content, hasLetter: false, attachmentIds, createdAt: now() };
+    const diary: Diary = { id: id('diary'), userId, moodId: mood.id, journeyId: journey?.id, emotion, content: mood.content, hasLetter: false, attachmentIds, createdAt: now() };
     this.diaries.unshift(diary);
     const queued = this.queueLetterGeneration({
       userId,
@@ -1386,7 +1888,7 @@ export class StoreService implements OnModuleInit {
     }
 
     const prompt = this.buildAiPrompt({ taskType, style: input.style, route, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary) });
-    const needsStructuredResult = taskType === 'breakdown';
+    const needsStructuredResult = ['breakdown', 'situation_analysis', 'action_plan', 'support_plan', 'decision_clarify'].includes(taskType);
     const candidates = [
       { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
       { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
@@ -1421,7 +1923,7 @@ export class StoreService implements OnModuleInit {
           maxTokens: needsStructuredResult ? 520 : 360,
         });
         const userFacingResult = this.extractUserFacingModelOutput(response.result, this.requiresReasoningOutputExtraction(provider));
-        const structured = needsStructuredResult ? this.parseBreakdownResult(userFacingResult) : undefined;
+        const structured = needsStructuredResult ? this.parseStructuredTaskResult(userFacingResult, taskType) : undefined;
         job.providerId = provider.id;
         job.modelName = response.model;
         job.result = this.safetyFilter(structured ? structured.summary : userFacingResult);
@@ -1493,6 +1995,11 @@ export class StoreService implements OnModuleInit {
       work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。',
       future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。',
       month_report: '根据提供的真实统计写一段月度观察，不改写或虚构其中的数字。',
+      situation_analysis: '只输出严格 JSON：{"facts":[],"feelings":[],"needs":[],"constraints":[],"risks":[],"summary":"","nextStep":""}。只整理用户明确表达的内容，不补造事实。',
+      action_plan: '只输出严格 JSON：{"title":"","description":"","dueInDays":1,"why":""}。给一个最小、可执行、用户可以自行确认的行动。',
+      journey_summary: '根据旅程时间线写一段事实与变化摘要，不做诊断，不虚构数据。',
+      support_plan: '只输出严格 JSON：{"signals":[],"smallSteps":[],"people":[],"whenToReview":""}。给出可执行的现实支持计划。',
+      decision_clarify: '只输出严格 JSON：{"question":"","options":[],"criteria":[],"uncertainties":[],"nextStep":""}。帮助澄清选择，不替用户做决定。',
     };
     return `${safety}\n任务：${taskInstructions[input.taskType]}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
   }
@@ -1508,6 +2015,16 @@ export class StoreService implements OnModuleInit {
     if (!triggerEvent || !coreEmotions.length || !realNeeds.length || !nextSmallStep || !summary) throw new Error('Remote AI structured response is incomplete');
     const advice = Array.isArray(parsed.advice) ? parsed.advice.map(String).filter(Boolean).slice(0, 3) : [];
     return { triggerEvent, trigger: triggerEvent, coreEmotions, coreEmotion: coreEmotions.join('、'), realNeeds, realNeed: realNeeds.join('、'), nextSmallStep, nextStep: nextSmallStep, smallAction: nextSmallStep, firstStep: nextSmallStep, summary, advice };
+  }
+
+  private parseStructuredTaskResult(value: string, taskType: AITaskType) {
+    if (taskType === 'breakdown') return this.parseBreakdownResult(value);
+    const normalized = value.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    const parsed = JSON.parse(normalized) as Record<string, unknown>;
+    const arrays = (key: string) => Array.isArray(parsed[key]) ? (parsed[key] as unknown[]).map(String).filter(Boolean) : [];
+    const summary = String(parsed.summary ?? parsed.description ?? parsed.nextStep ?? parsed.question ?? '').trim();
+    if (!summary) throw new Error('Remote AI structured response is incomplete');
+    return { ...parsed, summary, facts: arrays('facts'), feelings: arrays('feelings'), needs: arrays('needs'), constraints: arrays('constraints'), risks: arrays('risks'), options: arrays('options'), criteria: arrays('criteria'), signals: arrays('signals'), smallSteps: arrays('smallSteps'), uncertainties: arrays('uncertainties') };
   }
 
   private normalizeTaskType(value?: string): AITaskType {
@@ -1548,12 +2065,22 @@ export class StoreService implements OnModuleInit {
       month_report: 'month_report',
       report: 'month_report',
       '情绪月报': 'month_report',
+      situation_analysis: 'situation_analysis',
+      '情况分析': 'situation_analysis',
+      action_plan: 'action_plan',
+      '行动计划': 'action_plan',
+      journey_summary: 'journey_summary',
+      '旅程总结': 'journey_summary',
+      support_plan: 'support_plan',
+      '支持计划': 'support_plan',
+      decision_clarify: 'decision_clarify',
+      '决策澄清': 'decision_clarify',
     };
     return map[key] ?? 'post_reply';
   }
 
   private defaultStyleForTask(taskType: AITaskType): AIStyle {
-    if (taskType === 'breakdown' || taskType === 'work') return 'rational';
+    if (taskType === 'breakdown' || taskType === 'work' || taskType === 'situation_analysis' || taskType === 'action_plan' || taskType === 'support_plan' || taskType === 'decision_clarify') return 'rational';
     if (taskType === 'future') return 'poetic';
     if (taskType === 'rewrite') return 'clear';
     return 'warm';
@@ -1563,6 +2090,7 @@ export class StoreService implements OnModuleInit {
     if (taskType === 'today_letter') return 'Letter';
     if (taskType === 'post_reply') return 'Post';
     if (taskType === 'month_report') return 'Report';
+    if (['situation_analysis', 'action_plan', 'journey_summary', 'support_plan', 'decision_clarify'].includes(taskType)) return 'LifeJourney';
     return 'ToolTask';
   }
 
@@ -1578,6 +2106,11 @@ export class StoreService implements OnModuleInit {
       work: '工作破防',
       future: '写给未来的自己',
       month_report: '情绪月报',
+      situation_analysis: '情况分析',
+      action_plan: '行动计划',
+      journey_summary: '旅程总结',
+      support_plan: '支持计划',
+      decision_clarify: '决策澄清',
     };
     void map;
     return ({
@@ -1591,6 +2124,11 @@ export class StoreService implements OnModuleInit {
       work: 'work_support',
       future: 'future_letter',
       month_report: 'monthly_report',
+      situation_analysis: 'situation_analysis',
+      action_plan: 'action_plan',
+      journey_summary: 'journey_summary',
+      support_plan: 'support_plan',
+      decision_clarify: 'decision_clarify',
     } as Record<AITaskType, string>)[taskType];
   }
 
@@ -1711,6 +2249,11 @@ export class StoreService implements OnModuleInit {
       work: `工作支撑：面对“${topic}”，先把评价、任务和自我价值分开。你要处理的是下一步任务，不是证明整个人都没问题；先做：${action}。`,
       future: `写给未来：未来的你会记得，此刻关于“${topic}”的难受并没有浪费。它提醒你要更温柔地安排边界，也提醒你从“${action}”重新开始。`,
       month_report: `情绪月报：这个阶段反复出现的线索是“${topic}”。${input.mood}背后有真实需要，下个月可以先固定一个小动作：${action}。`,
+      situation_analysis: `情况分析：先把“${topic}”拆成已经发生的事实、此刻的感受和你可以确认的需要，再由你决定下一步是否合适。`,
+      action_plan: `行动建议：围绕“${topic}”，先保留一个五分钟内能完成的小动作：${action}。完成后再根据结果调整，不把一次行动当成对自己的评价。`,
+      journey_summary: `旅程摘要：你正在处理“${topic}”。目前能确认的是你已经把事情说出来，并找到了一步可尝试的动作：${action}。`,
+      support_plan: `现实支持计划：当“${topic}”再次变重时，可以先做：${action}；如果仍然难以独自承受，请联系你信任的人和当地现实支持。`,
+      decision_clarify: `决策澄清：关于“${topic}”，先把选项、在意的条件和还不确定的地方分别写下，不替自己仓促下结论。`,
       post_reply: styleText[input.style],
       today_letter: styleText[input.style],
     };

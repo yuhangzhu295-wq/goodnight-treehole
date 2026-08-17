@@ -32,14 +32,24 @@ function listFiles(dir: string): string[] {
 }
 
 const failures: Array<{ file: string; term: string; line: number }> = [];
+const escaped = (term: string) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const forbiddenPatterns = forbidden.map((term) => ({
+  term,
+  regexes: [
+    new RegExp(`>[^<]*${escaped(term)}[^<]*<`, 'i'),
+    new RegExp(`(?:aria-label|title|placeholder|alt)\\s*=\\s*["'][^"']*${escaped(term)}`, 'i'),
+    new RegExp(`\\{\\{[^}]*['"]${escaped(term)}['"][^}]*\\}\\}`, 'i'),
+  ],
+}));
 
 for (const root of roots) {
   for (const file of listFiles(root)) {
     const content = fs.readFileSync(file, 'utf8');
     const lines = content.split(/\r?\n/);
-    for (const term of forbidden) {
+    for (const { term, regexes } of forbiddenPatterns) {
       lines.forEach((line, index) => {
-        if (line.includes(term)) failures.push({ file, term, line: index + 1 });
+        const visibleMarkup = line.replace(/\{\{[^}]*\}\}/g, '');
+        if (regexes.some((regex) => regex.test(visibleMarkup))) failures.push({ file, term, line: index + 1 });
       });
     }
   }

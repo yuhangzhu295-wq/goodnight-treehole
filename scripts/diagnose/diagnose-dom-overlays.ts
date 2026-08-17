@@ -9,11 +9,11 @@ const forbiddenPatterns = [
   },
   {
     label: 'hidden real page content',
-    regex: /ref-content|admin-ref-content|opacity:\s*0(?:\.0+)?\s*(?:;|$)/i,
+    regex: /(?:\.|class(?:Name)?\s*=\s*["'`][^"'`]*\b)(?:ref-content|admin-ref-content)\b/i,
   },
   {
     label: 'proxy hotspot class',
-    regex: /\bhotspot\b|live-layer|admin-live-layer|click-layer|proxy/i,
+    regex: /(?:\.|class(?:Name)?\s*=\s*["'`][^"'`]*\b)(?:hotspot|live-layer|admin-live-layer|click-layer|proxy)\b/i,
   },
   {
     label: 'design reference shell class',

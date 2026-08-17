@@ -15,7 +15,15 @@ type Resource =
   | 'presets'
   | 'categories'
   | 'settings'
-  | 'audit';
+  | 'audit'
+  | 'journeys'
+  | 'actions'
+  | 'checkins'
+  | 'peer-experiences'
+  | 'peer-matches'
+  | 'safety-events'
+  | 'support-plans'
+  | 'memory';
 
 type Column = {
   key: string;
@@ -42,6 +50,14 @@ const endpoints: Record<Resource, string> = {
   categories: '/api/admin/v1/feedback-categories',
   settings: '/api/admin/v1/config',
   audit: '/api/admin/v1/audit-logs',
+  journeys: '/api/admin/v1/journeys',
+  actions: '/api/admin/v1/actions',
+  checkins: '/api/admin/v1/checkins',
+  'peer-experiences': '/api/admin/v1/peer-experiences',
+  'peer-matches': '/api/admin/v1/peer-matches',
+  'safety-events': '/api/admin/v1/safety/events',
+  'support-plans': '/api/admin/v1/support/plans',
+  memory: '/api/admin/v1/memory',
 };
 
 const items = ref<any[]>([]);
@@ -228,6 +244,62 @@ const columns = computed<Column[]>(() => {
       { key: 'action', label: '动作', value: (row) => row.action },
       { key: 'resource', label: '资源', value: (row) => `${row.resourceType} / ${row.resourceId}` },
       { key: 'time', label: '时间', value: (row) => time(row.createdAt) },
+    ],
+    journeys: [
+      { key: 'id', label: '旅程 ID', value: (row) => row.id },
+      { key: 'title', label: '现实困境', className: 'wide-cell', value: (row) => clip(row.title, 42) },
+      { key: 'domain', label: '领域', value: (row) => row.domain },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'counts', label: '进展', value: (row) => `${row.updates ?? 0} 更新 / ${row.actions ?? 0} 行动` },
+    ],
+    actions: [
+      { key: 'id', label: '行动 ID', value: (row) => row.id },
+      { key: 'title', label: '行动内容', className: 'wide-cell', value: (row) => clip(row.title, 42) },
+      { key: 'journeyId', label: '旅程 ID', value: (row) => row.journeyId },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'dueAt', label: '截止时间', value: (row) => time(row.dueAt) },
+    ],
+    checkins: [
+      { key: 'id', label: '回访 ID', value: (row) => row.id },
+      { key: 'commitmentId', label: '行动 ID', value: (row) => row.commitmentId },
+      { key: 'status', label: '结果', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'reflection', label: '用户记录', className: 'wide-cell', value: (row) => clip(row.reflection, 42) },
+      { key: 'checkedAt', label: '回访时间', value: (row) => time(row.checkedAt) },
+    ],
+    'peer-experiences': [
+      { key: 'id', label: '经历 ID', value: (row) => row.id },
+      { key: 'title', label: '经历标题', className: 'wide-cell', value: (row) => clip(row.title, 42) },
+      { key: 'domain', label: '领域', value: (row) => row.domain },
+      { key: 'status', label: '审核状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'consent', label: '匿名同意', value: (row) => row.consentedAt ? '已同意' : '未同意' },
+    ],
+    'peer-matches': [
+      { key: 'id', label: '匹配 ID', value: (row) => row.id },
+      { key: 'experienceId', label: '经历 ID', value: (row) => row.peerExperienceId },
+      { key: 'score', label: '匹配分', value: (row) => row.score },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'createdAt', label: '创建时间', value: (row) => time(row.createdAt) },
+    ],
+    'safety-events': [
+      { key: 'id', label: '事件 ID', value: (row) => row.id },
+      { key: 'userId', label: '用户', value: (row) => userName(row.userId) },
+      { key: 'level', label: '风险等级', className: 'status-cell', value: (row) => row.level },
+      { key: 'source', label: '来源', value: (row) => row.source },
+      { key: 'createdAt', label: '时间', value: (row) => time(row.createdAt) },
+    ],
+    'support-plans': [
+      { key: 'id', label: '计划 ID', value: (row) => row.id },
+      { key: 'userId', label: '用户', value: (row) => userName(row.userId) },
+      { key: 'title', label: '计划名称', value: (row) => row.title },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'updatedAt', label: '更新时间', value: (row) => time(row.updatedAt) },
+    ],
+    memory: [
+      { key: 'id', label: '记忆 ID', value: (row) => row.id },
+      { key: 'userId', label: '用户', value: (row) => userName(row.userId) },
+      { key: 'kind', label: '类型', value: (row) => row.category },
+      { key: 'expiresAt', label: '到期时间', value: (row) => time(row.expiresAt) },
+      { key: 'createdAt', label: '创建时间', value: (row) => time(row.createdAt) },
     ],
   };
   return map[props.resource] ?? map.audit;
@@ -459,6 +531,10 @@ async function resetConfig() {
   await mutate('系统设置已重置', () => adminApi.post('/api/admin/v1/config/reset'));
 }
 
+async function reviewPeerExperience(status: 'published' | 'hidden' | 'rejected') {
+  await mutate(`同路经历已${status === 'published' ? '发布' : status === 'hidden' ? '隐藏' : '拒绝'}`, () => adminApi.patch(`/api/admin/v1/peer-experiences/${selected.value.id}/review`, { status }));
+}
+
 const detailGroups = computed<DetailGroup[]>(() => {
   const row = selected.value;
   if (!row) return [{ title: '暂无详情', entries: [{ label: '提示', value: '请选择一条记录' }] }];
@@ -588,6 +664,61 @@ const detailGroups = computed<DetailGroup[]>(() => {
         { label: '时间', value: time(row.createdAt) },
       ] },
     ],
+    journeys: () => [
+      { title: '现实旅程', entries: [
+        { label: '标题', value: row.title },
+        { label: '领域', value: row.domain },
+        { label: '状态', value: statusLabel(row.status) },
+        { label: '当前摘要', value: row.summary },
+        { label: '创建时间', value: time(row.createdAt) },
+      ] },
+    ],
+    actions: () => [{ title: '行动承诺', entries: [
+      { label: '行动内容', value: row.title },
+      { label: '旅程 ID', value: row.journeyId },
+      { label: '状态', value: statusLabel(row.status) },
+      { label: '截止时间', value: time(row.dueAt) },
+    ] }],
+    checkins: () => [{ title: '结果回访', entries: [
+      { label: '行动 ID', value: row.commitmentId },
+      { label: '结果', value: statusLabel(row.status) },
+      { label: '记录', value: row.reflection },
+      { label: '回访时间', value: time(row.checkedAt) },
+    ] }],
+    'peer-experiences': () => [
+      { title: '同路经历', entries: [
+        { label: '标题', value: row.title },
+        { label: '领域', value: row.domain },
+        { label: '经历内容', value: row.content },
+        { label: '审核状态', value: statusLabel(row.status) },
+        { label: '匿名同意', value: row.consentedAt ? '已同意' : '未同意' },
+      ] },
+    ],
+    'peer-matches': () => [{ title: '匹配记录', entries: [
+      { label: '经历 ID', value: row.peerExperienceId },
+      { label: '用户 ID', value: row.userId },
+      { label: '匹配分', value: row.score },
+      { label: '状态', value: statusLabel(row.status) },
+    ] }],
+    'safety-events': () => [{ title: '安全事件', entries: [
+      { label: '用户', value: userName(row.userId) },
+      { label: '风险等级', value: row.level },
+      { label: '来源', value: row.source },
+      { label: '触发原因', value: text(row.action) },
+      { label: '创建时间', value: time(row.createdAt) },
+    ] }],
+    'support-plans': () => [{ title: '个人支持计划', entries: [
+      { label: '用户', value: userName(row.userId) },
+      { label: '计划名称', value: row.title },
+      { label: '计划内容', value: text(row.plan) },
+      { label: '状态', value: statusLabel(row.status) },
+    ] }],
+    memory: () => [{ title: '有限记忆', entries: [
+      { label: '用户', value: userName(row.userId) },
+      { label: '类型', value: row.category },
+      { label: '内容', value: row.content },
+      { label: '到期时间', value: time(row.expiresAt) },
+    ] }],
   };
   return map[props.resource]();
 });
@@ -721,6 +852,12 @@ onMounted(load);
 
       <template v-if="resource === 'categories'">
         <button data-testid="admin-category-add" @click="addCategory">添加反馈分类</button>
+      </template>
+
+      <template v-if="resource === 'peer-experiences'">
+        <button class="primary" data-testid="admin-peer-publish" @click="reviewPeerExperience('published')">发布经历</button>
+        <button data-testid="admin-peer-hide" @click="reviewPeerExperience('hidden')">隐藏经历</button>
+        <button class="danger" data-testid="admin-peer-reject" @click="reviewPeerExperience('rejected')">拒绝经历</button>
       </template>
     </div>
 
