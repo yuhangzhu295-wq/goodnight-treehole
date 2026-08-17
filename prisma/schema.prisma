@@ -122,6 +122,17 @@ enum HandoffStatus {
   completed
 }
 
+enum SupportIntent {
+  JUST_LISTEN
+  FIND_PEOPLE
+  SEE_OUTCOMES
+  NEXT_STEP
+  STOP_IMPULSE
+  PREPARE_CONVERSATION
+  NOTHING_NOW
+  HIGH_DISTRESS
+}
+
 model User {
   id                   String                @id @default(cuid())
   openid               String                @unique
@@ -160,6 +171,10 @@ model User {
   safetyEvents         SafetyEvent[]
   agentDecisionLogs    AgentDecisionLog[]
   followUpJobs         FollowUpJob[]
+  notifications        UserNotification[]
+  peerConversationsStarted PeerConversation[] @relation("PeerConversationStarter")
+  peerConversationsReceived PeerConversation[] @relation("PeerConversationReceiver")
+  peerMessages          PeerMessage[]
 
   @@index([status])
   @@index([createdAt])
@@ -343,6 +358,9 @@ model LifeJourney {
   domain            String
   status            JourneyStatus         @default(active)
   stage             String                @default("clarifying")
+  currentIntent     SupportIntent?
+  intentUpdatedAt   DateTime?
+  initialIntensity  Int?
   visibility        Visibility            @default(PRIVATE)
   intensity         Int?
   summary           String?
@@ -382,6 +400,20 @@ model SituationSnapshot {
   needs       Json
   constraints Json
   risks       Json
+  domain      String?
+  subDomain   String?
+  eventType   String?
+  eventStartedAt DateTime?
+  daysSinceEvent Int?
+  stage       String?
+  contextTags Json?
+  peopleContext Json?
+  decisionContext Json?
+  behaviorSignals Json?
+  recoverySignals Json?
+  intensity   Int?
+  urgency     Int?
+  fingerprintJson Json?
   confidence  String      @default("user_confirmed")
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -396,6 +428,16 @@ model JourneyUpdate {
   kind      String
   content   String
   payload   Json?
+  stage     String?
+  intensity Int?
+  lifeFunction String?
+  actionResult String?
+  decisionChange String?
+  contactState String?
+  sleepState String?
+  socialState String?
+  selfReportedHelpfulness Int?
+  eventDate DateTime?
   createdAt DateTime    @default(now())
 
   @@index([journeyId, createdAt])
@@ -413,6 +455,9 @@ model ActionCommitment {
   dueAt       DateTime?
   reminderAt  DateTime?
   evidence    Json?
+  parentActionId String?
+  adaptationReason String?
+  attemptNumber Int @default(1)
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
   checkins    OutcomeCheckin[]
@@ -435,6 +480,7 @@ model OutcomeCheckin {
   intensity    Int?
   checkedAt    DateTime?
   dueAt        DateTime?
+  barrier      String?
   createdAt    DateTime          @default(now())
 
   @@index([journeyId, createdAt])
@@ -450,8 +496,14 @@ model PeerExperience {
   title       String
   domain      String
   stage       String
+  subDomain   String?
   content     String
   tags        Json
+  fingerprintJson Json?
+  laterSummary Json?
+  helpfulActions Json?
+  notHelpfulActions Json?
+  retrospective String?
   consentedAt DateTime
   status      PeerExperienceStatus @default(draft)
   reportCount Int                  @default(0)
@@ -473,6 +525,13 @@ model PeerMatch {
   peerExperience   PeerExperience  @relation(fields: [peerExperienceId], references: [id], onDelete: Cascade)
   score            Float
   reasons          Json
+  stageDistance    Int?
+  recoveryLead     Int?
+  trustScore       Float?
+  fingerprintSimilarity Float?
+  scoreBreakdown   Json?
+  explanation      String?
+  conversation     PeerConversation?
   status           PeerMatchStatus @default(suggested)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -656,6 +715,54 @@ model FollowUpJob {
   createdAt   DateTime     @default(now())
 
   @@index([status, dueAt])
+}
+
+model UserNotification {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  title      String
+  body       String
+  targetRoute String?
+  status     String   @default("unread")
+  createdAt  DateTime @default(now())
+  readAt     DateTime?
+
+  @@index([userId, status, createdAt])
+}
+
+model PeerConversation {
+  id          String   @id @default(cuid())
+  matchId     String   @unique
+  match       PeerMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  starterUserId String
+  starter     User     @relation("PeerConversationStarter", fields: [starterUserId], references: [id], onDelete: Cascade)
+  receiverUserId String
+  receiver    User     @relation("PeerConversationReceiver", fields: [receiverUserId], references: [id], onDelete: Cascade)
+  status      String   @default("active")
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  closedAt    DateTime?
+  messages    PeerMessage[]
+
+  @@index([starterUserId, status, expiresAt])
+  @@index([receiverUserId, status, expiresAt])
+}
+
+model PeerMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   PeerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUserId   String
+  sender         User     @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  content        String
+  authorType     String   @default("HUMAN")
+  createdAt      DateTime @default(now())
+  reportedAt     DateTime?
+  blockedAt      DateTime?
+
+  @@index([conversationId, createdAt])
 }
 
 model Favorite {

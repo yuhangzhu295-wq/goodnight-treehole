@@ -21,6 +21,9 @@ type Resource =
   | 'checkins'
   | 'peer-experiences'
   | 'peer-matches'
+  | 'follow-ups'
+  | 'peer-conversations'
+  | 'notifications'
   | 'safety-events'
   | 'support-plans'
   | 'memory';
@@ -55,6 +58,9 @@ const endpoints: Record<Resource, string> = {
   checkins: '/api/admin/v1/checkins',
   'peer-experiences': '/api/admin/v1/peer-experiences',
   'peer-matches': '/api/admin/v1/peer-matches',
+  'follow-ups': '/api/admin/v1/follow-ups',
+  'peer-conversations': '/api/admin/v1/peer-conversations',
+  notifications: '/api/admin/v1/notifications',
   'safety-events': '/api/admin/v1/safety/events',
   'support-plans': '/api/admin/v1/support/plans',
   memory: '/api/admin/v1/memory',
@@ -278,6 +284,27 @@ const columns = computed<Column[]>(() => {
       { key: 'experienceId', label: '经历 ID', value: (row) => row.peerExperienceId },
       { key: 'score', label: '匹配分', value: (row) => row.score },
       { key: 'status', label: '状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'createdAt', label: '创建时间', value: (row) => time(row.createdAt) },
+    ],
+    'follow-ups': [
+      { key: 'id', label: '随访 ID', value: (row) => row.id },
+      { key: 'kind', label: '类型', value: (row) => row.kind },
+      { key: 'userId', label: '用户', value: (row) => userName(row.userId) },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => row.status },
+      { key: 'dueAt', label: '计划时间', value: (row) => time(row.dueAt) },
+    ],
+    'peer-conversations': [
+      { key: 'id', label: '会话 ID', value: (row) => row.id },
+      { key: 'matchId', label: '匹配 ID', value: (row) => row.matchId },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => row.status },
+      { key: 'messageCount', label: '消息数', value: (row) => row.messageCount },
+      { key: 'expiresAt', label: '结束时间', value: (row) => time(row.expiresAt) },
+    ],
+    notifications: [
+      { key: 'id', label: '提醒 ID', value: (row) => row.id },
+      { key: 'type', label: '类型', value: (row) => row.type },
+      { key: 'title', label: '标题', className: 'wide-cell', value: (row) => row.title },
+      { key: 'status', label: '状态', className: 'status-cell', value: (row) => row.status },
       { key: 'createdAt', label: '创建时间', value: (row) => time(row.createdAt) },
     ],
     'safety-events': [
@@ -699,6 +726,29 @@ const detailGroups = computed<DetailGroup[]>(() => {
       { label: '用户 ID', value: row.userId },
       { label: '匹配分', value: row.score },
       { label: '状态', value: statusLabel(row.status) },
+    ] }],
+    'follow-ups': () => [{ title: '随访队列', entries: [
+      { label: '随访 ID', value: row.id },
+      { label: '类型', value: row.kind },
+      { label: '用户', value: userName(row.userId) },
+      { label: '状态', value: row.status },
+      { label: '计划时间', value: time(row.dueAt) },
+      { label: '完成时间', value: time(row.completedAt) },
+    ] }],
+    'peer-conversations': () => [{ title: '匿名会话', entries: [
+      { label: '会话 ID', value: row.id },
+      { label: '匹配 ID', value: row.matchId },
+      { label: '状态', value: row.status },
+      { label: '消息数', value: row.messageCount },
+      { label: '结束时间', value: time(row.expiresAt) },
+    ] }],
+    notifications: () => [{ title: '用户提醒', entries: [
+      { label: '提醒 ID', value: row.id },
+      { label: '用户', value: userName(row.userId) },
+      { label: '类型', value: row.type },
+      { label: '标题', value: row.title },
+      { label: '正文', value: row.body },
+      { label: '状态', value: row.status },
     ] }],
     'safety-events': () => [{ title: '安全事件', entries: [
       { label: '用户', value: userName(row.userId) },

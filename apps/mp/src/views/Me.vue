@@ -2,8 +2,10 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
+const { timeLabel } = useDeviceClock();
 const profile = ref<any>();
 const stats = ref<any>();
 const confirm = ref(false);
@@ -41,8 +43,8 @@ onMounted(load);
   <section class="page goodnight-page rest-page me-page" v-if="profile">
     <header class="me-hero">
       <div class="status-row">
-        <span>23:17</span>
-        <span>92</span>
+        <span>{{ timeLabel }}</span>
+        <span aria-hidden="true"></span>
       </div>
       <div class="hero-copy me-copy">
         <h1>晚安树洞</h1>

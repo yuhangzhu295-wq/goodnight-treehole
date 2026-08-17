@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, Headers, Inject, No
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import fs from 'node:fs';
-import type { AIProvider, AIStyle, AIStyleRoute, Emotion, PrivacySetting, Visibility } from '@goodnight/shared-types';
+import type { AIProvider, AIStyle, AIStyleRoute, Emotion, PrivacySetting, Visibility, SupportIntent, ActionBarrier } from '@goodnight/shared-types';
 import { normalizeStoreEmotion, StoreService, type AIGenerateInput } from './store.service.js';
 import { MonthlyReportService } from './monthly-report.service.js';
 import { DAPI_BASE_URL, DAPI_PROVIDER_ID, REMOTE_BACKUP_BASE_URL, REMOTE_BACKUP_PROVIDER_ID } from './remote-ai-provider.service.js';
@@ -44,6 +44,10 @@ function assertProviderMutation(current: Partial<AIProvider>, patch: Partial<AIP
 }
 
 const apiStartedAt = new Date().toISOString();
+
+function runtimeUserId(header?: string) {
+  return header?.trim() || undefined;
+}
 const FINGERPRINT = {
   gitCommitSha: process.env.GIT_COMMIT_SHA ?? 'unknown',
   buildTime: process.env.BUILD_TIME ?? apiStartedAt,
@@ -168,13 +172,24 @@ export class PublicController {
   }
 
   @Post('journeys')
-  async createJourney(@Body() body: { title?: string; domain?: string; content?: string; facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; visibility?: Visibility; intensity?: number }) {
-    return await this.store.createJourney(body);
+  async createJourney(@Body() body: { title?: string; domain?: string; content?: string; facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; visibility?: Visibility; intensity?: number; scenario?: string; relationScene?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.createJourney(body, runtimeUserId(userId));
   }
 
   @Get('journeys/:id')
   journey(@Param('id') id: string) {
     return { item: this.store.journeyDetail(id) };
+  }
+
+  @Get('journeys/:id/fingerprint')
+  journeyFingerprint(@Param('id') id: string) {
+    return { item: this.store.fingerprint(id) };
+  }
+
+  @Patch('journeys/:id/intent')
+  async journeyIntent(@Param('id') id: string, @Body() body: { intent?: SupportIntent }) {
+    if (!body.intent) throw new BadRequestException('请选择你现在最需要的支持');
+    return await this.store.setJourneyIntent(id, body.intent);
   }
 
   @Patch('journeys/:id')
@@ -189,17 +204,17 @@ export class PublicController {
   }
 
   @Patch('journeys/:id/situation')
-  async confirmSituation(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[] }) {
+  async confirmSituation(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[]; domain?: string; subDomain?: string; eventType?: string; stage?: string; contextTags?: string[]; peopleContext?: string[]; decisionContext?: string[]; behaviorSignals?: string[]; recoverySignals?: string[]; intensity?: number; urgency?: number }) {
     return await this.store.confirmSituation(id, body);
   }
 
   @Post('journeys/:id/snapshots')
-  async confirmSnapshot(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[] }) {
+  async confirmSnapshot(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[]; domain?: string; subDomain?: string; eventType?: string; stage?: string; contextTags?: string[]; peopleContext?: string[]; decisionContext?: string[]; behaviorSignals?: string[]; recoverySignals?: string[]; intensity?: number; urgency?: number }) {
     return await this.store.confirmSituation(id, body);
   }
 
   @Post('journeys/:id/updates')
-  async journeyUpdate(@Param('id') id: string, @Body() body: { content?: string; kind?: string }) {
+  async journeyUpdate(@Param('id') id: string, @Body() body: { content?: string; kind?: string; outcome?: Record<string, unknown> }) {
     return await this.store.addJourneyUpdate(id, body);
   }
 
@@ -233,29 +248,35 @@ export class PublicController {
     return await this.store.graduateJourney(id);
   }
 
+  @Post('journeys/:id/graduation-consent')
+  async graduationConsent(@Param('id') id: string, @Body() body: { decision?: 'willing' | 'later' | 'no' }) {
+    if (!body.decision || !['willing', 'later', 'no'].includes(body.decision)) throw new BadRequestException('请选择是否匿名分享');
+    return await this.store.saveGraduationConsent(id, body.decision);
+  }
+
   @Post('actions/:id/checkin')
-  async actionCheckin(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number }) {
+  async actionCheckin(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number; barrier?: ActionBarrier; outcome?: Record<string, unknown> }) {
     return await this.store.checkinAction(id, body);
   }
 
   @Post('actions/:id/checkins')
-  async actionCheckins(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number }) {
+  async actionCheckins(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number; barrier?: ActionBarrier; outcome?: Record<string, unknown> }) {
     return await this.store.checkinAction(id, body);
   }
 
   @Get('peers')
-  peers() {
-    return { item: this.store.peerNetwork() };
+  peers(@Headers('x-goodnight-user-id') userId?: string) {
+    return { item: this.store.peerNetwork(runtimeUserId(userId)) };
   }
 
   @Post('peer-experiences')
-  async createPeerExperience(@Body() body: { journeyId?: string; title?: string; domain?: string; stage?: string; content?: string; tags?: string[]; consented?: boolean }) {
-    return await this.store.createPeerExperience(body.journeyId, body);
+  async createPeerExperience(@Body() body: { journeyId?: string; title?: string; domain?: string; stage?: string; content?: string; tags?: string[]; consented?: boolean }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.createPeerExperience(body.journeyId, body, runtimeUserId(userId));
   }
 
   @Post('journeys/:id/peer-matches')
-  async peerMatches(@Param('id') id: string) {
-    return await this.store.suggestPeerMatches(id);
+  async peerMatches(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.suggestPeerMatches(id, runtimeUserId(userId));
   }
 
   @Get('journeys/:id/peers')
@@ -264,13 +285,48 @@ export class PublicController {
   }
 
   @Patch('peer-matches/:id')
-  async peerMatch(@Param('id') id: string, @Body() body: { status: 'requested' | 'connected' | 'declined' | 'blocked' }) {
-    return await this.store.updatePeerMatch(id, body.status);
+  async peerMatch(@Param('id') id: string, @Body() body: { status: 'requested' | 'connected' | 'declined' | 'blocked' }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.updatePeerMatch(id, body.status, runtimeUserId(userId));
+  }
+
+  @Post('peer-matches/:id/respond')
+  async peerMatchRespond(@Param('id') id: string, @Body() body: { status: 'connected' | 'declined' | 'blocked' }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.updatePeerMatch(id, body.status, runtimeUserId(userId));
+  }
+
+  @Get('peer-requests')
+  peerRequests(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: this.store.peerRequestList(runtimeUserId(userId)) };
+  }
+
+  @Patch('peer-experiences/:id')
+  async updatePeerExperience(@Param('id') id: string, @Body() body: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }) {
+    return await this.store.updatePeerExperience(id, body);
+  }
+
+  @Get('peer-experiences/:id')
+  peerExperience(@Param('id') id: string) {
+    return { item: this.store.peerExperienceDetail(id) };
+  }
+
+  @Post('actions/:id/adaptive-plan')
+  async adaptivePlan(@Param('id') id: string, @Body() body: { barrier: ActionBarrier }) {
+    return await this.store.requestAdaptiveAction(id, body.barrier);
+  }
+
+  @Post('actions/:id/adapt')
+  async adaptiveAction(@Param('id') id: string, @Body() body: { title?: string; description?: string; barrier?: ActionBarrier; dueAt?: string }) {
+    return await this.store.createAdaptiveAction(id, body);
   }
 
   @Post('decisions')
   async decision(@Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[] }) {
     return await this.store.createDecision(body);
+  }
+
+  @Get('decisions')
+  decisions() {
+    return { items: this.store.decisionList() };
   }
 
   @Patch('decisions/:id')
@@ -308,9 +364,19 @@ export class PublicController {
     return await this.store.saveTrustedContact(body);
   }
 
+  @Get('trusted-contacts')
+  trustedContacts() {
+    return { items: this.store.trustedContactList() };
+  }
+
   @Post('future-messages')
   async futureMessage(@Body() body: { journeyId?: string; content?: string; deliverAt?: string }) {
     return await this.store.saveFutureMessage(body);
+  }
+
+  @Get('future-messages')
+  futureMessages() {
+    return { items: this.store.futureMessageList() };
   }
 
   @Post('support-plans')
@@ -331,6 +397,42 @@ export class PublicController {
   @Get('me/recovery')
   recovery() {
     return { items: this.store.recoveryList() };
+  }
+
+  @Post('me/recovery')
+  async recoveryCheckin(@Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string }) {
+    return await this.store.saveRecoveryCheckin(body.journeyId, body.signals ?? {}, body.summary);
+  }
+
+  @Get('notifications')
+  notifications(@Headers('x-goodnight-user-id') userId?: string) {
+    const items = this.store.notificationList(runtimeUserId(userId));
+    return { items, unreadCount: items.filter((item) => item.status === 'unread').length };
+  }
+
+  @Patch('notifications/:id/read')
+  async readNotification(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.readNotification(id, runtimeUserId(userId));
+  }
+
+  @Get('peer-conversations')
+  peerConversations(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: this.store.conversationList(runtimeUserId(userId)) };
+  }
+
+  @Post('peer-conversations/:matchId/messages')
+  async peerMessage(@Param('matchId') matchId: string, @Body() body: { content?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.sendPeerMessage(matchId, body.content, runtimeUserId(userId));
+  }
+
+  @Post('peer-conversations/:matchId/assist')
+  async peerMessageAssist(@Param('matchId') matchId: string, @Body() body: { content?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.requestPeerResponseAssist(matchId, body.content, runtimeUserId(userId));
+  }
+
+  @Post('peer-conversations/:matchId/close')
+  async closePeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.closePeerConversation(matchId, runtimeUserId(userId));
   }
 
   @Get('memory')
@@ -1004,41 +1106,43 @@ export class PublicController {
   }
 
   @Get('settings/privacy')
-  privacy() {
-    return { item: this.store.privacySettings[this.store.getDemoUserId()] };
+  privacy(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    return { item: this.store.privacySettings[runtimeId] };
   }
 
   @Get('me/privacy')
-  mePrivacy() {
-    return this.privacy();
+  mePrivacy(@Headers('x-goodnight-user-id') userId?: string) {
+    return this.privacy(userId);
   }
 
   @Get('privacy-settings')
-  privacySettingsAlias() {
-    return this.privacy();
+  privacySettingsAlias(@Headers('x-goodnight-user-id') userId?: string) {
+    return this.privacy(userId);
   }
 
   @Put('settings/privacy')
-  async updatePrivacy(@Body() body: Partial<PrivacySetting>) {
-    this.store.privacySettings[this.store.getDemoUserId()] = { ...this.store.privacySettings[this.store.getDemoUserId()], ...body };
+  async updatePrivacy(@Body() body: Partial<PrivacySetting>, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    this.store.privacySettings[runtimeId] = { ...this.store.privacySettings[runtimeId], ...body };
     this.store.persist();
     await this.store.flush();
-    return { item: this.store.privacySettings[this.store.getDemoUserId()] };
+    return { item: this.store.privacySettings[runtimeId] };
   }
 
   @Patch('settings/privacy')
-  async patchPrivacy(@Body() body: Partial<PrivacySetting>) {
-    return await this.updatePrivacy(body);
+  async patchPrivacy(@Body() body: Partial<PrivacySetting>, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.updatePrivacy(body, userId);
   }
 
   @Patch('me/privacy')
-  async patchMePrivacy(@Body() body: Partial<PrivacySetting>) {
-    return await this.updatePrivacy(body);
+  async patchMePrivacy(@Body() body: Partial<PrivacySetting>, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.updatePrivacy(body, userId);
   }
 
   @Patch('privacy-settings')
-  async patchPrivacyAlias(@Body() body: Partial<PrivacySetting>) {
-    return await this.updatePrivacy(body);
+  async patchPrivacyAlias(@Body() body: Partial<PrivacySetting>, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.updatePrivacy(body, userId);
   }
 
   @Get('feedback/categories')
@@ -1163,7 +1267,13 @@ export class AdminController {
         peerExperiences: this.store.peerExperiences.filter((item) => item.status === 'published').length,
         safetyEvents: this.store.safetyEvents.filter((item) => item.level === 'high').length,
         supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
+        followUps: this.store.followUpJobs.filter((item) => ['pending', 'scheduled'].includes(item.status)).length,
+        unreadNotifications: this.store.notifications.filter((item) => item.status === 'unread').length,
+        peerRequests: this.store.peerMatches.filter((item) => item.status === 'requested').length,
+        connectedPeerConversations: this.store.peerConversations.filter((item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now()).length,
+        recoveryRecords: this.store.recoverySnapshots.length,
       },
+      supportIntentDistribution: this.store.lifeJourneys.reduce<Record<string, number>>((acc, item) => { if (item.currentIntent) acc[item.currentIntent] = (acc[item.currentIntent] ?? 0) + 1; return acc; }, {}),
       aiSuccessRate: this.store.aiJobs.length ? Math.round((successfulJobs / this.store.aiJobs.length) * 1000) / 10 : 100,
       activeTrend,
       emotionDistribution,
@@ -1284,6 +1394,27 @@ export class AdminController {
   adminPeerMatches(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
     this.admin(auth);
     const items = this.store.peerMatches.filter((item) => !status || status === 'all' || item.status === status);
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('follow-ups')
+  adminFollowUps(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    const items = this.store.followUpJobs.filter((item) => !status || status === 'all' || item.status === status);
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('notifications')
+  adminNotifications(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    const items = this.store.notifications.filter((item) => !status || status === 'all' || item.status === status);
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('peer-conversations')
+  adminPeerConversations(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    this.admin(auth);
+    const items = this.store.peerConversations.filter((item) => !status || status === 'all' || item.status === status).map((item) => ({ ...item, messageCount: this.store.peerMessages.filter((message) => message.conversationId === item.id).length }));
     return this.list(items, page, pageSize);
   }
 

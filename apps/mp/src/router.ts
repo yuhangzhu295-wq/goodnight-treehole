@@ -22,6 +22,12 @@ import TonightHome from './views/TonightHome.vue';
 import PeerNetwork from './views/PeerNetwork.vue';
 import ActionCenter from './views/ActionCenter.vue';
 import JourneyDetail from './views/JourneyDetail.vue';
+import PeerExperienceDetail from './views/PeerExperienceDetail.vue';
+import PeerRequests from './views/PeerRequests.vue';
+import PeerConversation from './views/PeerConversation.vue';
+import RealityHandoff from './views/RealityHandoff.vue';
+import FutureSelf from './views/FutureSelf.vue';
+import Recovery from './views/Recovery.vue';
 
 export const tabRoutes = ['/pages/tonight/index', '/pages/peers/index', '/pages/action/index', '/pages/me/index'];
 export const router = createRouter({
@@ -32,6 +38,12 @@ export const router = createRouter({
     { path: '/pages/peers/index', component: PeerNetwork },
     { path: '/pages/action/index', component: ActionCenter },
     { path: '/pages/journey/detail', component: JourneyDetail },
+    { path: '/pages/peer/detail', component: PeerExperienceDetail },
+    { path: '/pages/peer/requests', component: PeerRequests },
+    { path: '/pages/peer/conversation', component: PeerConversation },
+    { path: '/pages/reality-handoff/index', component: RealityHandoff },
+    { path: '/pages/future-self/index', component: FutureSelf },
+    { path: '/pages/recovery/index', component: Recovery },
     { path: '/pages/square/index', component: Square },
     { path: '/pages/mood/create', component: MoodCreate },
     { path: '/pages/post/create', component: MoodCreate },

@@ -12,6 +12,9 @@ process.env.GOODNIGHT_STORE_FILE = storeFile;
 process.env.DATABASE_URL = resetTestDatabase(
   `goodnight_treehole_test_business_${process.pid}_${workerId}`,
 );
+// Keep the in-process integration worker isolated from a developer API worker
+// that may be running against the real development database on the same Redis.
+process.env.FOLLOW_UP_QUEUE_NAME = `goodnight-follow-ups-test-${process.pid}-${workerId}`;
 
 export async function createApiTestApp(): Promise<INestApplication> {
   const { createServer } = await import('../../apps/api/src/main.js');

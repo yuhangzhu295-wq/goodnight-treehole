@@ -328,4 +328,17 @@ onMounted(async () => {
 .report-page .report-reflection h2 { font-size: 17px; }
 .report-page .report-reflection { min-height: 118px; }
 .report-page .report-actions button { min-height: 60px; }
+
+/* Keep the two real report actions above the fixed tab bar. The page reserves
+   this space so the buttons never cover report content while still remaining
+   reachable at the end of a long monthly report. */
+.report-page.goodnight-page { padding-bottom: calc(196px + env(safe-area-inset-bottom)); }
+.report-page .report-actions {
+  position: fixed;
+  left: 50%;
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  z-index: 19;
+  width: min(400px, calc(100vw - 30px));
+  transform: translateX(-50%);
+}
 </style>

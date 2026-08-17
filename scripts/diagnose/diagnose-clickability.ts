@@ -57,10 +57,9 @@ async function hashStore() {
 
 async function inspectHit(page: Page, testId: string) {
   const locator = page.getByTestId(testId);
-  await page.evaluate((id) => {
-    document.querySelector(`[data-testid="${id}"]`)?.scrollIntoView({ block: 'center', inline: 'center' });
-  }, testId);
-  await page.waitForTimeout(80);
+  await locator.waitFor({ state: 'visible', timeout: 8000 });
+  await locator.scrollIntoViewIfNeeded({ timeout: 8000 });
+  await page.waitForTimeout(120);
   const box = await locator.boundingBox();
   if (!box) throw new Error(`No visible bounding box for ${testId}`);
   return page.evaluate(

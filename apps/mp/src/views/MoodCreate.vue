@@ -3,8 +3,10 @@ import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AIStyle } from '@goodnight/shared-types';
 import { api, deleteMedia, resolveApiUrl, uploadMedia } from '../api';
+import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
+const { timeLabel } = useDeviceClock();
 const MAX_IMAGES = 2;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -134,7 +136,7 @@ async function submit() {
 <template>
   <section class="page goodnight-page mood-create-page">
     <header class="front-hero compact-hero">
-      <div class="status-row"><span>23:17</span><span>92</span></div>
+      <div class="status-row"><span>{{ timeLabel }}</span><span aria-hidden="true"></span></div>
       <button class="back-icon" data-testid="front-mood-back" aria-label="返回" @click="safeBack">‹</button>
       <div class="hero-copy"><h1>写下心情</h1><p>把心里的话写下来，晚安树洞陪你听</p></div>
       <div class="tree-scene small" aria-hidden="true"><span class="tree-heart">♥</span><span class="seedling-face">●</span></div>

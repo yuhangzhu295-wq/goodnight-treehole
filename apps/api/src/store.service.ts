@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import type { AIProvider, AIStyle, AIStyleRoute, Emotion, MediaAsset, PostItem, PrivacySetting, ReplyItem, Visibility } from '@goodnight/shared-types';
+import type { AIProvider, AIStyle, AIStyleRoute, Emotion, MediaAsset, PostItem, PrivacySetting, ReplyItem, Visibility, ActionBarrier, SupportIntent, JourneyOutcome, UserNotification } from '@goodnight/shared-types';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 import { DAPI_BASE_URL, DAPI_PROVIDER_ID, REMOTE_BACKUP_BASE_URL, REMOTE_BACKUP_PROVIDER_ID, RemoteAiProviderService, sanitizeProviderError } from './remote-ai-provider.service.js';
 import { resolveUploadsDirectory, visualFixtureMode } from './runtime-environment.js';
+import { scheduleFollowUp } from './follow-up-queue.js';
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
@@ -74,7 +75,15 @@ export type AITaskType =
   | 'action_plan'
   | 'journey_summary'
   | 'support_plan'
-  | 'decision_clarify';
+  | 'decision_clarify'
+  | 'need_analysis'
+  | 'risk_analysis'
+  | 'barrier_analysis'
+  | 'adaptive_action'
+  | 'peer_match_explain'
+  | 'loop_detection'
+  | 'recovery_summary'
+  | 'peer_response_assist';
 
 export interface AIGenerateInput {
   taskType?: AITaskType | string;
@@ -236,6 +245,9 @@ export interface LifeJourneyRecord {
   domain: string;
   status: 'active' | 'paused' | 'completed' | 'archived';
   stage: string;
+  currentIntent?: SupportIntent;
+  intentUpdatedAt?: string;
+  initialIntensity?: number;
   visibility: Visibility;
   intensity?: number;
   summary?: string;
@@ -253,6 +265,20 @@ export interface SituationSnapshotRecord {
   needs: string[];
   constraints: string[];
   risks: string[];
+  domain?: string;
+  subDomain?: string;
+  eventType?: string;
+  eventStartedAt?: string;
+  daysSinceEvent?: number;
+  stage?: string;
+  contextTags?: string[];
+  peopleContext?: string[];
+  decisionContext?: string[];
+  behaviorSignals?: string[];
+  recoverySignals?: string[];
+  intensity?: number;
+  urgency?: number;
+  fingerprintJson?: Record<string, unknown>;
   confidence: 'user_confirmed' | 'agent_draft';
   createdAt: string;
   updatedAt: string;
@@ -265,6 +291,16 @@ export interface JourneyUpdateRecord {
   kind: string;
   content: string;
   payload?: Record<string, unknown>;
+  stage?: string;
+  intensity?: number;
+  lifeFunction?: string;
+  actionResult?: string;
+  decisionChange?: string;
+  contactState?: string;
+  sleepState?: string;
+  socialState?: string;
+  selfReportedHelpfulness?: number;
+  eventDate?: string;
   createdAt: string;
 }
 
@@ -278,6 +314,9 @@ export interface ActionCommitmentRecord {
   dueAt?: string;
   reminderAt?: string;
   evidence?: Record<string, unknown>;
+  parentActionId?: string;
+  adaptationReason?: ActionBarrier;
+  attemptNumber?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -293,6 +332,7 @@ export interface OutcomeCheckinRecord {
   intensity?: number;
   checkedAt?: string;
   dueAt?: string;
+  barrier?: ActionBarrier;
   createdAt: string;
 }
 
@@ -303,8 +343,14 @@ export interface PeerExperienceRecord {
   title: string;
   domain: string;
   stage: string;
+  subDomain?: string;
   content: string;
   tags: string[];
+  fingerprintJson?: Record<string, unknown>;
+  laterSummary?: Record<string, unknown>;
+  helpfulActions?: string[];
+  notHelpfulActions?: string[];
+  retrospective?: string;
   consentedAt: string;
   status: 'draft' | 'pending_review' | 'published' | 'hidden' | 'rejected';
   reportCount: number;
@@ -319,6 +365,12 @@ export interface PeerMatchRecord {
   peerExperienceId: string;
   score: number;
   reasons: string[];
+  stageDistance?: number;
+  recoveryLead?: number;
+  trustScore?: number;
+  fingerprintSimilarity?: number;
+  scoreBreakdown?: Record<string, number>;
+  explanation?: string;
   status: 'suggested' | 'requested' | 'connected' | 'declined' | 'blocked';
   createdAt: string;
   updatedAt: string;
@@ -335,6 +387,8 @@ type RecoverySnapshot = { id: string; userId: string; journeyId?: string; summar
 type SafetyEvent = { id: string; userId: string; journeyId?: string; level: string; source: string; action: string; payload?: Record<string, unknown>; createdAt: string };
 type AgentDecisionLog = { id: string; userId: string; journeyId?: string; aiJobId?: string; taskType: string; decision: Record<string, unknown>; createdAt: string };
 type FollowUpJob = { id: string; userId: string; journeyId?: string; kind: string; dueAt: string; status: string; payload?: Record<string, unknown>; completedAt?: string; createdAt: string };
+type PeerConversationRecord = { id: string; matchId: string; starterUserId: string; receiverUserId: string; status: 'active' | 'closed' | 'extended'; expiresAt: string; createdAt: string; closedAt?: string };
+type PeerMessageRecord = { id: string; conversationId: string; senderUserId: string; content: string; authorType: 'HUMAN' | 'AI_ASSIST'; createdAt: string; reportedAt?: string; blockedAt?: string };
 
 interface StoreData {
   users: Array<{ id: string; openid: string; nickname: string; anonymousCode: string; avatarUrl: string; status: 'normal' | 'limited' | 'banned'; createdAt: string }>;
@@ -375,6 +429,9 @@ interface StoreData {
   safetyEvents: SafetyEvent[];
   agentDecisionLogs: AgentDecisionLog[];
   followUpJobs: FollowUpJob[];
+  notifications: UserNotification[];
+  peerConversations: PeerConversationRecord[];
+  peerMessages: PeerMessageRecord[];
 }
 
 function seedData(): StoreData {
@@ -479,6 +536,9 @@ function seedData(): StoreData {
     safetyEvents: [],
     agentDecisionLogs: [],
     followUpJobs: [],
+    notifications: [],
+    peerConversations: [],
+    peerMessages: [],
   };
 }
 
@@ -506,9 +566,18 @@ export class StoreService implements OnModuleInit {
     this.reconcileFavoriteCounts();
     this.reconcileLetterFavorites();
     this.ensureGoodnightTwoCoverage();
+    this.ensurePhaseTwoCoverage();
     this.ensureSeedCoverage();
     if (!visualFixtureMode) this.enforceRemoteAiProviderPolicy();
     await this.flush();
+  }
+
+  async reloadRuntimeState() {
+    const persisted = await this.prisma.loadRuntimeState<StoreData>();
+    if (persisted) {
+      this.data = persisted;
+      this.ensurePhaseTwoCoverage();
+    }
   }
 
   get users() { return this.data.users; }
@@ -555,6 +624,27 @@ export class StoreService implements OnModuleInit {
   get safetyEvents() { return this.data.safetyEvents; }
   get agentDecisionLogs() { return this.data.agentDecisionLogs; }
   get followUpJobs() { return this.data.followUpJobs; }
+  get notifications() { return this.data.notifications; }
+  get peerConversations() { return this.data.peerConversations; }
+  get peerMessages() { return this.data.peerMessages; }
+
+  private ensurePhaseTwoCoverage() {
+    let changed = false;
+    this.data.notifications ??= [];
+    this.data.peerConversations ??= [];
+    this.data.peerMessages ??= [];
+    for (const journey of this.data.lifeJourneys) {
+      if (journey.currentIntent && !['JUST_LISTEN', 'FIND_PEOPLE', 'SEE_OUTCOMES', 'NEXT_STEP', 'STOP_IMPULSE', 'PREPARE_CONVERSATION', 'NOTHING_NOW', 'HIGH_DISTRESS'].includes(journey.currentIntent)) {
+        delete journey.currentIntent;
+      }
+    }
+    for (const snapshot of this.data.situationSnapshots) {
+      for (const key of ['facts', 'feelings', 'needs', 'constraints', 'risks', 'contextTags', 'peopleContext', 'decisionContext', 'behaviorSignals', 'recoverySignals'] as const) {
+        if (!Array.isArray((snapshot as any)[key])) { (snapshot as any)[key] = []; changed = true; }
+      }
+    }
+    if (changed) this.persist();
+  }
 
   isFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
     return this.data.favorites.some((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
@@ -1150,6 +1240,19 @@ export class StoreService implements OnModuleInit {
     return 'user_demo';
   }
 
+  /**
+   * The project still uses its existing anonymous runtime identity adapter.
+   * Integration tests may select another persisted anonymous user explicitly;
+   * unknown identifiers are never created as a side effect of a request.
+   */
+  resolveRuntimeUserId(requestedUserId?: string) {
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
+    if (!/^[a-zA-Z0-9_-]{3,80}$/.test(userId) || !this.users.some((item) => item.id === userId)) {
+      throw new NotFoundException('当前匿名会话用户不存在');
+    }
+    return userId;
+  }
+
   login(username: string, password: string) {
     const admin = this.adminUsers.find((item) => item.username === username && item.passwordHash === `plain:${password}`);
     if (!admin) throw new UnauthorizedException('账号或密码不正确');
@@ -1269,8 +1372,8 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private assertCanWrite() {
-    const user = this.users.find((item) => item.id === this.getDemoUserId());
+  private assertCanWrite(userId = this.getDemoUserId()) {
+    const user = this.users.find((item) => item.id === userId);
     if (user?.status === 'limited' || user?.status === 'banned') {
       throw new ForbiddenException('当前账号已被禁言或限制发布，请联系管理员');
     }
@@ -1310,17 +1413,18 @@ export class StoreService implements OnModuleInit {
     return { journey: journey ?? null, activeActions, dueCheckins, followUps, matches, latestLetter: latestLetter ? this.decorateLetter(latestLetter) : null, counts: { activeActions: activeActions.length, dueCheckins: dueCheckins.length, followUps: followUps.length, matches: matches.length } };
   }
 
-  async createJourney(input: { title?: unknown; domain?: unknown; content?: unknown; facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; visibility?: Visibility; intensity?: number }) {
-    this.assertCanWrite();
-    const userId = this.getDemoUserId();
-    const title = this.text(input.title ?? '今晚想理清的一件事', '旅程标题', 80);
-    const domain = this.text(input.domain ?? '生活', '困境领域', 40);
+  async createJourney(input: { title?: unknown; domain?: unknown; content?: unknown; facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; visibility?: Visibility; intensity?: number; scenario?: unknown; relationScene?: unknown }, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    this.assertCanWrite(userId);
+    const title = typeof input.title === 'string' && input.title.trim() ? input.title.trim().slice(0, 80) : '正在整理的一件事';
+    const domain = this.text(input.domain ?? '其他', '困境领域', 40);
     const content = this.text(input.content, '事情描述', 1000);
     const risk = this.detectRisk(content);
     const createdAt = now();
-    const journey: LifeJourneyRecord = { id: id('journey'), userId, title, domain, status: 'active', stage: risk.level === 'high' ? 'safety_first' : 'clarifying', visibility: input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE', intensity: input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity))), summary: '', createdAt, updatedAt: createdAt };
+    const intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
+    const journey: LifeJourneyRecord = { id: id('journey'), userId, title, domain, status: 'active', stage: risk.level === 'high' ? 'safety_first' : 'clarifying', visibility: input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE', intensity, initialIntensity: intensity, summary: '', createdAt, updatedAt: createdAt };
     const toArray = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8) : [];
-    const snapshot: SituationSnapshotRecord = { id: id('snapshot'), journeyId: journey.id, facts: toArray(input.facts).length ? toArray(input.facts) : [content], feelings: toArray(input.feelings), needs: toArray(input.needs), constraints: toArray(input.constraints), risks: risk.level === 'high' ? ['检测到需要优先确认现实安全的表达'] : [], confidence: 'user_confirmed', createdAt, updatedAt: createdAt };
+    const snapshot: SituationSnapshotRecord = { id: id('snapshot'), journeyId: journey.id, facts: toArray(input.facts).length ? toArray(input.facts) : [content], feelings: toArray(input.feelings), needs: toArray(input.needs), constraints: toArray(input.constraints), risks: risk.level === 'high' ? ['检测到需要优先确认现实安全的表达'] : [], domain, contextTags: [String(input.scenario ?? '').trim(), String(input.relationScene ?? '').trim()].filter(Boolean), confidence: 'agent_draft', createdAt, updatedAt: createdAt };
     this.lifeJourneys.unshift(journey);
     this.situationSnapshots.unshift(snapshot);
     this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: journey.id, userId, kind: 'created', content, createdAt });
@@ -1340,9 +1444,22 @@ export class StoreService implements OnModuleInit {
         if (Array.isArray(structured.needs)) current.needs = structured.needs.map(String).filter(Boolean).slice(0, 8);
         if (Array.isArray(structured.constraints)) current.constraints = structured.constraints.map(String).filter(Boolean).slice(0, 8);
         if (Array.isArray(structured.risks)) current.risks = structured.risks.map(String).filter(Boolean).slice(0, 8);
+        current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
+        current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : undefined;
+        current.eventType = typeof structured.eventType === 'string' ? structured.eventType : undefined;
+        current.stage = typeof structured.stage === 'string' ? structured.stage : 'clarifying';
+        current.contextTags = Array.isArray(structured.contextTags) ? structured.contextTags.map(String).filter(Boolean).slice(0, 12) : current.contextTags;
+        current.peopleContext = Array.isArray(structured.peopleContext) ? structured.peopleContext.map(String).filter(Boolean).slice(0, 8) : [];
+        current.decisionContext = Array.isArray(structured.decisionContext) ? structured.decisionContext.map(String).filter(Boolean).slice(0, 8) : [];
+        current.behaviorSignals = Array.isArray(structured.behaviorSignals) ? structured.behaviorSignals.map(String).filter(Boolean).slice(0, 8) : [];
+        current.recoverySignals = Array.isArray(structured.recoverySignals) ? structured.recoverySignals.map(String).filter(Boolean).slice(0, 8) : [];
+        current.intensity = Number.isFinite(Number(structured.intensity)) ? Math.max(0, Math.min(10, Number(structured.intensity))) : current.intensity;
+        current.urgency = Number.isFinite(Number(structured.urgency)) ? Math.max(0, Math.min(10, Number(structured.urgency))) : current.urgency;
+        current.fingerprintJson = { domain: current.domain, subDomain: current.subDomain, eventType: current.eventType, stage: current.stage, contextTags: current.contextTags, peopleContext: current.peopleContext, decisionContext: current.decisionContext, behaviorSignals: current.behaviorSignals, recoverySignals: current.recoverySignals };
         current.confidence = 'agent_draft';
         current.updatedAt = now();
         target.summary = String(structured.summary ?? completed.result).slice(0, 500);
+        if (typeof structured.title === 'string' && structured.title.trim()) target.title = structured.title.trim().slice(0, 80);
         target.updatedAt = now();
       }
       this.agentDecisionLogs.unshift({ id: id('agent_decision'), userId, journeyId: journey.id, aiJobId: completed.id, taskType: 'situation_analysis', decision: structured, createdAt: now() });
@@ -1350,6 +1467,45 @@ export class StoreService implements OnModuleInit {
     }).catch(() => undefined);
     await this.persistAndFlush();
     return { journey, snapshot, job, safety: risk.level === 'high' ? { level: 'high', needsRealWorldSupport: true } : { level: risk.level, needsRealWorldSupport: false } };
+  }
+
+  fingerprint(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journey.id);
+    if (!snapshot) throw new NotFoundException('经历指纹不存在');
+    return { journey, snapshot };
+  }
+
+  async setJourneyIntent(journeyId: string, intent: SupportIntent) {
+    const journey = this.requireJourney(journeyId);
+    const validIntents: SupportIntent[] = ['JUST_LISTEN', 'FIND_PEOPLE', 'SEE_OUTCOMES', 'NEXT_STEP', 'STOP_IMPULSE', 'PREPARE_CONVERSATION', 'NOTHING_NOW', 'HIGH_DISTRESS'];
+    if (!validIntents.includes(intent)) throw new BadRequestException('暂时无法识别这个需要');
+    if (intent === 'HIGH_DISTRESS' || this.safetyEvents.some((item) => item.journeyId === journey.id && ['high', 'critical'].includes(item.level))) {
+      journey.stage = 'safety_first';
+      this.safetyEvents.unshift({ id: id('safety'), userId: journey.userId, journeyId: journey.id, level: 'high', source: 'support_intent', action: 'real_world_support_prompt', payload: { intent }, createdAt: now() });
+    } else {
+      journey.currentIntent = intent;
+      journey.intentUpdatedAt = now();
+      journey.stage = intent === 'NEXT_STEP' ? 'planning' : intent === 'FIND_PEOPLE' || intent === 'SEE_OUTCOMES' ? 'matching' : intent === 'STOP_IMPULSE' ? 'cooldown' : 'clarifying';
+    }
+    journey.updatedAt = now();
+    await this.persistAndFlush();
+    return { journey, intent, route: this.intentRoute(intent, journey.stage === 'safety_first') };
+  }
+
+  private intentRoute(intent: SupportIntent, safetyFirst = false) {
+    if (safetyFirst || intent === 'HIGH_DISTRESS') return { key: 'safety', targetRoute: '/pages/reality-handoff/index', message: '先把现实里的支持接上，不急着解决全部问题。' };
+    const routes: Record<SupportIntent, { key: string; targetRoute: string; message: string }> = {
+      JUST_LISTEN: { key: 'listen', targetRoute: '/pages/journey/detail', message: '先听你把这件事说完，不急着给行动。' },
+      FIND_PEOPLE: { key: 'peers', targetRoute: '/pages/peers/index', message: '去看看真正经历过相似阶段的人。' },
+      SEE_OUTCOMES: { key: 'outcomes', targetRoute: '/pages/peers/index?view=outcomes', message: '先看看相似经历后来发生了什么。' },
+      NEXT_STEP: { key: 'action', targetRoute: '/pages/action/index', message: '把下一步缩到今晚做得完的一件事。' },
+      STOP_IMPULSE: { key: 'cooldown', targetRoute: '/pages/action/index?section=vault', message: '先把冲动放进决定保险箱。' },
+      PREPARE_CONVERSATION: { key: 'handoff', targetRoute: '/pages/action/index?section=handoff', message: '先整理想对现实中的人说的话。' },
+      NOTHING_NOW: { key: 'pause', targetRoute: '/pages/tonight/index', message: '今天不解决，也是一种照顾。' },
+      HIGH_DISTRESS: { key: 'safety', targetRoute: '/pages/reality-handoff/index', message: '先连接现实支持。' },
+    };
+    return routes[intent];
   }
 
   journeyDetail(journeyId: string, userId = this.getDemoUserId()) {
@@ -1373,19 +1529,20 @@ export class StoreService implements OnModuleInit {
     return this.peerMatches.filter((item) => item.journeyId === journey.id).map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })).filter((item) => item.experience);
   }
 
-  async confirmSituation(journeyId: string, input: { facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; risks?: unknown }) {
+  async confirmSituation(journeyId: string, input: { facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; risks?: unknown; domain?: unknown; subDomain?: unknown; eventType?: unknown; stage?: unknown; contextTags?: unknown; peopleContext?: unknown; decisionContext?: unknown; behaviorSignals?: unknown; recoverySignals?: unknown; intensity?: unknown; urgency?: unknown }) {
     const journey = this.requireJourney(journeyId);
     const item = this.situationSnapshots.find((snapshot) => snapshot.journeyId === journeyId);
     if (!item) throw new NotFoundException('情境快照不存在');
     const array = (value: unknown, fallback: string[]) => Array.isArray(value) ? value.map(String).map((part) => part.trim()).filter(Boolean).slice(0, 8) : fallback;
-    item.facts = array(input.facts, item.facts); item.feelings = array(input.feelings, item.feelings); item.needs = array(input.needs, item.needs); item.constraints = array(input.constraints, item.constraints); item.risks = array(input.risks, item.risks); item.confidence = 'user_confirmed'; item.updatedAt = now(); journey.updatedAt = now();
+    item.facts = array(input.facts, item.facts); item.feelings = array(input.feelings, item.feelings); item.needs = array(input.needs, item.needs); item.constraints = array(input.constraints, item.constraints); item.risks = array(input.risks, item.risks); item.domain = typeof input.domain === 'string' && input.domain.trim() ? input.domain.trim().slice(0, 40) : item.domain; item.subDomain = typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : item.subDomain; item.eventType = typeof input.eventType === 'string' ? input.eventType.trim().slice(0, 80) : item.eventType; item.stage = typeof input.stage === 'string' ? input.stage.trim().slice(0, 60) : item.stage; item.contextTags = Array.isArray(input.contextTags) ? input.contextTags.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 12) : item.contextTags; item.peopleContext = Array.isArray(input.peopleContext) ? input.peopleContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.peopleContext; item.decisionContext = Array.isArray(input.decisionContext) ? input.decisionContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.decisionContext; item.behaviorSignals = Array.isArray(input.behaviorSignals) ? input.behaviorSignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.behaviorSignals; item.recoverySignals = Array.isArray(input.recoverySignals) ? input.recoverySignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.recoverySignals; item.intensity = Number.isFinite(Number(input.intensity)) ? Math.max(0, Math.min(10, Number(input.intensity))) : item.intensity; item.urgency = Number.isFinite(Number(input.urgency)) ? Math.max(0, Math.min(10, Number(input.urgency))) : item.urgency; item.fingerprintJson = { domain: item.domain, subDomain: item.subDomain, eventType: item.eventType, stage: item.stage, contextTags: item.contextTags, peopleContext: item.peopleContext, decisionContext: item.decisionContext, behaviorSignals: item.behaviorSignals, recoverySignals: item.recoverySignals }; item.confidence = 'user_confirmed'; item.updatedAt = now(); journey.updatedAt = now();
     await this.persistAndFlush();
     return { item };
   }
 
-  async addJourneyUpdate(journeyId: string, input: { content?: unknown; kind?: unknown }) {
+  async addJourneyUpdate(journeyId: string, input: { content?: unknown; kind?: unknown; outcome?: Partial<JourneyOutcome> }) {
     const journey = this.requireJourney(journeyId);
-    const item: JourneyUpdateRecord = { id: id('journey_update'), journeyId, userId: journey.userId, kind: typeof input.kind === 'string' && input.kind.trim() ? input.kind.trim() : 'note', content: this.text(input.content, '进展记录', 1000), createdAt: now() };
+    const outcome = input.outcome ?? {};
+    const item: JourneyUpdateRecord = { id: id('journey_update'), journeyId, userId: journey.userId, kind: typeof input.kind === 'string' && input.kind.trim() ? input.kind.trim() : 'note', content: this.text(input.content, '进展记录', 1000), stage: typeof outcome.stage === 'string' ? outcome.stage : undefined, intensity: Number.isFinite(Number(outcome.intensity)) ? Math.max(0, Math.min(10, Number(outcome.intensity))) : undefined, lifeFunction: outcome.lifeFunction, actionResult: outcome.actionResult, decisionChange: outcome.decisionChange, contactState: outcome.contactState, sleepState: outcome.sleepState, socialState: outcome.socialState, selfReportedHelpfulness: Number.isFinite(Number(outcome.selfReportedHelpfulness)) ? Number(outcome.selfReportedHelpfulness) : undefined, eventDate: outcome.eventDate, createdAt: now() };
     this.journeyUpdates.unshift(item); journey.updatedAt = now(); await this.persistAndFlush(); return { item };
   }
 
@@ -1397,17 +1554,20 @@ export class StoreService implements OnModuleInit {
     return { job };
   }
 
-  async createActionCommitment(journeyId: string, input: { title?: unknown; description?: unknown; dueAt?: unknown; reminderAt?: unknown }) {
+  async createActionCommitment(journeyId: string, input: { title?: unknown; description?: unknown; dueAt?: unknown; reminderAt?: unknown; parentActionId?: string; adaptationReason?: ActionBarrier; attemptNumber?: number }) {
     const journey = this.requireJourney(journeyId);
     const createdAt = now();
     const dueAt = this.optionalDate(input.dueAt, '完成时间') ?? new Date(Date.now() + 24 * 3_600_000).toISOString();
-    const item: ActionCommitmentRecord = { id: id('action'), journeyId, userId: journey.userId, title: this.text(input.title, '行动标题', 120), description: typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined, status: 'active', dueAt, reminderAt: this.optionalDate(input.reminderAt, '提醒时间'), createdAt, updatedAt: createdAt };
+    if (input.parentActionId && !this.actionCommitments.some((action) => action.id === input.parentActionId && action.userId === journey.userId)) throw new NotFoundException('原行动不存在');
+    const item: ActionCommitmentRecord = { id: id('action'), journeyId, userId: journey.userId, title: this.text(input.title, '行动标题', 120), description: typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined, status: 'active', dueAt, reminderAt: this.optionalDate(input.reminderAt, '提醒时间'), parentActionId: input.parentActionId, adaptationReason: input.adaptationReason, attemptNumber: Math.max(1, Number(input.attemptNumber ?? (input.parentActionId ? 2 : 1))), createdAt, updatedAt: createdAt };
     const checkin: OutcomeCheckinRecord = { id: id('checkin'), journeyId, commitmentId: item.id, userId: journey.userId, status: 'pending', dueAt, createdAt };
     const followUp: FollowUpJob = { id: id('follow_up'), userId: journey.userId, journeyId, kind: 'action_checkin', dueAt, status: 'pending', payload: { actionId: item.id, title: item.title }, createdAt };
-    this.actionCommitments.unshift(item); this.outcomeCheckins.unshift(checkin); this.followUpJobs.unshift(followUp); this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'commitment_created', content: item.title, createdAt }); journey.stage = 'acting'; journey.updatedAt = createdAt; await this.persistAndFlush(); return { item, checkin, followUp };
+    this.actionCommitments.unshift(item); this.outcomeCheckins.unshift(checkin); this.followUpJobs.unshift(followUp); this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'commitment_created', content: item.title, payload: { parentActionId: item.parentActionId, adaptationReason: item.adaptationReason }, createdAt }); journey.stage = 'acting'; journey.updatedAt = createdAt; await this.persistAndFlush();
+    const queue = await scheduleFollowUp(followUp);
+    return { item, checkin, followUp, queue };
   }
 
-  async checkinAction(actionId: string, input: { status?: string; reflection?: unknown; result?: unknown; intensity?: number }) {
+  async checkinAction(actionId: string, input: { status?: string; reflection?: unknown; result?: unknown; intensity?: number; barrier?: ActionBarrier; outcome?: Partial<JourneyOutcome> }) {
     const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
     if (!action) throw new NotFoundException('行动不存在');
     const status = ['completed', 'skipped', 'missed'].includes(String(input.status)) ? String(input.status) : 'completed';
@@ -1417,11 +1577,29 @@ export class StoreService implements OnModuleInit {
     checkin.reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
     checkin.result = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
     checkin.intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
+    checkin.barrier = input.barrier;
     checkin.checkedAt = now();
     if (!this.outcomeCheckins.some((item) => item.id === checkin.id)) this.outcomeCheckins.unshift(checkin);
     const followUp = this.followUpJobs.find((item) => item.status === 'pending' && item.payload?.actionId === action.id);
     if (followUp) { followUp.status = 'completed'; followUp.completedAt = checkin.checkedAt; }
-    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: action.journeyId, userId: action.userId, kind: 'checkin', content: checkin.reflection || `行动${action.status === 'completed' ? '已完成' : '已更新'}`, createdAt: now() }); await this.persistAndFlush(); return { action, checkin, followUp: followUp ?? null };
+    const outcome = input.outcome ?? {};
+    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: action.journeyId, userId: action.userId, kind: 'checkin', content: checkin.reflection || `行动${action.status === 'completed' ? '已完成' : '已更新'}`, payload: { ...outcome, barrier: input.barrier }, stage: typeof outcome.stage === 'string' ? outcome.stage : undefined, intensity: Number.isFinite(Number(outcome.intensity)) ? Number(outcome.intensity) : checkin.intensity, lifeFunction: outcome.lifeFunction, actionResult: outcome.actionResult, decisionChange: outcome.decisionChange, contactState: outcome.contactState, sleepState: outcome.sleepState, socialState: outcome.socialState, selfReportedHelpfulness: Number.isFinite(Number(outcome.selfReportedHelpfulness)) ? Number(outcome.selfReportedHelpfulness) : undefined, eventDate: typeof outcome.eventDate === 'string' ? outcome.eventDate : undefined, createdAt: now() }); await this.persistAndFlush(); return { action, checkin, followUp: followUp ?? null, adaptive: status === 'missed' ? { required: true, nextRoute: `/pages/action/index?section=barrier&actionId=${action.id}` } : { required: false } };
+  }
+
+  async requestAdaptiveAction(actionId: string, barrier: ActionBarrier) {
+    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+    if (!action) throw new NotFoundException('行动不存在');
+    const labels: Record<ActionBarrier, string> = { forgot: '忘了', too_hard: '太难了', emotion_too_strong: '当时情绪太强', environment: '环境不允许', something_else: '临时发生了别的事', did_not_want_to: '其实我不想做', other: '其他' };
+    const job = this.queueAI({ taskType: 'adaptive_action', userId: action.userId, sourceId: action.id, content: JSON.stringify({ action: action.title, description: action.description, barrier: labels[barrier] }), mood: '焦虑', style: 'rational' });
+    await this.flush();
+    return { job, parentAction: action, barrier };
+  }
+
+  async createAdaptiveAction(actionId: string, input: { title?: unknown; description?: unknown; barrier?: ActionBarrier; dueAt?: unknown }) {
+    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+    if (!action) throw new NotFoundException('原行动不存在');
+    const barrier = input.barrier ?? 'other';
+    return await this.createActionCommitment(action.journeyId, { title: input.title, description: input.description, dueAt: input.dueAt, parentActionId: action.id, adaptationReason: barrier, attemptNumber: (action.attemptNumber ?? 1) + 1 });
   }
 
   async graduateJourney(journeyId: string) {
@@ -1430,42 +1608,246 @@ export class StoreService implements OnModuleInit {
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
     journey.status = 'completed'; journey.stage = 'graduated'; journey.completedAt = now(); journey.updatedAt = now();
     if (this.privacySettings[journey.userId]?.allowRecoveryData === true) this.recoverySnapshots.unshift({ id: id('recovery'), userId: journey.userId, journeyId, summary: `已完成 ${completed} 个小行动，留下了可回看的变化记录。`, signals: { completedActions: completed }, createdAt: now() });
-    await this.persistAndFlush(); return this.journeyDetail(journeyId);
+    await this.persistAndFlush();
+    return { ...this.journeyDetail(journeyId), graduation: this.graduationSummary(journeyId) };
   }
 
-  async createPeerExperience(journeyId: string | undefined, input: { title?: unknown; domain?: unknown; stage?: unknown; content?: unknown; tags?: unknown; consented?: unknown }) {
-    const userId = this.getDemoUserId();
+  graduationSummary(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    const completedActions = this.actionCommitments.filter((item) => item.journeyId === journeyId && item.status === 'completed').length;
+    const followUps = this.followUpJobs.filter((item) => item.journeyId === journeyId && ['delivered', 'completed'].includes(item.status)).length;
+    const latestIntensity = this.outcomeCheckins
+      .filter((item) => item.journeyId === journeyId && item.intensity !== undefined)
+      .sort((a, b) => Date.parse(b.checkedAt ?? b.createdAt) - Date.parse(a.checkedAt ?? a.createdAt))[0]?.intensity ?? journey.intensity;
+    return {
+      message: '这件事好像已经不再像以前那样困住你了。',
+      initialIntensity: journey.initialIntensity ?? journey.intensity,
+      latestIntensity,
+      completedActions,
+      followUps,
+      shareOptions: ['willing', 'later', 'no'] as const,
+    };
+  }
+
+  async saveGraduationConsent(journeyId: string, decision: 'willing' | 'later' | 'no') {
+    const journey = this.requireJourney(journeyId);
+    if (journey.status !== 'completed') throw new BadRequestException('请先完成这段旅程');
+    if (decision !== 'willing') return { decision, graduation: this.graduationSummary(journeyId), draft: null };
+    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    const existing = this.peerExperiences.find((item) => item.journeyId === journeyId && item.userId === journey.userId && item.status === 'pending_review');
+    if (existing) return { decision, graduation: this.graduationSummary(journeyId), draft: existing };
+    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journeyId);
+    const updates = this.journeyUpdates.filter((item) => item.journeyId === journeyId).slice(0, 6);
+    const actions = this.actionCommitments.filter((item) => item.journeyId === journeyId);
+    const completed = actions.filter((item) => item.status === 'completed').map((item) => item.title);
+    const content = [
+      snapshot?.facts?.length ? `当时发生了：${snapshot.facts.join('；')}` : '',
+      snapshot?.feelings?.length ? `那时的感受是：${snapshot.feelings.join('、')}` : '',
+      completed.length ? `我实际做过：${completed.join('、')}` : '',
+      updates.filter((item) => item.kind !== 'created').map((item) => item.content).join('；'),
+    ].filter(Boolean).join('\n').slice(0, 1600);
+    const draft: PeerExperienceRecord = {
+      id: id('experience'), userId: journey.userId, journeyId, title: journey.title, domain: journey.domain, subDomain: snapshot?.subDomain,
+      stage: 'graduated', content: content || '我完成了一段真实经历的整理，愿意把后来发生的变化留给同路的人。', tags: snapshot?.contextTags ?? [], fingerprintJson: snapshot?.fingerprintJson,
+      helpfulActions: completed, notHelpfulActions: [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now(),
+    };
+    this.peerExperiences.unshift(draft);
+    await this.persistAndFlush();
+    return { decision, graduation: this.graduationSummary(journeyId), draft };
+  }
+
+  async updatePeerExperience(experienceId: string, input: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }) {
+    const item = this.peerExperiences.find((experience) => experience.id === experienceId && experience.userId === this.getDemoUserId() && experience.status === 'pending_review');
+    if (!item) throw new NotFoundException('待确认的经历不存在');
+    if (typeof input.title === 'string' && input.title.trim()) item.title = input.title.trim().slice(0, 100);
+    if (typeof input.content === 'string' && input.content.trim()) item.content = input.content.trim().slice(0, 1600);
+    if (input.laterSummary) item.laterSummary = input.laterSummary;
+    if (Array.isArray(input.helpfulActions)) item.helpfulActions = input.helpfulActions.map(String).filter(Boolean).slice(0, 8);
+    if (Array.isArray(input.notHelpfulActions)) item.notHelpfulActions = input.notHelpfulActions.map(String).filter(Boolean).slice(0, 8);
+    if (typeof input.retrospective === 'string') item.retrospective = input.retrospective.trim().slice(0, 1000);
+    item.updatedAt = now();
+    await this.persistAndFlush();
+    return { item };
+  }
+
+  async createPeerExperience(journeyId: string | undefined, input: { title?: unknown; domain?: unknown; subDomain?: unknown; stage?: unknown; content?: unknown; tags?: unknown; consented?: unknown; laterSummary?: unknown; helpfulActions?: unknown; notHelpfulActions?: unknown; retrospective?: unknown }, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
     if (input.consented !== true) throw new BadRequestException('发布经历前必须明确同意匿名分享');
     const journey = journeyId ? this.requireJourney(journeyId, userId) : undefined;
-    const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title: this.text(input.title, '经历标题', 100), domain: this.text(input.domain, '经历领域', 40), stage: this.text(input.stage, '经历阶段', 40), content: this.text(input.content, '经历内容', 1600), tags: Array.isArray(input.tags) ? input.tags.map(String).map((tag) => tag.trim()).filter(Boolean).slice(0, 8) : [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
+    const sourceSnapshot = journey ? this.situationSnapshots.find((snapshot) => snapshot.journeyId === journey.id) : undefined;
+    const values = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8) : [];
+    const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title: this.text(input.title, '经历标题', 100), domain: this.text(input.domain ?? journey?.domain, '经历领域', 40), subDomain: typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : sourceSnapshot?.subDomain, stage: this.text(input.stage ?? journey?.stage, '经历阶段', 40), content: this.text(input.content, '经历内容', 1600), tags: values(input.tags).length ? values(input.tags) : sourceSnapshot?.contextTags ?? [], fingerprintJson: sourceSnapshot?.fingerprintJson, laterSummary: typeof input.laterSummary === 'object' && input.laterSummary ? input.laterSummary as Record<string, unknown> : undefined, helpfulActions: values(input.helpfulActions), notHelpfulActions: values(input.notHelpfulActions), retrospective: typeof input.retrospective === 'string' ? input.retrospective.trim().slice(0, 1000) : undefined, consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
     this.peerExperiences.unshift(item); await this.persistAndFlush(); return { item };
   }
 
-  peerNetwork(userId = this.getDemoUserId()) {
+  peerNetwork(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
     const published = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
-    const matches = this.peerMatches.filter((item) => item.userId === userId).map((match) => ({ ...match, experience: this.peerExperiences.find((item) => item.id === match.peerExperienceId) })).filter((item) => item.experience);
-    return { experiences: published.map(({ content: _content, ...item }) => item), matches };
+    const matches = this.peerMatches
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map((match) => ({ ...match, experience: this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId)) }))
+      .filter((item) => item.experience);
+    return { experiences: published.slice(0, 5).map((item) => this.peerExperienceSummary(item)), matches, limited: published.length > 5 };
   }
 
-  async suggestPeerMatches(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
+  private peerExperienceSummary(experience?: PeerExperienceRecord) {
+    if (!experience) return undefined;
+    const timelineCount = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).length : 0;
+    const checkinCount = experience.journeyId ? this.outcomeCheckins.filter((item) => item.journeyId === experience.journeyId).length : 0;
+    const reputation = this.peerReputations.find((item) => item.userId === experience.userId);
+    const laterRecordCount = [experience.laterSummary, experience.retrospective, ...(experience.helpfulActions ?? [])].filter(Boolean).length + timelineCount + checkinCount;
+    return {
+      id: experience.id,
+      title: experience.title,
+      domain: experience.domain,
+      subDomain: experience.subDomain,
+      stage: experience.stage,
+      tags: experience.tags,
+      createdAt: experience.createdAt,
+      graduated: experience.stage === 'graduated',
+      laterRecordCount,
+      helpfulCount: reputation?.helpfulCount ?? 0,
+      reportCount: reputation?.reportCount ?? experience.reportCount,
+    };
+  }
+
+  async suggestPeerMatches(journeyId: string, requestedUserId?: string) {
+    const journey = this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
     const existing = new Set(this.peerMatches.filter((item) => item.userId === journey.userId).map((item) => item.peerExperienceId));
     const candidates = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== journey.userId && !existing.has(item.id));
+    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journey.id);
+    const currentTags = new Set(snapshot?.contextTags ?? []);
+    const stageRank: Record<string, number> = { clarifying: 0, planning: 1, acting: 2, recovering: 3, graduated: 4 };
+    const currentStage = stageRank[journey.stage] ?? 0;
     const created = candidates.map((experience) => {
-      const domainScore = experience.domain === journey.domain ? 0.7 : 0.25;
-      const match: PeerMatchRecord = { id: id('peer_match'), userId: journey.userId, journeyId, peerExperienceId: experience.id, score: domainScore, reasons: experience.domain === journey.domain ? ['经历领域相近'] : ['可以提供不同视角'], status: 'suggested', createdAt: now(), updatedAt: now() };
+      const peerSnapshot = experience.fingerprintJson ?? {};
+      const peerTags = new Set(experience.tags);
+      const sharedTags = [...currentTags].filter((tag) => peerTags.has(tag));
+      const domain = experience.domain === journey.domain ? 1 : 0;
+      const subDomain = snapshot?.subDomain && experience.subDomain && snapshot.subDomain === experience.subDomain ? 1 : 0;
+      const fingerprintSimilarity = Math.min(1, sharedTags.length / Math.max(1, Math.max(currentTags.size, peerTags.size)));
+      const peerStage = stageRank[experience.stage] ?? stageRank[String(peerSnapshot.stage)] ?? 0;
+      const recoveryLead = Math.max(0, peerStage - currentStage);
+      const stageSimilarity = peerStage >= currentStage ? Math.min(1, 0.6 + recoveryLead * 0.2) : 0.35;
+      const peerOwner = this.peerReputations.find((item) => item.userId === experience.userId);
+      const trustScore = peerOwner ? Math.min(1, peerOwner.helpfulCount / Math.max(1, peerOwner.helpfulCount + peerOwner.reportCount)) : 0.5;
+      const safety = experience.reportCount === 0 ? 1 : 0.2;
+      const preference = 0.5;
+      const scoreBreakdown = { domain: domain * 0.25, fingerprintSimilarity: (subDomain * 0.5 + fingerprintSimilarity * 0.5) * 0.25, stage: stageSimilarity * 0.15, recoveryLead: Math.min(1, recoveryLead / 3) * 0.15, trust: trustScore * 0.1, safety: safety * 0.05, preference: preference * 0.05 };
+      const score = Object.values(scoreBreakdown).reduce((sum, value) => sum + value, 0);
+      const reasons = [domain ? `你们都经历过${journey.domain}里的相似事情` : '这段经历能提供不同领域的现实视角', subDomain ? `情境也接近：${experience.subDomain}` : sharedTags.length ? `你们都提到：${sharedTags.slice(0, 2).join('、')}` : '阶段信息可以帮助你换个角度看现在', recoveryLead > 0 ? `TA比你早走过约${recoveryLead}个阶段` : 'TA留下了真实的后来记录'];
+      const explanation = `${reasons.join('；')}。`;
+      const match: PeerMatchRecord = { id: id('peer_match'), userId: journey.userId, journeyId, peerExperienceId: experience.id, score, reasons, stageDistance: Math.abs(peerStage - currentStage), recoveryLead, trustScore, fingerprintSimilarity, scoreBreakdown, explanation, status: 'suggested', createdAt: now(), updatedAt: now() };
       this.peerMatches.unshift(match); return match;
     });
     await this.persistAndFlush(); return { items: created.map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })) };
   }
 
-  async updatePeerMatch(matchId: string, status: 'requested' | 'connected' | 'declined' | 'blocked') {
-    const item = this.peerMatches.find((match) => match.id === matchId && match.userId === this.getDemoUserId());
+  async updatePeerMatch(matchId: string, status: 'requested' | 'connected' | 'declined' | 'blocked', requestedUserId?: string) {
+    const currentUserId = this.resolveRuntimeUserId(requestedUserId);
+    const item = this.peerMatches.find((match) => match.id === matchId);
     if (!item) throw new NotFoundException('同路匹配不存在');
-    item.status = status; item.updatedAt = now(); await this.persistAndFlush(); return { item };
+    const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
+    const isRequester = item.userId === currentUserId;
+    const isExperienceOwner = experience?.userId === currentUserId;
+    if (status === 'requested' && (!isRequester || item.status !== 'suggested')) {
+      throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
+    }
+    if ((status === 'connected' || status === 'declined') && (!isExperienceOwner || item.status !== 'requested')) {
+      throw new BadRequestException('只有经历发布者可以处理待确认的同路请求');
+    }
+    if (status === 'blocked' && !isRequester && !isExperienceOwner) {
+      throw new BadRequestException('你无权处理这条同路匹配');
+    }
+    item.status = status; item.updatedAt = now();
+    if (status === 'requested' && experience && experience.userId !== item.userId) {
+      this.notifications.unshift({ id: `notification_peer_${item.id}`, userId: experience.userId, type: 'PEER_REQUEST', title: '有人想和你聊聊这段经历', body: '对方看见了你留下的后来记录，你可以选择接受、拒绝，或暂时不想。', targetRoute: `/pages/peer/request?id=${item.id}`, status: 'unread', createdAt: now() });
+    }
+    if (status === 'connected') {
+      const receiverUserId = experience?.userId ?? item.userId;
+      const existingConversation = this.peerConversations.find((conversation) => conversation.matchId === item.id);
+      if (!existingConversation) {
+        this.peerConversations.unshift({ id: id('peer_conversation'), matchId: item.id, starterUserId: item.userId, receiverUserId, status: 'active', expiresAt: new Date(Date.now() + 72 * 3_600_000).toISOString(), createdAt: now() });
+        this.notifications.unshift({ id: `notification_peer_connected_${item.id}`, userId: item.userId, type: 'PEER_ACCEPTED', title: '同路会话已经接通', body: '你们有 72 小时的匿名对话时间，先从“我当时也有过类似感觉”开始就好。', targetRoute: `/pages/peer/conversation?matchId=${item.id}`, status: 'unread', createdAt: now() });
+      }
+    }
+    await this.persistAndFlush(); return { item, conversation: this.peerConversations.find((conversation) => conversation.matchId === item.id) ?? null };
+  }
+
+  peerRequestList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return this.peerMatches.filter((match) => match.status === 'requested' && this.peerExperiences.find((experience) => experience.id === match.peerExperienceId)?.userId === userId).map((match) => ({ ...match, experience: this.peerExperiences.find((experience) => experience.id === match.peerExperienceId) }));
+  }
+
+  peerExperienceDetail(experienceId: string) {
+    const experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published');
+    if (!experience) throw new NotFoundException('这段同路经历不存在');
+    const journey = experience.journeyId ? this.lifeJourneys.find((item) => item.id === experience.journeyId) : undefined;
+    const timeline = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).map((item) => ({ id: item.id, content: item.content, kind: item.kind, stage: item.stage, intensity: item.intensity, actionResult: item.actionResult, eventDate: item.eventDate, createdAt: item.createdAt })) : [];
+    const actions = experience.journeyId ? this.actionCommitments.filter((item) => item.journeyId === experience.journeyId).map((item) => ({ id: item.id, title: item.title, status: item.status, createdAt: item.createdAt })) : [];
+    const checkins = experience.journeyId ? this.outcomeCheckins.filter((item) => item.journeyId === experience.journeyId).map((item) => ({ status: item.status, result: item.result, barrier: item.barrier, intensity: item.intensity, checkedAt: item.checkedAt })) : [];
+    return { experience: this.peerExperienceSummary(experience), journey: journey ? { stage: journey.stage, completedAt: journey.completedAt, createdAt: journey.createdAt } : null, timeline, actions, checkins, later: experience.laterSummary ?? { available: false, message: 'TA目前还没有留下这一阶段的后续记录。' }, helpfulActions: experience.helpfulActions ?? [], notHelpfulActions: experience.notHelpfulActions ?? [], retrospective: experience.retrospective ?? null };
+  }
+
+  conversationList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return this.peerConversations.filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId)).map((conversation) => ({ ...conversation, messages: this.peerMessages.filter((message) => message.conversationId === conversation.id) }));
+  }
+
+  async sendPeerMessage(matchId: string, content: unknown, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
+    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) throw new BadRequestException('这段 72 小时会话已经结束');
+    const item: PeerMessageRecord = { id: id('peer_message'), conversationId: conversation.id, senderUserId: userId, content: this.text(content, '消息内容', 1000), authorType: 'HUMAN', createdAt: now() };
+    this.peerMessages.unshift(item); await this.persistAndFlush(); return { item };
+  }
+
+  async requestPeerResponseAssist(matchId: string, content: unknown, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
+    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    const source = this.text(content, '待整理的回复', 1000);
+    const job = this.queueAI({ taskType: 'peer_response_assist', userId, sourceId: conversation.id, content: source, style: 'warm', mood: '委屈' });
+    await this.flush();
+    return { job, notice: 'AI 只会整理表达，最终消息仍需你确认后发送。' };
+  }
+
+  async closePeerConversation(matchId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
+    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    conversation.status = 'closed'; conversation.closedAt = now(); await this.persistAndFlush(); return { item: conversation };
+  }
+
+  notificationList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return this.notifications.filter((item) => item.userId === userId).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }
+
+  async readNotification(notificationId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const item = this.notifications.find((notification) => notification.id === notificationId && notification.userId === userId);
+    if (!item) throw new NotFoundException('提醒不存在');
+    item.status = 'read'; item.readAt = now(); await this.persistAndFlush(); return { item };
+  }
+
+  async saveRecoveryCheckin(journeyId: string | undefined, signals: Record<string, unknown>, summary?: unknown) {
+    const userId = this.getDemoUserId();
+    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
+    const journey = journeyId ? this.requireJourney(journeyId, userId) : undefined;
+    const allowed = new Set(['yes', 'partial', 'no']);
+    const normalized = Object.fromEntries(Object.entries(signals).map(([key, value]) => [key, allowed.has(String(value)) ? String(value) : 'partial']));
+    const item: RecoverySnapshot = { id: id('recovery'), userId, journeyId: journey?.id, summary: typeof summary === 'string' && summary.trim() ? summary.trim().slice(0, 500) : '今天记录了一次生活恢复情况。', signals: normalized, createdAt: now() };
+    this.recoverySnapshots.unshift(item);
+    if (journey) journey.updatedAt = now();
+    await this.persistAndFlush();
+    return { item };
   }
 
   async createDecision(input: { journeyId?: string; question?: unknown; options?: unknown; criteria?: unknown }) {
@@ -1486,12 +1868,20 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
+  decisionList() {
+    const userId = this.getDemoUserId();
+    return this.decisionRecords.filter((item) => item.userId === userId).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }
+
   async createCooldown(input: { decisionId?: string; title?: unknown; reason?: unknown; hours?: number }) {
     const userId = this.getDemoUserId();
     if (input.decisionId && !this.decisionRecords.some((item) => item.id === input.decisionId && item.userId === userId)) throw new NotFoundException('决策记录不存在');
     const hours = Math.max(1, Math.min(168, Number(input.hours ?? 24)));
     const item: CooldownItem = { id: id('cooldown'), userId, decisionId: input.decisionId, title: this.text(input.title, '冷静事项', 120), reason: typeof input.reason === 'string' ? input.reason.trim().slice(0, 400) : undefined, releaseAt: new Date(Date.now() + hours * 3_600_000).toISOString(), status: 'active', createdAt: now() };
-    this.cooldownItems.unshift(item); await this.persistAndFlush(); return { item };
+    const followUp: FollowUpJob = { id: id('follow_up'), userId, kind: 'DECISION_COOLDOWN', dueAt: item.releaseAt, status: 'pending', payload: { cooldownId: item.id }, createdAt: now() };
+    this.cooldownItems.unshift(item); this.followUpJobs.unshift(followUp); await this.persistAndFlush();
+    const queue = await scheduleFollowUp(followUp);
+    return { item, followUp, queue };
   }
 
   cooldownList() {
@@ -1522,13 +1912,26 @@ export class StoreService implements OnModuleInit {
     this.trustedContacts.unshift(item); await this.persistAndFlush(); return { item };
   }
 
+  trustedContactList() {
+    return this.trustedContacts.filter((item) => item.userId === this.getDemoUserId() && item.enabled);
+  }
+
   async saveFutureMessage(input: { journeyId?: string; content?: unknown; deliverAt?: unknown }) {
     const userId = this.getDemoUserId();
     const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
     const deliverAt = this.optionalDate(input.deliverAt, '送达时间');
     if (!deliverAt || Date.parse(deliverAt) <= Date.now()) throw new BadRequestException('送达时间必须晚于现在');
     const item: MessageToFutureSelf = { id: id('future_message'), userId, journeyId: journey?.id, content: this.text(input.content, '写给未来自己的话', 1200), deliverAt, createdAt: now() };
-    this.messagesToFutureSelf.unshift(item); await this.persistAndFlush(); return { item };
+    const followUp: FollowUpJob = { id: id('follow_up'), userId, journeyId: journey?.id, kind: 'FUTURE_SELF', dueAt: deliverAt, status: 'pending', payload: { messageId: item.id }, createdAt: now() };
+    this.messagesToFutureSelf.unshift(item); this.followUpJobs.unshift(followUp); await this.persistAndFlush();
+    const queue = await scheduleFollowUp(followUp);
+    return { item, followUp, queue };
+  }
+
+  futureMessageList() {
+    return this.messagesToFutureSelf
+      .filter((item) => item.userId === this.getDemoUserId())
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   }
 
   async saveSupportPlan(input: { journeyId?: string; title?: unknown; plan?: Record<string, unknown> }) {
@@ -1888,7 +2291,7 @@ export class StoreService implements OnModuleInit {
     }
 
     const prompt = this.buildAiPrompt({ taskType, style: input.style, route, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary) });
-    const needsStructuredResult = ['breakdown', 'situation_analysis', 'action_plan', 'support_plan', 'decision_clarify'].includes(taskType);
+    const needsStructuredResult = ['breakdown', 'situation_analysis', 'action_plan', 'support_plan', 'decision_clarify', 'need_analysis', 'risk_analysis', 'barrier_analysis', 'adaptive_action', 'peer_match_explain', 'loop_detection', 'recovery_summary', 'peer_response_assist'].includes(taskType);
     const candidates = [
       { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
       { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
@@ -1995,11 +2398,19 @@ export class StoreService implements OnModuleInit {
       work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。',
       future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。',
       month_report: '根据提供的真实统计写一段月度观察，不改写或虚构其中的数字。',
-      situation_analysis: '只输出严格 JSON：{"facts":[],"feelings":[],"needs":[],"constraints":[],"risks":[],"summary":"","nextStep":""}。只整理用户明确表达的内容，不补造事实。',
+      situation_analysis: '只输出严格 JSON：{"title":"","domain":"","subDomain":"","eventType":"","stage":"","contextTags":[],"peopleContext":[],"decisionContext":[],"behaviorSignals":[],"recoverySignals":[],"intensity":0,"urgency":0,"facts":[],"feelings":[],"needs":[],"constraints":[],"risks":[],"summary":"","nextStep":""}。只整理用户明确表达的内容，不补造事实。',
       action_plan: '只输出严格 JSON：{"title":"","description":"","dueInDays":1,"why":""}。给一个最小、可执行、用户可以自行确认的行动。',
       journey_summary: '根据旅程时间线写一段事实与变化摘要，不做诊断，不虚构数据。',
       support_plan: '只输出严格 JSON：{"signals":[],"smallSteps":[],"people":[],"whenToReview":""}。给出可执行的现实支持计划。',
       decision_clarify: '只输出严格 JSON：{"question":"","options":[],"criteria":[],"uncertainties":[],"nextStep":""}。帮助澄清选择，不替用户做决定。',
+      need_analysis: '只输出严格 JSON：{"intent":"JUST_LISTEN|FIND_PEOPLE|SEE_OUTCOMES|NEXT_STEP|STOP_IMPULSE|PREPARE_CONVERSATION|NOTHING_NOW|HIGH_DISTRESS","reason":""}。只根据用户明确表达判断，不做诊断。',
+      risk_analysis: '只输出严格 JSON：{"riskLevel":"low|medium|high","signals":[],"nextStep":""}。高风险时只提示现实支持，不生成热线号码。',
+      barrier_analysis: '只输出严格 JSON：{"barrier":"forgot|too_hard|emotion_too_strong|environment|something_else|did_not_want_to|other","summary":"","nextStep":""}。',
+      adaptive_action: '只输出严格 JSON：{"title":"","why":"","difficulty":"tiny|easy|moderate","expectedDuration":"","completionDefinition":"","adaptationReason":"forgot|too_hard|emotion_too_strong|environment|something_else|did_not_want_to|other","summary":""}。把行动缩小，不要一次给多个方案。',
+      peer_match_explain: '只输出严格 JSON：{"explanation":"","sharedContext":[],"recoveryLead":""}。只能引用输入里的真实字段，不得编造经历。',
+      loop_detection: '只输出严格 JSON：{"detected":false,"pattern":"","count":0,"windowDays":7,"options":[]}。只根据输入记录判断。',
+      recovery_summary: '只输出严格 JSON：{"summary":"","trend":"up|steady|down|unknown","observations":[]}。只做生活观察，不做医疗诊断。',
+      peer_response_assist: '只输出严格 JSON：{"draft":"","reminders":[]}。这是给真人编辑的草稿，不能自动发送。',
     };
     return `${safety}\n任务：${taskInstructions[input.taskType]}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
   }
@@ -2075,12 +2486,21 @@ export class StoreService implements OnModuleInit {
       '支持计划': 'support_plan',
       decision_clarify: 'decision_clarify',
       '决策澄清': 'decision_clarify',
+      need_analysis: 'need_analysis',
+      '需要分析': 'need_analysis',
+      risk_analysis: 'risk_analysis',
+      barrier_analysis: 'barrier_analysis',
+      adaptive_action: 'adaptive_action',
+      peer_match_explain: 'peer_match_explain',
+      loop_detection: 'loop_detection',
+      recovery_summary: 'recovery_summary',
+      peer_response_assist: 'peer_response_assist',
     };
     return map[key] ?? 'post_reply';
   }
 
   private defaultStyleForTask(taskType: AITaskType): AIStyle {
-    if (taskType === 'breakdown' || taskType === 'work' || taskType === 'situation_analysis' || taskType === 'action_plan' || taskType === 'support_plan' || taskType === 'decision_clarify') return 'rational';
+    if (taskType === 'breakdown' || taskType === 'work' || taskType === 'situation_analysis' || taskType === 'action_plan' || taskType === 'support_plan' || taskType === 'decision_clarify' || taskType === 'need_analysis' || taskType === 'risk_analysis' || taskType === 'barrier_analysis' || taskType === 'adaptive_action' || taskType === 'loop_detection' || taskType === 'recovery_summary') return 'rational';
     if (taskType === 'future') return 'poetic';
     if (taskType === 'rewrite') return 'clear';
     return 'warm';
@@ -2090,7 +2510,7 @@ export class StoreService implements OnModuleInit {
     if (taskType === 'today_letter') return 'Letter';
     if (taskType === 'post_reply') return 'Post';
     if (taskType === 'month_report') return 'Report';
-    if (['situation_analysis', 'action_plan', 'journey_summary', 'support_plan', 'decision_clarify'].includes(taskType)) return 'LifeJourney';
+    if (['situation_analysis', 'action_plan', 'journey_summary', 'support_plan', 'decision_clarify', 'need_analysis', 'risk_analysis', 'barrier_analysis', 'adaptive_action', 'peer_match_explain', 'loop_detection', 'recovery_summary'].includes(taskType)) return 'LifeJourney';
     return 'ToolTask';
   }
 
@@ -2111,6 +2531,14 @@ export class StoreService implements OnModuleInit {
       journey_summary: '旅程总结',
       support_plan: '支持计划',
       decision_clarify: '决策澄清',
+      need_analysis: '支持需要分析',
+      risk_analysis: '风险分析',
+      barrier_analysis: '行动障碍分析',
+      adaptive_action: '自适应行动',
+      peer_match_explain: '同路匹配解释',
+      loop_detection: '反刍熔断观察',
+      recovery_summary: '生活恢复观察',
+      peer_response_assist: '真人回复整理',
     };
     void map;
     return ({
@@ -2129,6 +2557,14 @@ export class StoreService implements OnModuleInit {
       journey_summary: 'journey_summary',
       support_plan: 'support_plan',
       decision_clarify: 'decision_clarify',
+      need_analysis: 'need_analysis',
+      risk_analysis: 'risk_analysis',
+      barrier_analysis: 'barrier_analysis',
+      adaptive_action: 'adaptive_action',
+      peer_match_explain: 'peer_match_explain',
+      loop_detection: 'loop_detection',
+      recovery_summary: 'recovery_summary',
+      peer_response_assist: 'peer_response_assist',
     } as Record<AITaskType, string>)[taskType];
   }
 
@@ -2229,6 +2665,49 @@ export class StoreService implements OnModuleInit {
     return ['喝几口温水', '把肩膀放松下来', '先照顾此刻的身体'];
   }
 
+  private fallbackStructuredTask(input: { taskType: AITaskType; content: string; mood: string; style: AIStyle }, base: Record<string, unknown>) {
+    const topic = this.extractTopic(input.content);
+    const domain = /工作|同事|领导|汇报|会议|项目|加班|职场/.test(input.content) ? '工作'
+      : /伴侣|恋爱|分手|暧昧|喜欢|关系/.test(input.content) ? '关系'
+        : /家人|父母|孩子|家庭/.test(input.content) ? '家庭'
+          : /睡不着|失眠|夜里|凌晨/.test(input.content) ? '睡眠' : '其他';
+    const summary = String(base.summary ?? `先把“${topic}”放在这里，再决定要不要走下一步。`);
+    if (input.taskType === 'situation_analysis') {
+      return {
+        ...base,
+        title: `${domain}里正在整理的一件事`,
+        domain,
+        subDomain: domain === '工作' ? '沟通与期待' : undefined,
+        eventType: '正在经历的现实困境',
+        stage: 'clarifying',
+        contextTags: [domain, input.mood].filter(Boolean),
+        peopleContext: /同事|领导/.test(input.content) ? ['同事或工作关系'] : [],
+        decisionContext: [],
+        behaviorSignals: [],
+        recoverySignals: [],
+        intensity: 5,
+        urgency: 4,
+        facts: [input.content],
+        feelings: [String(base.coreEmotion ?? input.mood)],
+        needs: [String(base.realNeed ?? '被理解，并找回一点可控感')],
+        constraints: [],
+        risks: [],
+        summary,
+        nextStep: String(base.nextStep ?? ''),
+      };
+    }
+    if (input.taskType === 'action_plan') return { ...base, title: '先完成一个五分钟的小动作', description: String(base.nextStep ?? ''), dueInDays: 1, why: String(base.realNeed ?? ''), summary };
+    if (input.taskType === 'adaptive_action') return { ...base, title: `把“${topic}”缩小一点`, why: '先降低开始门槛，再根据真实结果调整。', difficulty: 'tiny', expectedDuration: '5 分钟', completionDefinition: String(base.nextStep ?? '写下一句最容易开始的话'), adaptationReason: 'other', summary };
+    if (input.taskType === 'need_analysis') return { ...base, intent: 'JUST_LISTEN', reason: '先由用户选择自己更需要的支持方向。', summary };
+    if (input.taskType === 'risk_analysis') return { ...base, riskLevel: 'low', signals: [], nextStep: String(base.nextStep ?? ''), summary };
+    if (input.taskType === 'barrier_analysis') return { ...base, barrier: 'other', nextStep: String(base.nextStep ?? ''), summary };
+    if (input.taskType === 'peer_match_explain') return { ...base, explanation: '匹配依据只会引用你已确认且允许参与匹配的经历线索。', sharedContext: [], recoveryLead: '', summary };
+    if (input.taskType === 'loop_detection') return { ...base, detected: false, pattern: '', count: 0, windowDays: 7, options: [], summary };
+    if (input.taskType === 'recovery_summary') return { ...base, trend: 'unknown', observations: [], summary };
+    if (input.taskType === 'peer_response_assist') return { ...base, draft: '', reminders: ['这只是草稿，发送前请由真人确认。'], summary };
+    return base;
+  }
+
   private composeDynamicText(input: { taskType: AITaskType; content: string; mood: string; style: AIStyle; routeLabel: string }) {
     const topic = this.extractTopic(input.content);
     const structured = this.buildStructured(input);
@@ -2259,7 +2738,7 @@ export class StoreService implements OnModuleInit {
     };
     return {
       result: taskText[input.taskType] ?? `${input.routeLabel}：${styleText[input.style]}`,
-      structured,
+      structured: this.fallbackStructuredTask(input, structured),
     };
   }
 

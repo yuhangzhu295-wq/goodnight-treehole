@@ -66,6 +66,9 @@ export const menuGroups: AdminMenuGroup[] = [
       { path: '/experience/checkins', label: '结果回访', resource: 'checkins', group: '体验网络' },
       { path: '/experience/peers', label: '同路经历', resource: 'peer-experiences', group: '体验网络' },
       { path: '/experience/matches', label: '匹配记录', resource: 'peer-matches', group: '体验网络' },
+      { path: '/experience/follow-ups', label: '随访队列', resource: 'follow-ups', group: '体验网络' },
+      { path: '/experience/peer-conversations', label: '匿名会话', resource: 'peer-conversations', group: '体验网络' },
+      { path: '/experience/notifications', label: '用户提醒', resource: 'notifications', group: '体验网络' },
     ],
   },
   {

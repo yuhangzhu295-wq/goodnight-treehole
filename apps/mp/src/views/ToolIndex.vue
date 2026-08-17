@@ -2,8 +2,10 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
+const { timeLabel } = useDeviceClock();
 const toolsLoaded = ref(false);
 
 const toolCards = [
@@ -50,8 +52,8 @@ onMounted(loadTools);
   <section class="page goodnight-page rest-page tool-page">
     <header class="rest-hero tool-hero">
       <div class="status-row">
-        <span>23:17</span>
-        <span>92</span>
+        <span>{{ timeLabel }}</span>
+        <span aria-hidden="true"></span>
       </div>
       <div class="hero-copy">
         <h1>情绪工具</h1>

@@ -221,3 +221,4 @@ export interface AIStyleRoute {
 }
 
 export * from './fingerprint.js';
+export * from './goodnight-2.js';

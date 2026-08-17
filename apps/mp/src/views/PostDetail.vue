@@ -3,9 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { copyText } from '../clipboard';
+import { useDeviceClock } from '../composables/useDeviceClock';
 
 const route = useRoute();
 const router = useRouter();
+const { timeLabel } = useDeviceClock();
 
 const post = ref<any>();
 const replies = ref<any[]>([]);
@@ -175,8 +177,8 @@ onMounted(async () => {
   <section class="page goodnight-page detail-page" v-if="post">
     <header class="detail-top">
       <div class="status-row">
-        <span>23:17</span>
-        <span>92</span>
+        <span>{{ timeLabel }}</span>
+        <span aria-hidden="true"></span>
       </div>
       <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>树洞详情</h1>

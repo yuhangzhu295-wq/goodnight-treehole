@@ -1,0 +1,212 @@
+{
+  "generatedAt": "2026-08-17T09:39:42.461Z",
+  "captures": [
+    {
+      "name": "01-tonight.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/01-tonight.png",
+      "url": "http://127.0.0.1:5173/pages/tonight/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "3aadd60bb160bec9ca8d9161399bebab0f5fe85c8c65fe89092022362c78432f",
+      "sample": "17:39\n今晚\n\n晚安树洞\n\n今晚怎么了？\n\n不用整理好再说。\n\n昨天那件事，后来怎么样了？\n不用写得完整，告诉我现在发生了什么就好。\n›\n正在陪跑\n准备一次重要沟通\nacting\n\n用户计划与家人讨论重要事项，但担心自己会在现场因紧张而退缩。\n\n3 个进行中的行动\n1 个待回"
+    },
+    {
+      "name": "02-journey.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/02-journey.png",
+      "url": "http://127.0.0.1:5173/pages/journey/detail?id=journey_4435b7ad65",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d2d05c345fb1dbe1670310e74869a311a7c75ade338a162e395eb26b355c2d15",
+      "sample": "‹\n正在整理\n准备一次重要沟通\n\n关系 · acting\n\n经历指纹\n我理解的是这些，对吗？\n已确认\n\n这些内容来自你的原话和真实记录。确认前，它们只是一份整理草稿；确认后，才会用于下一步建议和同路匹配。\n\n事情\n用户想和家人谈一件重要的事\n用户担心现场会退缩\n感受\n担心\n在意的"
+    },
+    {
+      "name": "03-need-routing.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/03-need-routing.png",
+      "url": "http://127.0.0.1:5173/pages/journey/detail?id=journey_4435b7ad65",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d2d05c345fb1dbe1670310e74869a311a7c75ade338a162e395eb26b355c2d15",
+      "sample": "‹\n正在整理\n准备一次重要沟通\n\n关系 · acting\n\n经历指纹\n我理解的是这些，对吗？\n已确认\n\n这些内容来自你的原话和真实记录。确认前，它们只是一份整理草稿；确认后，才会用于下一步建议和同路匹配。\n\n事情\n用户想和家人谈一件重要的事\n用户担心现场会退缩\n感受\n担心\n在意的"
+    },
+    {
+      "name": "04-fingerprint.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/04-fingerprint.png",
+      "url": "http://127.0.0.1:5173/pages/journey/detail?id=journey_4435b7ad65",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d2d05c345fb1dbe1670310e74869a311a7c75ade338a162e395eb26b355c2d15",
+      "sample": "‹\n正在整理\n准备一次重要沟通\n\n关系 · acting\n\n经历指纹\n我理解的是这些，对吗？\n已确认\n\n这些内容来自你的原话和真实记录。确认前，它们只是一份整理草稿；确认后，才会用于下一步建议和同路匹配。\n\n事情\n用户想和家人谈一件重要的事\n用户担心现场会退缩\n感受\n担心\n在意的"
+    },
+    {
+      "name": "05-action.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/05-action.png",
+      "url": "http://127.0.0.1:5173/pages/action/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d9ef1daa3d2181479898a32a77b6776753d337ea12ed0daf411e72e9f58269d0",
+      "sample": "17:39\n\n行动\n\n把想法变成一小步\n\n行动不是证明自己，是给现实一个可以观察的回应。\n\n当前旅程\n准备一次重要沟通\n查看时间线\n\n用户计划与家人讨论重要事项，但担心自己会在现场因紧张而退缩。\n\n待完成的行动\n3\n这一步后来怎么样？\n浏览器回归行动 1786954398110\n"
+    },
+    {
+      "name": "06-action-missed-state.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/06-action-missed-state.png",
+      "url": "http://127.0.0.1:5173/pages/action/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d9ef1daa3d2181479898a32a77b6776753d337ea12ed0daf411e72e9f58269d0",
+      "sample": "17:39\n\n行动\n\n把想法变成一小步\n\n行动不是证明自己，是给现实一个可以观察的回应。\n\n当前旅程\n准备一次重要沟通\n查看时间线\n\n用户计划与家人讨论重要事项，但担心自己会在现场因紧张而退缩。\n\n待完成的行动\n3\n这一步后来怎么样？\n浏览器回归行动 1786954398110\n"
+    },
+    {
+      "name": "07-peer-match.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/07-peer-match.png",
+      "url": "http://127.0.0.1:5173/pages/peers/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "5651a76c584d96d6a631a4ee4f53afec779c171953a03a5fbbdcccb360e6bd80",
+      "sample": "同路经历\n匿名\n有人也走过相似的路\n\n只分享已经同意公开的经历，不交换真实身份。\n\n我的匹配\n0 条同路建议\n同路请求\n回到今晚\n\n还没有匹配。建立一段旅程并打开匹配后，这里会按领域、情境和阶段寻找同路经历。\n\n可公开的经历\n0\n\n目前没有可公开的同路经历。你可以在旅程完成后，选"
+    },
+    {
+      "name": "08-peer-requests.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/08-peer-requests.png",
+      "url": "http://127.0.0.1:5173/pages/peer/requests",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "a99a959d22f5f52efeb7b457743cdb32d3ef5b0c27bb8c6a3b20d97d9fab121d",
+      "sample": "‹\n同路请求\n\n只有你明确接受后，匿名 72 小时会话才会开始。你可以拒绝或暂时不想。\n\n暂时没有新的同路请求。"
+    },
+    {
+      "name": "09-peer-detail.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/09-peer-detail.png",
+      "url": "http://127.0.0.1:5173/pages/peer/detail",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "552c14c4d9e64e6634a084beeb4266c9efba94bc73819b2b442696f2ac20b62e",
+      "sample": "‹\n匿名经历详情\n\n没有找到要查看的经历"
+    },
+    {
+      "name": "10-peer-conversation.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/10-peer-conversation.png",
+      "url": "http://127.0.0.1:5173/pages/peer/conversation?matchId=unavailable",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "7a755b9b8fa3c0616d5f7d1c2f103fe9f82ec518c090646d9726816f285125e0",
+      "sample": "‹\n匿名同路会话\n不展示真实身份 · 最多 72 小时\n结束\n还没有可用会话\n\n只有经历发布者在自己的认证会话中明确接受请求后，系统才会创建这段限时匿名对话。"
+    },
+    {
+      "name": "11-journey-timeline.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/11-journey-timeline.png",
+      "url": "http://127.0.0.1:5173/pages/journey/detail?id=journey_4435b7ad65",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d2d05c345fb1dbe1670310e74869a311a7c75ade338a162e395eb26b355c2d15",
+      "sample": "‹\n正在整理\n准备一次重要沟通\n\n关系 · acting\n\n经历指纹\n我理解的是这些，对吗？\n已确认\n\n这些内容来自你的原话和真实记录。确认前，它们只是一份整理草稿；确认后，才会用于下一步建议和同路匹配。\n\n事情\n用户想和家人谈一件重要的事\n用户担心现场会退缩\n感受\n担心\n在意的"
+    },
+    {
+      "name": "12-decision-vault.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/12-decision-vault.png",
+      "url": "http://127.0.0.1:5173/pages/action/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d9ef1daa3d2181479898a32a77b6776753d337ea12ed0daf411e72e9f58269d0",
+      "sample": "17:39\n\n行动\n\n把想法变成一小步\n\n行动不是证明自己，是给现实一个可以观察的回应。\n\n当前旅程\n准备一次重要沟通\n查看时间线\n\n用户计划与家人讨论重要事项，但担心自己会在现场因紧张而退缩。\n\n待完成的行动\n3\n这一步后来怎么样？\n浏览器回归行动 1786954398110\n"
+    },
+    {
+      "name": "13-cooldown.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/13-cooldown.png",
+      "url": "http://127.0.0.1:5173/pages/action/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d9ef1daa3d2181479898a32a77b6776753d337ea12ed0daf411e72e9f58269d0",
+      "sample": "17:39\n\n行动\n\n把想法变成一小步\n\n行动不是证明自己，是给现实一个可以观察的回应。\n\n当前旅程\n准备一次重要沟通\n查看时间线\n\n用户计划与家人讨论重要事项，但担心自己会在现场因紧张而退缩。\n\n待完成的行动\n3\n这一步后来怎么样？\n浏览器回归行动 1786954398110\n"
+    },
+    {
+      "name": "14-reality-handoff.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/14-reality-handoff.png",
+      "url": "http://127.0.0.1:5173/pages/reality-handoff/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "69b8cd62425a058fc00b6718a2c90d40426ddb7a9d1a52d6706dfa45e91bfee0",
+      "sample": "把一部分交给现实\n现实支持\n\n这里保存的是你亲自确认过的支持安排。系统不会替你联系任何人。\n\n新增现实交接\n交接给谁\n怎么联系\n当面聊\n电话\n消息\n其他\n想让对方知道什么\n保存交接\n已保存的交接\ndirect-check-1786957838914\n消息 · 仅自己可见\n\n直接接"
+    },
+    {
+      "name": "15-future-self.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/15-future-self.png",
+      "url": "http://127.0.0.1:5173/pages/future-self/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "a0ad784fe89fe8ecbf15145302917c15055efcc4f01628a11229891d5765cd21",
+      "sample": "‹\n写给未来的自己\n\n把现在的声音留给未来的你。送达前不会出现在日常列表里。\n\n送达时间\n保存这封未来信\n已经写下的信\n\n还没有未来信。"
+    },
+    {
+      "name": "16-support-plan.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/16-support-plan.png",
+      "url": "http://127.0.0.1:5173/pages/action/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "d9ef1daa3d2181479898a32a77b6776753d337ea12ed0daf411e72e9f58269d0",
+      "sample": "17:39\n\n行动\n\n把想法变成一小步\n\n行动不是证明自己，是给现实一个可以观察的回应。\n\n当前旅程\n准备一次重要沟通\n查看时间线\n\n用户计划与家人讨论重要事项，但担心自己会在现场因紧张而退缩。\n\n待完成的行动\n3\n这一步后来怎么样？\n浏览器回归行动 1786954398110\n"
+    },
+    {
+      "name": "17-recovery.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/17-recovery.png",
+      "url": "http://127.0.0.1:5173/pages/recovery/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "4fe6efd1b4c642627f22ff4ec4302acfc256a805ccf96e4ad8dbe019dabfdc52",
+      "sample": "‹\n记录恢复情况\n\n这里关注生活功能的变化，不给你贴标签，也不替代专业帮助。\n\n请先在隐私设置中允许查看恢复记录\n\n今天的我\n吃过东西\n做到了\n一部分\n还没有\n出门或见到阳光\n做到了\n一部分\n还没有\n和可信任的人有联系\n做到了\n一部分\n还没有\n睡眠有被照顾\n做到了\n一部分\n还没有"
+    },
+    {
+      "name": "18-me.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/18-me.png",
+      "url": "http://127.0.0.1:5173/pages/me/index",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "eddcab73b153d9c1a11aba93d97e4885221060e1481ba4394c0483bb809bf55c",
+      "sample": "17:39\n晚安树洞\n\n写下今天的情绪，会有温柔回应\n\n芽\n晚安旅人\n树洞 0427\n情绪成长卡\n连续记录\n7\n天\n收到\n7\n条温柔回应\n本月记录\n12\n次\n查看我的成长\n▣\n我的日记\n›\n☵\n我的回信\n›\n♡\n我的收藏\n›\n▥\n情绪月报\n›\n◇\n隐私设置\n›\n?\n帮助与反馈\n›"
+    },
+    {
+      "name": "19-report.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/19-report.png",
+      "url": "http://127.0.0.1:5173/pages/report/month",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "db31384b48341c2cac13188a00dbd985e8719db5d9dd88c9133156d1fb8c5d22",
+      "sample": "‹\n情绪月报\n晚安树洞\n\n2026 年 8 月情绪总结\n\n▣\n本月记录天数\n1天\n\n共记录情绪 19 条\n\n♧\n高频情绪\n焦虑\n\n出现 15 次\n\n♡\n温柔回应次数\n4次\n\n感谢你的真诚分享\n\n情绪趋势\n\n每天的情绪就像天气，起起落落都是成长。\n\n2026-08⌄\n很棒\n平静\n有"
+    },
+    {
+      "name": "20-privacy.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/20-privacy.png",
+      "url": "http://127.0.0.1:5173/pages/settings/privacy",
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "sha256": "14d20a64cd17f214c88313c7449b5ac7927d0bd92b7ab42e85db9cc4054be8ac",
+      "sample": "‹\n隐私设置\n\n你分享的每一种情绪，都值得被安心保护 ❧\n\n你的私密记录仅你自己可见 ❧\n\n我们不会将你的情绪内容用于商业用途，也不会在未经你同意的情况下分享给他人。\n\n❧\n默认仅自己可见\n写下的情绪默认只对自己可见\n匿名发布到广场\n发布到广场时隐藏昵称和头像\n允许接收真人回应\n"
+    },
+    {
+      "name": "21-admin-dashboard.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/21-admin-dashboard.png",
+      "url": "http://127.0.0.1:5174/dashboard",
+      "viewport": "1448x1086",
+      "horizontalOverflow": false,
+      "sha256": "a7cf4a2b032000ea26ef6c0b8d38764847bcce4dbd4f2256bc7705be2354feee",
+      "sample": "晚安树洞\n管理后台\n数据总览\n用户管理\n树洞内容\n回应审核\nAI 配置中心\n风格路由\nAI 任务记录\n反馈工单\n系统设置\n更多管理\n\n晚安，有树洞在\n\n晚安树洞管理后台\n数据总览\n2026-08-11 ~ 2026-08-17\nadmin\n管理员\n今日新增用户\n0\n实时统计\n♟\n"
+    },
+    {
+      "name": "22-admin-peer-experiences.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/22-admin-peer-experiences.png",
+      "url": "http://127.0.0.1:5174/experience/peers",
+      "viewport": "1448x1086",
+      "horizontalOverflow": false,
+      "sha256": "912766760d4e70f150ec68b1dfceed6299ccad540a996d01f4a8a0f7cc43ec5c",
+      "sample": "晚安树洞\n管理后台\n数据总览\n用户管理\n树洞内容\n回应审核\nAI 配置中心\n风格路由\nAI 任务记录\n反馈工单\n系统设置\n更多管理\n回复预设\nFAQ 管理\n反馈分类\n现实旅程\n行动承诺\n结果回访\n同路经历\n匹配记录\n随访队列\n匿名会话\n用户提醒\n安全事件\n支持计划\n有限记忆\n审计"
+    },
+    {
+      "name": "23-admin-follow-ups.png",
+      "file": "C:\\Users\\zyu33\\Documents\\Codex\\2026-07-04\\yan\\docs/evidence/goodnight-2.0-phase2/23-admin-follow-ups.png",
+      "url": "http://127.0.0.1:5174/experience/follow-ups",
+      "viewport": "1448x1086",
+      "horizontalOverflow": false,
+      "sha256": "0c257c404e87ff113213b3c6e07ac9d5b2cd8c7c7f694b241fe761cd9d644f57",
+      "sample": "晚安树洞\n管理后台\n数据总览\n用户管理\n树洞内容\n回应审核\nAI 配置中心\n风格路由\nAI 任务记录\n反馈工单\n系统设置\n更多管理\n回复预设\nFAQ 管理\n反馈分类\n现实旅程\n行动承诺\n结果回访\n同路经历\n匹配记录\n随访队列\n匿名会话\n用户提醒\n安全事件\n支持计划\n有限记忆\n审计"
+    }
+  ]
+}

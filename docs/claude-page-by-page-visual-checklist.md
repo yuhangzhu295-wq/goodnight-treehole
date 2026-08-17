@@ -1,6 +1,6 @@
 # 晚安树洞前台 01-14 视觉回归检查表
 
-生成时间：2026-08-17T06:13:35.754Z
+生成时间：2026-08-17T09:31:24.910Z
 
 | 页面 | 截图 | 设计图 | diff | diffRate | 检查结论 |
 | --- | --- | --- | --- | ---: | --- |
@@ -13,7 +13,7 @@
 | 07-tool-decompose | `artifacts\screenshots\claude-after\07-tool-decompose.png` | `design_refs/front/07-tool-decompose.png` | `artifacts\diffs\claude-front\07-tool-decompose.diff.png` | 11.30% | 可接受但仍需局部微调 |
 | 08-me | `artifacts\screenshots\claude-after\08-me.png` | `design_refs/front/08-me.png` | `artifacts\diffs\claude-front\08-me.diff.png` | 10.42% | 可接受但仍需局部微调 |
 | 09-diary-list | `artifacts\screenshots\claude-after\09-diary-list.png` | `design_refs/front/09-diary-list.png` | `artifacts\diffs\claude-front\09-diary-list.diff.png` | 22.25% | 需继续修复 |
-| 10-report-month | `artifacts\screenshots\claude-after\10-report-month.png` | `design_refs/front/10-report-month.png` | `artifacts\diffs\claude-front\10-report-month.diff.png` | 17.81% | 需继续修复 |
+| 10-report-month | `artifacts\screenshots\claude-after\10-report-month.png` | `design_refs/front/10-report-month.png` | `artifacts\diffs\claude-front\10-report-month.diff.png` | 18.21% | 需继续修复 |
 | 11-letter-list | `artifacts\screenshots\claude-after\11-letter-list.png` | `design_refs/front/11-letter-list.png` | `artifacts\diffs\claude-front\11-letter-list.diff.png` | 16.82% | 需继续修复 |
 | 12-favorite-list | `artifacts\screenshots\claude-after\12-favorite-list.png` | `design_refs/front/12-favorite-list.png` | `artifacts\diffs\claude-front\12-favorite-list.diff.png` | 12.64% | 可接受但仍需局部微调 |
 | 13-privacy-settings | `artifacts\screenshots\claude-after\13-privacy-settings.png` | `design_refs/front/13-privacy-settings.png` | `artifacts\diffs\claude-front\13-privacy-settings.diff.png` | 14.34% | 可接受但仍需局部微调 |

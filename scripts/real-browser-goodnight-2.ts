@@ -8,6 +8,7 @@ const api = 'http://127.0.0.1:3000';
 async function main() {
   await fs.mkdir('artifacts/screenshots/real-user/front', { recursive: true });
   await fs.mkdir('artifacts/screenshots/real-user/admin', { recursive: true });
+  await fs.mkdir('artifacts/test-report', { recursive: true });
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 430, height: 764 }, locale: 'zh-CN' });
   const page = await context.newPage();
@@ -22,43 +23,52 @@ async function main() {
     rows.push(`今晚页=${page.url()}`);
 
     await page.goto(`${front}/pages/journey/detail?id=${journeyId}`, { waitUntil: 'domcontentloaded' });
-    const updateResponse = page.waitForResponse((response) => response.url().includes(`/api/v1/journeys/${journeyId}/updates`) && response.request().method() === 'POST');
     await page.getByPlaceholder('记录事情后来发生了什么，或这一步带来了什么变化').fill(`浏览器回归记录 ${Date.now()}`);
     await page.getByRole('button', { name: '保存进展' }).click();
-    if (!(await updateResponse).ok()) throw new Error('后来呢保存接口失败');
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const updatedJourney = await (await fetch(`${api}/api/v1/journeys/${journeyId}`)).json() as any;
+    if (!updatedJourney.item.updates.some((item: any) => item.content.startsWith('浏览器回归记录'))) throw new Error('后来呢没有持久化');
     await page.screenshot({ path: 'artifacts/screenshots/real-user/front/10-journey.png', fullPage: true });
 
-    const actionResponse = page.waitForResponse((response) => response.url().includes(`/api/v1/journeys/${journeyId}/actions`) && response.request().method() === 'POST');
-    await page.getByPlaceholder('我愿意先做的一件小事').fill(`浏览器回归行动 ${Date.now()}`);
-    await page.getByRole('button', { name: '添加行动' }).click();
-    if (!(await actionResponse).ok()) throw new Error('行动创建接口失败');
-    const actionPage = await context.newPage();
+    const browserActionTitle = `浏览器回归行动 ${Date.now()}`;
+    await page.getByPlaceholder('也可以自己写一件小事').fill(browserActionTitle);
+    await page.getByRole('button', { name: '保存这一步' }).click();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const actionTitle = (await page.locator('.action-form input').first().inputValue().catch(() => ''));
+    const refreshedTonight = await (await fetch(`${api}/api/v1/tonight`)).json() as any;
+    if (!refreshedTonight.item.activeActions.some((item: any) => item.title === browserActionTitle)) throw new Error(`行动没有持久化: ${actionTitle}`);
+    const actionPage = page;
     await actionPage.goto(`${front}/pages/action/index`, { waitUntil: 'domcontentloaded' });
-    const checkinResponse = actionPage.waitForResponse((response) => response.url().includes('/api/v1/actions/') && response.url().endsWith('/checkin') && response.request().method() === 'POST');
-    await actionPage.getByRole('button', { name: '完成并回顾' }).click();
-    if (!(await checkinResponse).ok()) throw new Error('行动回访接口失败');
+    await actionPage.locator('.commitment-list article').filter({ hasText: browserActionTitle }).getByRole('button', { name: '完成并回顾' }).click();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const checkedTonight = await (await fetch(`${api}/api/v1/tonight`)).json() as any;
+    if (checkedTonight.item.activeActions.some((item: any) => item.title === browserActionTitle)) throw new Error('行动完成后仍停留在 active 列表');
     await actionPage.screenshot({ path: 'artifacts/screenshots/real-user/front/11-action.png', fullPage: true });
-    if ((await actionPage.locator('body').innerText()).includes('浏览器回归行动')) throw new Error('行动完成后仍停留在 active 列表');
     rows.push(`后来呢、行动、回访=${actionPage.url()}`);
 
     await actionPage.getByText('把支持带回现实', { exact: true }).click();
-    const decisionResponse = actionPage.waitForResponse((response) => response.url().includes('/api/v1/decisions') && response.request().method() === 'POST');
-    await actionPage.getByPlaceholder('这次要做什么决定？').fill(`浏览器决策 ${Date.now()}`);
-    await actionPage.getByRole('button', { name: '保存决策' }).click();
-    if (!(await decisionResponse).ok()) throw new Error('决策保存接口失败');
-    const cooldownResponse = actionPage.waitForResponse((response) => response.url().includes('/api/v1/cooldowns') && response.request().method() === 'POST');
-    await actionPage.getByPlaceholder('暂缓处理的事项').fill(`浏览器冷静箱 ${Date.now()}`);
-    await actionPage.getByRole('button', { name: '加入冷静箱' }).click();
-    if (!(await cooldownResponse).ok()) throw new Error('冷静箱保存接口失败');
-    const handoffResponse = actionPage.waitForResponse((response) => response.url().includes('/api/v1/handoffs') && response.request().method() === 'POST');
-    await actionPage.getByPlaceholder('交接给谁').fill('可信任的人');
-    await actionPage.getByPlaceholder('联系渠道').fill('当面沟通');
-    await actionPage.getByPlaceholder('希望对方知道什么').fill('请在今天晚些时候问我是否完成了这一步。');
-    await actionPage.getByRole('button', { name: '保存交接' }).click();
-    const handoffResult = await handoffResponse;
-    if (!handoffResult.ok()) throw new Error(`现实交接保存接口失败: ${handoffResult.status()} ${await handoffResult.text()}`);
-    const shareButton = actionPage.getByRole('button', { name: '确认已分享' }).first();
-    if (!(await shareButton.count())) throw new Error('现实交接保存后没有出现确认分享操作');
+    await actionPage.getByPlaceholder('你现在想做什么？').fill(`浏览器决策 ${Date.now()}`);
+    await actionPage.getByRole('button', { name: '先放这里' }).click();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const decisions = await (await fetch(`${api}/api/v1/decisions`)).json() as any;
+    if (!decisions.items?.some((item: any) => item.question.startsWith('浏览器决策'))) throw new Error('决策没有持久化');
+    await actionPage.getByPlaceholder('想先留住的那句话或决定').fill(`浏览器冷静箱 ${Date.now()}`);
+    await actionPage.getByRole('button', { name: '放进冷静箱' }).click();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const cooldowns = await (await fetch(`${api}/api/v1/cooldown`)).json() as any;
+    if (!cooldowns.items?.some((item: any) => item.title.startsWith('浏览器冷静箱'))) throw new Error('冷静箱没有持久化');
+    const handoffRecipient = `可信任的人-${Date.now()}`;
+    await actionPage.getByPlaceholder('朋友、家人或同事').fill(handoffRecipient);
+    await actionPage.getByPlaceholder('希望对方怎么陪你？').fill('请在今天晚些时候问我是否完成了这一步。');
+    await actionPage.getByRole('button', { name: '保存这张求助卡' }).click();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const handoffs = await (await fetch(`${api}/api/v1/handoffs`)).json() as any;
+    const savedHandoff = handoffs.items?.find((item: any) => item.recipient === handoffRecipient);
+    if (!savedHandoff) throw new Error('现实交接没有持久化');
+    if (savedHandoff.status !== 'ready') throw new Error(`现实交接初始状态不正确: ${savedHandoff.status}`);
+    const handoffRow = actionPage.locator('.saved-tools p').filter({ hasText: handoffRecipient });
+    const shareButton = handoffRow.getByTestId('action-share-handoff');
+    await shareButton.waitFor({ state: 'visible', timeout: 5000 });
     const [shareResult] = await Promise.all([
       actionPage.waitForResponse((response) => response.url().includes('/api/v1/handoffs/') && response.url().endsWith('/share') && response.request().method() === 'POST'),
       shareButton.click(),

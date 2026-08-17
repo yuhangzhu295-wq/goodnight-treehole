@@ -128,6 +128,9 @@ onMounted(load);
           <button type="button" @click="router.push('/experience/checkins')"><strong>{{ overview.journeySummary?.dueCheckins ?? 0 }}</strong><span>到期回访</span></button>
           <button type="button" @click="router.push('/experience/peers')"><strong>{{ overview.journeySummary?.peerExperiences ?? 0 }}</strong><span>已发布经历</span></button>
           <button type="button" @click="router.push('/safety/events')"><strong>{{ overview.journeySummary?.safetyEvents ?? 0 }}</strong><span>高风险事件</span></button>
+          <button type="button" @click="router.push('/experience/follow-ups')"><strong>{{ overview.journeySummary?.followUps ?? 0 }}</strong><span>待处理随访</span></button>
+          <button type="button" @click="router.push('/experience/peer-conversations')"><strong>{{ overview.journeySummary?.connectedPeerConversations ?? 0 }}</strong><span>进行中会话</span></button>
+          <button type="button" @click="router.push('/experience/notifications')"><strong>{{ overview.journeySummary?.unreadNotifications ?? 0 }}</strong><span>未读提醒</span></button>
         </div>
       </section>
 

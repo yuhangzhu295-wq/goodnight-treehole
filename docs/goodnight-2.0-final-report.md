@@ -83,10 +83,10 @@ test state instead of bypassing a guarded route.
 ## 13. Migration
 
 The 2.0 migration is additive:
-`prisma/migrations/20260816000000_goodnight_2_incremental/migration.sql`. Isolated
-test schemas were created from the current Prisma schema and verified with direct
-Prisma readback. Historical `prisma migrate deploy` is blocked by an earlier legacy
-migration; details are in `docs/unrelated-existing-issues.md`.
+`prisma/migrations/20260816000000_goodnight_2_incremental/migration.sql`. The
+public schema reports up to date and a clean temporary schema accepted all three
+migrations through `prisma migrate deploy`; details are in
+`docs/goodnight-2.0-migration-repair.md`.
 
 ## 14. Unit
 
@@ -143,12 +143,13 @@ does not rely on frontend fixture data for the new 2.0 records.
 
 ## 23. Unrelated existing issues
 
-See `docs/unrelated-existing-issues.md`: an old Prisma migration dependency prevents
-a clean historical `migrate deploy`, and a historical admin checkpoint is stale.
+See `docs/unrelated-existing-issues.md`: the local database role cannot create a
+new database, Redis is below the BullMQ recommendation, and the historical admin
+checkpoint is stale. The current migration chain itself is deployable.
 
 ## 24. Remaining risks
 
-- Repair the historical Prisma migration chain before production migration rollout.
+- Run a production backup and staging migration rollout before production deploy.
 - Run a dedicated visual tuning pass for legacy reference diffs, especially diary.
 - Configure production DAPI credentials and provider allow-lists outside source
   control, then repeat the DAPI job audit in staging.

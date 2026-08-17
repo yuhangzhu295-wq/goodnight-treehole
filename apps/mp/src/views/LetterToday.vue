@@ -2,8 +2,10 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
+const { timeLabel } = useDeviceClock();
 
 type Letter = {
   id: string;
@@ -138,8 +140,8 @@ onMounted(load);
   <section class="page goodnight-page letter-page" v-if="letter">
     <header class="front-hero letter-hero">
       <div class="status-row">
-        <span>23:17</span>
-        <span>92</span>
+        <span>{{ timeLabel }}</span>
+        <span aria-hidden="true"></span>
       </div>
       <button class="back-icon" data-testid="letter-back" aria-label="返回" @click="safeBack">‹</button>
       <div class="letter-heading">

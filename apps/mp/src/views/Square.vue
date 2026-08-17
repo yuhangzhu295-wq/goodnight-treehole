@@ -3,9 +3,11 @@ import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { copyText } from '../clipboard';
+import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
 const route = useRoute();
+const { timeLabel } = useDeviceClock();
 
 const filters = [
   { key: 'aggrieved', label: '委屈', icon: '♧', testId: 'filter-weiqu' },
@@ -107,8 +109,8 @@ onMounted(() => {
   <section class="page goodnight-page square-page">
     <header class="front-hero square-hero">
       <div class="status-row">
-        <span>23:17</span>
-        <span>92</span>
+        <span>{{ timeLabel }}</span>
+        <span aria-hidden="true"></span>
       </div>
       <div class="hero-copy">
         <h1>晚安树洞</h1>
