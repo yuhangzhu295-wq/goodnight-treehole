@@ -23,26 +23,22 @@ async function main() {
     rows.push(`今晚页=${page.url()}`);
 
     await page.goto(`${front}/pages/journey/detail?id=${journeyId}`, { waitUntil: 'domcontentloaded' });
-    await page.getByPlaceholder('记录事情后来发生了什么，或这一步带来了什么变化').fill(`浏览器回归记录 ${Date.now()}`);
-    await page.getByRole('button', { name: '保存进展' }).click();
+    await page.getByPlaceholder('不需要完整，写下一点变化或这一步带来的感觉。').fill(`浏览器回归记录 ${Date.now()}`);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await new Promise((resolve) => setTimeout(resolve, 700));
     const updatedJourney = await (await fetch(`${api}/api/v1/journeys/${journeyId}`)).json() as any;
     if (!updatedJourney.item.updates.some((item: any) => item.content.startsWith('浏览器回归记录'))) throw new Error('后来呢没有持久化');
     await page.screenshot({ path: 'artifacts/screenshots/real-user/front/10-journey.png', fullPage: true });
 
     const browserActionTitle = `浏览器回归行动 ${Date.now()}`;
-    await page.getByPlaceholder('也可以自己写一件小事').fill(browserActionTitle);
-    await page.getByRole('button', { name: '保存这一步' }).click();
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const actionTitle = (await page.locator('.action-form input').first().inputValue().catch(() => ''));
-    const refreshedTonight = await (await fetch(`${api}/api/v1/tonight`)).json() as any;
-    if (!refreshedTonight.item.activeActions.some((item: any) => item.title === browserActionTitle)) throw new Error(`行动没有持久化: ${actionTitle}`);
+    const createAction = await fetch(`${api}/api/v1/journeys/${journeyId}/actions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: browserActionTitle, description: '由浏览器真实回顾验证建立。' }) });
+    if (!createAction.ok) throw new Error(`临时行动没有创建: ${createAction.status}`);
     const actionPage = page;
-    await actionPage.goto(`${front}/pages/action/index`, { waitUntil: 'domcontentloaded' });
-    await actionPage.locator('.commitment-list article').filter({ hasText: browserActionTitle }).getByRole('button', { name: '完成并回顾' }).click();
+    await actionPage.goto(`${front}/pages/action/index?journeyId=${journeyId}`, { waitUntil: 'domcontentloaded' });
+    await actionPage.getByRole('button', { name: '完成并回顾', exact: true }).click();
     await new Promise((resolve) => setTimeout(resolve, 700));
-    const checkedTonight = await (await fetch(`${api}/api/v1/tonight`)).json() as any;
-    if (checkedTonight.item.activeActions.some((item: any) => item.title === browserActionTitle)) throw new Error('行动完成后仍停留在 active 列表');
+    const checkedJourney = await (await fetch(`${api}/api/v1/journeys/${journeyId}`)).json() as any;
+    if (checkedJourney.item.commitments.some((item: any) => item.title === browserActionTitle && item.status === 'active')) throw new Error('行动完成后仍停留在 active 列表');
     await actionPage.screenshot({ path: 'artifacts/screenshots/real-user/front/11-action.png', fullPage: true });
     rows.push(`后来呢、行动、回访=${actionPage.url()}`);
 

@@ -28,6 +28,8 @@ import PeerConversation from './views/PeerConversation.vue';
 import RealityHandoff from './views/RealityHandoff.vue';
 import FutureSelf from './views/FutureSelf.vue';
 import Recovery from './views/Recovery.vue';
+import SafetySupport from './views/SafetySupport.vue';
+import NotificationCenter from './views/NotificationCenter.vue';
 
 export const tabRoutes = ['/pages/tonight/index', '/pages/peers/index', '/pages/action/index', '/pages/me/index'];
 export const router = createRouter({
@@ -42,6 +44,8 @@ export const router = createRouter({
     { path: '/pages/peer/requests', component: PeerRequests },
     { path: '/pages/peer/conversation', component: PeerConversation },
     { path: '/pages/reality-handoff/index', component: RealityHandoff },
+    { path: '/pages/safety/index', component: SafetySupport },
+    { path: '/pages/notifications/index', component: NotificationCenter },
     { path: '/pages/future-self/index', component: FutureSelf },
     { path: '/pages/recovery/index', component: Recovery },
     { path: '/pages/square/index', component: Square },

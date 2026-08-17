@@ -213,6 +213,16 @@ export class PublicController {
     return await this.store.confirmSituation(id, body);
   }
 
+  @Post('journeys/:id/situation/reanalyze')
+  async reanalyzeSituation(@Param('id') id: string) {
+    return await this.store.reanalyzeSituation(id);
+  }
+
+  @Post('journeys/:id/safety/acknowledge')
+  async acknowledgeSafety(@Param('id') id: string) {
+    return await this.store.acknowledgeSafety(id);
+  }
+
   @Post('journeys/:id/updates')
   async journeyUpdate(@Param('id') id: string, @Body() body: { content?: string; kind?: string; outcome?: Record<string, unknown> }) {
     return await this.store.addJourneyUpdate(id, body);

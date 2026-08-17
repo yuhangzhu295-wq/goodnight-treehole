@@ -1480,8 +1480,11 @@ export class StoreService implements OnModuleInit {
     const journey = this.requireJourney(journeyId);
     const validIntents: SupportIntent[] = ['JUST_LISTEN', 'FIND_PEOPLE', 'SEE_OUTCOMES', 'NEXT_STEP', 'STOP_IMPULSE', 'PREPARE_CONVERSATION', 'NOTHING_NOW', 'HIGH_DISTRESS'];
     if (!validIntents.includes(intent)) throw new BadRequestException('暂时无法识别这个需要');
-    if (intent === 'HIGH_DISTRESS' || this.safetyEvents.some((item) => item.journeyId === journey.id && ['high', 'critical'].includes(item.level))) {
+    const requiresSafetyFirst = intent === 'HIGH_DISTRESS' || (journey.stage === 'safety_first' && this.safetyEvents.some((item) => item.journeyId === journey.id && ['high', 'critical'].includes(item.level)));
+    if (requiresSafetyFirst) {
       journey.stage = 'safety_first';
+      journey.currentIntent = 'HIGH_DISTRESS';
+      journey.intentUpdatedAt = now();
       this.safetyEvents.unshift({ id: id('safety'), userId: journey.userId, journeyId: journey.id, level: 'high', source: 'support_intent', action: 'real_world_support_prompt', payload: { intent }, createdAt: now() });
     } else {
       journey.currentIntent = intent;
@@ -1494,7 +1497,7 @@ export class StoreService implements OnModuleInit {
   }
 
   private intentRoute(intent: SupportIntent, safetyFirst = false) {
-    if (safetyFirst || intent === 'HIGH_DISTRESS') return { key: 'safety', targetRoute: '/pages/reality-handoff/index', message: '先把现实里的支持接上，不急着解决全部问题。' };
+    if (safetyFirst || intent === 'HIGH_DISTRESS') return { key: 'safety', targetRoute: '/pages/safety/index', message: '先把现实里的支持接上，不急着解决全部问题。' };
     const routes: Record<SupportIntent, { key: string; targetRoute: string; message: string }> = {
       JUST_LISTEN: { key: 'listen', targetRoute: '/pages/journey/detail', message: '先听你把这件事说完，不急着给行动。' },
       FIND_PEOPLE: { key: 'peers', targetRoute: '/pages/peers/index', message: '去看看真正经历过相似阶段的人。' },
@@ -1503,7 +1506,7 @@ export class StoreService implements OnModuleInit {
       STOP_IMPULSE: { key: 'cooldown', targetRoute: '/pages/action/index?section=vault', message: '先把冲动放进决定保险箱。' },
       PREPARE_CONVERSATION: { key: 'handoff', targetRoute: '/pages/action/index?section=handoff', message: '先整理想对现实中的人说的话。' },
       NOTHING_NOW: { key: 'pause', targetRoute: '/pages/tonight/index', message: '今天不解决，也是一种照顾。' },
-      HIGH_DISTRESS: { key: 'safety', targetRoute: '/pages/reality-handoff/index', message: '先连接现实支持。' },
+      HIGH_DISTRESS: { key: 'safety', targetRoute: '/pages/safety/index', message: '先连接现实支持。' },
     };
     return routes[intent];
   }
@@ -1533,10 +1536,52 @@ export class StoreService implements OnModuleInit {
     const journey = this.requireJourney(journeyId);
     const item = this.situationSnapshots.find((snapshot) => snapshot.journeyId === journeyId);
     if (!item) throw new NotFoundException('情境快照不存在');
+    const previousIntensity = item.intensity;
+    const submittedIntensity = Number.isFinite(Number(input.intensity)) ? Math.max(0, Math.min(10, Number(input.intensity))) : undefined;
+    const shouldRecordIntensity = submittedIntensity !== undefined && (journey.initialIntensity === undefined || previousIntensity !== submittedIntensity);
     const array = (value: unknown, fallback: string[]) => Array.isArray(value) ? value.map(String).map((part) => part.trim()).filter(Boolean).slice(0, 8) : fallback;
-    item.facts = array(input.facts, item.facts); item.feelings = array(input.feelings, item.feelings); item.needs = array(input.needs, item.needs); item.constraints = array(input.constraints, item.constraints); item.risks = array(input.risks, item.risks); item.domain = typeof input.domain === 'string' && input.domain.trim() ? input.domain.trim().slice(0, 40) : item.domain; item.subDomain = typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : item.subDomain; item.eventType = typeof input.eventType === 'string' ? input.eventType.trim().slice(0, 80) : item.eventType; item.stage = typeof input.stage === 'string' ? input.stage.trim().slice(0, 60) : item.stage; item.contextTags = Array.isArray(input.contextTags) ? input.contextTags.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 12) : item.contextTags; item.peopleContext = Array.isArray(input.peopleContext) ? input.peopleContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.peopleContext; item.decisionContext = Array.isArray(input.decisionContext) ? input.decisionContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.decisionContext; item.behaviorSignals = Array.isArray(input.behaviorSignals) ? input.behaviorSignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.behaviorSignals; item.recoverySignals = Array.isArray(input.recoverySignals) ? input.recoverySignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.recoverySignals; item.intensity = Number.isFinite(Number(input.intensity)) ? Math.max(0, Math.min(10, Number(input.intensity))) : item.intensity; item.urgency = Number.isFinite(Number(input.urgency)) ? Math.max(0, Math.min(10, Number(input.urgency))) : item.urgency; item.fingerprintJson = { domain: item.domain, subDomain: item.subDomain, eventType: item.eventType, stage: item.stage, contextTags: item.contextTags, peopleContext: item.peopleContext, decisionContext: item.decisionContext, behaviorSignals: item.behaviorSignals, recoverySignals: item.recoverySignals }; item.confidence = 'user_confirmed'; item.updatedAt = now(); journey.updatedAt = now();
+    item.facts = array(input.facts, item.facts); item.feelings = array(input.feelings, item.feelings); item.needs = array(input.needs, item.needs); item.constraints = array(input.constraints, item.constraints); item.risks = array(input.risks, item.risks); item.domain = typeof input.domain === 'string' && input.domain.trim() ? input.domain.trim().slice(0, 40) : item.domain; item.subDomain = typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : item.subDomain; item.eventType = typeof input.eventType === 'string' ? input.eventType.trim().slice(0, 80) : item.eventType; item.stage = typeof input.stage === 'string' ? input.stage.trim().slice(0, 60) : item.stage; item.contextTags = Array.isArray(input.contextTags) ? input.contextTags.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 12) : item.contextTags; item.peopleContext = Array.isArray(input.peopleContext) ? input.peopleContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.peopleContext; item.decisionContext = Array.isArray(input.decisionContext) ? input.decisionContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.decisionContext; item.behaviorSignals = Array.isArray(input.behaviorSignals) ? input.behaviorSignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.behaviorSignals; item.recoverySignals = Array.isArray(input.recoverySignals) ? input.recoverySignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.recoverySignals; item.intensity = submittedIntensity ?? item.intensity; item.urgency = Number.isFinite(Number(input.urgency)) ? Math.max(0, Math.min(10, Number(input.urgency))) : item.urgency; item.fingerprintJson = { domain: item.domain, subDomain: item.subDomain, eventType: item.eventType, stage: item.stage, contextTags: item.contextTags, peopleContext: item.peopleContext, decisionContext: item.decisionContext, behaviorSignals: item.behaviorSignals, recoverySignals: item.recoverySignals }; item.confidence = 'user_confirmed'; item.updatedAt = now();
+    if (item.intensity !== undefined) { journey.intensity = item.intensity; journey.initialIntensity ??= item.intensity; }
+    if (shouldRecordIntensity && submittedIntensity !== undefined) {
+      const thought = item.behaviorSignals?.find((signal) => signal.startsWith('脑子里最吵的一句：'));
+      this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'intensity', content: `今晚的主观难受程度：${submittedIntensity}/10${thought ? `。${thought.replace('脑子里最吵的一句：', '')}` : ''}`, intensity: submittedIntensity, createdAt: now() });
+    }
+    journey.updatedAt = now();
     await this.persistAndFlush();
     return { item };
+  }
+
+  async reanalyzeSituation(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journeyId);
+    if (!snapshot) throw new NotFoundException('经历指纹不存在');
+    const source = [snapshot.facts.join('；'), snapshot.feelings.join('；'), snapshot.constraints.join('；')].filter(Boolean).join('\n') || journey.title;
+    snapshot.confidence = 'agent_draft';
+    snapshot.updatedAt = now();
+    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'fingerprint_reanalysis_requested', content: '我请求系统根据原话重新整理了这段经历。', createdAt: now() });
+    const job = this.queueAI({ taskType: 'situation_analysis', userId: journey.userId, sourceId: journeyId, content: source, mood: this.inferMood(source), style: 'rational' });
+    void this.waitForAiJob(job.id).then(async (completed) => {
+      if (!['succeeded', 'fallback'].includes(completed.status)) return;
+      const current = this.situationSnapshots.find((item) => item.journeyId === journeyId);
+      if (!current || current.confidence === 'user_confirmed') return;
+      const structured = completed.structuredResult ?? {};
+      const list = (value: unknown, fallback: string[], max = 8) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, max) : fallback;
+      current.facts = list(structured.facts, current.facts); current.feelings = list(structured.feelings, current.feelings); current.needs = list(structured.needs, current.needs); current.constraints = list(structured.constraints, current.constraints); current.risks = list(structured.risks, current.risks); current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain; current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : current.subDomain; current.eventType = typeof structured.eventType === 'string' ? structured.eventType : current.eventType; current.stage = typeof structured.stage === 'string' ? structured.stage : current.stage; current.contextTags = list(structured.contextTags, current.contextTags ?? [], 12); current.peopleContext = list(structured.peopleContext, current.peopleContext ?? []); current.decisionContext = list(structured.decisionContext, current.decisionContext ?? []); current.behaviorSignals = list(structured.behaviorSignals, current.behaviorSignals ?? []); current.recoverySignals = list(structured.recoverySignals, current.recoverySignals ?? []); current.intensity = Number.isFinite(Number(structured.intensity)) ? Math.max(0, Math.min(10, Number(structured.intensity))) : current.intensity; current.urgency = Number.isFinite(Number(structured.urgency)) ? Math.max(0, Math.min(10, Number(structured.urgency))) : current.urgency; current.fingerprintJson = { domain: current.domain, subDomain: current.subDomain, eventType: current.eventType, stage: current.stage, contextTags: current.contextTags, peopleContext: current.peopleContext, decisionContext: current.decisionContext, behaviorSignals: current.behaviorSignals, recoverySignals: current.recoverySignals }; current.updatedAt = now();
+      journey.summary = String(structured.summary ?? completed.result).slice(0, 500); if (typeof structured.title === 'string' && structured.title.trim()) journey.title = structured.title.trim().slice(0, 80); if (current.intensity !== undefined) journey.intensity = current.intensity; journey.updatedAt = now(); this.agentDecisionLogs.unshift({ id: id('agent_decision'), userId: journey.userId, journeyId, aiJobId: completed.id, taskType: 'situation_analysis', decision: structured, createdAt: now() }); await this.persistAndFlush();
+    }).catch(() => undefined);
+    await this.persistAndFlush();
+    return { job, snapshot };
+  }
+
+  async acknowledgeSafety(journeyId: string) {
+    const journey = this.requireJourney(journeyId);
+    journey.stage = 'stabilizing';
+    journey.currentIntent = 'JUST_LISTEN';
+    journey.intentUpdatedAt = now();
+    journey.updatedAt = now();
+    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'safety_acknowledged', content: '我暂时安全，决定继续留在这里，先让自己稳定下来。', createdAt: now() });
+    await this.persistAndFlush();
+    return { journey };
   }
 
   async addJourneyUpdate(journeyId: string, input: { content?: unknown; kind?: unknown; outcome?: Partial<JourneyOutcome> }) {
