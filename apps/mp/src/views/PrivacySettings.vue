@@ -356,7 +356,7 @@ onMounted(load);
 .privacy-hero h1 {
   margin: 0;
   color: #2f4726;
-  font-family: var(--gn-font-display, "KaiTi", serif);
+  font-family: var(--gn-font-display);
   font-size: clamp(34px, 10vw, 48px);
   font-weight: 700;
   letter-spacing: .06em;
@@ -402,7 +402,7 @@ onMounted(load);
   z-index: 1;
   margin: 0 0 7px;
   color: #4d6a30;
-  font-family: var(--gn-font-display, "KaiTi", serif);
+  font-family: var(--gn-font-display);
   font-size: clamp(19px, 5vw, 25px);
   line-height: 1.34;
 }

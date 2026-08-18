@@ -399,4 +399,4 @@ onMounted(load);
   :deep(.shortcut-card) { min-height:78px; padding-top:7px; }
   :deep(.shortcut-icon) { width:27px; height:27px; }
 }
-</style>
+.sheet-backdrop{z-index:40}</style>

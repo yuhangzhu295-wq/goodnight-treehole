@@ -3,15 +3,17 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { SupportIntent } from '@goodnight/shared-types';
 import { api } from '../api';
-import SituationConfirmation from '../components/journey/SituationConfirmation.vue';
-import EmotionTemperature from '../components/journey/EmotionTemperature.vue';
-import SupportIntentPicker from '../components/journey/SupportIntentPicker.vue';
-import JourneyTimeline from '../components/journey/JourneyTimeline.vue';
-import StabilizePanel from '../components/support/StabilizePanel.vue';
+import JourneyFlowShell from '../components/journey/JourneyFlowShell.vue';
+import SituationConfirmationScreen from '../components/journey/SituationConfirmationScreen.vue';
+import EmotionTemperatureScreen from '../components/journey/EmotionTemperatureScreen.vue';
+import SupportIntentScreen from '../components/journey/SupportIntentScreen.vue';
+import StabilizeScreen from '../components/journey/StabilizeScreen.vue';
+import JourneyTimelineScreen from '../components/journey/JourneyTimelineScreen.vue';
 
 type Snapshot = { confidence: string; facts: string[]; feelings: string[]; needs: string[]; constraints: string[]; risks: string[]; behaviorSignals: string[]; intensity?: number; urgency?: number };
 type Update = { id: string; kind: string; content: string; createdAt: string; intensity?: number; payload?: Record<string, unknown> };
 type Detail = { journey: { id: string; title: string; domain: string; stage: string; status: string; currentIntent?: SupportIntent; initialIntensity?: number; intensity?: number; createdAt: string; summary?: string }; snapshot: Snapshot | null; updates: Update[]; commitments: Array<{ id: string; title: string; status: string }> };
+type FlowStep = 'confirm' | 'temperature' | 'intent' | 'stabilize' | 'timeline';
 
 const route = useRoute();
 const router = useRouter();
@@ -20,12 +22,23 @@ const loading = ref(true);
 const busy = ref(false);
 const analysisBusy = ref(false);
 const error = ref('');
-const flowStep = ref<'confirm' | 'temperature' | 'intent' | 'stabilize' | 'timeline'>('confirm');
+const flowStep = ref<FlowStep>('confirm');
 const later = ref('');
 
 const journeyId = computed(() => String(route.query.id ?? ''));
 const intensity = computed(() => detail.value?.snapshot?.intensity ?? detail.value?.journey.intensity);
 const chronologicalUpdates = computed(() => [...(detail.value?.updates ?? [])].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)));
+const sceneCopy = computed(() => {
+  const journeyTitle = detail.value?.journey.title || '这段经历';
+  const copy: Record<FlowStep, { title: string; subtitle: string }> = {
+    confirm: { title: '我理解的是这些，对吗？', subtitle: '先确认一下，我们再继续。' },
+    temperature: { title: '今晚现在有多难受？', subtitle: '先不分析，只感受一下此刻。' },
+    intent: { title: '你现在最需要什么？', subtitle: '不一定马上解决，先选最贴近你此刻的一种。' },
+    stabilize: { title: '我先接住你', subtitle: '今晚先不用解决，我们先让这一刻轻一点。' },
+    timeline: { title: journeyTitle, subtitle: '先看见发生了什么，再慢慢往前走。' },
+  };
+  return copy[flowStep.value];
+});
 
 function inferStep() {
   if (route.query.mode === 'stabilize') { flowStep.value = 'stabilize'; return; }
@@ -94,36 +107,24 @@ async function saveLater() {
   try { await api.post(`/api/v1/journeys/${detail.value.journey.id}/updates`, { kind: 'later', content: later.value.trim() }); later.value = ''; await load({ infer: false }); } catch (cause) { error.value = cause instanceof Error ? cause.message : '后来记录没有保存'; } finally { busy.value = false; }
 }
 
-watch(() => [route.query.id, route.query.mode], () => {
-  void load();
-});
-
-onMounted(async () => {
-  await load();
-  const job = typeof route.query.analysisJob === 'string' ? route.query.analysisJob : '';
-  if (job) await waitForAnalysis(job);
-});
+watch(() => [route.query.id, route.query.mode], () => { void load(); });
+onMounted(async () => { await load(); const job = typeof route.query.analysisJob === 'string' ? route.query.analysisJob : ''; if (job) await waitForAnalysis(job); });
 </script>
 
 <template>
-  <section class="goodnight-page journey-page">
-    <header class="journey-hero"><button class="back-button" aria-label="返回" @click="router.back()">‹</button><div><p>晚安树洞 · 一段经历</p><h1>{{ detail?.journey.title || '我理解的是这些，对吗？' }}</h1><small v-if="detail">{{ detail.journey.domain }} · {{ detail.journey.stage }}</small></div></header>
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+  <JourneyFlowShell :mode="flowStep" :title="sceneCopy.title" :subtitle="sceneCopy.subtitle" @back="router.back()">
+    <p v-if="error" class="journey-error" role="alert">{{ error }}</p>
     <p v-if="loading && !detail" class="loading-note">正在打开这段经历…</p>
     <template v-if="detail">
-      <SituationConfirmation v-if="flowStep === 'confirm' && detail.snapshot" :snapshot="detail.snapshot" :busy="busy" :analyzing="analysisBusy" @confirm="confirmSituation" @reanalyze="reanalyze" />
-      <EmotionTemperature v-else-if="flowStep === 'temperature'" @save="saveTemperature" @skip="flowStep = 'intent'" />
-      <SupportIntentPicker v-else-if="flowStep === 'intent'" :busy="busy" :intensity="intensity" @choose="chooseIntent" />
-      <StabilizePanel v-else-if="flowStep === 'stabilize'" :journey-id="detail.journey.id" />
-      <template v-else>
-        <JourneyTimeline :title="detail.journey.title" :created-at="detail.journey.createdAt" :initial-intensity="detail.journey.initialIntensity" :current-intensity="intensity" :updates="chronologicalUpdates" :busy="busy" @later="flowStep = 'timeline'" @action="router.push(`/pages/action/index?journeyId=${detail.journey.id}`)" />
-        <section class="later-card"><label><span>写下后来呢</span><textarea v-model="later" maxlength="1000" placeholder="不需要完整，写下一点变化或这一步带来的感觉。" /></label><div><small>{{ later.length }}/1000</small><button :disabled="busy || !later.trim()" @click="saveLater">保存</button></div></section>
-        <button class="change-support" @click="flowStep = 'intent'">换一种支持</button>
-      </template>
+      <SituationConfirmationScreen v-if="flowStep === 'confirm' && detail.snapshot" :snapshot="detail.snapshot" :busy="busy" :analyzing="analysisBusy" @confirm="confirmSituation" @reanalyze="reanalyze" />
+      <EmotionTemperatureScreen v-else-if="flowStep === 'temperature'" @save="saveTemperature" @skip="flowStep = 'intent'" />
+      <SupportIntentScreen v-else-if="flowStep === 'intent'" :busy="busy" :intensity="intensity" @choose="chooseIntent" />
+      <StabilizeScreen v-else-if="flowStep === 'stabilize'" :journey-id="detail.journey.id" />
+      <JourneyTimelineScreen v-else :title="detail.journey.title" :created-at="detail.journey.createdAt" :initial-intensity="detail.journey.initialIntensity" :current-intensity="intensity" :updates="chronologicalUpdates" :later="later" :busy="busy" @update:later="later = $event" @save-later="saveLater" @action="router.push(`/pages/action/index?journeyId=${detail.journey.id}`)" @change-support="flowStep = 'intent'" />
     </template>
-  </section>
+  </JourneyFlowShell>
 </template>
 
 <style scoped>
-.journey-page{display:grid;gap:16px;padding:0 14px 142px;background:#f4efe3}.journey-hero{position:relative;display:flex;gap:12px;align-items:start;min-height:210px;margin:0 -14px;overflow:hidden;padding:22px 18px;background:radial-gradient(circle at 74% 68%,rgba(231,172,120,.5),transparent 24%),linear-gradient(165deg,#101d2a,#293a47 52%,#74685d)}.journey-hero::after{position:absolute;right:-5px;bottom:-20px;width:184px;height:184px;background:url('../assets/goodnight/tree-top-cutout.png') right bottom/contain no-repeat;opacity:.45;content:'';filter:brightness(.7);pointer-events:none}.journey-hero>div,.back-button{position:relative;z-index:1}.back-button{display:grid;place-items:center;width:38px;height:38px;border:1px solid rgba(255,255,255,.28);border-radius:50%;background:rgba(255,255,255,.1);color:#fff;font-size:32px;line-height:1;cursor:pointer}.journey-hero p,.journey-hero small{margin:0;color:rgba(255,250,240,.76);font-size:13px}.journey-hero h1{max-width:255px;margin:48px 0 8px;color:#fffaf1;font-family:var(--gn-font-display);font-size:31px;line-height:1.22}.error-text{margin:0;color:var(--gn-danger)}.loading-note{margin:0;padding:20px;color:#69745f;text-align:center}.later-card{display:grid;gap:10px;border-radius:24px;background:#fffdf8;padding:20px;box-shadow:0 18px 36px rgba(25,37,30,.12)}.later-card label{display:grid;gap:9px;color:#405b3d;font-size:16px}.later-card textarea{min-height:112px;width:100%;border:1px solid rgba(95,127,62,.17);border-radius:14px;background:#fffefa;padding:11px;color:#2e3e32;font:inherit;line-height:1.6;resize:none}.later-card>div{display:flex;align-items:center;justify-content:space-between;color:#7c8579;font-size:12px}.later-card button{min-width:84px;min-height:38px;border:0;border-radius:12px;background:#4e714d;color:#fff;font:inherit;cursor:pointer}.later-card button:disabled{opacity:.55;cursor:wait}.change-support{min-height:44px;border:1px solid rgba(95,127,62,.22);border-radius:15px;background:transparent;color:#4e6d48;font:inherit;cursor:pointer}
+.journey-error{margin:0;border-radius:14px;background:#fff0ed;padding:11px 13px;color:#ad4b41;font-size:14px}.loading-note{margin:0;border-radius:18px;background:rgba(255,253,247,.92);padding:28px 16px;color:#69745f;text-align:center}
 </style>

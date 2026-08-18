@@ -337,7 +337,7 @@ onMounted(load);
 
 .feedback-hero-copy { width: min(74%, 370px); margin-top: 25px; }
 .feedback-eyebrow { margin: 0 0 6px; color: #74894e; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
-.feedback-hero h1 { margin: 0; color: #304829; font-family: var(--gn-font-display, "KaiTi", serif); font-size: clamp(34px, 10vw, 48px); letter-spacing: .06em; line-height: 1.08; }
+.feedback-hero h1 { margin: 0; color: #304829; font-family: var(--gn-font-display); font-size: clamp(34px, 10vw, 48px); letter-spacing: .06em; line-height: 1.08; }
 .feedback-hero-copy > p:last-child { max-width: 280px; margin: 14px 0 0; color: #5c753c; font-size: 15px; line-height: 1.55; }
 .feedback-load-error { margin: 2px 8px 14px; color: #a05d45; font-size: 13px; text-align: center; }
 
@@ -354,7 +354,7 @@ onMounted(load);
 .feedback-faq-card { padding: 20px 18px 16px; }
 .feedback-section-title { display: flex; gap: 10px; align-items: center; }
 .feedback-section-title > span { color: #839a56; font-size: 27px; transform: rotate(-25deg); }
-.feedback-section-title h2 { margin: 0; color: #30472a; font-family: var(--gn-font-display, "KaiTi", serif); font-size: 24px; }
+.feedback-section-title h2 { margin: 0; color: #30472a; font-family: var(--gn-font-display); font-size: 24px; }
 .feedback-faq-card .faq-list { display: block; margin-top: 9px; }
 
 .feedback-faq-item { border-bottom: 1px solid rgba(133, 145, 108, .16); }

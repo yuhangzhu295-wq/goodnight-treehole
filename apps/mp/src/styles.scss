@@ -17,7 +17,7 @@ body {
     radial-gradient(circle at 12% 8%, rgba(245, 220, 171, 0.36), transparent 28%),
     linear-gradient(90deg, #edf2ed 0%, #f7fbf4 46%, #e5ece6 100%);
   color: #253828;
-  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-family: var(--gn-font-body);
 }
 
 button,
@@ -407,7 +407,7 @@ select {
   margin: 0;
   color: #446532;
   font-size: 44px;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.12;
@@ -1101,7 +1101,7 @@ select {
   margin: 0;
   color: #496d35;
   font-size: 32px;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   line-height: 1.15;
 }
 
@@ -1170,7 +1170,7 @@ select {
   margin: 0;
   color: #496d35;
   font-size: 24px;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
 }
 
 .letter-line {
@@ -4126,6 +4126,19 @@ body {
   background: var(--gn-bg);
 }
 
+/* Journey is a full-width flow scene: its own internal gutters provide the
+   reference layout, so it must not inherit the handset's decorative gutter. */
+.phone-shell:has(.journey-flow-page) {
+  padding-inline: 0;
+}
+
+.phone-shell:has(.tonight-page),
+.phone-shell:has(.safety-page),
+.phone-shell:has(.handoff-page),
+.phone-shell:has(.notification-page) {
+  padding-inline: 0;
+}
+
 .goodnight-page {
   min-height: 100vh;
   padding-bottom: calc(130px + env(safe-area-inset-bottom));
@@ -6294,7 +6307,7 @@ body {
 .report-brand strong {
   display: block;
   color: #496d35;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   font-size: 37px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -6648,7 +6661,7 @@ body {
 
 .report-reflection h2 {
   color: #4c6c36;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   font-size: 16px;
 }
 
@@ -6806,7 +6819,7 @@ body {
 .letter-list-heading h1 {
   margin: 0;
   color: #496d35;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   font-size: 38px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -7075,7 +7088,7 @@ body {
 .favorite-list-heading h1 {
   margin: 0;
   color: #496d35;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   font-size: 38px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -7264,7 +7277,7 @@ body {
     url("./assets/goodnight/tool-baby-letter-cutout.png") right 12px bottom / 72px auto no-repeat,
     linear-gradient(145deg, #fffdf2, #f4f4e7);
   color: #59733d;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-family: var(--gn-font-display);
   font-size: 16px;
   line-height: 1.3;
 }
@@ -7792,7 +7805,7 @@ body {
   height: 18px;
   place-items: center;
   color: #9baa6b;
-  font-family: "KaiTi", "STKaiti", serif;
+  font-family: var(--gn-font-display);
   font-size: 25px;
   line-height: 1;
   transform: rotate(-18deg);
@@ -7825,7 +7838,7 @@ body {
   border-radius: 50%;
   background: radial-gradient(circle at 34% 28%, #fffefa 0 30%, #f6f1e3 72%, #ece5d1 100%);
   color: #7b9350;
-  font-family: "KaiTi", "STKaiti", serif;
+  font-family: var(--gn-font-display);
   font-size: 26px;
   line-height: 1;
 }
@@ -8095,4 +8108,66 @@ body {
 .report-page::before {
   display: none;
   content: none;
+}
+
+/* First-stage mobile pages share one full-bleed scene header. The page body
+   remains padded; only the decorative header escapes that inset. */
+.phone-shell:has(.tonight-page) .night-hero,
+.phone-shell:has(.safety-page) .safety-hero,
+.phone-shell:has(.handoff-page) .handoff-hero,
+.phone-shell:has(.notification-page) .notification-hero {
+  width: calc(100% + 28px);
+  max-width: none;
+}
+
+/* Final first-stage navigation contract. Keep the fixed control stable across
+   route changes and use a quiet green active marker instead of an outline. */
+.phone-shell .tabbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 20;
+  width: min(430px - 28px, calc(100vw - 28px));
+  height: 72px;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--gn-border);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--gn-shadow-card);
+  transform: translateX(-50%);
+}
+
+.phone-shell .tabbar a {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  border: 0;
+  border-radius: 22px;
+  color: #8a908a;
+  outline: 0;
+  box-shadow: none;
+}
+
+.phone-shell .tabbar a.router-link-active {
+  position: relative;
+  color: var(--gn-green-dark);
+  background: rgba(238, 244, 229, 0.74);
+  box-shadow: inset 0 0 0 1px rgba(95, 127, 62, 0.16);
+  font-weight: 700;
+}
+
+.phone-shell .tabbar a.router-link-active::after {
+  position: absolute;
+  bottom: 5px;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--gn-green);
+  content: '';
+}
+
+.phone-shell .tabbar a:focus-visible {
+  outline: 2px solid rgba(95, 127, 62, 0.36);
+  outline-offset: 2px;
 }
