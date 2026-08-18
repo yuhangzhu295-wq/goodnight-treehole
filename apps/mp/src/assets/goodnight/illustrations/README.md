@@ -10,3 +10,9 @@ interactive surfaces.
   Goodnight asset set.
 - `notification-*.png`: independent notification card illustrations.
 - `journey-*.png`: small timeline and journey-node illustrations.
+- `action-night-corner.png` / `adaptive-night-corner.png`: text-free moon,
+  tree and branch crops used by the real Action and Adaptive Action shells.
+- `stabilize-handoff-scene.png`: text-free bench and lantern detail for the
+  Stabilize handoff note.
+- `intent-*.png`: eight text-free hand-drawn icon crops from the supplied
+  `13_你现在最需要什么.png` reference, one per existing SupportIntent.

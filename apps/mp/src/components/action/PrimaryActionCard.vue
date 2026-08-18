@@ -68,18 +68,18 @@ defineEmits<{
 </template>
 
 <style scoped>
-.action-paper { position:relative; overflow:hidden; border:1px solid rgba(116, 124, 86, .2); border-radius:26px; background:linear-gradient(145deg, rgba(255,254,250,.98), rgba(247,242,226,.98)); box-shadow:0 18px 36px rgba(22,36,42,.13); padding:20px 20px 16px; }
+.action-paper { position:relative; overflow:hidden; border:1px solid rgba(116, 124, 86, .2); border-radius:24px; background:linear-gradient(145deg, rgba(255,254,250,.98), rgba(247,242,226,.98)); box-shadow:0 15px 30px rgba(22,36,42,.13); padding:16px 18px 14px; }
 .action-paper::after { position:absolute; right:-20px; bottom:-32px; width:132px; height:132px; background:url('../../assets/goodnight/leaf-corner.png') right bottom/contain no-repeat; opacity:.56; content:''; pointer-events:none; }
-.paper-label { margin:0 0 10px; color:#66765b; font-size:13px; font-weight:650; }
-h2 { position:relative; z-index:1; max-width:286px; margin:0; color:#253a31; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:25px; font-weight:650; line-height:1.36; }
-.action-title { font-size:27px; }
-.paper-copy { position:relative; z-index:1; max-width:295px; margin:11px 0 0; color:#657066; font-size:15px; line-height:1.62; }
-.action-meta { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; color:#65735d; font-size:13px; }
-.action-meta span { display:inline-flex; align-items:center; min-height:26px; border-radius:999px; background:rgba(232,239,218,.86); padding:0 10px; }
-.completion-note { position:relative; z-index:1; margin:12px 0 0; color:#738076; font-size:13px; line-height:1.5; }
-.card-actions,.two-actions { position:relative; z-index:1; display:grid; gap:8px; margin-top:16px; }
+.paper-label { margin:0 0 7px; color:#66765b; font-size:12px; font-weight:650; }
+h2 { position:relative; z-index:1; max-width:286px; margin:0; color:#253a31; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:24px; font-weight:650; line-height:1.3; }
+.action-title { font-size:25px; }
+.paper-copy { position:relative; z-index:1; max-width:295px; margin:8px 0 0; color:#657066; font-size:14px; line-height:1.52; }
+.action-meta { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; color:#65735d; font-size:12px; }
+.action-meta span { display:inline-flex; align-items:center; min-height:24px; border-radius:999px; background:rgba(232,239,218,.86); padding:0 9px; }
+.completion-note { position:relative; z-index:1; margin:9px 0 0; color:#738076; font-size:12px; line-height:1.45; }
+.card-actions,.two-actions { position:relative; z-index:1; display:grid; gap:7px; margin-top:12px; }
 .two-actions { grid-template-columns:1fr 1fr; }
-.primary-cta,.secondary-cta { min-height:46px; border-radius:999px; padding:0 16px; font:inherit; font-size:15px; cursor:pointer; }
+.primary-cta,.secondary-cta { min-height:44px; border-radius:999px; padding:0 16px; font:inherit; font-size:14px; cursor:pointer; }
 .primary-cta { border:1px solid #3f624d; background:#426b52; color:#fffdf6; box-shadow:0 8px 16px rgba(48,80,61,.18); }
 .primary-cta:disabled,.secondary-cta:disabled { cursor:wait; opacity:.68; }
 .secondary-cta { border:1px solid rgba(88,108,83,.2); background:rgba(255,255,255,.56); color:#516348; }

@@ -13,7 +13,7 @@ defineEmits<{ open: [] }>();
 </template>
 
 <style scoped>
-.followup-strip { display:grid; grid-template-columns:32px 1fr 18px; align-items:center; gap:10px; width:100%; border:1px solid rgba(117,124,87,.15); border-radius:16px; background:rgba(251,247,235,.84); padding:11px 12px; color:#53644e; font:inherit; font-size:13px; line-height:1.45; text-align:left; cursor:pointer; }
-.followup-icon { display:grid; width:30px; height:30px; place-items:center; border-radius:12px; background:#2f4c4e; color:#f6e3b4; font-size:17px; }
+.followup-strip { display:grid; grid-template-columns:30px 1fr 18px; align-items:center; gap:9px; width:100%; border:1px solid rgba(117,124,87,.15); border-radius:15px; background:rgba(251,247,235,.84); padding:9px 11px; color:#53644e; font:inherit; font-size:12px; line-height:1.4; text-align:left; cursor:pointer; }
+.followup-icon { display:grid; width:28px; height:28px; place-items:center; border-radius:11px; background:#2f4c4e; color:#f6e3b4; font-size:16px; }
 .arrow { color:#69765f; font-size:23px; line-height:1; }
 </style>

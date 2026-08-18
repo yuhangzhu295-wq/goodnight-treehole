@@ -27,11 +27,11 @@ defineEmits<{ select: [key: ShortcutKey] }>();
 
 <style scoped>
 .shortcut-area { margin-top:2px; }
-.shortcut-area > p { margin:0 0 10px 2px; color:#65735d; font-size:13px; }
-.shortcut-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; }
-.shortcut-card { display:grid; min-height:92px; align-content:start; justify-items:center; gap:5px; border:1px solid rgba(117,124,87,.14); border-radius:17px; background:rgba(255,253,246,.84); padding:9px 6px 7px; color:#435640; font:inherit; text-align:center; cursor:pointer; box-shadow:0 8px 18px rgba(55,66,47,.05); }
-.shortcut-icon { display:grid; width:31px; height:31px; place-items:center; border-radius:12px; background:#edf0df; color:#63775a; font-size:16px; }
-strong { font-size:12px; font-weight:650; line-height:1.28; }
-small { color:#849082; font-size:10px; line-height:1.36; }
+.shortcut-area > p { margin:0 0 8px 2px; color:#65735d; font-size:12px; }
+.shortcut-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:7px; }
+.shortcut-card { display:grid; min-height:80px; align-content:start; justify-items:center; gap:4px; border:1px solid rgba(117,124,87,.14); border-radius:16px; background:rgba(255,253,246,.84); padding:7px 5px 6px; color:#435640; font:inherit; text-align:center; cursor:pointer; box-shadow:0 7px 16px rgba(55,66,47,.05); }
+.shortcut-icon { display:grid; width:28px; height:28px; place-items:center; border-radius:11px; background:#edf0df; color:#63775a; font-size:15px; }
+strong { font-size:11px; font-weight:650; line-height:1.22; }
+small { color:#849082; font-size:9px; line-height:1.25; }
 @media (max-width:374px) { .shortcut-grid { gap:6px; } .shortcut-card { min-height:88px; padding-inline:4px; } strong { font-size:11px; } small { font-size:9px; } }
 </style>

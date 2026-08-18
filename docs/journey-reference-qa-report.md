@@ -37,10 +37,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-intent.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 180 | 156 | 347 | 324 | N/A | 833 | 8 |
-| 390x844 | 180 | 156 | 362 | 324 | N/A | 844 | 8 |
-| 393x852 | 180 | 156 | 365 | 324 | N/A | 852 | 8 |
-| 430x932 | 180 | 156 | 402 | 324 | N/A | 932 | 8 |
+| 375x812 | 180 | 156 | 347 | 328 | N/A | 847 | 8 |
+| 390x844 | 180 | 156 | 362 | 314 | N/A | 844 | 8 |
+| 393x852 | 180 | 156 | 365 | 314 | N/A | 852 | 8 |
+| 430x932 | 180 | 156 | 402 | 314 | N/A | 932 | 8 |
 
 ## stabilize
 
@@ -48,10 +48,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-stabilize.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 176 | 152 | 347 | 278 | N/A | 846 | 3 |
-| 390x844 | 176 | 152 | 362 | 278 | N/A | 846 | 3 |
-| 393x852 | 176 | 152 | 365 | 278 | N/A | 852 | 3 |
-| 430x932 | 176 | 152 | 402 | 278 | N/A | 932 | 3 |
+| 375x812 | 176 | 152 | 347 | 277 | N/A | 837 | 3 |
+| 390x844 | 176 | 152 | 362 | 277 | N/A | 844 | 3 |
+| 393x852 | 176 | 152 | 365 | 277 | N/A | 852 | 3 |
+| 430x932 | 176 | 152 | 402 | 277 | N/A | 932 | 3 |
 
 ## timeline
 
@@ -59,10 +59,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-timeline.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 176 | 152 | 347 | 768 | N/A | 1031 | 3 |
-| 390x844 | 176 | 152 | 362 | 751 | N/A | 1014 | 3 |
-| 393x852 | 176 | 152 | 365 | 751 | N/A | 1014 | 3 |
-| 430x932 | 176 | 152 | 402 | 727 | N/A | 990 | 3 |
+| 375x812 | 176 | 152 | 347 | 639 | N/A | 902 | 2 |
+| 390x844 | 176 | 152 | 362 | 623 | N/A | 886 | 2 |
+| 393x852 | 176 | 152 | 365 | 623 | N/A | 886 | 2 |
+| 430x932 | 176 | 152 | 402 | 600 | N/A | 932 | 2 |
 
 ## Review
 

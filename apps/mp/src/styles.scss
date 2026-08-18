@@ -8175,12 +8175,10 @@ body {
 /* First-stage scene layer: a text-free crop from the supplied night reference
    blends into the dark hero while keeping all page content as real DOM. */
 .phone-shell:has(.tonight-page) .night-hero::after,
-.phone-shell:has(.action-page) .action-hero::before,
 .phone-shell:has(.safety-page) .safety-hero::after,
 .phone-shell:has(.handoff-page) .handoff-hero::after,
 .phone-shell:has(.notification-page) .notification-hero::after,
-.phone-shell:has(.journey-flow-page) .journey-flow-hero::after,
-.phone-shell:has(.adaptive-screen) .adaptive-hero::before {
+.phone-shell:has(.journey-flow-page) .journey-flow-hero::after {
   top: 0;
   right: -2px;
   bottom: auto;
