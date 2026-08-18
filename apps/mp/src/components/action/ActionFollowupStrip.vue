@@ -1,13 +1,14 @@
 <script setup lang="ts">
+import AppIcon from '../icons/AppIcon.vue';
 defineProps<{ message: string }>();
 defineEmits<{ open: [] }>();
 </script>
 
 <template>
   <button class="followup-strip" data-testid="action-followup-strip" @click="$emit('open')">
-    <span class="followup-icon" aria-hidden="true">◐</span>
+    <span class="followup-icon" aria-hidden="true"><AppIcon name="clock" :size="18" /></span>
     <span>{{ message }}</span>
-    <span class="arrow" aria-hidden="true">›</span>
+    <span class="arrow" aria-hidden="true"><AppIcon name="arrow" :size="18" /></span>
   </button>
 </template>
 

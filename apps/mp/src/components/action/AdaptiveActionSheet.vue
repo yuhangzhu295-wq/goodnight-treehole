@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ActionBarrier } from '@goodnight/shared-types';
+import AppIcon from '../icons/AppIcon.vue';
 
 type AdaptiveResult = { title: string; description: string; expectedDuration?: string; difficulty?: string };
 
@@ -38,7 +39,7 @@ defineEmits<{
 
     <main class="adaptive-content">
       <section class="previous-action">
-        <span class="previous-icon" aria-hidden="true">▣</span>
+        <span class="previous-icon" aria-hidden="true"><AppIcon name="step" /></span>
         <div><p>上一次的小行动</p><strong>{{ props.action.title }}</strong></div>
       </section>
 

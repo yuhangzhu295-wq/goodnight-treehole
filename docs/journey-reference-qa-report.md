@@ -15,10 +15,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-confirm.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 176 | 152 | 347 | 485 | N/A | 812 | 3 |
-| 390x844 | 176 | 152 | 362 | 485 | N/A | 844 | 3 |
-| 393x852 | 176 | 152 | 365 | 485 | N/A | 852 | 3 |
-| 430x932 | 176 | 152 | 402 | 485 | N/A | 932 | 3 |
+| 375x812 | 176 | 152 | 347 | 491 | N/A | 812 | 3 |
+| 390x844 | 176 | 152 | 362 | 491 | N/A | 844 | 3 |
+| 393x852 | 176 | 152 | 365 | 491 | N/A | 852 | 3 |
+| 430x932 | 176 | 152 | 402 | 491 | N/A | 932 | 3 |
 
 ## temperature
 
@@ -26,10 +26,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-temperature.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 176 | 152 | 347 | 723 | N/A | 945 | 2 |
-| 390x844 | 176 | 152 | 362 | 723 | N/A | 945 | 2 |
-| 393x852 | 176 | 152 | 365 | 723 | N/A | 945 | 2 |
-| 430x932 | 176 | 152 | 402 | 723 | N/A | 945 | 2 |
+| 375x812 | 176 | 152 | 347 | 634 | N/A | 855 | 2 |
+| 390x844 | 176 | 152 | 362 | 634 | N/A | 855 | 2 |
+| 393x852 | 176 | 152 | 365 | 634 | N/A | 855 | 2 |
+| 430x932 | 176 | 152 | 402 | 634 | N/A | 932 | 2 |
 
 ## intent
 
@@ -59,10 +59,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-timeline.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 190 | 166 | 347 | 764 | N/A | 1027 | 3 |
-| 390x844 | 190 | 166 | 362 | 747 | N/A | 1010 | 3 |
-| 393x852 | 190 | 166 | 365 | 747 | N/A | 1010 | 3 |
-| 430x932 | 190 | 166 | 402 | 723 | N/A | 986 | 3 |
+| 375x812 | 176 | 152 | 347 | 768 | N/A | 1031 | 3 |
+| 390x844 | 176 | 152 | 362 | 751 | N/A | 1014 | 3 |
+| 393x852 | 176 | 152 | 365 | 751 | N/A | 1014 | 3 |
+| 430x932 | 176 | 152 | 402 | 727 | N/A | 990 | 3 |
 
 ## Review
 

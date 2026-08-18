@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { ActionBarrier, ActionRecommendation, AdaptiveActionResult } from '@goodnight/shared-types';
 import { api } from '../api';
-import { useDeviceClock } from '../composables/useDeviceClock';
 import PrimaryActionCard from '../components/action/PrimaryActionCard.vue';
 import AdaptiveActionSheet from '../components/action/AdaptiveActionSheet.vue';
 import ActionFollowupStrip from '../components/action/ActionFollowupStrip.vue';
@@ -15,7 +14,6 @@ type AdaptiveResult = AdaptiveActionResult & { description: string };
 
 const router = useRouter();
 const route = useRoute();
-const { timeLabel } = useDeviceClock();
 const home = ref<any>(null);
 const journeyDetail = ref<any>(null);
 const loading = ref(true);
@@ -306,7 +304,7 @@ onMounted(load);
 
   <section v-else class="page goodnight-page action-page">
     <header class="action-hero">
-      <div class="hero-topline"><span class="brand-mark">晚安树洞</span><span>{{ timeLabel }}</span></div>
+      <div class="hero-topline"><span class="brand-mark">晚安树洞</span></div>
       <h1>今晚，只做这一件事</h1>
       <p>不需要证明自己，只要向现实迈出一小步。</p>
     </header>

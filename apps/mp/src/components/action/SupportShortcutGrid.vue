@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import AppIcon from '../icons/AppIcon.vue';
 type ShortcutKey = 'cooldown' | 'decision' | 'handoff' | 'future';
 
 const items: Array<{ key: ShortcutKey; icon: string; title: string; description: string }> = [
-  { key: 'cooldown', icon: '◌', title: '先别发出去', description: '允许自己缓一缓' },
-  { key: 'decision', icon: '⌘', title: '一个重要决定', description: '理清思路再说' },
-  { key: 'handoff', icon: '◎', title: '找现实中的人', description: '连接，获得支持' },
-  { key: 'future', icon: '✦', title: '留给未来的我', description: '写一封给未来的信' },
+  { key: 'cooldown', icon: 'pause', title: '先别发出去', description: '允许自己缓一缓' },
+  { key: 'decision', icon: 'path', title: '一个重要决定', description: '理清思路再说' },
+  { key: 'handoff', icon: 'people', title: '找现实中的人', description: '连接，获得支持' },
+  { key: 'future', icon: 'message', title: '留给未来的我', description: '写一封给未来的信' },
 ];
 
 defineEmits<{ select: [key: ShortcutKey] }>();
@@ -16,7 +17,7 @@ defineEmits<{ select: [key: ShortcutKey] }>();
     <p>如果你现在更需要别的支持</p>
     <div class="shortcut-grid">
       <button v-for="item in items" :key="item.key" class="shortcut-card" :data-testid="`action-shortcut-${item.key}`" @click="$emit('select', item.key)">
-        <span class="shortcut-icon" aria-hidden="true">{{ item.icon }}</span>
+        <span class="shortcut-icon" aria-hidden="true"><AppIcon :name="item.icon" :size="18" /></span>
         <strong>{{ item.title }}</strong>
         <small>{{ item.description }}</small>
       </button>

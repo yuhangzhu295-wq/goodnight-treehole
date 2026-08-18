@@ -884,7 +884,13 @@ onMounted(load);
 
 .privacy-controls { padding-block: 5px; }
 .privacy-toggle { min-height: 62px; }
-.privacy-action { min-height: 60px; }
+.privacy-action-list {
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+}
+.privacy-action {
+  min-height: 60px;
+  scroll-margin-bottom: calc(104px + env(safe-area-inset-bottom));
+}
 
 @media (max-width: 374px) {
   .privacy-toggle { grid-template-columns: 39px minmax(0, 1fr) 42px; gap: 7px; }

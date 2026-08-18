@@ -381,4 +381,15 @@ onMounted(load);
 .letter-page .advice-copy {
   margin-top: 4px;
 }
+
+/* The fixed navigation is part of the product chrome. Leave enough real
+   document space after the advice block so saved-letter actions can be
+   scrolled above it during keyboard and pointer navigation. */
+.letter-page .advice-section {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
+.letter-page .letter-actions {
+  scroll-margin-bottom: calc(104px + env(safe-area-inset-bottom));
+}
 </style>

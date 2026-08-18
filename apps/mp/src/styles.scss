@@ -8152,8 +8152,8 @@ body {
 .phone-shell .tabbar a.router-link-active {
   position: relative;
   color: var(--gn-green-dark);
-  background: rgba(238, 244, 229, 0.74);
-  box-shadow: inset 0 0 0 1px rgba(95, 127, 62, 0.16);
+  background: rgba(238, 244, 229, 0.38);
+  box-shadow: none;
   font-weight: 700;
 }
 
@@ -8170,4 +8170,25 @@ body {
 .phone-shell .tabbar a:focus-visible {
   outline: 2px solid rgba(95, 127, 62, 0.36);
   outline-offset: 2px;
+}
+
+/* First-stage scene layer: a text-free crop from the supplied night reference
+   blends into the dark hero while keeping all page content as real DOM. */
+.phone-shell:has(.tonight-page) .night-hero::after,
+.phone-shell:has(.action-page) .action-hero::before,
+.phone-shell:has(.safety-page) .safety-hero::after,
+.phone-shell:has(.handoff-page) .handoff-hero::after,
+.phone-shell:has(.notification-page) .notification-hero::after,
+.phone-shell:has(.journey-flow-page) .journey-flow-hero::after,
+.phone-shell:has(.adaptive-screen) .adaptive-hero::before {
+  top: 0;
+  right: -2px;
+  bottom: auto;
+  width: 230px;
+  height: 100%;
+  background: url('./assets/goodnight/illustrations/night-scene.png') right top / cover no-repeat;
+  opacity: 0.72;
+  filter: none;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 38%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 38%);
 }
