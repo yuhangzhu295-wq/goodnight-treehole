@@ -8172,6 +8172,13 @@ body {
   outline-offset: 2px;
 }
 
+/* The Journey detail route hosts several reference states. Only the first four
+   are tab destinations; the timeline is a focused detail scene with its own
+   return control. */
+.phone-shell:has(.journey-flow--timeline) .tabbar {
+  display: none;
+}
+
 /* First-stage scene layer: a text-free crop from the supplied night reference
    blends into the dark hero while keeping all page content as real DOM. */
 .phone-shell:has(.tonight-page) .night-hero::after,

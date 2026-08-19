@@ -36,8 +36,8 @@ const viewports = [
 ];
 const pages: PageCase[] = [
   { key: 'tonight', route: '/pages/tonight/index', reference: '01_今晚怎么了.png', hero: '.night-hero', main: '.entry-card', primarySelector: '.continue-button', tabbar: true, minSections: 4 },
-  { key: 'safety', route: '/pages/safety/index', reference: '33_SafetyFlow_正式版.png', hero: '.safety-hero', main: '.safety-copy', primarySelector: '[data-testid="safety-handoff"]', tabbar: true, minSections: 3 },
-  { key: 'handoff', route: '/pages/reality-handoff/index', reference: '16_现实求助卡.png', hero: '.handoff-hero', main: '.handoff-card', primarySelector: '[data-testid="handoff-save"]', tabbar: true, minSections: 3 },
+  { key: 'safety', route: '/pages/safety/index', reference: '33_SafetyFlow_正式版.png', hero: '.safety-hero', main: '.safety-copy', primarySelector: '[data-testid="safety-handoff"]', tabbar: false, minSections: 3 },
+  { key: 'handoff', route: '/pages/reality-handoff/index', reference: '16_现实求助卡.png', hero: '.handoff-hero', main: '.handoff-card', primarySelector: '[data-testid="handoff-save"]', tabbar: false, minSections: 3 },
   { key: 'notifications', route: '/pages/notifications/index', reference: '39_提醒与回访.png', hero: '.notification-hero', main: '.notice-list', primarySelector: '.notice-card', tabbar: true, minSections: 2, mainTopAllowance: 130 },
 ];
 
@@ -54,8 +54,12 @@ async function measure(page: Page, item: PageCase, viewport: { width: number; he
   const hero = await readBox(item.hero);
   const main = await readBox(item.main);
   const primary = await readBox(item.primarySelector);
-  const tabbarLocator = page.locator('.tabbar');
-  const tabbar = await tabbarLocator.count() ? await readBox('.tabbar') : null;
+  const tabbar = await page.locator('.tabbar').evaluateAll((elements) => {
+    const element = elements.find((candidate) => getComputedStyle(candidate).display !== 'none');
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, height: rect.height };
+  });
   const shell = await page.locator('html').evaluate(function (element) {
     return {
       overflow: element.scrollWidth > window.innerWidth,

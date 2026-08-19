@@ -1,0 +1,149 @@
+{
+  "reviewedAt": "2026-08-19T18:00:00+08:00",
+  "reviewer": "Codex reference-side-by-side review against the reopened source images",
+  "pages": {
+    "01-tonight": {
+      "status": "PARTIAL",
+      "rationale": "真实输入、关系选择和继续动作保留，但实际 Hero、输入卡、快捷入口与参考稿的纸张插画构图和纵向节奏仍有明显差异。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "reference.png 与 actual.png 均为 420x786；实际 Hero 的树影和标题比例不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "实际只使用局部夜景装饰，未达到参考稿的纸张场景层次。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实 textarea、标签和当前 Journey 均存在，但卡片顺序和留白不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "实际标题字重、正文行距与参考不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "继续按钮是真实可点击控件，但视觉尺寸和参考稿主次层级不一致。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "420px capture 显示四栏导航且无横向溢出。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 显示页面结构仍需第二阶段视觉收口。" }
+      }
+    },
+    "36-situation": {
+      "status": "PARTIAL",
+      "rationale": "真实 Journey 确认流、修改和重新整理仍可达，但实际三段事实卡的尺寸、插画占位、标题和按钮节奏没有达到参考稿。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "actual.png 的 Hero 高度和标题比例与 reference.png 不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "参考稿的书、灯和枝叶场景在实际中被简化。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实三段事实均在，但其信息卡结构与参考不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "实际标题、段落和按钮文字的字级不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "准确、改一处、重新整理均为真实操作，但按钮视觉层级偏离参考。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "四尺寸 Journey QA 已验证此状态出现四栏导航且不横溢出。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 显示白色卡片与参考纸张构图仍有差距。" }
+      }
+    },
+    "29-temperature": {
+      "status": "PARTIAL",
+      "rationale": "原生温度输入、症状选择和持久化继续链路正常，然而刻度、症状区、输入区与参考稿的纸张布局仍不一致。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际夜景 Hero 的标题位置和参考不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "参考的植物、长椅和灯笼细节在实际中较少。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实温度、症状和一句话输入完整，但分区高度不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "刻度、说明和按钮字级无法与参考逐项对齐。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "继续和今天先只记录是真实按钮，但层级与参考不一致。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "Journey QA 验证本状态四栏导航可见且无横向滚动。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 可见实际表单更紧凑，未达到参考稿信息密度。" }
+      }
+    },
+    "13-intent": {
+      "status": "PARTIAL",
+      "rationale": "八个真实 SupportIntent 仍进入既有分支，但实际插画、文案换行和卡片色彩与参考稿存在明显视觉差异。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际标题位置和参考夜景层次不一致。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "实际图标为裁切资源，未复现参考卡片内完整场景。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "双列八项真实意图存在，但卡片尺寸和底部说明不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "意图标题与说明的字级和行距不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "每个意图和继续均保留真实路由，但按钮呈现偏离参考。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "Journey QA 已确认本参考状态应显示并实际显示四栏导航。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "并排图显示卡片插画比例和页脚结构仍需修复。" }
+      }
+    },
+    "32-stabilize": {
+      "status": "PARTIAL",
+      "rationale": "呼吸、冷静箱、写一句和现实求助均是原有真实动作，但参考稿的连续纸张卡和信息密度没有被准确还原。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际 Hero 文案密度和参考不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "参考中的场景型插画在实际中简化为小图标或裁切层。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实支持入口存在，但卡片顺序、深浅和留白不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "实际文字密度与参考的阅读节奏不同。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "呼吸与现实求助可点击，但主次 CTA 形态不同。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "Journey QA 证明四栏导航可见且未遮挡正文。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 显示主要内容的卡片边界和高度不一致。" }
+      }
+    },
+    "33-safety": {
+      "status": "PARTIAL",
+      "rationale": "现实求助、12356、120、暂时安全和三步行动均保留，但实际页面与参考在 Hero、卡片图文结构和纵向高度上不同。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际 Hero 使用相同主题但不具备参考的具体排版。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "盾牌、长椅和背景插画层次不同。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实安全行动完整，三步卡布局与参考不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "紧急文案的字级和留白尚未对齐。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "tel 链接和真实求助卡入口存在，但视觉按钮层级不同。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "重新打开 #33 参考图确认无四栏导航；shell QA 已验证实际也无导航。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "参考与实际的安全卡比例和底部叙事差异明显。" }
+      }
+    },
+    "16-handoff": {
+      "status": "PARTIAL",
+      "rationale": "联系人、编辑、保存和复制仍走真实持久化接口，但实际表单是多张白卡，未达到参考稿单张求助卡的构图。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际 Hero 色彩和标题位置不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "参考里的手机和纸张装饰没有被准确复现。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "两层选择和预览均存在，但整体卡片结构不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "表单标题、问题编号和预览字级不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "生成保存、复制与编辑是真实操作，视觉排序仍需调整。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "#16 参考图无四栏导航；shell QA 已验证实际无固定导航。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 显示实际页面高度和纸张卡构图偏差明显。" }
+      }
+    },
+    "06-action": {
+      "status": "PARTIAL",
+      "rationale": "真实 DAPI 行动建议、接受、完成、未完成和回访链路保留，但实际主卡和辅助入口布局与参考稿不一致。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际 Hero 文案和场景裁切与参考不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "笔和纸张装饰的占位与参考不一致。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实建议和附加支持存在，但卡片数量、尺寸和间距不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "行动标题和描述的字号与参考不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "DAPI 结果和接受 CTA 均可用，视觉主次关系仍偏离参考。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "Action QA 验证四栏行动导航显示且正文无横溢出。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "并排图显示主行动卡和辅助入口尚未达到参考的紧凑纸张布局。" }
+      }
+    },
+    "37-adaptive": {
+      "status": "PARTIAL",
+      "rationale": "阻碍选择、真实 DAPI 缩小行动和接受新行动均保留，但上次行动、2x3 选项和结果卡视觉节奏与参考稿不同。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际 Hero 与参考的标题和夜景比例不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "冷静箱和纸张插画为不同的裁切构图。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实障碍选择和新行动存在，但容器尺寸及层级不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "实际标题换行与参考不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "尝试更小一步和我想换一个均为真实动作，样式仍需对齐。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "Action QA 证明四栏导航可见，页面没有横向滚动。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 显示卡片高度、插画和按钮间距均存在差异。" }
+      }
+    },
+    "39-notification": {
+      "status": "PARTIAL",
+      "rationale": "空态、单条、四种持久化类型和二十条压力态均已在隔离测试库验证；但参考态实际卡片比例、文字层次和背景构图仍没有达到参考稿。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "reference-four.png 与 reference.png 的 Hero 标题位置和树影构图不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "四种真实 type 映射插画存在，但图块裁切和参考稿不一致。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "四条真实持久化通知、未读筛选和时间均存在，卡片结构不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "160 字压力文案可换行但不匹配参考的字级节奏。" },
+        "CTA and actions": { "status": "DONE", "evidence": "通知卡点击已通过 API PATCH 持久化为 read，并真实跳转到 action 路由。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "Empty、Single、Reference four、Stress 的 420px capture 均有四栏导航且无横向滚动。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "四类型参考态 side-by-side.png 显示整体构图仍需视觉返工。" }
+      }
+    },
+    "34-timeline": {
+      "status": "PARTIAL",
+      "rationale": "真实 update kind、行动节点和后来呢持久化仍保留；实际时间线卡片、趋势区和按钮布局与参考稿不同。",
+      "areas": {
+        "Hero": { "status": "PARTIAL", "evidence": "实际标题更长，Hero 比例与参考不同。" },
+        "Illustration": { "status": "PARTIAL", "evidence": "节点插画和趋势小图未复现参考的统一手绘卡。" },
+        "Content hierarchy": { "status": "PARTIAL", "evidence": "真实时间线和后来呢存在，但节点密度与参考不同。" },
+        "Typography": { "status": "PARTIAL", "evidence": "节点标题与说明的字级和行距不一致。" },
+        "CTA and actions": { "status": "PARTIAL", "evidence": "写下后来呢、查看行动和换一种支持可用，但视觉层级不同。" },
+        "Navigation and safe area": { "status": "DONE", "evidence": "重新打开 #34 参考图确认无四栏导航；Journey QA 已验证实际时间线也不显示。" },
+        "Reference fidelity": { "status": "PARTIAL", "evidence": "side-by-side.png 显示时间线节点、趋势区和操作区仍需精修。" }
+      }
+    }
+  }
+}

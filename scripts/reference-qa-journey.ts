@@ -20,6 +20,13 @@ const references = {
   stabilize: 'C:\\Users\\zyu33\\Desktop\\图片素材88\\晚安树洞_UI_01-41_业务说明\\32_我先接住你.png',
   timeline: 'C:\\Users\\zyu33\\Desktop\\图片素材88\\晚安树洞_UI_01-41_业务说明\\34_Journey时间线_正式版.png',
 };
+const tabbarByState = {
+  confirm: true,
+  temperature: true,
+  intent: true,
+  stabilize: true,
+  timeline: false,
+} as const;
 const fixture = { journeyIds: [] as string[] };
 
 type Geometry = {
@@ -58,7 +65,7 @@ async function capture(page: Page, state: keyof typeof references, expected: str
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await page.waitForTimeout(80);
-    const metrics = await page.evaluate(({ expectedText, selector, requiredSections }) => {
+    const metrics = await page.evaluate(({ expectedText, selector, requiredSections, expectedTabbar }) => {
       const bodyText = document.body.innerText;
       const banned = /(domain|stage|clarifying|planning|stabilizing|safety_first|user_confirmed|confidence)/i;
       if (banned.test(bodyText)) throw new Error('Journey screen exposes an internal state');
@@ -72,14 +79,17 @@ async function capture(page: Page, state: keyof typeof references, expected: str
       const main = mainNode.getBoundingClientRect();
       const cta = ctaNode.getBoundingClientRect();
       const sectionCount = document.querySelectorAll('.situation-section, .field-block, .thought-field, .intent-grid button, .support-option, .write-option, .timeline-list article').length;
-      const tabbar = document.querySelector('.tabbar')?.getBoundingClientRect();
+      const tabbarNode = [...document.querySelectorAll<HTMLElement>('.tabbar')].find((node) => getComputedStyle(node).display !== 'none');
+      const tabbar = tabbarNode?.getBoundingClientRect();
       if (hero.bottom < 150 || hero.bottom > 245) throw new Error('Hero height ' + hero.bottom + ' is outside the Journey reference band');
       if (main.top < hero.bottom - 42 || main.top > hero.bottom + 12) throw new Error('Main content top is detached from hero');
       if (main.width < window.innerWidth - 52) throw new Error('Main content width is too narrow');
       if (cta.top < main.top || cta.bottom > document.documentElement.scrollHeight + 1) throw new Error('Primary CTA is outside the document flow');
       if (sectionCount < requiredSections) throw new Error('Expected at least ' + requiredSections + ' primary sections, got ' + sectionCount);
+      if (expectedTabbar && !tabbar) throw new Error('Journey state must render the four-tab navigation');
+      if (!expectedTabbar && tabbar) throw new Error('Journey timeline must not render the four-tab navigation');
       return { heroHeight: Math.round(hero.bottom), mainTop: Math.round(main.top), mainWidth: Math.round(main.width), ctaY: Math.round(cta.top), tabbarY: tabbar ? Math.round(tabbar.top) : null, scrollHeight: Math.round(document.documentElement.scrollHeight), primarySectionCount: sectionCount };
-    }, { expectedText: expected, selector: primarySelector, requiredSections: minSections });
+    }, { expectedText: expected, selector: primarySelector, requiredSections: minSections, expectedTabbar: tabbarByState[state] });
     if (![metrics.heroHeight, metrics.mainTop, metrics.mainWidth, metrics.ctaY, metrics.scrollHeight, metrics.primarySectionCount].every(Number.isFinite)) throw new Error(`Missing geometry metrics for ${state} at ${viewport.width}x${viewport.height}`);
     const file = path.join(root, `actual-${state}-${viewport.width}x${viewport.height}.png`);
     await page.screenshot({ path: file });
@@ -168,12 +178,12 @@ async function main() {
       '## Method', '',
       '- 每张设计参考图均复制到 `artifacts/reference-qa/journey/`，不作为页面背景。',
       '- 截图严格使用 375x812、390x844、393x852、430x932；没有把实际页面拉伸为参考图尺寸。',
-      '- 每个视口同时断言 Hero 高度、主区起点和宽度、主 CTA 的 Y 位置、TabBar Y（本 Journey 流程为 N/A）、总滚动高度、主分区数量，以及无横向溢出。',
+      '- 每个视口同时断言 Hero 高度、主区起点和宽度、主 CTA 的 Y 位置、参考图规定的 TabBar 显隐、总滚动高度、主分区数量，以及无横向溢出。',
       '- 业务链路通过真实 UI 创建 Journey、确认、记录温度、选择支持、进入 Action、接受 DAPI 行动、写下后来，再回到真实时间线；末尾从 API 回读强度、`commitment_created` 与 `later` 记录。', '',
       ...sections,
       '## Review', '',
       '- 这五个状态共享同一 Journey ID 与 API 状态机，但每个状态由独立 Screen 组件渲染。',
-      '- Journey 是沉浸式流程页，当前不渲染全局 TabBar，因此 TabBar Y 记录为 N/A；底部留白由 Shell 安全区负责。',
+      '- #36/#29/#13/#32 参考图显示四栏 TabBar；#34 时间线不显示全局 TabBar，因此只有时间线记录为 N/A，底部留白由 Shell 安全区负责。',
       '- 视觉数据用于几何验收，而不是把像素误差当成业务通过依据。', '',
     ].join('\n'), 'utf8');
   } catch (cause) {

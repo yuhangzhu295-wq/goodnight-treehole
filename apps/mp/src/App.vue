@@ -27,8 +27,6 @@ const tabbarPaths = new Set([
   '/pages/feedback/index',
   '/pages/notifications/index',
   '/pages/journey/detail',
-  '/pages/safety/index',
-  '/pages/reality-handoff/index',
 ]);
 const showTabbar = computed(() => tabbarPaths.has(route.path));
 const activeTab = computed(() => {

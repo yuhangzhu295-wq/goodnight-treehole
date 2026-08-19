@@ -1,0 +1,18 @@
+{
+  "executedAt": "2026-08-19T18:12:00+08:00",
+  "results": [
+    { "command": "pnpm lint", "status": "PASS", "evidence": "ESLint completed without findings." },
+    { "command": "pnpm typecheck", "status": "PASS", "evidence": "API, admin, mobile, shared types and SDK type checks completed." },
+    { "command": "pnpm test:reference-fidelity-first-stage", "status": "PASS", "evidence": "Fresh 11-page 420x786 captures written before truth materialization." },
+    { "command": "pnpm test:reference-qa-first-stage-shells", "status": "PASS", "evidence": "Four mobile viewport shell and reference-navigation checks passed." },
+    { "command": "pnpm test:reference-qa-journey", "status": "PASS", "evidence": "Five Journey states passed, including tabs for #36/#29/#13/#32 and no tab bar for #34." },
+    { "command": "pnpm test:reference-qa-action", "status": "PASS", "evidence": "Action and adaptive mobile reference geometry checks passed." },
+    { "command": "pnpm test:notification-truth-state", "status": "PASS", "evidence": "Empty, single, four-type, stress 20 and cleanup state evidence were persisted in an isolated schema." },
+    { "command": "pnpm test:goodnight-2", "status": "PASS", "evidence": "3 incremental persistence, follow-up delivery and peer-conversation tests passed." },
+    { "command": "pnpm qa:all", "status": "PASS", "evidence": "Full lint, type, unit, API, E2E, visual, diagnostic, all-click and cross-flow suite completed." },
+    { "command": "pnpm test:click-all", "status": "PASS", "evidence": "124 visible controls passed with expected route or API evidence." },
+    { "command": "pnpm test:business-flow", "status": "PASS", "evidence": "10 front-to-admin-to-front business flows passed." },
+    { "command": "pnpm test:cross", "status": "PASS", "evidence": "3 cross-terminal acceptance tests passed." },
+    { "command": "pnpm test:dapi-live", "status": "PASS", "evidence": "DAPI provider_dapi_deepseek / deepseek-v4-flash succeeded; no fallback was used." }
+  ]
+}
