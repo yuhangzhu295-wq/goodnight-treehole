@@ -25,6 +25,9 @@ import JourneyDetail from './views/JourneyDetail.vue';
 import PeerExperienceDetail from './views/PeerExperienceDetail.vue';
 import PeerRequests from './views/PeerRequests.vue';
 import PeerConversation from './views/PeerConversation.vue';
+import PeerMatchWaiting from './views/PeerMatchWaiting.vue';
+import PeerConsent from './views/PeerConsent.vue';
+import PeerGraduation from './views/PeerGraduation.vue';
 import RealityHandoff from './views/RealityHandoff.vue';
 import FutureSelf from './views/FutureSelf.vue';
 import Recovery from './views/Recovery.vue';
@@ -42,7 +45,10 @@ export const router = createRouter({
     { path: '/pages/journey/detail', component: JourneyDetail },
     { path: '/pages/peer/detail', component: PeerExperienceDetail },
     { path: '/pages/peer/requests', component: PeerRequests },
+    { path: '/pages/peer/wait', component: PeerMatchWaiting },
+    { path: '/pages/peer/consent', component: PeerConsent },
     { path: '/pages/peer/conversation', component: PeerConversation },
+    { path: '/pages/peer/graduate', component: PeerGraduation },
     { path: '/pages/reality-handoff/index', component: RealityHandoff },
     { path: '/pages/safety/index', component: SafetySupport },
     { path: '/pages/notifications/index', component: NotificationCenter },

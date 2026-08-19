@@ -371,6 +371,9 @@ export interface PeerMatchRecord {
   fingerprintSimilarity?: number;
   scoreBreakdown?: Record<string, number>;
   explanation?: string;
+  requestReason?: string;
+  requestQuestion?: string;
+  acceptedAt?: string;
   status: 'suggested' | 'requested' | 'connected' | 'declined' | 'blocked';
   createdAt: string;
   updatedAt: string;
@@ -387,8 +390,25 @@ type RecoverySnapshot = { id: string; userId: string; journeyId?: string; summar
 type SafetyEvent = { id: string; userId: string; journeyId?: string; level: string; source: string; action: string; payload?: Record<string, unknown>; createdAt: string };
 type AgentDecisionLog = { id: string; userId: string; journeyId?: string; aiJobId?: string; taskType: string; decision: Record<string, unknown>; createdAt: string };
 type FollowUpJob = { id: string; userId: string; journeyId?: string; kind: string; dueAt: string; status: string; payload?: Record<string, unknown>; completedAt?: string; createdAt: string };
-type PeerConversationRecord = { id: string; matchId: string; starterUserId: string; receiverUserId: string; status: 'active' | 'closed' | 'extended'; expiresAt: string; createdAt: string; closedAt?: string };
-type PeerMessageRecord = { id: string; conversationId: string; senderUserId: string; content: string; authorType: 'HUMAN' | 'AI_ASSIST'; createdAt: string; reportedAt?: string; blockedAt?: string };
+type PeerConversationRecord = {
+  id: string;
+  matchId: string;
+  starterUserId: string;
+  receiverUserId: string;
+  status: 'active' | 'closed' | 'extended';
+  startsAt: string;
+  consentAcceptedAt?: string;
+  expiresAt: string;
+  createdAt: string;
+  closedAt?: string;
+  closedReason?: 'closed' | 'expired' | 'blocked';
+  feedback?: 'helpful' | 'unchanged' | 'uncomfortable';
+  feedbackNote?: string;
+  reportedAt?: string;
+  reporterUserId?: string;
+  reportReason?: string;
+};
+type PeerMessageRecord = { id: string; conversationId: string; senderUserId: string; content: string; authorType: 'HUMAN' | 'AI_ASSIST'; createdAt: string; reportedAt?: string; blockedAt?: string; piiFlags?: string[] };
 
 interface StoreData {
   users: Array<{ id: string; openid: string; nickname: string; anonymousCode: string; avatarUrl: string; status: 'normal' | 'limited' | 'banned'; createdAt: string }>;
@@ -1767,8 +1787,8 @@ export class StoreService implements OnModuleInit {
       updates.filter((item) => item.kind !== 'created').map((item) => item.content).join('；'),
     ].filter(Boolean).join('\n').slice(0, 1600);
     const draft: PeerExperienceRecord = {
-      id: id('experience'), userId: journey.userId, journeyId, title: journey.title, domain: journey.domain, subDomain: snapshot?.subDomain,
-      stage: 'graduated', content: content || '我完成了一段真实经历的整理，愿意把后来发生的变化留给同路的人。', tags: snapshot?.contextTags ?? [], fingerprintJson: snapshot?.fingerprintJson,
+      id: id('experience'), userId: journey.userId, journeyId, title: this.redactPeerPublicText(journey.title), domain: this.redactPeerPublicText(journey.domain), subDomain: snapshot?.subDomain ? this.redactPeerPublicText(snapshot.subDomain) : undefined,
+      stage: 'graduated', content: this.redactPeerPublicText(content || '我完成了一段真实经历的整理，愿意把后来发生的变化留给同路的人。'), tags: (snapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)), fingerprintJson: snapshot?.fingerprintJson,
       helpfulActions: completed, notHelpfulActions: [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now(),
     };
     this.peerExperiences.unshift(draft);
@@ -1779,12 +1799,12 @@ export class StoreService implements OnModuleInit {
   async updatePeerExperience(experienceId: string, input: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }) {
     const item = this.peerExperiences.find((experience) => experience.id === experienceId && experience.userId === this.getDemoUserId() && experience.status === 'pending_review');
     if (!item) throw new NotFoundException('待确认的经历不存在');
-    if (typeof input.title === 'string' && input.title.trim()) item.title = input.title.trim().slice(0, 100);
-    if (typeof input.content === 'string' && input.content.trim()) item.content = input.content.trim().slice(0, 1600);
-    if (input.laterSummary) item.laterSummary = input.laterSummary;
-    if (Array.isArray(input.helpfulActions)) item.helpfulActions = input.helpfulActions.map(String).filter(Boolean).slice(0, 8);
-    if (Array.isArray(input.notHelpfulActions)) item.notHelpfulActions = input.notHelpfulActions.map(String).filter(Boolean).slice(0, 8);
-    if (typeof input.retrospective === 'string') item.retrospective = input.retrospective.trim().slice(0, 1000);
+    if (typeof input.title === 'string' && input.title.trim()) item.title = this.redactPeerPublicText(input.title.trim().slice(0, 100));
+    if (typeof input.content === 'string' && input.content.trim()) item.content = this.redactPeerPublicText(input.content.trim().slice(0, 1600));
+    if (input.laterSummary) item.laterSummary = this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown>;
+    if (Array.isArray(input.helpfulActions)) item.helpfulActions = input.helpfulActions.map(String).filter(Boolean).slice(0, 8).map((value) => this.redactPeerPublicText(value));
+    if (Array.isArray(input.notHelpfulActions)) item.notHelpfulActions = input.notHelpfulActions.map(String).filter(Boolean).slice(0, 8).map((value) => this.redactPeerPublicText(value));
+    if (typeof input.retrospective === 'string') item.retrospective = this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000));
     item.updatedAt = now();
     await this.persistAndFlush();
     return { item };
@@ -1796,42 +1816,59 @@ export class StoreService implements OnModuleInit {
     if (input.consented !== true) throw new BadRequestException('发布经历前必须明确同意匿名分享');
     const journey = journeyId ? this.requireJourney(journeyId, userId) : undefined;
     const sourceSnapshot = journey ? this.situationSnapshots.find((snapshot) => snapshot.journeyId === journey.id) : undefined;
-    const values = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8) : [];
-    const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title: this.text(input.title, '经历标题', 100), domain: this.text(input.domain ?? journey?.domain, '经历领域', 40), subDomain: typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : sourceSnapshot?.subDomain, stage: this.text(input.stage ?? journey?.stage, '经历阶段', 40), content: this.text(input.content, '经历内容', 1600), tags: values(input.tags).length ? values(input.tags) : sourceSnapshot?.contextTags ?? [], fingerprintJson: sourceSnapshot?.fingerprintJson, laterSummary: typeof input.laterSummary === 'object' && input.laterSummary ? input.laterSummary as Record<string, unknown> : undefined, helpfulActions: values(input.helpfulActions), notHelpfulActions: values(input.notHelpfulActions), retrospective: typeof input.retrospective === 'string' ? input.retrospective.trim().slice(0, 1000) : undefined, consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
+    const values = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8).map((item) => this.redactPeerPublicText(item)) : [];
+    const title = this.redactPeerPublicText(this.text(input.title, '经历标题', 100));
+    const content = this.redactPeerPublicText(this.text(input.content, '经历内容', 1600));
+    const retrospective = typeof input.retrospective === 'string' ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000)) : undefined;
+    const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title, domain: this.redactPeerPublicText(this.text(input.domain ?? journey?.domain, '经历领域', 40)), subDomain: typeof input.subDomain === 'string' ? this.redactPeerPublicText(input.subDomain.trim().slice(0, 80)) : sourceSnapshot?.subDomain ? this.redactPeerPublicText(sourceSnapshot.subDomain) : undefined, stage: this.text(input.stage ?? journey?.stage, '经历阶段', 40), content, tags: values(input.tags).length ? values(input.tags) : (sourceSnapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)), fingerprintJson: sourceSnapshot?.fingerprintJson, laterSummary: typeof input.laterSummary === 'object' && input.laterSummary ? this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown> : undefined, helpfulActions: values(input.helpfulActions), notHelpfulActions: values(input.notHelpfulActions), retrospective, consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
     this.peerExperiences.unshift(item); await this.persistAndFlush(); return { item };
   }
 
   peerNetwork(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    const privacyEnabled = this.privacySettings[userId]?.allowPeerMatching === true;
+    if (!privacyEnabled) return { privacyEnabled: false, experiences: [], matches: [], limited: false };
     const published = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
     const matches = this.peerMatches
       .filter((item) => item.userId === userId)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 5)
-      .map((match) => ({ ...match, experience: this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId)) }))
+      .slice(0, 3)
+      .map((match) => this.peerMatchForUser(match))
       .filter((item) => item.experience);
-    return { experiences: published.slice(0, 5).map((item) => this.peerExperienceSummary(item)), matches, limited: published.length > 5 };
+    return { privacyEnabled: true, experiences: published.slice(0, 3).map((item) => this.peerExperienceSummary(item)), matches, limited: published.length > 3 };
   }
 
   private peerExperienceSummary(experience?: PeerExperienceRecord) {
     if (!experience) return undefined;
     const timelineCount = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).length : 0;
     const checkinCount = experience.journeyId ? this.outcomeCheckins.filter((item) => item.journeyId === experience.journeyId).length : 0;
-    const reputation = this.peerReputations.find((item) => item.userId === experience.userId);
     const laterRecordCount = [experience.laterSummary, experience.retrospective, ...(experience.helpfulActions ?? [])].filter(Boolean).length + timelineCount + checkinCount;
     return {
       id: experience.id,
-      title: experience.title,
-      domain: experience.domain,
-      subDomain: experience.subDomain,
+      title: this.redactPeerPublicText(experience.title),
+      domain: this.redactPeerPublicText(experience.domain),
+      subDomain: experience.subDomain ? this.redactPeerPublicText(experience.subDomain) : undefined,
       stage: experience.stage,
-      tags: experience.tags,
+      tags: experience.tags.map((tag) => this.redactPeerPublicText(tag)),
       createdAt: experience.createdAt,
       graduated: experience.stage === 'graduated',
       laterRecordCount,
-      helpfulCount: reputation?.helpfulCount ?? 0,
-      reportCount: reputation?.reportCount ?? experience.reportCount,
+    };
+  }
+
+  private peerMatchForUser(match: PeerMatchRecord) {
+    const experience = this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId));
+    return {
+      id: match.id,
+      journeyId: match.journeyId,
+      status: match.status,
+      reasons: match.reasons.slice(0, 2),
+      requestReason: match.requestReason,
+      requestQuestion: match.requestQuestion,
+      acceptedAt: match.acceptedAt,
+      createdAt: match.createdAt,
+      updatedAt: match.updatedAt,
+      experience,
     };
   }
 
@@ -1868,81 +1905,241 @@ export class StoreService implements OnModuleInit {
     await this.persistAndFlush(); return { items: created.map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })) };
   }
 
-  async updatePeerMatch(matchId: string, status: 'requested' | 'connected' | 'declined' | 'blocked', requestedUserId?: string) {
+  private peerPiiFlags(content: string) {
+    const flags: string[] = [];
+    const compact = content.replace(/[\s-]/g, '');
+    if (/(?:^|\D)1[3-9]\d{9}(?:$|\D)/.test(compact)) flags.push('手机号');
+    if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(content)) flags.push('邮箱');
+    if (/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*[：:]?\s*[A-Za-z][A-Za-z0-9_-]{4,}/i.test(content)) flags.push('社交账号');
+    if (/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/.test(compact)) flags.push('证件号码');
+    if (/(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/.test(content)) flags.push('具体地址');
+    return [...new Set(flags)];
+  }
+
+  private assertPeerDraftSafe(content: string) {
+    const flags = this.peerPiiFlags(content);
+    if (flags.length) throw new BadRequestException(`这段话里好像有能认出你的信息（${flags.join('、')}），要不要先改一下？`);
+  }
+
+  private redactPeerPublicText(content: string) {
+    return content
+      .replace(/(?:^|\D)1[3-9]\d{9}(?:$|\D)/g, ' [已隐藏联系方式] ')
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[已隐藏邮箱]')
+      .replace(/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*[：:]?\s*[A-Za-z][A-Za-z0-9_-]{4,}/gi, '[已隐藏账号]')
+      .replace(/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/g, ' [已隐藏证件信息] ')
+      .replace(/(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/g, '[已隐藏具体地址]')
+      .replace(/(?:我叫|我是|叫我|他叫|她叫|朋友叫)[\u4e00-\u9fa5]{2,4}/g, '[已隐藏称呼]');
+  }
+
+  private redactPeerPublicValue(value: unknown): unknown {
+    if (typeof value === 'string') return this.redactPeerPublicText(value);
+    if (Array.isArray(value)) return value.map((item) => this.redactPeerPublicValue(item));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, this.redactPeerPublicValue(item)]));
+    return value;
+  }
+
+  private peerNotification(userId: string, type: UserNotification['type'], suffix: string, title: string, body: string, targetRoute: string) {
+    const notificationId = `notification_peer_${suffix}_${userId}`;
+    const existing = this.notifications.find((item) => item.id === notificationId);
+    if (existing) {
+      existing.title = title;
+      existing.body = body;
+      existing.targetRoute = targetRoute;
+      return existing;
+    }
+    const item: UserNotification = { id: notificationId, userId, type, title, body, targetRoute, status: 'unread', createdAt: now() };
+    this.notifications.unshift(item);
+    return item;
+  }
+
+  private closePeerConversationRecord(conversation: PeerConversationRecord, reason: 'closed' | 'expired' | 'blocked') {
+    if (conversation.status === 'closed') return;
+    conversation.status = 'closed';
+    conversation.closedAt = now();
+    conversation.closedReason = reason;
+    const body = reason === 'expired' ? '这段匿名同行的 72 小时已经结束。' : reason === 'blocked' ? '这段匿名同行已被结束，你们不能继续发送消息。' : '这段匿名同行已经结束，你们不能继续发送消息。';
+    const route = `/pages/peer/conversation?matchId=${encodeURIComponent(conversation.matchId)}`;
+    this.peerNotification(conversation.starterUserId, 'CONVERSATION_CLOSED', `closed_${conversation.id}`, '这段同行到这里了', body, route);
+    this.peerNotification(conversation.receiverUserId, 'CONVERSATION_CLOSED', `closed_${conversation.id}`, '这段同行到这里了', body, route);
+  }
+
+  private async expirePeerConversations() {
+    const due = this.peerConversations.filter((conversation) => conversation.status === 'active' && Date.parse(conversation.expiresAt) <= Date.now());
+    if (!due.length) return;
+    due.forEach((conversation) => this.closePeerConversationRecord(conversation, 'expired'));
+    await this.persistAndFlush();
+  }
+
+  private async requirePeerConversation(matchId: string, requestedUserId?: string) {
+    await this.expirePeerConversations();
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
+    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    return { userId, conversation };
+  }
+
+  async updatePeerMatch(matchId: string, input: { status: 'requested' | 'connected' | 'declined' | 'blocked'; requestReason?: unknown; requestQuestion?: unknown }, requestedUserId?: string) {
     const currentUserId = this.resolveRuntimeUserId(requestedUserId);
     const item = this.peerMatches.find((match) => match.id === matchId);
     if (!item) throw new NotFoundException('同路匹配不存在');
     const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
     const isRequester = item.userId === currentUserId;
     const isExperienceOwner = experience?.userId === currentUserId;
-    if (status === 'requested' && (!isRequester || item.status !== 'suggested')) {
-      throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
+    const status = input.status;
+    if (status === 'requested' && (!isRequester || item.status !== 'suggested')) throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
+    if ((status === 'connected' || status === 'declined') && (!isExperienceOwner || item.status !== 'requested')) throw new BadRequestException('只有经历发布者可以处理待确认的同路请求');
+    if (status === 'blocked' && !isRequester && !isExperienceOwner) throw new BadRequestException('你无权处理这条同路匹配');
+    if (status === 'requested') {
+      const requestReason = typeof input.requestReason === 'string' ? input.requestReason.trim().slice(0, 280) : '';
+      const requestQuestion = typeof input.requestQuestion === 'string' ? input.requestQuestion.trim().slice(0, 160) : '';
+      const safeReason = requestReason || '我想听听你后来是怎么把这段日子走过去的。';
+      this.assertPeerDraftSafe(`${safeReason}\n${requestQuestion}`);
+      item.requestReason = safeReason;
+      item.requestQuestion = requestQuestion || undefined;
     }
-    if ((status === 'connected' || status === 'declined') && (!isExperienceOwner || item.status !== 'requested')) {
-      throw new BadRequestException('只有经历发布者可以处理待确认的同路请求');
-    }
-    if (status === 'blocked' && !isRequester && !isExperienceOwner) {
-      throw new BadRequestException('你无权处理这条同路匹配');
-    }
-    item.status = status; item.updatedAt = now();
+    item.status = status;
+    item.updatedAt = now();
     if (status === 'requested' && experience && experience.userId !== item.userId) {
-      this.notifications.unshift({ id: `notification_peer_${item.id}`, userId: experience.userId, type: 'PEER_REQUEST', title: '有人想和你聊聊这段经历', body: '对方看见了你留下的后来记录，你可以选择接受、拒绝，或暂时不想。', targetRoute: `/pages/peer/request?id=${item.id}`, status: 'unread', createdAt: now() });
+      this.peerNotification(experience.userId, 'PEER_REQUEST', `request_${item.id}`, '有人想和你聊聊这段经历', '有人看见了你留下的后来，想先问一个小问题。', `/pages/peer/requests?matchId=${encodeURIComponent(item.id)}`);
     }
-    if (status === 'connected') {
-      const receiverUserId = experience?.userId ?? item.userId;
-      const existingConversation = this.peerConversations.find((conversation) => conversation.matchId === item.id);
-      if (!existingConversation) {
-        this.peerConversations.unshift({ id: id('peer_conversation'), matchId: item.id, starterUserId: item.userId, receiverUserId, status: 'active', expiresAt: new Date(Date.now() + 72 * 3_600_000).toISOString(), createdAt: now() });
-        this.notifications.unshift({ id: `notification_peer_connected_${item.id}`, userId: item.userId, type: 'PEER_ACCEPTED', title: '同路会话已经接通', body: '你们有 72 小时的匿名对话时间，先从“我当时也有过类似感觉”开始就好。', targetRoute: `/pages/peer/conversation?matchId=${item.id}`, status: 'unread', createdAt: now() });
-      }
-    }
-    await this.persistAndFlush(); return { item, conversation: this.peerConversations.find((conversation) => conversation.matchId === item.id) ?? null };
+    if (status === 'connected') item.acceptedAt = now();
+    await this.persistAndFlush();
+    return { item, conversation: this.peerConversations.find((conversation) => conversation.matchId === item.id) ?? null };
+  }
+
+  async startPeerConversation(matchId: string, requestedUserId?: string) {
+    const currentUserId = this.resolveRuntimeUserId(requestedUserId);
+    const item = this.peerMatches.find((match) => match.id === matchId);
+    if (!item) throw new NotFoundException('同路匹配不存在');
+    const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
+    if (!experience || experience.userId !== currentUserId || item.status !== 'connected') throw new ForbiddenException('只有接受请求的经历发布者可以确认同行边界');
+    const existing = this.peerConversations.find((conversation) => conversation.matchId === item.id);
+    if (existing) return { conversation: existing };
+    const startsAt = now();
+    const conversation: PeerConversationRecord = {
+      id: id('peer_conversation'),
+      matchId: item.id,
+      starterUserId: item.userId,
+      receiverUserId: experience.userId,
+      status: 'active',
+      startsAt,
+      consentAcceptedAt: startsAt,
+      expiresAt: new Date(Date.parse(startsAt) + 72 * 3_600_000).toISOString(),
+      createdAt: startsAt,
+    };
+    this.peerConversations.unshift(conversation);
+    this.peerNotification(item.userId, 'PEER_ACCEPTED', `accepted_${item.id}`, '有人愿意和你聊一会', '双方已确认匿名边界，这段同行现在开始，最多持续 72 小时。', `/pages/peer/conversation?matchId=${encodeURIComponent(item.id)}`);
+    await this.persistAndFlush();
+    return { conversation };
   }
 
   peerRequestList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.peerMatches.filter((match) => match.status === 'requested' && this.peerExperiences.find((experience) => experience.id === match.peerExperienceId)?.userId === userId).map((match) => ({ ...match, experience: this.peerExperiences.find((experience) => experience.id === match.peerExperienceId) }));
+    return this.peerMatches
+      .filter((match) => {
+        const isOwner = this.peerExperiences.find((experience) => experience.id === match.peerExperienceId)?.userId === userId;
+        const awaitsConsent = match.status === 'connected' && !this.peerConversations.some((conversation) => conversation.matchId === match.id);
+        return isOwner && (match.status === 'requested' || awaitsConsent);
+      })
+      .map((match) => this.peerMatchForUser(match));
   }
 
   peerExperienceDetail(experienceId: string) {
     const experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published');
     if (!experience) throw new NotFoundException('这段同路经历不存在');
     const journey = experience.journeyId ? this.lifeJourneys.find((item) => item.id === experience.journeyId) : undefined;
-    const timeline = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).map((item) => ({ id: item.id, content: item.content, kind: item.kind, stage: item.stage, intensity: item.intensity, actionResult: item.actionResult, eventDate: item.eventDate, createdAt: item.createdAt })) : [];
-    const actions = experience.journeyId ? this.actionCommitments.filter((item) => item.journeyId === experience.journeyId).map((item) => ({ id: item.id, title: item.title, status: item.status, createdAt: item.createdAt })) : [];
-    const checkins = experience.journeyId ? this.outcomeCheckins.filter((item) => item.journeyId === experience.journeyId).map((item) => ({ status: item.status, result: item.result, barrier: item.barrier, intensity: item.intensity, checkedAt: item.checkedAt })) : [];
-    return { experience: this.peerExperienceSummary(experience), journey: journey ? { stage: journey.stage, completedAt: journey.completedAt, createdAt: journey.createdAt } : null, timeline, actions, checkins, later: experience.laterSummary ?? { available: false, message: 'TA目前还没有留下这一阶段的后续记录。' }, helpfulActions: experience.helpfulActions ?? [], notHelpfulActions: experience.notHelpfulActions ?? [], retrospective: experience.retrospective ?? null };
+    const timeline = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).slice(0, 4).map((item) => ({ id: item.id, content: this.redactPeerPublicText(item.content), eventDate: item.eventDate, createdAt: item.createdAt })) : [];
+    const actions = experience.journeyId ? this.actionCommitments.filter((item) => item.journeyId === experience.journeyId).slice(0, 4).map((item) => ({ id: item.id, title: this.redactPeerPublicText(item.title), createdAt: item.createdAt })) : [];
+    const safeExperience = { ...this.peerExperienceSummary(experience), content: this.redactPeerPublicText(experience.content) };
+    const later = experience.laterSummary ? this.redactPeerPublicValue(experience.laterSummary) as Record<string, unknown> : { available: false, message: 'TA目前还没有留下这一阶段的后续记录。' };
+    return { experience: safeExperience, journey: journey ? { completedAt: journey.completedAt, createdAt: journey.createdAt } : null, timeline, actions, later, helpfulActions: (experience.helpfulActions ?? []).map((item) => this.redactPeerPublicText(item)), notHelpfulActions: (experience.notHelpfulActions ?? []).map((item) => this.redactPeerPublicText(item)), retrospective: experience.retrospective ? this.redactPeerPublicText(experience.retrospective) : null };
   }
 
-  conversationList(requestedUserId?: string) {
+  async conversationList(requestedUserId?: string) {
+    await this.expirePeerConversations();
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.peerConversations.filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId)).map((conversation) => ({ ...conversation, messages: this.peerMessages.filter((message) => message.conversationId === conversation.id) }));
+    return this.peerConversations
+      .filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId))
+      .map((conversation) => ({ ...conversation, viewerUserId: userId, messages: this.peerMessages.filter((message) => message.conversationId === conversation.id) }));
   }
 
   async sendPeerMessage(matchId: string, content: unknown, requestedUserId?: string) {
-    const userId = this.resolveRuntimeUserId(requestedUserId);
-    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
-    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) throw new BadRequestException('这段 72 小时会话已经结束');
-    const item: PeerMessageRecord = { id: id('peer_message'), conversationId: conversation.id, senderUserId: userId, content: this.text(content, '消息内容', 1000), authorType: 'HUMAN', createdAt: now() };
+    const text = this.text(content, '消息内容', 1000);
+    this.assertPeerDraftSafe(text);
+    const item: PeerMessageRecord = { id: id('peer_message'), conversationId: conversation.id, senderUserId: userId, content: text, authorType: 'HUMAN', createdAt: now(), piiFlags: [] };
     this.peerMessages.unshift(item); await this.persistAndFlush(); return { item };
   }
 
   async requestPeerResponseAssist(matchId: string, content: unknown, requestedUserId?: string) {
-    const userId = this.resolveRuntimeUserId(requestedUserId);
-    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
-    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) throw new BadRequestException('这段 72 小时会话已经结束');
     const source = this.text(content, '待整理的回复', 1000);
+    this.assertPeerDraftSafe(source);
     const job = this.queueAI({ taskType: 'peer_response_assist', userId, sourceId: conversation.id, content: source, style: 'warm', mood: '委屈' });
     await this.flush();
     return { job, notice: 'AI 只会整理表达，最终消息仍需你确认后发送。' };
   }
 
   async closePeerConversation(matchId: string, requestedUserId?: string) {
-    const userId = this.resolveRuntimeUserId(requestedUserId);
-    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
-    if (!conversation) throw new NotFoundException('匿名会话不存在');
-    conversation.status = 'closed'; conversation.closedAt = now(); await this.persistAndFlush(); return { item: conversation };
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    this.closePeerConversationRecord(conversation, 'closed');
+    await this.persistAndFlush();
+    return { item: conversation };
+  }
+
+  async reportPeerConversation(matchId: string, reason: unknown, requestedUserId?: string) {
+    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const reportReason = this.text(reason, '举报原因', 300);
+    conversation.reportedAt = now();
+    conversation.reporterUserId = userId;
+    conversation.reportReason = reportReason;
+    const match = this.peerMatches.find((item) => item.id === matchId);
+    const experience = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
+    if (experience) experience.reportCount += 1;
+    await this.persistAndFlush();
+    return { item: conversation };
+  }
+
+  async blockPeerConversation(matchId: string, requestedUserId?: string) {
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const match = this.peerMatches.find((item) => item.id === matchId);
+    if (!match) throw new NotFoundException('同路匹配不存在');
+    match.status = 'blocked';
+    match.updatedAt = now();
+    this.closePeerConversationRecord(conversation, 'blocked');
+    await this.persistAndFlush();
+    return { item: conversation, match };
+  }
+
+  async savePeerConversationFeedback(matchId: string, input: { feedback?: unknown; note?: unknown; shareLater?: unknown }, requestedUserId?: string) {
+    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status === 'active' && Date.parse(conversation.expiresAt) > Date.now()) throw new BadRequestException('请先结束这段同行，再留下感受');
+    const feedback = String(input.feedback ?? '');
+    if (!['helpful', 'unchanged', 'uncomfortable'].includes(feedback)) throw new BadRequestException('请选择这段同行带来的感受');
+    const note = typeof input.note === 'string' ? input.note.trim().slice(0, 500) : '';
+    this.assertPeerDraftSafe(note);
+    conversation.feedback = feedback as PeerConversationRecord['feedback'];
+    conversation.feedbackNote = note || undefined;
+    let sharedExperience: PeerExperienceRecord | undefined;
+    if (input.shareLater === true) {
+      this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中允许匿名留下经历');
+      const match = this.peerMatches.find((item) => item.id === matchId);
+      const source = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
+      const journeyId = match?.userId === userId ? match.journeyId : source?.journeyId;
+      const journey = journeyId ? this.lifeJourneys.find((item) => item.id === journeyId && item.userId === userId) : undefined;
+      const snapshot = journey ? this.situationSnapshots.find((item) => item.journeyId === journey.id) : undefined;
+      const shareText = this.redactPeerPublicText(note || '这段同行结束后，我愿意把后来的一点变化留给走在相似路上的人。');
+      sharedExperience = {
+        id: id('experience'), userId, journeyId: journey?.id, title: '这段同行之后，我慢慢走了一点出来', domain: journey?.domain ?? source?.domain ?? '其他', stage: 'graduated', subDomain: snapshot?.subDomain ?? source?.subDomain,
+        content: shareText, tags: snapshot?.contextTags ?? source?.tags ?? [], fingerprintJson: snapshot?.fingerprintJson ?? source?.fingerprintJson,
+        laterSummary: { summary: shareText }, helpfulActions: [], notHelpfulActions: [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now(),
+      };
+      this.peerExperiences.unshift(sharedExperience);
+    }
+    await this.persistAndFlush();
+    return { item: conversation, sharedExperience };
   }
 
   notificationList(requestedUserId?: string) {

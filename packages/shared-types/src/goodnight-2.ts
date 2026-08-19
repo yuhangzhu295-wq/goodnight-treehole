@@ -84,6 +84,7 @@ export type NotificationType =
   | 'FOLLOW_UP'
   | 'PEER_REQUEST'
   | 'PEER_ACCEPTED'
+  | 'CONVERSATION_CLOSED'
   | 'FUTURE_SELF'
   | 'COOLDOWN_RELEASED'
   | 'JOURNEY_CHECKIN';
@@ -106,9 +107,17 @@ export interface PeerConversation {
   id: string;
   matchId: string;
   status: 'active' | 'closed' | 'extended';
+  startsAt: string;
+  consentAcceptedAt?: string;
   expiresAt: string;
   createdAt: string;
   closedAt?: string;
+  closedReason?: 'closed' | 'expired' | 'blocked';
+  feedback?: 'helpful' | 'unchanged' | 'uncomfortable';
+  feedbackNote?: string;
+  reportedAt?: string;
+  reporterUserId?: string;
+  reportReason?: string;
 }
 
 export interface PeerMessage {
@@ -119,6 +128,7 @@ export interface PeerMessage {
   authorType: 'HUMAN' | 'AI_ASSIST';
   createdAt: string;
   reportedAt?: string;
+  piiFlags?: string[];
 }
 
 export interface RecoverySignal {

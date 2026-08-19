@@ -7,6 +7,9 @@ const route = useRoute();
 const tabbarPaths = new Set([
   '/pages/tonight/index',
   '/pages/peers/index',
+  '/pages/peer/requests',
+  '/pages/peer/wait',
+  '/pages/peer/consent',
   '/pages/action/index',
   '/pages/square/index',
   '/pages/letter/index',
@@ -32,6 +35,7 @@ const showTabbar = computed(() => tabbarPaths.has(route.path));
 const activeTab = computed(() => {
   if (route.path.startsWith('/pages/tonight')) return 'tonight';
   if (route.path.startsWith('/pages/peers')) return 'peers';
+  if (route.path.startsWith('/pages/peer/')) return 'peers';
   if (route.path.startsWith('/pages/action')) return 'action';
   if (route.path.startsWith('/pages/journey') || route.path.startsWith('/pages/safety') || route.path.startsWith('/pages/reality-handoff')) return 'tonight';
   if (route.path.startsWith('/pages/reply') || route.path.startsWith('/pages/letter')) return 'tonight';

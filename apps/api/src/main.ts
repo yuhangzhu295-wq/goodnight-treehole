@@ -74,6 +74,21 @@ const frontApiPaths = [
   'POST /api/v1/assets/complete',
   'POST /api/v1/media/upload',
   'DELETE /api/v1/media/:id',
+  'GET /api/v1/peers',
+  'POST /api/v1/peer-experiences',
+  'POST /api/v1/journeys/:id/peer-matches',
+  'PATCH /api/v1/peer-matches/:id',
+  'POST /api/v1/peer-matches/:id/respond',
+  'POST /api/v1/peer-matches/:id/consent',
+  'GET /api/v1/peer-requests',
+  'GET /api/v1/peer-experiences/:id',
+  'GET /api/v1/peer-conversations',
+  'POST /api/v1/peer-conversations/:matchId/messages',
+  'POST /api/v1/peer-conversations/:matchId/assist',
+  'POST /api/v1/peer-conversations/:matchId/close',
+  'POST /api/v1/peer-conversations/:matchId/report',
+  'POST /api/v1/peer-conversations/:matchId/block',
+  'POST /api/v1/peer-conversations/:matchId/feedback',
 ];
 
 const adminApiPaths = [

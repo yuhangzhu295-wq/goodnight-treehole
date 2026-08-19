@@ -3,70 +3,36 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 
-const route = useRoute();
-const router = useRouter();
-const matchId = computed(() => String(route.query.matchId ?? ''));
-const conversation = ref<any>(null);
-const draft = ref('');
-const busy = ref(false);
-const assistBusy = ref(false);
-const assistNotice = ref('');
-const error = ref('');
-
-async function load() {
-  try {
-    const response = await api.get<any>('/api/v1/peer-conversations');
-    conversation.value = response.items.find((item: any) => item.matchId === matchId.value) ?? null;
-  } catch (cause: any) { error.value = cause?.message ?? '匿名会话加载失败'; }
-}
-async function send() {
-  const content = draft.value.trim();
-  if (!content || !matchId.value) return;
-  busy.value = true;
-  try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/messages`, { content }); draft.value = ''; await load(); } catch (cause: any) { error.value = cause?.message ?? '消息没有送出'; } finally { busy.value = false; }
-}
+const route = useRoute(); const router = useRouter(); const matchId = computed(() => String(route.query.matchId ?? ''));
+const conversation = ref<any>(null); const draft = ref(''); const busy = ref(false); const assistBusy = ref(false); const assistNotice = ref(''); const error = ref(''); const closeConfirmOpen = ref(false);
+async function load() { try { const response = await api.get<any>('/api/v1/peer-conversations'); conversation.value = response.items.find((item: any) => item.matchId === matchId.value) ?? null; } catch (cause: any) { error.value = cause?.message ?? '匿名会话加载失败'; } }
+const remaining = computed(() => { if (!conversation.value?.expiresAt) return ''; const ms = Math.max(0, Date.parse(conversation.value.expiresAt) - Date.now()); const hours = Math.floor(ms / 3_600_000); return conversation.value.status === 'active' ? `还剩约 ${hours} 小时` : '会话已经结束'; });
+function isMine(message: any) { return message.senderUserId === conversation.value?.viewerUserId; }
+async function send() { const content = draft.value.trim(); if (!content || !matchId.value) return; busy.value = true; error.value = ''; try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/messages`, { content }); draft.value = ''; await load(); } catch (cause: any) { error.value = cause?.message ?? '消息没有送出'; } finally { busy.value = false; } }
 const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-async function assist() {
-  if (!draft.value.trim() || !matchId.value) return;
-  assistBusy.value = true;
-  error.value = '';
-  assistNotice.value = '';
-  try {
-    const response = await api.post<{ job: { id: string }; notice: string }>(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/assist`, { content: draft.value });
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      await wait(400);
-      const task = await api.get<{ status: string; result: string }>(`/api/v1/ai/tasks/${response.job.id}`);
-      if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
-        if (task.status === 'failed') throw new Error('整理失败，请保留原话发送');
-        draft.value = task.result;
-        assistNotice.value = `${response.notice} 当前内容仍是你的草稿。`;
-        break;
-      }
-    }
-  } catch (cause: any) { error.value = cause?.message ?? '暂时无法整理这段话'; } finally { assistBusy.value = false; }
-}
-async function closeConversation() {
-  if (!matchId.value) return;
-  busy.value = true;
-  try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/close`, {}); await load(); } catch (cause: any) { error.value = cause?.message ?? '会话关闭失败'; } finally { busy.value = false; }
-}
+async function assist() { if (!draft.value.trim() || !matchId.value) return; assistBusy.value = true; error.value = ''; assistNotice.value = ''; try { const response = await api.post<{ job: { id: string }; notice: string }>(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/assist`, { content: draft.value }); for (let attempt = 0; attempt < 20; attempt += 1) { await wait(400); const task = await api.get<{ status: string; result: string }>(`/api/v1/ai/tasks/${response.job.id}`); if (['succeeded', 'fallback', 'failed'].includes(task.status)) { if (task.status === 'failed') throw new Error('整理失败，请保留原话发送'); draft.value = task.result; assistNotice.value = response.notice; break; } } } catch (cause: any) { error.value = cause?.message ?? '暂时无法整理这段话'; } finally { assistBusy.value = false; } }
+async function closeConversation() { if (!matchId.value) return; busy.value = true; try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/close`, {}); closeConfirmOpen.value = false; await router.replace(`/pages/peer/graduate?matchId=${encodeURIComponent(matchId.value)}`); } catch (cause: any) { error.value = cause?.message ?? '会话关闭失败'; } finally { busy.value = false; } }
+async function report() { const reason = window.prompt('请简短说明需要处理的原因'); if (!reason || !matchId.value) return; busy.value = true; try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/report`, { reason }); error.value = '已收到这条反馈，我们会按规则处理。'; } catch (cause: any) { error.value = cause?.message ?? '反馈没有提交成功'; } finally { busy.value = false; } }
+async function block() { if (!matchId.value || !window.confirm('拉黑会立即结束会话，确认继续吗？')) return; busy.value = true; try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/block`, {}); await router.replace(`/pages/peer/graduate?matchId=${encodeURIComponent(matchId.value)}`); } catch (cause: any) { error.value = cause?.message ?? '拉黑没有完成'; } finally { busy.value = false; } }
 onMounted(load);
 </script>
 
 <template>
   <section class="goodnight-page conversation-page">
-    <header class="conversation-header"><button aria-label="返回" @click="router.back()">‹</button><div><strong>匿名同路会话</strong><small>不展示真实身份 · 最多 72 小时</small></div><button class="close-button" :disabled="!conversation || busy || conversation.status !== 'active'" @click="closeConversation">结束</button></header>
+    <header class="conversation-header"><button aria-label="返回" @click="router.back()">‹</button><div><span>匿名同路</span><strong>{{ remaining }}</strong></div><details><summary aria-label="会话操作">•••</summary><div><button :disabled="busy" @click="report">举报</button><button :disabled="busy" @click="block">拉黑并结束</button></div></details></header>
     <p v-if="error" class="error-note">{{ error }}</p>
-    <section v-if="!conversation" class="empty-card"><h1>还没有可用会话</h1><p>只有经历发布者在自己的认证会话中明确接受请求后，系统才会创建这段限时匿名对话。</p></section>
+    <section v-if="!conversation" class="empty-card"><span>⌘</span><h1>会话还没开始</h1><p>只有双方都确认匿名边界，才会创建这段限时同行。</p><button @click="router.push('/pages/peers/index')">回到同路</button></section>
     <template v-else>
-      <p class="expiry">{{ conversation.status === 'active' ? `会话将在 ${new Date(conversation.expiresAt).toLocaleString('zh-CN')} 结束` : '这段会话已经结束' }}</p>
-      <main class="messages"><p v-if="!conversation.messages.length" class="empty-message">从一个真实、具体的感受开始就好。不要分享联系方式或可识别信息。</p><article v-for="message in conversation.messages" :key="message.id" class="message"><span>匿名参与者</span><p>{{ message.content }}</p><time>{{ new Date(message.createdAt).toLocaleString('zh-CN') }}</time></article></main>
-      <form class="composer" @submit.prevent="send"><textarea v-model="draft" maxlength="1000" :disabled="conversation.status !== 'active'" placeholder="写下你想说的话，不要包含联系方式或真实身份信息。"></textarea><p v-if="assistNotice" class="assist-note">{{ assistNotice }}</p><div><small>{{ draft.length }}/1000</small><span class="composer-actions"><button type="button" :disabled="assistBusy || busy || conversation.status !== 'active' || !draft.trim()" @click="assist">{{ assistBusy ? '整理中...' : '帮我整理一下' }}</button><button type="submit" :disabled="busy || assistBusy || conversation.status !== 'active' || !draft.trim()">{{ busy ? '发送中...' : '发送' }}</button></span></div></form>
+      <p class="boundary-line">不交换联系方式，也不需要解释真实身份。</p>
+      <main class="messages"><p v-if="!conversation.messages.length" class="empty-message">可以从一个具体、轻一点的感受开始。每一句都不必完美。</p><article v-for="message in conversation.messages" :key="message.id" :class="['message', { mine: isMine(message) }]"><span>{{ isMine(message) ? '我' : '同路人' }}</span><p>{{ message.content }}</p><time>{{ new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></article></main>
+      <footer v-if="conversation.status === 'active'" class="composer"><textarea v-model="draft" maxlength="1000" placeholder="写下你想说的话…" /><p v-if="assistNotice" class="assist-note">{{ assistNotice }} 内容仍需由你确认后发送。</p><div class="composer-row"><button type="button" class="assist" :disabled="assistBusy || busy || !draft.trim()" @click="assist">{{ assistBusy ? '整理中…' : '帮我整理' }}</button><small>{{ draft.length }}/1000</small><button type="button" class="send" :disabled="busy || assistBusy || !draft.trim()" @click="send">{{ busy ? '发送中…' : '发送' }}</button></div></footer>
+      <section v-else class="closed-card"><p>这段匿名同行已经结束。</p><button @click="router.push(`/pages/peer/graduate?matchId=${encodeURIComponent(matchId)}`)">留下感受</button></section>
+      <button class="end-link" :disabled="busy || conversation.status !== 'active'" @click="closeConfirmOpen = true">结束这段同行</button>
     </template>
+    <section v-if="closeConfirmOpen" class="end-confirm" role="dialog" aria-modal="true" aria-labelledby="end-confirm-title"><div class="confirm-card"><h2 id="end-confirm-title">结束这段同行？</h2><p>结束后，你们将不能继续发消息。这段经历会保留在自己的记录里。</p><div><button type="button" :disabled="busy" @click="closeConfirmOpen = false">再想想</button><button type="button" class="confirm-end" :disabled="busy" @click="closeConversation">确认结束</button></div></div></section>
   </section>
 </template>
 
 <style scoped>
-.conversation-page{display:grid;grid-template-rows:auto auto 1fr auto;min-height:100vh;padding:16px;background:#fbf8ef}.conversation-header{display:grid;grid-template-columns:40px minmax(0,1fr)54px;align-items:center;gap:10px}.conversation-header button{min-height:38px;border:0;border-radius:12px;background:#fff;color:var(--gn-green-dark);font:inherit;cursor:pointer}.conversation-header>button:first-child{font-size:30px;line-height:1}.conversation-header strong,.conversation-header small{display:block}.conversation-header small,.expiry,time{margin-top:3px;color:var(--gn-subtext);font-size:12px}.close-button:disabled{opacity:.5}.messages{display:flex;flex-direction:column;gap:12px;min-height:320px;padding:20px 0}.message{align-self:flex-start;max-width:86%;border:1px solid var(--gn-border);border-radius:18px 18px 18px 4px;background:#fff;padding:12px 14px}.message span{color:var(--gn-green);font-size:12px}.message p{margin:6px 0;color:var(--gn-text);line-height:1.7;white-space:pre-wrap}.empty-card{align-self:center;border:1px solid var(--gn-border);border-radius:24px;background:var(--gn-card);padding:24px;text-align:center}.empty-card h1{color:var(--gn-green-dark);font-size:22px}.empty-card p,.empty-message{color:var(--gn-subtext);line-height:1.7}.composer{position:sticky;bottom:0;border:1px solid var(--gn-border);border-radius:20px;background:#fff;padding:12px}.composer textarea{box-sizing:border-box;width:100%;min-height:84px;resize:none;border:0;outline:0;color:var(--gn-text);font:inherit;line-height:1.6}.composer div{display:flex;align-items:center;justify-content:space-between}.composer small{color:var(--gn-subtext)}.composer button{min-width:82px;min-height:38px;border:0;border-radius:12px;background:var(--gn-green);color:#fff;font:inherit}.error-note{color:var(--gn-danger)}
-.composer-actions{display:flex;flex-wrap:wrap;gap:8px}.composer-actions button:first-child{background:transparent;border:1px solid var(--gn-border);color:var(--gn-green-dark)}.assist-note{margin:4px 0;color:var(--gn-subtext);font-size:12px;line-height:1.5}
+.conversation-page{display:grid;grid-template-rows:auto auto 1fr auto auto;gap:12px;min-height:100vh;padding:16px 16px 28px;background:linear-gradient(180deg,#e7efe7,#fbf8ef 42%)}.conversation-header{display:grid;grid-template-columns:40px 1fr 42px;align-items:center;gap:9px}.conversation-header>button{width:36px;height:36px;border:1px solid var(--gn-border);border-radius:50%;background:#fffef9;color:var(--gn-green-dark);font-size:28px;line-height:1;cursor:pointer}.conversation-header div{display:grid;gap:3px}.conversation-header span{color:var(--gn-subtext);font-size:12px}.conversation-header strong{color:var(--gn-text);font-size:15px}.conversation-header details{position:relative}.conversation-header summary{width:36px;height:36px;border:1px solid var(--gn-border);border-radius:50%;background:#fffef9;color:var(--gn-green-dark);font-size:14px;line-height:32px;text-align:center;cursor:pointer;list-style:none}.conversation-header details>div{position:absolute;right:0;z-index:3;width:128px;margin-top:7px;border:1px solid var(--gn-border);border-radius:14px;background:#fffef9;box-shadow:var(--gn-shadow-card);padding:6px}.conversation-header details button{min-height:36px;border:0;background:transparent;color:var(--gn-text);font:inherit;text-align:left;cursor:pointer}.boundary-line{margin:0;color:var(--gn-subtext);font-size:12px;text-align:center}.messages{display:flex;flex-direction:column;gap:12px;align-self:start;min-height:350px;padding:14px 0}.message{align-self:flex-start;max-width:78%;border-radius:18px 18px 18px 5px;background:#fffefa;box-shadow:0 7px 18px rgba(75,89,65,.08);padding:11px 13px}.message.mine{align-self:flex-end;border-radius:18px 18px 5px 18px;background:#e6f0d9}.message span,time{display:block;color:var(--gn-subtext);font-size:11px}.message p{margin:5px 0;color:var(--gn-text);line-height:1.72;white-space:pre-wrap}.message time{text-align:right}.empty-message{margin:auto;color:var(--gn-subtext);line-height:1.75;text-align:center}.composer{position:sticky;bottom:0;border:1px solid var(--gn-border);border-radius:22px;background:#fffefa;box-shadow:var(--gn-shadow-card);padding:12px}.composer textarea{box-sizing:border-box;width:100%;min-height:78px;resize:none;border:0;outline:0;background:transparent;color:var(--gn-text);font:inherit;line-height:1.7}.composer-row{display:flex;align-items:center;gap:9px}.composer small{margin-left:auto;color:var(--gn-subtext)}.composer button,.closed-card button,.empty-card button{min-height:38px;border:0;border-radius:999px;padding:0 13px;font:inherit;cursor:pointer}.assist{border:1px solid var(--gn-border)!important;background:#fffef9!important;color:var(--gn-green-dark)}.send,.closed-card button,.empty-card button{background:var(--gn-green);color:#fff}.assist-note{margin:0 0 7px;color:var(--gn-subtext);font-size:12px;line-height:1.55}.end-link{border:0;background:transparent;color:var(--gn-subtext);font:inherit;text-decoration:underline;cursor:pointer}.closed-card,.empty-card{display:grid;justify-items:center;gap:10px;align-self:center;border:1px solid var(--gn-border);border-radius:24px;background:#fffefa;padding:26px;text-align:center}.closed-card p,.empty-card p{margin:0;color:var(--gn-subtext);line-height:1.7}.empty-card span{font-size:32px;color:var(--gn-green)}.empty-card h1{margin:0;color:var(--gn-text);font-size:21px}.error-note{margin:0;color:var(--gn-danger);text-align:center}.end-confirm{position:fixed;z-index:12;inset:0;display:grid;align-items:end;background:rgba(19,36,36,.42);padding:16px}.confirm-card{display:grid;gap:13px;border-radius:26px;background:#fffdf8;padding:24px;box-shadow:0 -14px 30px rgba(18,33,33,.16)}.confirm-card h2{margin:0;color:var(--gn-text);font-size:21px}.confirm-card p{margin:0;color:var(--gn-subtext);line-height:1.7}.confirm-card>div{display:grid;grid-template-columns:1fr 1fr;gap:10px}.confirm-card button{min-height:46px;border:1px solid var(--gn-border);border-radius:999px;background:#fffef9;color:var(--gn-green-dark);font:inherit;cursor:pointer}.confirm-card .confirm-end{border-color:var(--gn-green);background:var(--gn-green);color:#fff}
 </style>

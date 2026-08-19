@@ -301,13 +301,18 @@ export class PublicController {
   }
 
   @Patch('peer-matches/:id')
-  async peerMatch(@Param('id') id: string, @Body() body: { status: 'requested' | 'connected' | 'declined' | 'blocked' }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.updatePeerMatch(id, body.status, runtimeUserId(userId));
+  async peerMatch(@Param('id') id: string, @Body() body: { status: 'requested' | 'connected' | 'declined' | 'blocked'; requestReason?: string; requestQuestion?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.updatePeerMatch(id, body, runtimeUserId(userId));
   }
 
   @Post('peer-matches/:id/respond')
   async peerMatchRespond(@Param('id') id: string, @Body() body: { status: 'connected' | 'declined' | 'blocked' }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.updatePeerMatch(id, body.status, runtimeUserId(userId));
+    return await this.store.updatePeerMatch(id, body, runtimeUserId(userId));
+  }
+
+  @Post('peer-matches/:id/consent')
+  async peerMatchConsent(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.startPeerConversation(id, runtimeUserId(userId));
   }
 
   @Get('peer-requests')
@@ -432,8 +437,8 @@ export class PublicController {
   }
 
   @Get('peer-conversations')
-  peerConversations(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.conversationList(runtimeUserId(userId)) };
+  async peerConversations(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.conversationList(runtimeUserId(userId)) };
   }
 
   @Post('peer-conversations/:matchId/messages')
@@ -449,6 +454,21 @@ export class PublicController {
   @Post('peer-conversations/:matchId/close')
   async closePeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
     return await this.store.closePeerConversation(matchId, runtimeUserId(userId));
+  }
+
+  @Post('peer-conversations/:matchId/report')
+  async reportPeerConversation(@Param('matchId') matchId: string, @Body() body: { reason?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.reportPeerConversation(matchId, body.reason, runtimeUserId(userId));
+  }
+
+  @Post('peer-conversations/:matchId/block')
+  async blockPeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.blockPeerConversation(matchId, runtimeUserId(userId));
+  }
+
+  @Post('peer-conversations/:matchId/feedback')
+  async peerConversationFeedback(@Param('matchId') matchId: string, @Body() body: { feedback?: string; note?: string; shareLater?: boolean }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.savePeerConversationFeedback(matchId, body, runtimeUserId(userId));
   }
 
   @Get('memory')

@@ -18,9 +18,9 @@
 | stabilize | 32_我先接住你.png | 420x786 | CAPTURED | 420 | 840 |
 | safety | 33_SafetyFlow_正式版.png | 420x786 | CAPTURED | 420 | 810 |
 | reality | 16_现实求助卡.png | 420x786 | CAPTURED | 420 | 888 |
-| action | 06_今晚只做这一件事.png | 420x786 | CAPTURED | 420 | 828 |
+| action | 06_今晚只做这一件事.png | 420x786 | CAPTURED | 420 | 840 |
 | adaptive | 37_AdaptiveMicroAction.png | 420x786 | CAPTURED | 420 | 874 |
-| notification | 39_提醒与回访.png | 420x786 | CAPTURED | 420 | 2632 |
+| notification | 39_提醒与回访.png | 420x786 | CAPTURED | 420 | 3017 |
 | timeline | 34_Journey时间线_正式版.png | 420x786 | CAPTURED | 420 | 786 |
 
 ## Status boundary

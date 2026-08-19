@@ -299,7 +299,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     const guestRequests = await request(server).get('/api/v1/peer-requests').set('x-goodnight-user-id', guest).expect(200);
     expect(guestRequests.body.items.map((item: { id: string }) => item.id)).toContain(exactMatch.id);
     const guestNotifications = await request(server).get('/api/v1/notifications').set('x-goodnight-user-id', guest).expect(200);
-    const peerNotificationId = `notification_peer_${exactMatch.id}`;
+    const peerNotificationId = `notification_peer_request_${exactMatch.id}_${guest}`;
     expect(guestNotifications.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: peerNotificationId, userId: guest, type: 'PEER_REQUEST', status: 'unread' })]));
     expect(await prisma.userNotification.findUnique({ where: { id: peerNotificationId } })).toMatchObject({ userId: guest, type: 'PEER_REQUEST', status: 'unread' });
     await request(server).patch(`/api/v1/notifications/${peerNotificationId}/read`).set('x-goodnight-user-id', guest).expect(200);
@@ -310,7 +310,14 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
       .set('x-goodnight-user-id', guest)
       .send({ status: 'connected' })
       .expect(201);
-    expect(accepted.body.conversation.matchId).toBe(exactMatch.id);
+    expect(accepted.body.conversation).toBeNull();
+
+    const consented = await request(server)
+      .post(`/api/v1/peer-matches/${exactMatch.id}/consent`)
+      .set('x-goodnight-user-id', guest)
+      .send({})
+      .expect(201);
+    expect(consented.body.conversation.matchId).toBe(exactMatch.id);
 
     const requesterConversations = await request(server).get('/api/v1/peer-conversations').expect(200);
     const guestConversations = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', guest).expect(200);

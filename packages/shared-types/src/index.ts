@@ -172,6 +172,9 @@ export interface PeerMatch {
   peerExperienceId: string;
   score: number;
   reasons: string[];
+  requestReason?: string;
+  requestQuestion?: string;
+  acceptedAt?: string;
   status: PeerMatchStatus;
   createdAt: string;
   updatedAt?: string;

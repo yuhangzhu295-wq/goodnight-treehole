@@ -531,6 +531,9 @@ model PeerMatch {
   fingerprintSimilarity Float?
   scoreBreakdown   Json?
   explanation      String?
+  requestReason    String?
+  requestQuestion  String?
+  acceptedAt       DateTime?
   conversation     PeerConversation?
   status           PeerMatchStatus @default(suggested)
   createdAt        DateTime        @default(now())
@@ -741,9 +744,17 @@ model PeerConversation {
   receiverUserId String
   receiver    User     @relation("PeerConversationReceiver", fields: [receiverUserId], references: [id], onDelete: Cascade)
   status      String   @default("active")
+  startsAt    DateTime @default(now())
+  consentAcceptedAt DateTime?
   expiresAt   DateTime
   createdAt   DateTime @default(now())
   closedAt    DateTime?
+  closedReason String?
+  feedback    String?
+  feedbackNote String?
+  reportedAt  DateTime?
+  reporterUserId String?
+  reportReason String?
   messages    PeerMessage[]
 
   @@index([starterUserId, status, expiresAt])
@@ -761,6 +772,7 @@ model PeerMessage {
   createdAt      DateTime @default(now())
   reportedAt     DateTime?
   blockedAt      DateTime?
+  piiFlags       Json?
 
   @@index([conversationId, createdAt])
 }
