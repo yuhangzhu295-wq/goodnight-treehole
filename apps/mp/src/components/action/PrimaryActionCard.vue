@@ -68,16 +68,16 @@ defineEmits<{
 </template>
 
 <style scoped>
-.action-paper { position:relative; overflow:hidden; border:1px solid rgba(116, 124, 86, .2); border-radius:24px; background:linear-gradient(145deg, rgba(255,254,250,.98), rgba(247,242,226,.98)); box-shadow:0 15px 30px rgba(22,36,42,.13); padding:16px 18px 14px; }
-.action-paper::after { position:absolute; right:-20px; bottom:-32px; width:132px; height:132px; background:url('../../assets/goodnight/leaf-corner.png') right bottom/contain no-repeat; opacity:.56; content:''; pointer-events:none; }
-.paper-label { margin:0 0 7px; color:#66765b; font-size:12px; font-weight:650; }
-h2 { position:relative; z-index:1; max-width:286px; margin:0; color:#253a31; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:24px; font-weight:650; line-height:1.3; }
-.action-title { font-size:25px; }
-.paper-copy { position:relative; z-index:1; max-width:295px; margin:8px 0 0; color:#657066; font-size:14px; line-height:1.52; }
+.action-paper { position:relative; overflow:hidden; border:1px solid rgba(116, 124, 86, .2); border-radius:24px; background:linear-gradient(145deg, rgba(255,254,250,.98), rgba(247,242,226,.98)); box-shadow:0 15px 30px rgba(22,36,42,.13); padding:17px 18px 15px; }
+.action-paper::after { position:absolute; right:-4px; bottom:-8px; width:126px; height:126px; background:url('../../assets/goodnight/illustrations/action-paper-scene.png') right bottom/contain no-repeat; opacity:.4; content:''; pointer-events:none; }
+.paper-label { position:relative; z-index:1; margin:0 0 7px; color:#66765b; font-size:12px; font-weight:650; }
+h2 { position:relative; z-index:1; max-width:286px; margin:0; color:#253a31; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:23px; font-weight:650; line-height:1.33; }
+.action-title { font-size:24px; }
+.paper-copy { position:relative; z-index:1; max-width:295px; margin:8px 0 0; color:#657066; font-size:14px; line-height:1.56; }
 .action-meta { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; color:#65735d; font-size:12px; }
 .action-meta span { display:inline-flex; align-items:center; min-height:24px; border-radius:999px; background:rgba(232,239,218,.86); padding:0 9px; }
 .completion-note { position:relative; z-index:1; margin:9px 0 0; color:#738076; font-size:12px; line-height:1.45; }
-.card-actions,.two-actions { position:relative; z-index:1; display:grid; gap:7px; margin-top:12px; }
+.card-actions,.two-actions { position:relative; z-index:1; display:grid; gap:7px; margin-top:13px; }
 .two-actions { grid-template-columns:1fr 1fr; }
 .primary-cta,.secondary-cta { min-height:44px; border-radius:999px; padding:0 16px; font:inherit; font-size:14px; cursor:pointer; }
 .primary-cta { border:1px solid #3f624d; background:#426b52; color:#fffdf6; box-shadow:0 8px 16px rgba(48,80,61,.18); }
@@ -85,5 +85,5 @@ h2 { position:relative; z-index:1; max-width:286px; margin:0; color:#253a31; fon
 .secondary-cta { border:1px solid rgba(88,108,83,.2); background:rgba(255,255,255,.56); color:#516348; }
 .promise-text { position:relative; z-index:1; margin:14px 0 0; border-top:1px solid rgba(105,121,93,.16); padding-top:12px; color:#65735e; font-size:14px; line-height:1.55; }
 .timeline-link { position:absolute; z-index:2; top:18px; right:14px; border:0; background:transparent; color:#607555; font:inherit; font-size:13px; cursor:pointer; }
-@media (max-width:374px) { .action-paper { padding:18px 17px 14px; } h2,.action-title { font-size:23px; } .two-actions { grid-template-columns:1fr; } }
+@media (max-width:374px) { .action-paper { padding:17px 15px 14px; } .action-paper::after { width:112px; height:112px; } h2,.action-title { font-size:22px; } .two-actions { grid-template-columns:1fr; } }
 </style>

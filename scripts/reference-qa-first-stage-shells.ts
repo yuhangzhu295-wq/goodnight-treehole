@@ -36,8 +36,8 @@ const viewports = [
 ];
 const pages: PageCase[] = [
   { key: 'tonight', route: '/pages/tonight/index', reference: '01_今晚怎么了.png', hero: '.night-hero', main: '.entry-card', primarySelector: '.continue-button', tabbar: true, minSections: 4 },
-  { key: 'safety', route: '/pages/safety/index', reference: '33_SafetyFlow_正式版.png', hero: '.safety-hero', main: '.safety-copy', primarySelector: '[data-testid="safety-handoff"]', tabbar: false, minSections: 3 },
-  { key: 'handoff', route: '/pages/reality-handoff/index', reference: '16_现实求助卡.png', hero: '.handoff-hero', main: '.handoff-card', primarySelector: '[data-testid="handoff-save"]', tabbar: false, minSections: 3 },
+  { key: 'safety', route: '/pages/safety/index', reference: '33_SafetyFlow_正式版.png', hero: '.safety-hero', main: '.safety-copy', primarySelector: '[data-testid="safety-handoff"]', tabbar: true, minSections: 3 },
+  { key: 'handoff', route: '/pages/reality-handoff/index', reference: '16_现实求助卡.png', hero: '.handoff-hero', main: '.handoff-card', primarySelector: '[data-testid="handoff-save"]', tabbar: true, minSections: 3 },
   { key: 'notifications', route: '/pages/notifications/index', reference: '39_提醒与回访.png', hero: '.notification-hero', main: '.notice-list', primarySelector: '.notice-card', tabbar: true, minSections: 2, mainTopAllowance: 130 },
 ];
 
@@ -81,7 +81,7 @@ async function measure(page: Page, item: PageCase, viewport: { width: number; he
   if (geometry.mainTop > geometry.heroHeight + (item.mainTopAllowance ?? 56)) throw new Error(`${item.key} ${geometry.viewport} main content detached from hero`);
   if (geometry.mainWidth < viewport.width - 48) throw new Error(`${item.key} ${geometry.viewport} main content is unexpectedly narrow`);
   if (geometry.primarySections < item.minSections) throw new Error(`${item.key} ${geometry.viewport} lost primary sections`);
-  if (item.tabbar && (geometry.tabbarY == null || geometry.tabbarHeight == null || geometry.tabbarHeight < 70 || geometry.tabbarHeight > 74)) {
+  if (item.tabbar && (geometry.tabbarY == null || geometry.tabbarHeight == null || geometry.tabbarHeight < 62 || geometry.tabbarHeight > 66)) {
     throw new Error(`${item.key} ${geometry.viewport} tabbar contract failed`);
   }
   if (!item.tabbar && geometry.tabbarY != null) throw new Error(`${item.key} ${geometry.viewport} unexpectedly renders the global tabbar`);

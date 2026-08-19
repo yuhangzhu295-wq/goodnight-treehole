@@ -46,6 +46,7 @@
     "test:reference-qa-journey": "tsx scripts/reference-qa-journey.ts",
     "test:reference-qa-first-stage-shells": "tsx scripts/reference-qa-first-stage-shells.ts",
     "test:reference-fidelity-first-stage": "tsx scripts/reference-fidelity-first-stage.ts",
+    "audit:first-stage-final": "tsx scripts/materialize-first-stage-final-audit.ts",
     "test:admin-sync-full": "tsx scripts/admin-sync-full-report.ts",
     "test:admin-phase3-phase4-real": "tsx scripts/admin-phase3-phase4-real.ts",
     "test:final-live-admin-crud": "tsx scripts/final-live-admin-crud.ts",

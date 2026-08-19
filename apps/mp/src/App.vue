@@ -26,12 +26,16 @@ const tabbarPaths = new Set([
   '/pages/help/feedback',
   '/pages/feedback/index',
   '/pages/notifications/index',
+  '/pages/journey/detail',
+  '/pages/safety/index',
+  '/pages/reality-handoff/index',
 ]);
 const showTabbar = computed(() => tabbarPaths.has(route.path));
 const activeTab = computed(() => {
   if (route.path.startsWith('/pages/tonight')) return 'tonight';
   if (route.path.startsWith('/pages/peers')) return 'peers';
   if (route.path.startsWith('/pages/action')) return 'action';
+  if (route.path.startsWith('/pages/journey') || route.path.startsWith('/pages/safety') || route.path.startsWith('/pages/reality-handoff')) return 'tonight';
   if (route.path.startsWith('/pages/reply') || route.path.startsWith('/pages/letter')) return 'tonight';
   if (route.path.startsWith('/pages/notifications')) return 'me';
   if (route.path.startsWith('/pages/tool')) return 'action';

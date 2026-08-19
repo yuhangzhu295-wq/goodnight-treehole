@@ -81,7 +81,9 @@ h1 { max-width:300px; margin:0; font-family:"Songti SC", "Noto Serif SC", "Micro
 .back-button { position:absolute; z-index:2; top:0; left:-2px; display:grid; width:34px; height:34px; place-items:center; border:0; border-radius:50%; background:rgba(255,255,255,.1); color:#fffdf5; font:inherit; font-size:27px; line-height:1; cursor:pointer; }
 .brand { margin-left:44px; }
 .adaptive-content { display:grid; gap:8px; color:#314437; }
-.previous-action { display:grid; grid-template-columns:38px 1fr; align-items:center; gap:10px; min-height:62px; border-radius:17px; background:rgba(255,252,242,.94); padding:9px 12px; box-shadow:0 11px 24px rgba(19,34,40,.12); }
+.previous-action { position:relative; display:grid; grid-template-columns:38px minmax(0,1fr); align-items:center; gap:10px; min-height:66px; overflow:hidden; border-radius:17px; background:rgba(255,252,242,.94); padding:9px 112px 9px 12px; box-shadow:0 11px 24px rgba(19,34,40,.12); }
+.previous-action::after { position:absolute; right:-5px; bottom:-9px; width:104px; height:82px; background:url('../../assets/goodnight/illustrations/adaptive-previous-scene.png') right bottom/contain no-repeat; content:''; opacity:.62; pointer-events:none; }
+.previous-action>* { position:relative; z-index:1; }
 .previous-icon { display:grid; width:38px; height:38px; place-items:center; border-radius:12px; background:#dfe5cc; color:#6d7d5c; }
 .previous-action p { margin:0 0 3px; color:#7a8374; font-size:11px; }.previous-action strong { font-size:14px; line-height:1.35; }
 .adaptive-paper { border-radius:21px; background:rgba(255,253,247,.97); padding:14px 12px 11px; box-shadow:0 13px 28px rgba(31,41,36,.12); }
@@ -90,20 +92,20 @@ h2 { margin:0 4px 10px; color:#314737; font-family:"Songti SC", "Noto Serif SC",
 .barrier-grid button { display:flex; min-height:36px; align-items:center; justify-content:center; gap:3px; border:1px solid rgba(96,119,86,.14); border-radius:999px; background:#f8f5ec; color:#5d6b59; font:inherit; font-size:12px; cursor:pointer; }.barrier-grid button.selected { border-color:#557654; background:#557654; color:#fffdf7; box-shadow:0 6px 12px rgba(54,84,58,.18); }.barrier-grid button:disabled { cursor:wait; }
 .select-hint { margin:12px 4px 1px; color:#7c8778; font-size:12px; line-height:1.5; }
 .generating { margin-top:12px; border-radius:16px; background:#eef0df; padding:14px; color:#617059; text-align:center; font-size:13px; }
-.smaller-action { position:relative; overflow:hidden; margin-top:12px; border:1px solid rgba(109,126,86,.15); border-radius:17px; background:linear-gradient(135deg,#f4efd9,#e8e0c7); padding:13px 12px; }.smaller-action::after { position:absolute; right:-17px; bottom:-19px; width:96px; height:96px; background:url('../../assets/goodnight/leaf-corner.png') right bottom/contain no-repeat; opacity:.62; content:''; pointer-events:none; }.smaller-action p { margin:0; color:#6a765f; font-size:12px; }.smaller-action h3 { position:relative; z-index:1; max-width:238px; margin:7px 0 5px; color:#314837; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:20px; line-height:1.3; }.smaller-action > span { position:relative; z-index:1; display:block; max-width:244px; color:#5f6c60; font-size:12px; line-height:1.45; }.smaller-action div { position:relative; z-index:1; display:flex; gap:6px; margin-top:9px; }.smaller-action small { border-radius:999px; background:rgba(255,255,255,.58); padding:4px 8px; color:#607057; font-size:10px; }
+.smaller-action { position:relative; overflow:hidden; margin-top:12px; border:1px solid rgba(109,126,86,.15); border-radius:17px; background:linear-gradient(135deg,#f4efd9,#e8e0c7); padding:13px 104px 13px 12px; }.smaller-action::after { position:absolute; right:-12px; bottom:-7px; width:106px; height:106px; background:url('../../assets/goodnight/illustrations/action-paper-scene.png') right bottom/contain no-repeat; opacity:.57; content:''; pointer-events:none; }.smaller-action p { position:relative; z-index:1; margin:0; color:#6a765f; font-size:12px; }.smaller-action h3 { position:relative; z-index:1; max-width:205px; margin:7px 0 5px; color:#314837; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:19px; line-height:1.32; }.smaller-action > span { position:relative; z-index:1; display:block; max-width:205px; color:#5f6c60; font-size:12px; line-height:1.5; }.smaller-action div { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }.smaller-action small { border-radius:999px; background:rgba(255,255,255,.58); padding:4px 8px; color:#607057; font-size:10px; }
 .primary-cta,.secondary-cta { width:100%; min-height:46px; margin-top:10px; border-radius:999px; font:inherit; font-size:14px; cursor:pointer; }.primary-cta { border:1px solid #3e664d; background:#426b52; color:#fffdf7; }.secondary-cta { min-height:40px; border:1px solid rgba(96,119,86,.19); background:transparent; color:#52644d; }
 @media (max-width:374px) { .adaptive-screen { padding-inline:12px; }.adaptive-hero { min-height:150px; }.adaptive-hero h1 { font-size:27px; }.adaptive-paper { padding-inline:12px; }.barrier-grid { gap:7px; }.barrier-grid button { font-size:12px; } }
 @media (max-width:390px) {
   .adaptive-screen { padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
   .adaptive-hero { min-height:152px; }
   .adaptive-hero h1 { font-size:27px; }
-  .previous-action { min-height:60px; padding:8px 11px; }
+  .previous-action { min-height:60px; padding:8px 95px 8px 11px; }
   .adaptive-paper { padding:13px 11px 10px; }
   h2 { margin-bottom:10px; font-size:19px; }
   .barrier-grid { gap:6px; }
   .barrier-grid button { min-height:36px; font-size:12px; }
   .select-hint { margin-top:12px; }
-  .smaller-action { margin-top:12px; padding:13px 12px; }
+  .smaller-action { margin-top:12px; padding:13px 94px 13px 12px; }
   .smaller-action h3 { margin:7px 0 5px; font-size:20px; }
   .smaller-action > span { font-size:12px; line-height:1.5; }
   .smaller-action div { margin-top:9px; }

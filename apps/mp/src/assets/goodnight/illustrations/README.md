@@ -16,3 +16,12 @@ interactive surfaces.
   Stabilize handoff note.
 - `intent-*.png`: eight text-free hand-drawn icon crops from the supplied
   `13_你现在最需要什么.png` reference, one per existing SupportIntent.
+- `situation-book-lantern.png`, `safety-shield-scene.png` and
+  `action-paper-scene.png`: text-free story details used by the real Journey,
+  Safety and Action screens.
+- `adaptive-previous-scene.png`: text-free previous-action detail for the
+  real adaptive-action flow.
+- `notification-*-scene.png`: text-free type-specific decoration for the
+  existing persisted notification kinds.
+- `timeline-*-scene.png`: text-free event decoration selected from the real
+  Journey update kind, not a replacement for timeline content.
