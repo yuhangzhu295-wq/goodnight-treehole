@@ -17,19 +17,19 @@ reference-recommendation.png ← #6；reference-adaptive.png ← #37。
 
 | viewport | actual | side-by-side | difference | mismatch ratio | scroll height |
 | --- | --- | --- | --- | ---: | ---: |
-| 375x812 | actual-recommendation-375x812.png | side-by-side-recommendation-375x812.png | difference-recommendation-375x812.png | 0.1286 | 820 |
-| 390x844 | actual-recommendation-390x844.png | side-by-side-recommendation-390x844.png | difference-recommendation-390x844.png | 0.1628 | 844 |
-| 393x852 | actual-recommendation-393x852.png | side-by-side-recommendation-393x852.png | difference-recommendation-393x852.png | 0.1671 | 852 |
-| 430x932 | actual-recommendation-430x932.png | side-by-side-recommendation-430x932.png | difference-recommendation-430x932.png | 0.1665 | 932 |
+| 375x812 | actual-recommendation-375x812.png | side-by-side-recommendation-375x812.png | difference-recommendation-375x812.png | 0.1288 | 820 |
+| 390x844 | actual-recommendation-390x844.png | side-by-side-recommendation-390x844.png | difference-recommendation-390x844.png | 0.1629 | 844 |
+| 393x852 | actual-recommendation-393x852.png | side-by-side-recommendation-393x852.png | difference-recommendation-393x852.png | 0.1672 | 852 |
+| 430x932 | actual-recommendation-430x932.png | side-by-side-recommendation-430x932.png | difference-recommendation-430x932.png | 0.167 | 932 |
 
 ## Adaptive Comparisons
 
 | viewport | actual | side-by-side | difference | mismatch ratio | scroll height |
 | --- | --- | --- | --- | ---: | ---: |
-| 375x812 | actual-adaptive-375x812.png | side-by-side-adaptive-375x812.png | difference-adaptive-375x812.png | 0.1828 | 900 |
-| 390x844 | actual-adaptive-390x844.png | side-by-side-adaptive-390x844.png | difference-adaptive-390x844.png | 0.1825 | 932 |
-| 393x852 | actual-adaptive-393x852.png | side-by-side-adaptive-393x852.png | difference-adaptive-393x852.png | 0.1792 | 940 |
-| 430x932 | actual-adaptive-430x932.png | side-by-side-adaptive-430x932.png | difference-adaptive-430x932.png | 0.1879 | 1020 |
+| 375x812 | actual-adaptive-375x812.png | side-by-side-adaptive-375x812.png | difference-adaptive-375x812.png | 0.1697 | 900 |
+| 390x844 | actual-adaptive-390x844.png | side-by-side-adaptive-390x844.png | difference-adaptive-390x844.png | 0.1904 | 932 |
+| 393x852 | actual-adaptive-393x852.png | side-by-side-adaptive-393x852.png | difference-adaptive-393x852.png | 0.1907 | 940 |
+| 430x932 | actual-adaptive-430x932.png | side-by-side-adaptive-430x932.png | difference-adaptive-430x932.png | 0.1981 | 1020 |
 
 ## Review
 

@@ -11,16 +11,16 @@
 
 | 页面 | Reference | Viewport | Capture | scrollWidth | scrollHeight |
 | --- | --- | --- | --- | ---: | ---: |
-| tonight | 01_今晚怎么了.png | 420x786 | CAPTURED | 420 | 813 |
-| confirm | 36_经历指纹确认_正式版.png | 420x786 | CAPTURED | 420 | 788 |
-| temperature | 29_情绪温度计.png | 420x786 | CAPTURED | 420 | 830 |
-| intent | 13_你现在最需要什么.png | 420x786 | CAPTURED | 420 | 786 |
-| stabilize | 32_我先接住你.png | 420x786 | CAPTURED | 420 | 794 |
-| safety | 33_SafetyFlow_正式版.png | 420x786 | CAPTURED | 420 | 981 |
-| reality | 16_现实求助卡.png | 420x786 | CAPTURED | 420 | 856 |
+| tonight | 01_今晚怎么了.png | 420x786 | CAPTURED | 420 | 1002 |
+| confirm | 36_经历指纹确认_正式版.png | 420x786 | CAPTURED | 420 | 843 |
+| temperature | 29_情绪温度计.png | 420x786 | CAPTURED | 420 | 804 |
+| intent | 13_你现在最需要什么.png | 420x786 | CAPTURED | 420 | 790 |
+| stabilize | 32_我先接住你.png | 420x786 | CAPTURED | 420 | 840 |
+| safety | 33_SafetyFlow_正式版.png | 420x786 | CAPTURED | 420 | 810 |
+| reality | 16_现实求助卡.png | 420x786 | CAPTURED | 420 | 888 |
 | action | 06_今晚只做这一件事.png | 420x786 | CAPTURED | 420 | 828 |
 | adaptive | 37_AdaptiveMicroAction.png | 420x786 | CAPTURED | 420 | 874 |
-| notification | 39_提醒与回访.png | 420x786 | CAPTURED | 420 | 2329 |
+| notification | 39_提醒与回访.png | 420x786 | CAPTURED | 420 | 2632 |
 | timeline | 34_Journey时间线_正式版.png | 420x786 | CAPTURED | 420 | 786 |
 
 ## Status boundary

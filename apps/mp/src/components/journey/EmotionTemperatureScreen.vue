@@ -31,6 +31,44 @@ function toggle(option: string) { symptoms.value = symptoms.value.includes(optio
 </template>
 
 <style scoped>
-.temperature-screen{display:grid;gap:12px}.temperature-sheet{display:grid;gap:13px;border:1px solid rgba(102,121,85,.17);border-radius:24px;background:rgba(255,253,247,.96);padding:16px;box-shadow:0 15px 32px rgba(20,32,27,.1)}.section-heading,.field-title{display:flex;align-items:center;gap:8px;color:#496944}.section-heading{font-size:16px;font-weight:700}.field-title h2{margin:0;font-size:16px}.temperature-scale{display:grid;gap:7px;padding:0 2px}.temperature-scale output{justify-self:center;display:flex;align-items:baseline;gap:2px;border-radius:999px;background:#4e714e;padding:5px 9px;color:#fff;line-height:1}.temperature-scale output strong{font-size:21px}.temperature-scale output span{font-size:12px}.scale-numbers,.scale-dots{display:grid;grid-template-columns:repeat(10,1fr);gap:2px}.scale-numbers{color:#999c93;font-size:11px;text-align:center}.scale-control{position:relative;height:16px}.scale-dots{position:absolute;inset:5px 0 auto;z-index:0}.scale-dots::before{position:absolute;top:3px;right:0;left:0;height:2px;background:#d8dccf;content:''}.scale-dots i{position:relative;z-index:1;width:8px;height:8px;justify-self:center;border:1px solid #bdc2b7;border-radius:50%;background:#fff}.scale-dots i.active{border-color:#638159;background:#638159}.scale-dots i.current{width:14px;height:14px;margin-top:-3px;box-shadow:0 0 0 3px rgba(95,127,62,.14)}.temperature-scale input{position:absolute;inset:0;z-index:2;width:100%;height:16px;margin:0;opacity:0;cursor:pointer}.scale-labels{display:grid;grid-template-columns:repeat(4,1fr);color:#848980;font-size:11px}.scale-labels span:nth-child(2),.scale-labels span:nth-child(3){text-align:center}.scale-labels span:last-child{text-align:right}.field-block{display:grid;gap:8px;padding-top:11px;border-top:1px solid rgba(95,127,62,.13)}.symptom-list{display:flex;flex-wrap:wrap;gap:7px}.symptom-list button{min-height:34px;border:1px solid rgba(95,127,62,.2);border-radius:999px;background:#fffdf8;padding:5px 10px;color:#52684a;font:inherit;cursor:pointer}.symptom-list button.selected{border-color:#587a52;background:#eaf0df;color:#345336}.thought-field{display:grid;gap:8px}.thought-field strong{font-size:15px}.thought-field textarea{min-height:68px;border:1px solid rgba(95,127,62,.18);border-radius:15px;background:#fffdf8;padding:10px;color:#28362c;font:inherit;line-height:1.5;resize:none}.gentle-note{position:relative;display:flex;align-items:center;gap:7px;min-height:46px;margin:0;overflow:hidden;border-radius:15px;background:linear-gradient(90deg,#f5efe2,#e7ebdc);padding:10px 92px 10px 10px;color:#64715e;font-size:12px;line-height:1.45}.gentle-note::after{position:absolute;right:2px;bottom:-8px;width:88px;height:68px;background:url('../../assets/goodnight/illustrations/situation-book-lantern.png') right bottom/contain no-repeat;content:'';opacity:.47;pointer-events:none}.gentle-note>*{position:relative;z-index:1}.temperature-actions{display:grid;gap:8px;padding:0 10px}.continue-button,.skip-button{min-height:47px;border-radius:999px;padding:10px;font:inherit;cursor:pointer}.continue-button{border:0;background:#416a50;color:#fff;box-shadow:0 11px 20px rgba(44,83,58,.18)}.skip-button{border:1px solid rgba(95,127,62,.28);background:rgba(255,253,247,.7);color:#4e673f}
-.temperature-sheet{gap:10px;padding:14px}.temperature-scale{gap:5px}.field-block{gap:7px;padding-top:8px}.thought-field{gap:6px}.thought-field textarea{min-height:58px}.gentle-note{min-height:40px;padding-top:8px;padding-bottom:8px}.temperature-actions{gap:5px}
+:global(.journey-flow--temperature .journey-flow-hero) { min-height: 160px; }
+
+.temperature-screen { display: grid; gap: 12px; }
+.temperature-sheet { display: grid; gap: 10px; border: 1px solid rgba(102, 121, 85, .17); border-radius: 24px; background: rgba(255, 253, 247, .96); padding: 14px; box-shadow: 0 15px 32px rgba(20, 32, 27, .1); }
+.section-heading, .field-title { display: flex; align-items: center; justify-content: flex-start; gap: 8px; color: #496944; }
+.section-heading { font-size: 16px; font-weight: 700; }
+.field-title h2 { margin: 0; font-size: 16px; }
+
+.temperature-scale { display: grid; gap: 5px; padding: 0 2px; }
+.temperature-scale output { justify-self: center; display: flex; align-items: baseline; gap: 2px; border-radius: 999px; background: #4e714e; padding: 5px 9px; color: #fff; line-height: 1; transform: translateY(-6px); }
+.temperature-scale output strong { font-size: 21px; }
+.temperature-scale output span { font-size: 12px; }
+.scale-numbers, .scale-dots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+.scale-numbers { color: #999c93; font-size: 11px; text-align: center; }
+.scale-control { position: relative; height: 16px; }
+.scale-dots { position: absolute; inset: 5px 0 auto; z-index: 0; }
+.scale-dots::before { position: absolute; top: 3px; right: 0; left: 0; height: 2px; background: #d8dccf; content: ''; }
+.scale-dots i { position: relative; z-index: 1; width: 8px; height: 8px; justify-self: center; border: 1px solid #bdc2b7; border-radius: 50%; background: #fff; }
+.scale-dots i.active { border-color: #638159; background: #638159; }
+.scale-dots i.current { width: 14px; height: 14px; margin-top: -3px; box-shadow: 0 0 0 3px rgba(95, 127, 62, .14); }
+.temperature-scale input { position: absolute; inset: 0; z-index: 2; width: 100%; height: 16px; margin: 0; opacity: 0; cursor: pointer; }
+.scale-labels { display: grid; grid-template-columns: repeat(4, 1fr); color: #848980; font-size: 11px; }
+.scale-labels span:nth-child(2), .scale-labels span:nth-child(3) { text-align: center; }
+.scale-labels span:last-child { text-align: right; }
+
+.field-block { display: grid; gap: 7px; margin-top: 14px; border: 1px solid rgba(95, 127, 62, .12); border-radius: 16px; background: rgba(255, 253, 248, .54); padding: 11px; }
+.symptom-list { display: flex; flex-wrap: nowrap; gap: 5px; overflow: hidden; }
+.symptom-list button { flex: 0 0 auto; min-height: 32px; border: 1px solid rgba(95, 127, 62, .2); border-radius: 999px; background: #fffdf8; padding: 5px 4px; color: #52684a; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.symptom-list button.selected { border-color: #587a52; background: #eaf0df; color: #345336; }
+.thought-field { display: grid; gap: 6px; }
+.thought-field strong { font-size: 15px; }
+.thought-field textarea { min-height: 56px; border: 1px solid rgba(95, 127, 62, .18); border-radius: 15px; background: #fffdf8; padding: 10px; color: #28362c; font: inherit; line-height: 1.5; resize: none; }
+.gentle-note { position: relative; display: flex; align-items: center; gap: 7px; min-height: 60px; margin: 0; overflow: hidden; border-radius: 15px; background: linear-gradient(90deg, #f5efe2, #e7ebdc); padding: 9px 108px 9px 12px; color: #64715e; font-size: 12px; line-height: 1.45; }
+.gentle-note::after { position: absolute; right: 2px; bottom: -7px; width: 112px; height: 66px; background: url('../../assets/goodnight/illustrations/temperature-bench-scene.png') right bottom / contain no-repeat; content: ''; opacity: .62; pointer-events: none; mix-blend-mode: multiply; }
+.gentle-note > * { position: relative; z-index: 1; }
+
+.temperature-actions { display: grid; gap: 6px; padding: 0 10px; }
+.continue-button, .skip-button { border-radius: 999px; padding: 7px 10px; font: inherit; cursor: pointer; }
+.continue-button { min-height: 40px; border: 0; background: #416a50; color: #fff; box-shadow: 0 11px 20px rgba(44, 83, 58, .18); }
+.skip-button { min-height: 34px; border: 1px solid rgba(95, 127, 62, .28); background: rgba(255, 253, 247, .7); color: #4e673f; }
 </style>

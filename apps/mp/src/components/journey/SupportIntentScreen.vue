@@ -21,5 +21,47 @@ const intents: Array<{ value: SupportIntent; icon: string; art: string; label: s
 </template>
 
 <style scoped>
-.intent-screen{display:grid}.intent-paper{display:grid;gap:13px;border:1px solid rgba(102,121,85,.17);border-radius:24px;background:rgba(255,253,247,.96);padding:16px 13px;box-shadow:0 15px 32px rgba(20,32,27,.1)}.intent-label{margin:0 5px;color:#4b6946;font-size:16px;font-weight:700}.intent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.intent-grid button{position:relative;display:grid;grid-template-columns:52px minmax(0,1fr);column-gap:8px;align-content:center;min-height:91px;border:1px solid rgba(95,127,62,.16);border-radius:16px;background:linear-gradient(145deg,#fffef9,#f7f3e7);padding:9px;color:#334834;text-align:left;font:inherit;cursor:pointer}.intent-grid button:hover,.intent-grid button:focus-visible{border-color:#769064;background:#fbf8ed;box-shadow:0 0 0 2px rgba(95,127,62,.12)}.intent-grid button:focus-visible{outline:0}.intent-grid button:disabled{opacity:.6;cursor:wait}.intent-icon{grid-row:span 2;display:grid;place-items:center;width:50px;height:50px;overflow:hidden;border-radius:50%;background:#e8eedc;color:#59754f}.intent-icon img{width:50px;height:50px;object-fit:contain;mix-blend-mode:multiply}.intent-grid strong{align-self:end;font-size:13px;line-height:1.34}.intent-grid small{align-self:start;margin-top:3px;color:#758076;font-size:11px;line-height:1.36}.intent-hint{display:flex;align-items:center;justify-content:center;gap:5px;margin:0;color:#788078;font-size:12px}@media(max-width:350px){.intent-grid{grid-template-columns:1fr}.intent-grid button{min-height:79px}}
+:global(.journey-flow--intent .journey-flow-hero) {
+  min-height: 163px;
+  padding: 24px 22px 12px;
+  background: linear-gradient(145deg, #eee5cf 0%, #f4e9d3 58%, #ded0b7 100%);
+  color: #385b3d;
+}
+
+:global(.journey-flow--intent .journey-flow-hero::before) { opacity: .16; }
+:global(.journey-flow--intent .journey-flow-hero::after) {
+  top: 0;
+  right: 0;
+  width: 210px;
+  height: 108px;
+  background: url('../../assets/goodnight/illustrations/intent-hero-foliage.png') right top / cover no-repeat;
+  opacity: .82;
+  filter: none;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 48%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 48%);
+}
+
+:global(.journey-flow--intent .hero-brand), :global(.journey-flow--intent .hero-subtitle) { color: rgba(56, 91, 61, .76); }
+:global(.journey-flow--intent .journey-flow-hero h1) { color: #385b3d; font-size: 28px; }
+:global(.journey-flow--intent .back-control) { border-color: rgba(56, 91, 61, .2); background: rgba(255, 253, 247, .48); color: #385b3d; }
+:global(.journey-flow--intent .journey-flow-main) { justify-self: center; width: calc(100% - 12px); margin-top: -8px; }
+
+.intent-screen { display: grid; }
+.intent-paper { display: grid; gap: 13px; border: 1px solid rgba(102, 121, 85, .17); border-radius: 24px; background: rgba(255, 253, 247, .96); padding: 16px 13px; box-shadow: 0 15px 32px rgba(20, 32, 27, .1); }
+.intent-label { margin: 0 5px; color: #4b6946; font-size: 16px; font-weight: 700; }
+.intent-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.intent-grid button { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; align-content: center; min-height: 91px; border: 1px solid rgba(95, 127, 62, .16); border-radius: 16px; background: linear-gradient(145deg, #fffef9, #f7f3e7); padding: 9px; color: #334834; text-align: left; font: inherit; cursor: pointer; }
+.intent-grid button:hover, .intent-grid button:focus-visible { border-color: #769064; background: #fbf8ed; box-shadow: 0 0 0 2px rgba(95, 127, 62, .12); }
+.intent-grid button:focus-visible { outline: 0; }
+.intent-grid button:disabled { opacity: .6; cursor: wait; }
+.intent-icon { grid-row: span 2; display: grid; place-items: center; width: 50px; height: 50px; overflow: hidden; border-radius: 50%; background: #e8eedc; color: #59754f; }
+.intent-icon img { width: 50px; height: 50px; object-fit: contain; mix-blend-mode: multiply; pointer-events: none; }
+.intent-grid strong { align-self: end; font-size: 13px; line-height: 1.34; }
+.intent-grid small { align-self: start; margin-top: 3px; color: #758076; font-size: 11px; line-height: 1.36; }
+.intent-hint { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 0; color: #788078; font-size: 12px; }
+
+@media (max-width: 350px) {
+  .intent-grid { grid-template-columns: 1fr; }
+  .intent-grid button { min-height: 79px; }
+}
 </style>
