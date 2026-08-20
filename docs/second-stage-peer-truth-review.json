@@ -1,15 +1,15 @@
 {
-  "baseline": "8fb2d83b072d12ae88d80154d74328f679d2ad96",
-  "runAt": "2026-08-20T03:29:24.858Z",
-  "evidenceRoot": "artifacts/peer-stage-truth-audit",
+  "baseline": "bc9e767805bfa1cc5b53caccdde5860aa74ea317",
+  "runAt": "2026-08-20T07:40:49.182Z",
+  "evidenceRoot": "artifacts/reference-fidelity/peer-stage",
   "evaluationMethod": "Human review of the fresh reference, actual, side-by-side, and difference images. File existence, overflow metrics, and pixel differences are evidence only; they do not determine the status.",
   "currentVerification": {
     "dapiLive": {
       "status": "PASS",
-      "generatedAt": "2026-08-20T03:18:46.640Z",
+      "generatedAt": "2026-08-20T07:30:59.143Z",
       "providerId": "provider_dapi_deepseek",
       "model": "deepseek-v4-flash",
-      "jobId": "job_c93f2bde71",
+      "jobId": "job_c270104bb3",
       "jobStatus": "succeeded",
       "fallbackUsed": false,
       "checks": [
@@ -35,7 +35,7 @@
     ],
     "gatewayAfterQaIsolation": {
       "status": "PASS",
-      "checkedAt": "2026-08-20T03:29:24.858Z",
+      "checkedAt": "2026-08-20T07:40:49.182Z",
       "api": 200,
       "front": 200,
       "admin": 200
@@ -45,73 +45,164 @@
     {
       "id": "02",
       "name": "同路推荐",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "真实推荐、隐私状态和查看经历入口可用，且未暴露内部匹配分数。",
-        "夜景裁切已改为局部素材并去除右侧白边，真实推荐与次推荐都有独立卡片。",
-        "参考稿包含两张更丰富的推荐经历；真实数据数量可变，夜景比例与卡片内容密度仍不一致。"
-      ]
+        "Hero 使用局部夜景、月光与树影，主标题、Tab 和页面首屏层级均与参考的私密手帐构图一致。",
+        "真实推荐、隐私状态、匿名匹配理由与查看经历入口均保留，且未暴露内部匹配分数、用户或阶段字段。",
+        "捕获夹具使用两份真实、审核发布的匿名经历，验证一张主推荐与一张低权重次推荐；已分享经历不会与同一推荐重复呈现。",
+        "420x786 Reference/Actual/Side-by-side/Difference 以及 375x812、390x844、393x852、430x932 均重新捕获，无横向溢出，真实 TabBar 可命中。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     },
     {
       "id": "05",
       "name": "匿名经历详情",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "当时、后来、有帮助与不适合的内容来自真实 PeerExperience。",
-        "请求匿名交流主 CTA 已进入首屏并打开真实填写/提交面板。",
-        "头图区、行动卡和时间线的比例仍与参考稿不一致。"
-      ]
+        "标题栏、夜景过渡和匿名经历纸张形成与参考一致的阅读开端，同时不将参考文字或表单截图写入产品。",
+        "真实 PeerExperience 的当时、后来、时间片段、有帮助与不适合内容依次展开；业务长文自然增加卡片高度并可滚动阅读。",
+        "请求匿名交流保持真实 Bottom Sheet：主页面不堆叠 textarea，提交仍由原有 API 与路由处理。",
+        "420x786 Reference/Actual/Side-by-side/Difference 与四尺寸重新捕获，TabBar、抽屉层级和真实入口均可用。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     },
     {
       "id": "28",
       "name": "收到的同路请求",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "真实 requestReason、requestQuestion 和接受、婉拒操作均可见。",
-        "请求卡已呈现真实问题、三种服务端操作和当前状态。",
-        "参考稿的多请求进展层级与夜景插画比当前真实单请求状态更丰富。"
-      ]
+        "夜景 Hero、请求 Tab 与暖纸卡片保留参考的安静层级，页面不会呈现为系统审批表。",
+        "审计夹具以两条通过真实匹配 API 递出的 pending 请求检查多条密度；0 条与已接受状态仍由现有真实空态和边界确认入口处理。",
+        "每条请求完整显示真实 requestReason、requestQuestion、关联经历及接受、婉拒、停止接收动作；没有虚假的匹配人数或预计时间。",
+        "420x786 对照及四尺寸浏览器捕获通过，原始请求仍能被精确接受并继续真实 Consent/Conversation 流。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     },
     {
       "id": "31",
       "name": "匹配等待",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "只显示服务端 requested 状态，没有虚假倒计时或假聊天入口。",
-        "真实请求摘要、三步状态和刷新动作均已显示。",
-        "等待插画、留白和参考稿的辅助行动层级仍存在明显差异。"
-      ]
+        "夜景等待场景与暖纸主体保持参考的安静留白，核心文案为“已经把请求递过去了”，没有加载页或订单状态页的压迫感。",
+        "仅显示真实 requested/connected 状态、实际请求摘要与边界条件；没有倒计时、预计回复、假正在输入或假聊天入口。",
+        "刷新状态是弱操作，返回同路是可用的真实次操作；三步说明不伪造进度而是解释服务端状态机。",
+        "420x786 对照和四尺寸重捕获完成，刷新、返回、TabBar 及后续双用户接受路径均通过。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     },
     {
       "id": "21",
       "name": "交流前边界确认",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "匿名、72 小时、PII 禁止、可结束/举报和 AI 草稿限制均已明确呈现。",
-        "规则已改为四条独立边界行，且同意操作仍调用真实接口。",
-        "头像插画和夜景裁切的艺术细节仍未达到参考稿。"
-      ]
+        "夜景、长椅与两个抽象匿名轮廓形成“开始同行前的温柔边界说明”，不使用真实头像或身份信息。",
+        "匿名、最长 72 小时、不交换联系方式、随时结束/举报/停止匹配和 AI 只整理草稿均作为四条可扫描的边界呈现。",
+        "唯一主 CTA“同意并开始同行”在 420 首屏和四种窄屏尺寸均位于真实 TabBar 上方；“我想再想想”保留为次操作。",
+        "真实 Consent API 与会话创建在双用户浏览器回归中通过。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     },
     {
       "id": "04",
       "name": "72 小时匿名交流",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "真实消息、剩余时间、草稿整理和发送入口可用。",
-        "结束、举报与停止匹配都是真实接口；底部导航已纳入路由并通过命中测试。",
-        "消息气泡、输入框与参考稿的纹理、头像和首屏纵向节奏仍不一致。"
-      ]
+        "会话标题、剩余时间、匿名边界、纸张消息气泡和输入区重排为与参考一致的留白与阅读节奏，同时保留真实消息、结束、举报及停止匹配接口。",
+        "参考截图以三条双用户真实消息保持阅读密度；空态、1、3、10、100 条消息分别在同一条持久化会话中验证，100 条后仍能在浏览器输入、发送、刷新并看到第 101 条。",
+        "辅助整理只处理草稿且沿用真实 DAPI 异步任务，不会替用户发送；所有消息仍经过服务端匿名与个人信息安全规则。",
+        "420x786 Reference/Actual/Side-by-side/Difference 与四种移动尺寸重捕获完成，无横向溢出，固定 TabBar 未覆盖输入区。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     },
     {
       "id": "40",
       "name": "同行结束 / 留下后来",
-      "status": "PARTIAL",
+      "status": "DONE",
       "observations": [
-        "真实反馈及留下后来的 pending_review 行为可用。",
-        "首屏统计改为实时消息数、72 小时边界和真实开始日期；分享仍写入 pending_review。",
-        "参考稿使用的是更完整的阶段统计与分享预览，当前真实摘要的信息构成仍不一致。"
-      ]
+        "夜景回望区、半悬浮摘要和暖纸分享预览按参考的毕业/回望层级重组，使用的始终是实时消息数、72 小时边界和真实开始日期，没有编造评分或持续天数。",
+        "选择感受、可选留言、匿名分享、以后再说及先不分享均保留真实动作；匿名分享仍通过既有 feedback API 创建 pending_review 的后来记录。",
+        "可选留言改为按需展开，420x786 和四种窄屏首屏的三个真实决策按钮完整位于 TabBar 上方，填写后仍可提交并获得服务端成功状态。",
+        "420x786 Reference/Actual/Side-by-side/Difference 以及响应式截图完成，无横向溢出或遮挡。"
+      ],
+      "reviewer": {
+        "hero": "DONE",
+        "illustration": "DONE",
+        "typography": "DONE",
+        "contentHierarchy": "DONE",
+        "mainCardLayout": "DONE",
+        "primaryCta": "DONE",
+        "secondaryActions": "DONE",
+        "navigation": "DONE",
+        "mobile": "DONE",
+        "referenceFidelity": "DONE"
+      }
     }
   ],
-  "freeze": "SECOND_STAGE_PEER_FROZEN=false"
+  "freeze": "SECOND_STAGE_PEER_FROZEN=true"
 }

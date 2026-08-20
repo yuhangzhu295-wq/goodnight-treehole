@@ -124,6 +124,14 @@ async function captureResponsive(page: Page, state: State, route: string) {
   }
 }
 
+async function waitForMessageCount(page: Page, expected: number) {
+  await page.waitForFunction(
+    (count) => document.querySelectorAll('.messages .message').length === count,
+    expected,
+    { timeout: 15_000 },
+  );
+}
+
 async function main() {
   // startFrontStack owns this schema name. Reusing it keeps browser requests
   // and the Prisma evidence readback on the exact same isolated database.
@@ -146,6 +154,12 @@ async function main() {
     const experience = await json<{ item: { id: string } }>('/api/v1/peer-experiences', { method: 'POST', headers: apiHeaders(owner), body: JSON.stringify({ journeyId: ownerJourney.journey.id, title: '把想说的话先留在草稿里', domain: '关系', stage: 'graduated', content: '我没有强迫自己马上放下，只先把今晚过完。', tags: ['分开后想联系'], consented: true, laterSummary: { summary: '第三周开始，我能先照顾自己的节奏，再决定要不要联系。' }, helpfulActions: ['把想说的话写进草稿', '先喝一杯温水'] }) });
     const login = await json<{ token: string }>('/api/admin/v1/auth/login', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ username: 'admin', password: 'admin123' }) });
     await json(`/api/admin/v1/peer-experiences/${experience.item.id}/review`, { method: 'PATCH', headers: apiHeaders(undefined, { authorization: `Bearer ${login.token}` }), body: JSON.stringify({ status: 'published' }) });
+    // The reference state contains a featured story plus a quieter follow-up.
+    // Create a second real, separately consented anonymous experience on the
+    // same persisted journey so the capture exercises multiple-match density
+    // without mutating the unrelated Journey scenario model.
+    const secondaryExperience = await json<{ item: { id: string } }>('/api/v1/peer-experiences', { method: 'POST', headers: apiHeaders(owner), body: JSON.stringify({ journeyId: ownerJourney.journey.id, title: '给自己留一点不着急的时间', domain: '关系', stage: 'recovering', content: '我开始把想发的话写下来，等到第二天再决定。', tags: ['分开后想联系'], consented: true, laterSummary: { summary: '慢一点以后，我能先听见自己真正想要什么。' }, helpfulActions: ['先写下来', '把注意力放回今天'] }) });
+    await json(`/api/admin/v1/peer-experiences/${secondaryExperience.item.id}/review`, { method: 'PATCH', headers: apiHeaders(undefined, { authorization: `Bearer ${login.token}` }), body: JSON.stringify({ status: 'published' }) });
     const requesterJourney = await json<{ journey: { id: string } }>('/api/v1/journeys', { method: 'POST', headers: apiHeaders(requester), body: JSON.stringify({ title: '今晚又想联系 TA', domain: '关系', content: '我很想马上发出那条消息，又担心让自己更难受。', intensity: 7 }) });
     await json(`/api/v1/journeys/${requesterJourney.journey.id}/situation`, { method: 'PATCH', headers: apiHeaders(requester), body: JSON.stringify({ facts: ['关系已经结束，但今晚很想联系对方'], feelings: ['想念'], needs: ['先别冲动'], domain: '关系', subDomain: '分开后想联系', contextTags: ['分开后想联系', '关系'], intensity: 7 }) });
     const suggested = await json<{ items: Array<{ id: string; peerExperienceId: string }> }>(`/api/v1/journeys/${requesterJourney.journey.id}/peer-matches`, { method: 'POST', headers: apiHeaders(requester), body: '{}' });
@@ -164,39 +178,73 @@ async function main() {
     await requesterPage.getByLabel('我最想问的一句').fill('你最开始那几天是怎么熬过来的？');
     await requesterPage.getByRole('button', { name: '递出匿名请求', exact: true }).click();
     await requesterPage.waitForURL('**/pages/peer/wait?*', { timeout: 15_000 });
-    await capture(requesterPage, 'waiting', `/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`, ['请求已经安静地送到对方那里', '一段同行会这样开始'], evidence);
+    await capture(requesterPage, 'waiting', `/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`, ['已经把请求', '一段同行会这样开始'], evidence);
 
+    const secondaryMatch = suggested.items.find((item) => item.peerExperienceId === secondaryExperience.item.id);
+    if (!secondaryMatch) throw new Error('real multiple-request fixture did not produce a secondary match');
+    await json(`/api/v1/peer-matches/${secondaryMatch.id}`, { method: 'PATCH', headers: apiHeaders(requester), body: JSON.stringify({ status: 'requested', requestReason: '我也在学着把冲动放慢一点，想听听你是怎么等到第二天的。', requestQuestion: '你是从哪一个很小的动作开始，让自己不那么着急的？' }) });
     await capture(ownerPage, 'requests', '/pages/peer/requests', ['收到的请求', '有人想听听你的后来', '我愿意聊聊'], evidence);
-    await ownerPage.getByRole('button', { name: '我愿意聊聊', exact: true }).click();
+    await ownerPage.locator('.request-card').filter({ hasText: '把想说的话先留在草稿里' }).getByRole('button', { name: '我愿意聊聊', exact: true }).click();
     await ownerPage.waitForURL('**/pages/peer/consent?*', { timeout: 15_000 });
     await capture(ownerPage, 'consent', `/pages/peer/consent?matchId=${encodeURIComponent(match.id)}`, ['开始前，先确认边界', '同意并开始同行'], evidence);
     await ownerPage.getByRole('button', { name: '同意并开始同行', exact: true }).click();
     await ownerPage.waitForURL('**/pages/peer/conversation?*', { timeout: 15_000 });
     await requesterPage.goto(`${urls.front}/pages/peer/conversation?matchId=${encodeURIComponent(match.id)}`, { waitUntil: 'domcontentloaded' });
+    await requesterPage.locator('.empty-message').waitFor({ state: 'visible', timeout: 10_000 });
     await requesterPage.getByPlaceholder('写下你想说的话…').fill('我现在还是有点想联系 TA，但愿意先把这十分钟过完。');
     await requesterPage.getByRole('button', { name: '发送', exact: true }).click();
     await requesterPage.waitForTimeout(250);
     await ownerPage.reload({ waitUntil: 'domcontentloaded' });
+    await waitForMessageCount(ownerPage, 1);
     await ownerPage.getByPlaceholder('写下你想说的话…').fill('我当时先喝口水，再把消息留在草稿里，过几天再决定。');
     await ownerPage.getByRole('button', { name: '发送', exact: true }).click();
     await requesterPage.reload({ waitUntil: 'domcontentloaded' });
     await requesterPage.getByPlaceholder('写下你想说的话…').fill('谢谢你。我会先写下来，不急着把今晚变成一个答案。');
     await requesterPage.getByRole('button', { name: '发送', exact: true }).click();
     await ownerPage.reload({ waitUntil: 'domcontentloaded' });
+    await waitForMessageCount(ownerPage, 3);
     await capture(ownerPage, 'conversation', `/pages/peer/conversation?matchId=${encodeURIComponent(match.id)}`, ['匿名同路', '我现在还是有点想联系'], evidence);
+
+    // Keep the visual reference capture at three messages, then use the exact
+    // same persisted conversation for density and composer regression checks.
+    const postDensityMessage = (index: number) => json(`/api/v1/peer-conversations/${match.id}/messages`, {
+      method: 'POST',
+      headers: apiHeaders(index % 2 === 0 ? requester : owner),
+      body: JSON.stringify({ content: `第 ${index + 1} 条：我会先喝口水，让自己慢一点。` }),
+    });
+    for (let index = 3; index < 10; index += 1) await postDensityMessage(index);
+    await ownerPage.reload({ waitUntil: 'domcontentloaded' });
+    await waitForMessageCount(ownerPage, 10);
+    const densityStartedAt = Date.now();
+    for (let index = 10; index < 100; index += 1) await postDensityMessage(index);
+    if (Date.now() - densityStartedAt > 30_000) throw new Error('100-message persistence exceeded the conversation performance budget');
+    await requesterPage.reload({ waitUntil: 'domcontentloaded' });
+    await waitForMessageCount(requesterPage, 100);
+    const densityLayout = await requesterPage.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth > window.innerWidth,
+      messageScrollHeight: document.querySelector<HTMLElement>('.messages')?.scrollHeight ?? 0,
+      composerVisible: Boolean(document.querySelector<HTMLElement>('.composer')),
+    }));
+    if (densityLayout.overflow || !densityLayout.composerVisible || densityLayout.messageScrollHeight < 1) throw new Error('100-message conversation layout is not scroll-safe');
+    await requesterPage.locator('.messages').evaluate((element) => element.scrollTop = element.scrollHeight);
+    await requesterPage.getByPlaceholder('写下你想说的话…').fill('第 101 条：我会先把这句话写下来。');
+    await requesterPage.getByRole('button', { name: '发送', exact: true }).click();
+    await ownerPage.reload({ waitUntil: 'domcontentloaded' });
+    await waitForMessageCount(ownerPage, 101);
     await ownerPage.getByRole('button', { name: '结束', exact: true }).click();
     await ownerPage.getByRole('dialog').getByRole('button', { name: '确认结束', exact: true }).click();
     await ownerPage.waitForURL('**/pages/peer/graduate?*', { timeout: 15_000 });
-    await capture(ownerPage, 'graduation', `/pages/peer/graduate?matchId=${encodeURIComponent(match.id)}`, ['这段同行', '以后也想把后来留给同路人'], evidence);
+    await capture(ownerPage, 'graduation', `/pages/peer/graduate?matchId=${encodeURIComponent(match.id)}`, ['这段同行', '愿意匿名分享'], evidence);
     await ownerPage.getByRole('button', { name: '有被接住', exact: true }).click();
-    await ownerPage.getByLabel('想留下的一句话（可选）').fill('这段同行让我把急着证明自己的心，慢慢放下来。');
-    await ownerPage.getByRole('button', { name: '以后也想把后来留给同路人', exact: true }).click();
+    await ownerPage.getByRole('button', { name: '想留下一句话（可选）', exact: true }).click();
+    await ownerPage.getByLabel('想留下的一句话', { exact: true }).fill('这段同行让我把急着证明自己的心，慢慢放下来。');
+    await ownerPage.getByRole('button', { name: '愿意匿名分享', exact: true }).click();
     await ownerPage.getByText('已经收好这份感受', { exact: false }).waitFor({ state: 'visible', timeout: 10_000 });
 
     const conversation = await prisma.peerConversation.findUnique({ where: { matchId: match.id }, include: { messages: true } });
     const notifications = await prisma.userNotification.findMany({ where: { userId: { in: [owner, requester] }, type: { in: ['PEER_REQUEST', 'PEER_ACCEPTED', 'CONVERSATION_CLOSED'] } } });
     const shared = await prisma.peerExperience.findFirst({ where: { userId: owner, status: 'pending_review', title: '这段同行之后，我慢慢走了一点出来' } });
-    if (conversation?.status !== 'closed' || conversation.messages.length !== 3 || !conversation.consentAcceptedAt || !conversation.feedback || !shared || notifications.length < 3) {
+    if (conversation?.status !== 'closed' || conversation.messages.length !== 101 || !conversation.consentAcceptedAt || !conversation.feedback || !shared || notifications.length < 3) {
       throw new Error('database evidence is incomplete after the peer browser loop');
     }
     await fs.writeFile(path.join(artifactDir, 'database-evidence.json'), JSON.stringify({ matchId: match.id, conversation: { id: conversation.id, status: conversation.status, startsAt: conversation.startsAt, expiresAt: conversation.expiresAt, consentAcceptedAt: conversation.consentAcceptedAt, feedback: conversation.feedback, messageCount: conversation.messages.length }, notificationTypes: notifications.map((item) => item.type), sharedExperienceId: shared.id }, null, 2));
@@ -207,7 +255,7 @@ async function main() {
       '| --- | --- | --- | --- | --- | ---: | ---: |',
       ...evidence.map((item) => `| #${item.state} | ${path.basename(item.reference)} | ${path.basename(item.actual)} | ${path.basename(item.sideBySide)} | ${path.basename(item.difference)} | ${item.scrollWidth} | ${item.buttons} |`), '',
       `- Responsive evidence: ${responsiveViewports.map((size) => `${size.width}x${size.height}`).join(', ')} for every state.`,
-      '- Assertions: exact reference dimensions at 420x786, no horizontal overflow, human-facing copy, no internal matching score/stage exposure, and a live two-user persisted loop.',
+      '- Assertions: exact reference dimensions at 420x786, no horizontal overflow, human-facing copy, no internal matching score/stage exposure, a live two-user persisted loop, and 0/1/3/10/100-message conversation density with a post-100 real composer send and refresh.',
     ].join('\n'));
   } finally {
     await context?.close().catch(() => undefined);
