@@ -296,8 +296,8 @@ export class PublicController {
   }
 
   @Get('journeys/:id/peers')
-  journeyPeers(@Param('id') id: string) {
-    return { items: this.store.journeyPeers(id) };
+  journeyPeers(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { items: this.store.journeyPeers(id, runtimeUserId(userId)) };
   }
 
   @Patch('peer-matches/:id')
@@ -321,8 +321,8 @@ export class PublicController {
   }
 
   @Patch('peer-experiences/:id')
-  async updatePeerExperience(@Param('id') id: string, @Body() body: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }) {
-    return await this.store.updatePeerExperience(id, body);
+  async updatePeerExperience(@Param('id') id: string, @Body() body: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.updatePeerExperience(id, body, runtimeUserId(userId));
   }
 
   @Get('peer-experiences/:id')
@@ -684,7 +684,10 @@ export class PublicController {
     const letter = this.store.letters.find((item) => item.userId === userId);
     const sourceId = letter?.sourceMoodId ?? this.store.moods.find((item) => item.userId === userId)?.id ?? 'mood_1';
     const source = this.store.resolveSourceContent(sourceId) || this.store.diaries.find((item) => item.userId === userId)?.content || '今天也辛苦了';
-    if (!letter || !letter.content || /今天的你没有被焦虑打败|我会陪你把这件事放轻一点/.test(letter.content)) {
+    // A read must never repeatedly enqueue a replacement task for a completed
+    // letter. New private moods and explicit style changes already create a
+    // real AiJob; GET remains an idempotent read of that persisted state.
+    if (!letter || !letter.content) {
       const queued = this.store.queueLetterGeneration({ userId, sourceMoodId: sourceId, style: letter?.style ?? 'warm', content: source, letter });
       return { item: this.store.decorateLetter(queued.letter), jobId: queued.job.id, status: queued.job.status };
     }
@@ -738,10 +741,23 @@ export class PublicController {
       simulatePrimaryFail: body.simulatePrimaryFail,
       simulateBackupFail: body.simulateBackupFail,
     });
+    // The latest explicit style choice owns the letter. An earlier, slower
+    // remote result must not overwrite it after the person has moved on.
+    letter.aiJobId = job.id;
+    letter.generationStatus = job.status;
+    this.store.persist();
     void this.store.waitForAiJob(job.id).then((completed) => {
+      if (letter.aiJobId !== completed.id) return;
       letter.style = body.style ?? letter.style;
-      letter.content = completed.result;
-      letter.status = 'unread';
+      letter.generationStatus = completed.status;
+      if (['succeeded', 'fallback'].includes(completed.status)) {
+        letter.content = completed.result;
+        letter.status = 'unread';
+      }
+      this.store.persist();
+    }).catch(() => {
+      if (letter.aiJobId !== job.id) return;
+      letter.generationStatus = 'failed';
       this.store.persist();
     });
     return { item: letter, jobId: job.id, status: job.status, job };

@@ -1,38 +1,44 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import Square from './views/Square.vue';
-import MoodCreate from './views/MoodCreate.vue';
-import PostDetail from './views/PostDetail.vue';
-import LetterToday from './views/LetterToday.vue';
-import ToolIndex from './views/ToolIndex.vue';
-import ToolDecompose from './views/ToolDecompose.vue';
-import ToolRun from './views/ToolRun.vue';
-import Me from './views/Me.vue';
-import DiaryList from './views/DiaryList.vue';
-import DiaryDetail from './views/DiaryDetail.vue';
-import ReportMonth from './views/ReportMonth.vue';
-import LetterList from './views/LetterList.vue';
-import LetterDetail from './views/LetterDetail.vue';
-import FavoriteList from './views/FavoriteList.vue';
-import PrivacySettings from './views/PrivacySettings.vue';
-import FeedbackHelp from './views/FeedbackHelp.vue';
-import HelpFaqs from './views/HelpFaqs.vue';
-import DataPolicy from './views/DataPolicy.vue';
-import MeProfile from './views/MeProfile.vue';
-import TonightHome from './views/TonightHome.vue';
-import PeerNetwork from './views/PeerNetwork.vue';
-import ActionCenter from './views/ActionCenter.vue';
-import JourneyDetail from './views/JourneyDetail.vue';
-import PeerExperienceDetail from './views/PeerExperienceDetail.vue';
-import PeerRequests from './views/PeerRequests.vue';
-import PeerConversation from './views/PeerConversation.vue';
-import PeerMatchWaiting from './views/PeerMatchWaiting.vue';
-import PeerConsent from './views/PeerConsent.vue';
-import PeerGraduation from './views/PeerGraduation.vue';
-import RealityHandoff from './views/RealityHandoff.vue';
-import FutureSelf from './views/FutureSelf.vue';
-import Recovery from './views/Recovery.vue';
-import SafetySupport from './views/SafetySupport.vue';
-import NotificationCenter from './views/NotificationCenter.vue';
+
+// Page modules used to be eager imports. A normal route refresh therefore
+// requested every product view and each view's visual assets. The client could
+// exhaust its resource loader during a real click-through, leaving a blank app
+// before the requested page mounted. Route-level chunks keep navigation live
+// while loading only the page the person actually opened.
+const Square = () => import('./views/Square.vue');
+const MoodCreate = () => import('./views/MoodCreate.vue');
+const PostDetail = () => import('./views/PostDetail.vue');
+const LetterToday = () => import('./views/LetterToday.vue');
+const ToolIndex = () => import('./views/ToolIndex.vue');
+const ToolDecompose = () => import('./views/ToolDecompose.vue');
+const ToolRun = () => import('./views/ToolRun.vue');
+const Me = () => import('./views/Me.vue');
+const DiaryList = () => import('./views/DiaryList.vue');
+const DiaryDetail = () => import('./views/DiaryDetail.vue');
+const ReportMonth = () => import('./views/ReportMonth.vue');
+const LetterList = () => import('./views/LetterList.vue');
+const LetterDetail = () => import('./views/LetterDetail.vue');
+const FavoriteList = () => import('./views/FavoriteList.vue');
+const PrivacySettings = () => import('./views/PrivacySettings.vue');
+const FeedbackHelp = () => import('./views/FeedbackHelp.vue');
+const HelpFaqs = () => import('./views/HelpFaqs.vue');
+const DataPolicy = () => import('./views/DataPolicy.vue');
+const MeProfile = () => import('./views/MeProfile.vue');
+const TonightHome = () => import('./views/TonightHome.vue');
+const PeerNetwork = () => import('./views/PeerNetwork.vue');
+const ActionCenter = () => import('./views/ActionCenter.vue');
+const JourneyDetail = () => import('./views/JourneyDetail.vue');
+const PeerExperienceDetail = () => import('./views/PeerExperienceDetail.vue');
+const PeerRequests = () => import('./views/PeerRequests.vue');
+const PeerConversation = () => import('./views/PeerConversation.vue');
+const PeerMatchWaiting = () => import('./views/PeerMatchWaiting.vue');
+const PeerConsent = () => import('./views/PeerConsent.vue');
+const PeerGraduation = () => import('./views/PeerGraduation.vue');
+const RealityHandoff = () => import('./views/RealityHandoff.vue');
+const FutureSelf = () => import('./views/FutureSelf.vue');
+const Recovery = () => import('./views/Recovery.vue');
+const SafetySupport = () => import('./views/SafetySupport.vue');
+const NotificationCenter = () => import('./views/NotificationCenter.vue');
 
 export const tabRoutes = ['/pages/tonight/index', '/pages/peers/index', '/pages/action/index', '/pages/me/index'];
 export const router = createRouter({

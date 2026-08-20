@@ -24,6 +24,8 @@ const statusText = ref('');
 const activeAdvice = ref('water');
 const busyAction = ref('');
 const aiStructured = ref<Record<string, any>>({});
+const loading = ref(true);
+const loadError = ref('');
 
 const styles = [
   { key: 'warm', label: '温柔', icon: '♡', testId: 'btn-letter-warm' },
@@ -77,36 +79,49 @@ async function waitForAiJob(jobId: string) {
 }
 
 async function load() {
-  const res = await api.get<{ item: Letter; jobId?: string }>('/api/v1/letters/today');
-  letter.value = res.item;
-  style.value = res.item.style || 'warm';
-  activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
-  if (res.jobId && !res.item.content) {
-    busyAction.value = 'initial';
-    statusText.value = '正在生成今日回信';
-    await waitForAiJob(res.jobId);
-    const refreshed = await api.get<{ item: Letter }>('/api/v1/letters/today');
-    letter.value = refreshed.item;
-    style.value = refreshed.item.style || style.value;
+  loading.value = true;
+  loadError.value = '';
+  try {
+    const res = await api.get<{ item: Letter; jobId?: string }>('/api/v1/letters/today');
+    letter.value = res.item;
+    style.value = res.item.style || 'warm';
     activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
+    if (res.jobId && !res.item.content) {
+      busyAction.value = 'initial';
+      statusText.value = '正在生成今日回信';
+      await waitForAiJob(res.jobId);
+      const refreshed = await api.get<{ item: Letter }>('/api/v1/letters/today');
+      letter.value = refreshed.item;
+      style.value = refreshed.item.style || style.value;
+      activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
+      statusText.value = '今日回信已生成';
+    }
+  } catch (error) {
+    loadError.value = error instanceof Error ? error.message : '暂时无法读取今日回信';
+  } finally {
     busyAction.value = '';
-    statusText.value = '今日回信已生成';
+    loading.value = false;
   }
 }
 
 async function regenerate(nextStyle = style.value) {
-  if (!letter.value) return;
+  if (!letter.value || busyAction.value) return;
   busyAction.value = nextStyle;
   style.value = nextStyle;
-  const res = await api.post<{ jobId: string }>('/api/v1/letters/' + letter.value.id + '/regenerate', {
-    style: nextStyle,
-  });
-  const completed = await waitForAiJob(res.jobId);
-  letter.value = { ...letter.value, content: completed.result, style: nextStyle, savedToDiary: false };
-  aiStructured.value = completed.structured ?? {};
-  activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
-  busyAction.value = '';
-  statusText.value = '回信已换成新的语气';
+  try {
+    const res = await api.post<{ jobId: string }>('/api/v1/letters/' + letter.value.id + '/regenerate', {
+      style: nextStyle,
+    });
+    const completed = await waitForAiJob(res.jobId);
+    letter.value = { ...letter.value, content: completed.result, style: nextStyle, savedToDiary: false };
+    aiStructured.value = completed.structured ?? {};
+    activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
+    statusText.value = '回信已换成新的语气';
+  } catch (error) {
+    statusText.value = error instanceof Error ? error.message : '回信暂时没有生成成功';
+  } finally {
+    busyAction.value = '';
+  }
 }
 
 async function saveToDiary() {
@@ -170,6 +185,7 @@ onMounted(load);
         :key="item.key"
         :data-testid="item.testId"
         :class="{ active: style === item.key }"
+        :disabled="Boolean(busyAction)"
         @click="regenerate(item.key)"
       >
         <span>{{ item.icon }}</span>
@@ -236,7 +252,11 @@ onMounted(load);
   </section>
 
   <section v-else class="page goodnight-page letter-page">
-    <article class="empty-card">正在读取今天的回信...</article>
+    <article class="empty-card" v-if="loading">正在读取今天的回信...</article>
+    <article class="empty-card" v-else>
+      <p>{{ loadError || '今日回信暂时不可用。' }}</p>
+      <button data-testid="letter-retry" @click="load">重新读取</button>
+    </article>
   </section>
 </template>
 

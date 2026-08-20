@@ -273,5 +273,5 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
       ? { fixture: { id: 'visual-v1', version: process.env.VISUAL_FIXTURE_VERSION ?? 'unknown', runtimeInstanceId: process.env.RUNTIME_INSTANCE_ID ?? 'unknown' } }
       : {};
     await tx.runtimeState.upsert({ where: { id: 'default' }, create: { id: 'default', payload: { schemaVersion: 2, persistence: 'relational-primary', compatibilitySnapshotAt: new Date().toISOString(), ...fixtureMarker } }, update: { payload: { schemaVersion: 2, persistence: 'relational-primary', compatibilitySnapshotAt: new Date().toISOString(), ...fixtureMarker } } });
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }

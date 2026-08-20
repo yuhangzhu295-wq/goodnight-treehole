@@ -307,8 +307,7 @@ async function main() {
     await writeReports(results);
     const failed = results.filter((item) => !item.ok);
     if (failed.length) {
-      console.error(toMarkdown(failed));
-      process.exit(1);
+      throw new Error(toMarkdown(failed));
     }
   } finally {
     if (previousPeerMatching === false) {

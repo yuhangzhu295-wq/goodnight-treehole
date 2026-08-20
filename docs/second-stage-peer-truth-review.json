@@ -1,0 +1,117 @@
+{
+  "baseline": "8fb2d83b072d12ae88d80154d74328f679d2ad96",
+  "runAt": "2026-08-20T03:29:24.858Z",
+  "evidenceRoot": "artifacts/peer-stage-truth-audit",
+  "evaluationMethod": "Human review of the fresh reference, actual, side-by-side, and difference images. File existence, overflow metrics, and pixel differences are evidence only; they do not determine the status.",
+  "currentVerification": {
+    "dapiLive": {
+      "status": "PASS",
+      "generatedAt": "2026-08-20T03:18:46.640Z",
+      "providerId": "provider_dapi_deepseek",
+      "model": "deepseek-v4-flash",
+      "jobId": "job_c93f2bde71",
+      "jobStatus": "succeeded",
+      "fallbackUsed": false,
+      "checks": [
+        "providerTestSucceeded",
+        "jobSucceeded",
+        "usedDapi",
+        "remoteModelRecorded",
+        "resultRecorded",
+        "terminalTraceRecorded"
+      ]
+    },
+    "commands": [
+      "pnpm test:peer-stage-business: PASS",
+      "pnpm test:peer-stage-security: PASS",
+      "pnpm test:peer-stage-two-user: PASS",
+      "pnpm test:peer-stage-expiry: PASS",
+      "pnpm test:reference-fidelity-peer-stage: PASS",
+      "pnpm test:reference-fidelity-first-stage: PASS",
+      "pnpm test:click-all: PASS",
+      "pnpm test:business-flow: PASS",
+      "pnpm test:cross: PASS",
+      "pnpm qa:all: PASS"
+    ],
+    "gatewayAfterQaIsolation": {
+      "status": "PASS",
+      "checkedAt": "2026-08-20T03:29:24.858Z",
+      "api": 200,
+      "front": 200,
+      "admin": 200
+    }
+  },
+  "pages": [
+    {
+      "id": "02",
+      "name": "同路推荐",
+      "status": "PARTIAL",
+      "observations": [
+        "真实推荐、隐私状态和查看经历入口可用，且未暴露内部匹配分数。",
+        "夜景裁切已改为局部素材并去除右侧白边，真实推荐与次推荐都有独立卡片。",
+        "参考稿包含两张更丰富的推荐经历；真实数据数量可变，夜景比例与卡片内容密度仍不一致。"
+      ]
+    },
+    {
+      "id": "05",
+      "name": "匿名经历详情",
+      "status": "PARTIAL",
+      "observations": [
+        "当时、后来、有帮助与不适合的内容来自真实 PeerExperience。",
+        "请求匿名交流主 CTA 已进入首屏并打开真实填写/提交面板。",
+        "头图区、行动卡和时间线的比例仍与参考稿不一致。"
+      ]
+    },
+    {
+      "id": "28",
+      "name": "收到的同路请求",
+      "status": "PARTIAL",
+      "observations": [
+        "真实 requestReason、requestQuestion 和接受、婉拒操作均可见。",
+        "请求卡已呈现真实问题、三种服务端操作和当前状态。",
+        "参考稿的多请求进展层级与夜景插画比当前真实单请求状态更丰富。"
+      ]
+    },
+    {
+      "id": "31",
+      "name": "匹配等待",
+      "status": "PARTIAL",
+      "observations": [
+        "只显示服务端 requested 状态，没有虚假倒计时或假聊天入口。",
+        "真实请求摘要、三步状态和刷新动作均已显示。",
+        "等待插画、留白和参考稿的辅助行动层级仍存在明显差异。"
+      ]
+    },
+    {
+      "id": "21",
+      "name": "交流前边界确认",
+      "status": "PARTIAL",
+      "observations": [
+        "匿名、72 小时、PII 禁止、可结束/举报和 AI 草稿限制均已明确呈现。",
+        "规则已改为四条独立边界行，且同意操作仍调用真实接口。",
+        "头像插画和夜景裁切的艺术细节仍未达到参考稿。"
+      ]
+    },
+    {
+      "id": "04",
+      "name": "72 小时匿名交流",
+      "status": "PARTIAL",
+      "observations": [
+        "真实消息、剩余时间、草稿整理和发送入口可用。",
+        "结束、举报与停止匹配都是真实接口；底部导航已纳入路由并通过命中测试。",
+        "消息气泡、输入框与参考稿的纹理、头像和首屏纵向节奏仍不一致。"
+      ]
+    },
+    {
+      "id": "40",
+      "name": "同行结束 / 留下后来",
+      "status": "PARTIAL",
+      "observations": [
+        "真实反馈及留下后来的 pending_review 行为可用。",
+        "首屏统计改为实时消息数、72 小时边界和真实开始日期；分享仍写入 pending_review。",
+        "参考稿使用的是更完整的阶段统计与分享预览，当前真实摘要的信息构成仍不一致。"
+      ]
+    }
+  ],
+  "freeze": "SECOND_STAGE_PEER_FROZEN=false"
+}

@@ -59,6 +59,14 @@ async function capture(page: Page, state: State, route: string, expected: string
   await page.goto(`${urls.front}${route}`, { waitUntil: 'domcontentloaded' });
   await page.locator('.phone-shell').waitFor({ state: 'visible', timeout: 15_000 });
   await page.waitForTimeout(350);
+  if (!await page.locator('.tabbar').isVisible()) throw new Error(state + ' is missing the peer tabbar');
+  const tabbarReachable = await page.evaluate(() => {
+    const nav = document.querySelector<HTMLElement>('.tabbar');
+    if (!nav) return false;
+    const rect = nav.getBoundingClientRect();
+    return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)?.closest('.tabbar') === nav;
+  });
+  if (!tabbarReachable) throw new Error(state + ' tabbar is covered by page content');
   const bodyText = await page.locator('body').innerText();
   for (const value of expected) {
     if (!bodyText.includes(value)) throw new Error(`${state} is missing visible copy: ${value}`);
@@ -93,6 +101,7 @@ async function capture(page: Page, state: State, route: string, expected: string
   await writePng(`${stem}-side-by-side.png`, side);
   await writePng(`${stem}-difference.png`, difference);
   evidence.push({ state, route, reference: `${stem}-reference.png`, actual: `${stem}-actual.png`, sideBySide: `${stem}-side-by-side.png`, difference: `${stem}-difference.png`, scrollWidth: metrics.scrollWidth, scrollHeight: metrics.scrollHeight, buttons: metrics.buttons });
+  await captureResponsive(page, state, route);
 }
 
 async function captureResponsive(page: Page, state: State, route: string) {
@@ -101,6 +110,14 @@ async function captureResponsive(page: Page, state: State, route: string) {
     await page.goto(`${urls.front}${route}`, { waitUntil: 'domcontentloaded' });
     await page.locator('.phone-shell').waitFor({ state: 'visible', timeout: 15_000 });
     await page.waitForTimeout(180);
+    if (!await page.locator('.tabbar').isVisible()) throw new Error(state + ' is missing the peer tabbar at ' + size.width + 'x' + size.height);
+    const tabbarReachable = await page.evaluate(() => {
+      const nav = document.querySelector<HTMLElement>('.tabbar');
+      if (!nav) return false;
+      const rect = nav.getBoundingClientRect();
+      return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)?.closest('.tabbar') === nav;
+    });
+    if (!tabbarReachable) throw new Error(state + ' tabbar is covered at ' + size.width + 'x' + size.height);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     if (overflow) throw new Error(`${state} has horizontal overflow at ${size.width}x${size.height}`);
     await page.screenshot({ path: path.join(artifactDir, 'responsive', `${state}-${size.width}x${size.height}.png`) });
@@ -141,7 +158,8 @@ async function main() {
     const ownerPage = await newPeerPage(context, owner);
 
     await capture(requesterPage, 'network', '/pages/peers/index', ['有人也走过', '看看 TA 后来怎么样'], evidence);
-    await capture(requesterPage, 'detail', `/pages/peer/detail?id=${encodeURIComponent(experience.item.id)}&matchId=${encodeURIComponent(match.id)}`, ['TA 后来是这样走过来的', '递出匿名请求'], evidence);
+    await capture(requesterPage, 'detail', `/pages/peer/detail?id=${encodeURIComponent(experience.item.id)}&matchId=${encodeURIComponent(match.id)}`, ['TA 后来是这样走过来的', '请求匿名交流'], evidence);
+    await requesterPage.getByRole('button', { name: '请求匿名交流', exact: true }).click();
     await requesterPage.getByLabel('我为什么想聊').fill('我也想先把今晚走过去，想听听你怎么给自己留一点空间。');
     await requesterPage.getByLabel('我最想问的一句').fill('你最开始那几天是怎么熬过来的？');
     await requesterPage.getByRole('button', { name: '递出匿名请求', exact: true }).click();
@@ -166,7 +184,7 @@ async function main() {
     await requesterPage.getByRole('button', { name: '发送', exact: true }).click();
     await ownerPage.reload({ waitUntil: 'domcontentloaded' });
     await capture(ownerPage, 'conversation', `/pages/peer/conversation?matchId=${encodeURIComponent(match.id)}`, ['匿名同路', '我现在还是有点想联系'], evidence);
-    await ownerPage.getByRole('button', { name: '结束这段同行', exact: true }).click();
+    await ownerPage.getByRole('button', { name: '结束', exact: true }).click();
     await ownerPage.getByRole('dialog').getByRole('button', { name: '确认结束', exact: true }).click();
     await ownerPage.waitForURL('**/pages/peer/graduate?*', { timeout: 15_000 });
     await capture(ownerPage, 'graduation', `/pages/peer/graduate?matchId=${encodeURIComponent(match.id)}`, ['这段同行', '以后也想把后来留给同路人'], evidence);
@@ -174,18 +192,6 @@ async function main() {
     await ownerPage.getByLabel('想留下的一句话（可选）').fill('这段同行让我把急着证明自己的心，慢慢放下来。');
     await ownerPage.getByRole('button', { name: '以后也想把后来留给同路人', exact: true }).click();
     await ownerPage.getByText('已经收好这份感受', { exact: false }).waitFor({ state: 'visible', timeout: 10_000 });
-
-    const responsiveRoutes: Record<State, string> = {
-      network: '/pages/peers/index',
-      detail: `/pages/peer/detail?id=${encodeURIComponent(experience.item.id)}&matchId=${encodeURIComponent(match.id)}`,
-      requests: '/pages/peer/requests',
-      waiting: `/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`,
-      consent: `/pages/peer/consent?matchId=${encodeURIComponent(match.id)}`,
-      conversation: `/pages/peer/conversation?matchId=${encodeURIComponent(match.id)}`,
-      graduation: `/pages/peer/graduate?matchId=${encodeURIComponent(match.id)}`,
-    };
-    const pages: Record<State, Page> = { network: requesterPage, detail: requesterPage, requests: ownerPage, waiting: requesterPage, consent: ownerPage, conversation: ownerPage, graduation: ownerPage };
-    for (const state of Object.keys(references) as State[]) await captureResponsive(pages[state], state, responsiveRoutes[state]);
 
     const conversation = await prisma.peerConversation.findUnique({ where: { matchId: match.id }, include: { messages: true } });
     const notifications = await prisma.userNotification.findMany({ where: { userId: { in: [owner, requester] }, type: { in: ['PEER_REQUEST', 'PEER_ACCEPTED', 'CONVERSATION_CLOSED'] } } });

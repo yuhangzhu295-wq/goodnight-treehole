@@ -1621,10 +1621,13 @@ export class StoreService implements OnModuleInit {
     return this.journeyUpdates.filter((item) => item.journeyId === journey.id);
   }
 
-  journeyPeers(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
+  journeyPeers(journeyId: string, requestedUserId?: string) {
+    const journey = this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
-    return this.peerMatches.filter((item) => item.journeyId === journey.id).map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })).filter((item) => item.experience);
+    return this.peerMatches
+      .filter((item) => item.journeyId === journey.id)
+      .map((item) => this.peerMatchForUser(item))
+      .filter((item) => item.experience);
   }
 
   async confirmSituation(journeyId: string, input: { facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; risks?: unknown; domain?: unknown; subDomain?: unknown; eventType?: unknown; stage?: unknown; contextTags?: unknown; peopleContext?: unknown; decisionContext?: unknown; behaviorSignals?: unknown; recoverySignals?: unknown; intensity?: unknown; urgency?: unknown }) {
@@ -1796,8 +1799,8 @@ export class StoreService implements OnModuleInit {
     return { decision, graduation: this.graduationSummary(journeyId), draft };
   }
 
-  async updatePeerExperience(experienceId: string, input: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }) {
-    const item = this.peerExperiences.find((experience) => experience.id === experienceId && experience.userId === this.getDemoUserId() && experience.status === 'pending_review');
+  async updatePeerExperience(experienceId: string, input: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }, requestedUserId?: string) {
+    const item = this.peerExperiences.find((experience) => experience.id === experienceId && experience.userId === this.resolveRuntimeUserId(requestedUserId) && experience.status === 'pending_review');
     if (!item) throw new NotFoundException('待确认的经历不存在');
     if (typeof input.title === 'string' && input.title.trim()) item.title = this.redactPeerPublicText(input.title.trim().slice(0, 100));
     if (typeof input.content === 'string' && input.content.trim()) item.content = this.redactPeerPublicText(input.content.trim().slice(0, 1600));
@@ -1807,7 +1810,7 @@ export class StoreService implements OnModuleInit {
     if (typeof input.retrospective === 'string') item.retrospective = this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000));
     item.updatedAt = now();
     await this.persistAndFlush();
-    return { item };
+    return { item: this.peerExperienceSummary(item) };
   }
 
   async createPeerExperience(journeyId: string | undefined, input: { title?: unknown; domain?: unknown; subDomain?: unknown; stage?: unknown; content?: unknown; tags?: unknown; consented?: unknown; laterSummary?: unknown; helpfulActions?: unknown; notHelpfulActions?: unknown; retrospective?: unknown }, requestedUserId?: string) {
@@ -1821,7 +1824,7 @@ export class StoreService implements OnModuleInit {
     const content = this.redactPeerPublicText(this.text(input.content, '经历内容', 1600));
     const retrospective = typeof input.retrospective === 'string' ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000)) : undefined;
     const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title, domain: this.redactPeerPublicText(this.text(input.domain ?? journey?.domain, '经历领域', 40)), subDomain: typeof input.subDomain === 'string' ? this.redactPeerPublicText(input.subDomain.trim().slice(0, 80)) : sourceSnapshot?.subDomain ? this.redactPeerPublicText(sourceSnapshot.subDomain) : undefined, stage: this.text(input.stage ?? journey?.stage, '经历阶段', 40), content, tags: values(input.tags).length ? values(input.tags) : (sourceSnapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)), fingerprintJson: sourceSnapshot?.fingerprintJson, laterSummary: typeof input.laterSummary === 'object' && input.laterSummary ? this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown> : undefined, helpfulActions: values(input.helpfulActions), notHelpfulActions: values(input.notHelpfulActions), retrospective, consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
-    this.peerExperiences.unshift(item); await this.persistAndFlush(); return { item };
+    this.peerExperiences.unshift(item); await this.persistAndFlush(); return { item: this.peerExperienceSummary(item) };
   }
 
   peerNetwork(requestedUserId?: string) {
@@ -1861,6 +1864,7 @@ export class StoreService implements OnModuleInit {
     return {
       id: match.id,
       journeyId: match.journeyId,
+      peerExperienceId: match.peerExperienceId,
       status: match.status,
       reasons: match.reasons.slice(0, 2),
       requestReason: match.requestReason,
@@ -1869,6 +1873,33 @@ export class StoreService implements OnModuleInit {
       createdAt: match.createdAt,
       updatedAt: match.updatedAt,
       experience,
+    };
+  }
+
+  private peerMessageForUser(message: PeerMessageRecord, viewerUserId: string) {
+    return {
+      id: message.id,
+      author: message.senderUserId === viewerUserId ? 'self' : 'peer',
+      authorType: message.authorType,
+      content: message.content,
+      createdAt: message.createdAt,
+    };
+  }
+
+  private peerConversationForUser(conversation: PeerConversationRecord, viewerUserId: string) {
+    return {
+      id: conversation.id,
+      matchId: conversation.matchId,
+      status: conversation.status,
+      startsAt: conversation.startsAt,
+      consentAcceptedAt: conversation.consentAcceptedAt,
+      expiresAt: conversation.expiresAt,
+      createdAt: conversation.createdAt,
+      closedAt: conversation.closedAt,
+      closedReason: conversation.closedReason,
+      messages: this.peerMessages
+        .filter((message) => message.conversationId === conversation.id)
+        .map((message) => this.peerMessageForUser(message, viewerUserId)),
     };
   }
 
@@ -1902,7 +1933,8 @@ export class StoreService implements OnModuleInit {
       const match: PeerMatchRecord = { id: id('peer_match'), userId: journey.userId, journeyId, peerExperienceId: experience.id, score, reasons, stageDistance: Math.abs(peerStage - currentStage), recoveryLead, trustScore, fingerprintSimilarity, scoreBreakdown, explanation, status: 'suggested', createdAt: now(), updatedAt: now() };
       this.peerMatches.unshift(match); return match;
     });
-    await this.persistAndFlush(); return { items: created.map((item) => ({ ...item, experience: this.peerExperiences.find((experience) => experience.id === item.peerExperienceId) })) };
+    await this.persistAndFlush();
+    return { items: created.map((item) => this.peerMatchForUser(item)).filter((item) => item.experience) };
   }
 
   private peerPiiFlags(content: string) {
@@ -1910,7 +1942,7 @@ export class StoreService implements OnModuleInit {
     const compact = content.replace(/[\s-]/g, '');
     if (/(?:^|\D)1[3-9]\d{9}(?:$|\D)/.test(compact)) flags.push('手机号');
     if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(content)) flags.push('邮箱');
-    if (/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*[：:]?\s*[A-Za-z][A-Za-z0-9_-]{4,}/i.test(content)) flags.push('社交账号');
+    if (/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/i.test(content)) flags.push('社交账号');
     if (/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/.test(compact)) flags.push('证件号码');
     if (/(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/.test(content)) flags.push('具体地址');
     return [...new Set(flags)];
@@ -1925,7 +1957,7 @@ export class StoreService implements OnModuleInit {
     return content
       .replace(/(?:^|\D)1[3-9]\d{9}(?:$|\D)/g, ' [已隐藏联系方式] ')
       .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[已隐藏邮箱]')
-      .replace(/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*[：:]?\s*[A-Za-z][A-Za-z0-9_-]{4,}/gi, '[已隐藏账号]')
+      .replace(/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/gi, '[已隐藏账号]')
       .replace(/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/g, ' [已隐藏证件信息] ')
       .replace(/(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/g, '[已隐藏具体地址]')
       .replace(/(?:我叫|我是|叫我|他叫|她叫|朋友叫)[\u4e00-\u9fa5]{2,4}/g, '[已隐藏称呼]');
@@ -2004,7 +2036,8 @@ export class StoreService implements OnModuleInit {
     }
     if (status === 'connected') item.acceptedAt = now();
     await this.persistAndFlush();
-    return { item, conversation: this.peerConversations.find((conversation) => conversation.matchId === item.id) ?? null };
+    const conversation = this.peerConversations.find((candidate) => candidate.matchId === item.id);
+    return { item: this.peerMatchForUser(item), conversation: conversation ? this.peerConversationForUser(conversation, currentUserId) : null };
   }
 
   async startPeerConversation(matchId: string, requestedUserId?: string) {
@@ -2014,7 +2047,7 @@ export class StoreService implements OnModuleInit {
     const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
     if (!experience || experience.userId !== currentUserId || item.status !== 'connected') throw new ForbiddenException('只有接受请求的经历发布者可以确认同行边界');
     const existing = this.peerConversations.find((conversation) => conversation.matchId === item.id);
-    if (existing) return { conversation: existing };
+    if (existing) return { conversation: this.peerConversationForUser(existing, currentUserId) };
     const startsAt = now();
     const conversation: PeerConversationRecord = {
       id: id('peer_conversation'),
@@ -2030,7 +2063,7 @@ export class StoreService implements OnModuleInit {
     this.peerConversations.unshift(conversation);
     this.peerNotification(item.userId, 'PEER_ACCEPTED', `accepted_${item.id}`, '有人愿意和你聊一会', '双方已确认匿名边界，这段同行现在开始，最多持续 72 小时。', `/pages/peer/conversation?matchId=${encodeURIComponent(item.id)}`);
     await this.persistAndFlush();
-    return { conversation };
+    return { conversation: this.peerConversationForUser(conversation, currentUserId) };
   }
 
   peerRequestList(requestedUserId?: string) {
@@ -2060,7 +2093,7 @@ export class StoreService implements OnModuleInit {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     return this.peerConversations
       .filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId))
-      .map((conversation) => ({ ...conversation, viewerUserId: userId, messages: this.peerMessages.filter((message) => message.conversationId === conversation.id) }));
+      .map((conversation) => this.peerConversationForUser(conversation, userId));
   }
 
   async sendPeerMessage(matchId: string, content: unknown, requestedUserId?: string) {
@@ -2069,7 +2102,7 @@ export class StoreService implements OnModuleInit {
     const text = this.text(content, '消息内容', 1000);
     this.assertPeerDraftSafe(text);
     const item: PeerMessageRecord = { id: id('peer_message'), conversationId: conversation.id, senderUserId: userId, content: text, authorType: 'HUMAN', createdAt: now(), piiFlags: [] };
-    this.peerMessages.unshift(item); await this.persistAndFlush(); return { item };
+    this.peerMessages.unshift(item); await this.persistAndFlush(); return { item: this.peerMessageForUser(item, userId) };
   }
 
   async requestPeerResponseAssist(matchId: string, content: unknown, requestedUserId?: string) {
@@ -2079,14 +2112,14 @@ export class StoreService implements OnModuleInit {
     this.assertPeerDraftSafe(source);
     const job = this.queueAI({ taskType: 'peer_response_assist', userId, sourceId: conversation.id, content: source, style: 'warm', mood: '委屈' });
     await this.flush();
-    return { job, notice: 'AI 只会整理表达，最终消息仍需你确认后发送。' };
+    return { job: { id: job.id, status: job.status }, notice: 'AI 只会整理表达，最终消息仍需你确认后发送。' };
   }
 
   async closePeerConversation(matchId: string, requestedUserId?: string) {
-    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     this.closePeerConversationRecord(conversation, 'closed');
     await this.persistAndFlush();
-    return { item: conversation };
+    return { item: this.peerConversationForUser(conversation, userId) };
   }
 
   async reportPeerConversation(matchId: string, reason: unknown, requestedUserId?: string) {
@@ -2099,18 +2132,18 @@ export class StoreService implements OnModuleInit {
     const experience = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
     if (experience) experience.reportCount += 1;
     await this.persistAndFlush();
-    return { item: conversation };
+    return { item: this.peerConversationForUser(conversation, userId) };
   }
 
   async blockPeerConversation(matchId: string, requestedUserId?: string) {
-    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     const match = this.peerMatches.find((item) => item.id === matchId);
     if (!match) throw new NotFoundException('同路匹配不存在');
     match.status = 'blocked';
     match.updatedAt = now();
     this.closePeerConversationRecord(conversation, 'blocked');
     await this.persistAndFlush();
-    return { item: conversation, match };
+    return { item: this.peerConversationForUser(conversation, userId), match: this.peerMatchForUser(match) };
   }
 
   async savePeerConversationFeedback(matchId: string, input: { feedback?: unknown; note?: unknown; shareLater?: unknown }, requestedUserId?: string) {
@@ -2139,7 +2172,7 @@ export class StoreService implements OnModuleInit {
       this.peerExperiences.unshift(sharedExperience);
     }
     await this.persistAndFlush();
-    return { item: conversation, sharedExperience };
+    return { item: this.peerConversationForUser(conversation, userId), sharedExperience: sharedExperience ? this.peerExperienceSummary(sharedExperience) : undefined };
   }
 
   notificationList(requestedUserId?: string) {
@@ -2499,13 +2532,18 @@ export class StoreService implements OnModuleInit {
     const route = this.aiRoutes.find((item) => item.style === input.style && item.enabled)
       ?? this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))
       ?? this.aiRoutes[0];
+    const isPeerResponseAssist = taskType === 'peer_response_assist';
+    const peerDraftProvider = isPeerResponseAssist
+      ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
+      : undefined;
+    const queuedPrimaryProviderId = peerDraftProvider?.id ?? route?.primaryProviderId;
     const job: AIJob = {
       id: id('job'), userId: input.userId, contentId: input.contentId, contentType: input.contentType, taskType: this.jobTypeLabel(taskType), jobType: this.jobTypeLabel(taskType),
-      style: input.style, providerId: '', modelName: '', status: 'queued', promptSummary: input.promptSummary.slice(0, 160),
+      style: input.style, providerId: peerDraftProvider?.id ?? '', modelName: peerDraftProvider?.modelName ?? '', status: 'queued', promptSummary: input.promptSummary.slice(0, 160),
       promptVersion: route?.promptVersion, result: '', durationMs: 0, retryCount: 0,
       traceJson: [{
         at: now(), event: 'queued', status: 'queued', taskType, style: input.style, routeVersion: route?.routeVersion ?? 0,
-        primaryProviderId: route?.primaryProviderId, backupProviderId: route?.backupProviderId, fallbackTemplateId: route?.fallbackTemplateId,
+        primaryProviderId: queuedPrimaryProviderId, backupProviderId: route?.backupProviderId, fallbackTemplateId: route?.fallbackTemplateId,
       }],
       routeVersion: route?.routeVersion ?? 0, createdAt: now(),
     };
@@ -2556,7 +2594,16 @@ export class StoreService implements OnModuleInit {
       ?? this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))
       ?? this.aiRoutes[0];
     if (!route) throw new NotFoundException('没有可用的 AI 路由规则');
-    const primary = this.aiProviders.find((item) => item.id === route.primaryProviderId);
+    const isPeerResponseAssist = taskType === 'peer_response_assist';
+    // Peer drafts are a safety boundary: historical route state must never make
+    // them use a template, local provider, or an unrelated remote fallback.
+    const peerDraftProvider = isPeerResponseAssist
+      ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
+      : undefined;
+    if (peerDraftProvider && !this.aiProviders.some((item) => item.id === peerDraftProvider.id)) {
+      this.aiProviders.unshift(peerDraftProvider);
+    }
+    const primary = peerDraftProvider ?? this.aiProviders.find((item) => item.id === route.primaryProviderId);
     const backup = this.aiProviders.find((item) => item.id === route.backupProviderId);
     const job: AIJob = input.jobId ? this.aiJobs.find((item) => item.id === input.jobId)! : {
       id: id('job'), userId: input.userId, contentId: input.contentId, contentType: input.contentType, taskType: this.jobTypeLabel(taskType), jobType: this.jobTypeLabel(taskType),
@@ -2568,7 +2615,7 @@ export class StoreService implements OnModuleInit {
       this.aiJobs.unshift(job);
       this.appendAiTrace(job, {
         event: 'queued', status: 'queued', taskType, style: input.style, routeVersion: route.routeVersion,
-        primaryProviderId: route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
+        primaryProviderId: primary?.id ?? route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
       });
       this.persist();
     }
@@ -2577,7 +2624,7 @@ export class StoreService implements OnModuleInit {
     job.status = 'running';
     this.appendAiTrace(job, {
       event: 'running', status: 'running', taskType, style: input.style, routeVersion: route.routeVersion,
-      primaryProviderId: route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
+      primaryProviderId: primary?.id ?? route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
     });
     this.persist();
     if (visualFixtureMode) {
@@ -2609,10 +2656,16 @@ export class StoreService implements OnModuleInit {
 
     const prompt = this.buildAiPrompt({ taskType, style: input.style, route, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary) });
     const needsStructuredResult = ['breakdown', 'situation_analysis', 'action_plan', 'support_plan', 'decision_clarify', 'need_analysis', 'risk_analysis', 'barrier_analysis', 'adaptive_action', 'peer_match_explain', 'loop_detection', 'recovery_summary', 'peer_response_assist'].includes(taskType);
-    const candidates = [
-      { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
-      { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
-    ] as const;
+    const candidates: Array<{ provider?: AIProvider; role: 'primary' | 'backup' | 'retry'; forcedFailure: boolean }> = isPeerResponseAssist
+      ? [
+          { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
+          { provider: primary, role: 'retry', forcedFailure: input.simulatePrimaryFail === true },
+          { provider: primary, role: 'retry', forcedFailure: input.simulatePrimaryFail === true },
+        ]
+      : [
+          { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
+          { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
+        ];
     const errors: string[] = [];
     for (const candidate of candidates) {
       const provider = candidate.provider;
@@ -2650,7 +2703,7 @@ export class StoreService implements OnModuleInit {
         job.structuredResult = structured;
         job.status = 'succeeded';
         job.fallbackUsed = candidate.role === 'backup';
-        job.retryCount = candidate.role === 'backup' ? 1 : 0;
+        job.retryCount = candidates.indexOf(candidate);
         job.durationMs = Math.max(response.durationMs, Date.now() - jobStartedAt);
         job.completedAt = now();
         provider.modelName = response.model;
@@ -2664,8 +2717,22 @@ export class StoreService implements OnModuleInit {
         const message = sanitizeProviderError(error);
         errors.push(`${provider.id}:${message}`);
         this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: provider.modelName, role: candidate.role, status: 'failed', reason: message, durationMs: Math.max(1, Date.now() - attemptStartedAt) });
-        if (candidate.role === 'primary' && !this.remoteAi.canFailOver(error)) break;
+        if (candidate.role === 'primary' && !isPeerResponseAssist && !this.remoteAi.canFailOver(error)) break;
       }
+    }
+
+    if (isPeerResponseAssist) {
+      job.providerId = primary?.id ?? DAPI_PROVIDER_ID;
+      job.modelName = primary?.modelName ?? '';
+      job.status = 'failed';
+      job.fallbackUsed = false;
+      job.retryCount = Math.max(0, candidates.length - 1);
+      job.errorMessage = errors.join(' | ') || 'DAPI_PEER_ASSIST_FAILED';
+      job.durationMs = Math.max(1, Date.now() - jobStartedAt);
+      job.completedAt = now();
+      this.appendAiTrace(job, { event: 'terminal', status: 'failed', reason: job.errorMessage, providerId: job.providerId, modelName: job.modelName, durationMs: job.durationMs, fallbackUsed: false });
+      this.persist();
+      return job;
     }
 
     const template = this.composeDynamicText({ taskType, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary), style: input.style, routeLabel: route.label });
@@ -2750,6 +2817,11 @@ export class StoreService implements OnModuleInit {
     const normalized = value.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
     const parsed = JSON.parse(normalized) as Record<string, unknown>;
     const arrays = (key: string) => Array.isArray(parsed[key]) ? (parsed[key] as unknown[]).map(String).filter(Boolean) : [];
+    if (taskType === 'peer_response_assist') {
+      const draft = String(parsed.draft ?? '').trim();
+      if (!draft) throw new Error('Remote peer-assist response is incomplete');
+      return { ...parsed, draft, reminders: arrays('reminders'), summary: draft };
+    }
     const summary = String(parsed.summary ?? parsed.description ?? parsed.nextStep ?? parsed.question ?? '').trim();
     if (!summary) throw new Error('Remote AI structured response is incomplete');
     return { ...parsed, summary, facts: arrays('facts'), feelings: arrays('feelings'), needs: arrays('needs'), constraints: arrays('constraints'), risks: arrays('risks'), options: arrays('options'), criteria: arrays('criteria'), signals: arrays('signals'), smallSteps: arrays('smallSteps'), uncertainties: arrays('uncertainties') };

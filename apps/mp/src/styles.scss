@@ -8172,6 +8172,21 @@ body {
   outline-offset: 2px;
 }
 
+/* Peer detail scenes can be taller than a handset viewport. Keep the shared
+   navigation in its own top layer so their live composer and feedback forms
+   scroll above it instead of painting over it. */
+.phone-shell:has(.peer-detail-page) .tabbar,
+.phone-shell:has(.conversation-page) .tabbar,
+.phone-shell:has(.peer-graduation-page) .tabbar {
+  z-index: 100;
+}
+
+.peer-detail-page,
+.conversation-page,
+.peer-graduation-page {
+  position: relative;
+}
+
 /* The Journey detail route hosts several reference states. Only the first four
    are tab destinations; the timeline is a focused detail scene with its own
    return control. */
