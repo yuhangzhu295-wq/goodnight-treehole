@@ -25,8 +25,16 @@ describe('Peer Support Network second-stage loop', () => {
     await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', requester).send({ allowPeerMatching: false }).expect(200);
     const hiddenNetwork = await request(server).get('/api/v1/peers').set('x-goodnight-user-id', requester).expect(200);
     expect(hiddenNetwork.body.item).toMatchObject({ privacyEnabled: false, matches: [], experiences: [] });
-    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', requester).send({ allowPeerMatching: true }).expect(200);
-    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', owner).send({ allowPeerMatching: true }).expect(200);
+    await request(server)
+      .patch('/api/v1/me/privacy')
+      .set('x-goodnight-user-id', requester)
+      .send({ allowPeerMatching: true, allowAnonymousExperienceShare: true })
+      .expect(200);
+    await request(server)
+      .patch('/api/v1/me/privacy')
+      .set('x-goodnight-user-id', owner)
+      .send({ allowPeerMatching: true, allowAnonymousExperienceShare: true })
+      .expect(200);
     const redactedDraft = await request(server).post('/api/v1/peer-experiences').set('x-goodnight-user-id', owner).send({ title: '我叫王小明的后来', domain: '关系', stage: 'graduated', content: '手机号 13800138000，邮箱 peer@example.com，住在杭州市西湖区文三路。', tags: ['微信:peertest'], consented: true, laterSummary: { summary: '地址在杭州市西湖区文三路。' } }).expect(201);
     expect(JSON.stringify(redactedDraft.body.item)).not.toMatch(/13800138000|peer@example\.com|杭州市西湖区文三路|peertest|王小明/);
     await request(server).get(`/api/v1/peer-experiences/${redactedDraft.body.item.id}`).set('x-goodnight-user-id', requester).expect(404);

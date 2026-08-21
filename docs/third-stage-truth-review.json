@@ -1,0 +1,231 @@
+{
+  "baseline": "99c84de678abf1bc5359b5d360699ce7dbb6d383",
+  "referenceRoot": "C:\\Users\\zyu33\\Desktop\\图片素材88\\晚安树洞_UI_01-41_业务说明",
+  "evidenceRoot": "artifacts/reference-fidelity/third-stage",
+  "pages": [
+    {
+      "reference": 38,
+      "name": "我的 Final",
+      "route": "/pages/me/index",
+      "status": "DONE",
+      "differenceRate": 0.20646431600630075,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/me"
+    },
+    {
+      "reference": 9,
+      "name": "Recovery",
+      "route": "/pages/recovery/index",
+      "status": "DONE",
+      "differenceRate": 0.2620925723979159,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/recovery",
+      "persistence": "UI save -> API -> PostgreSQL -> API restart -> browser refresh verified for day 1/2/3/7 records"
+    },
+    {
+      "reference": 41,
+      "name": "Support Plan Final",
+      "route": "/pages/support-plan/index",
+      "status": "DONE",
+      "differenceRate": 0.2637465164182721,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/support-plan",
+      "persistence": "user-confirmed edit -> PUT -> PersonalSupportPlan/PostgreSQL -> API restart -> refresh verified; Safety reads only saved fields"
+    },
+    {
+      "reference": 27,
+      "name": "Stable Self",
+      "route": "/pages/stable-self/index",
+      "status": "DONE",
+      "differenceRate": 0.2497697806858112,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/stable-self",
+      "persistence": "user edit -> PUT -> StableSelfProfile/PostgreSQL -> API restart -> refresh verified; Recovery compares only with this user-owned baseline and exposes no score"
+    },
+    {
+      "reference": 15,
+      "name": "AI Memory",
+      "route": "/pages/memory/index",
+      "status": "DONE",
+      "differenceRate": 0.24960620380467707,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/memory",
+      "persistence": "user-confirmed create/edit/disable/restore/expire/delete -> API -> MemoryItem/PostgreSQL -> full-stack restart -> refresh verified; DAPI job job_6acdfcb7e7 used only the eligible all_ai memory and recorded provider/model/status/result plus memory-context trace"
+    },
+    {
+      "reference": 12,
+      "name": "Decision Vault",
+      "route": "/pages/decision/index",
+      "status": "DONE",
+      "differenceRate": 0.28790439840058163,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/decision",
+      "persistence": "browser create -> DecisionRecord/CooldownItem/FollowUpJob -> actual BullMQ delivery -> COOLDOWN_RELEASED notification -> user-authored ready/decided/archived flow -> PostgreSQL -> full-stack restart -> refresh verified; direct ready while cooling returns 400"
+    },
+    {
+      "reference": 35,
+      "name": "Future Self Final",
+      "route": "/pages/future-self/index",
+      "status": "DONE",
+      "differenceRate": 0.2818490245971162,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/future-self",
+      "persistence": "browser-created unlinked and decision-linked messages -> API -> MessageToFutureSelf/PostgreSQL -> full-stack restart -> refresh verified; local test delivery advanced only its own record, then actual BullMQ worker marked delivered and created FUTURE_SELF notification"
+    },
+    {
+      "reference": 7,
+      "name": "Privacy 2.0",
+      "route": "/pages/settings/privacy",
+      "status": "DONE",
+      "differenceRate": 0.19763722282806254,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/privacy",
+      "persistence": "browser toggles -> PUT settings/privacy -> PrivacySetting/PostgreSQL -> browser refresh -> restored state verified; explanatory dialog and data-delete confirmation both exercised without deleting user data",
+      "security": "direct API denial verified for data export, monthly share poster, memory creation, peer matching, anonymous experience sharing, and archive retention; real BullMQ delivery still marked a future message delivered while the disabled notification preference prevented UserNotification creation"
+    },
+    {
+      "reference": 8,
+      "name": "Monthly Report 2.0",
+      "route": "/pages/report/month",
+      "status": "DONE",
+      "differenceRate": 0.22144371743608385,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/report",
+      "persistence": "real API test created a journey, intent, completed/missed/adapted actions, two recovery check-ins, a decision, an anonymous peer experience, and a consented peer conversation; GET monthly -> MonthlyReport/PostgreSQL -> runtime reload -> GET monthly kept the same facts",
+      "privacy": "without allowJourneyLongTermAnalysis, the report returned factual records with aiJobStatus=disabled and created zero monthly_recovery_summary jobs; after explicit opt-in, only the approved monthly facts were submitted",
+      "ai": "monthly_recovery_summary reached succeeded via provider_dapi_deepseek with a DeepSeek model and fallbackUsed=false; project-level DAPI probe also passed with deepseek-v4-flash"
+    },
+    {
+      "reference": 30,
+      "name": "Archive Final",
+      "route": "/pages/archive/index",
+      "status": "DONE",
+      "differenceRate": 0.19233006179571066,
+      "reviewer": {
+        "Hero": "DONE",
+        "Illustration": "DONE",
+        "Typography": "DONE",
+        "Hierarchy": "DONE",
+        "Main layout": "DONE",
+        "Primary CTA": "DONE",
+        "Secondary action": "DONE",
+        "Navigation": "DONE",
+        "Mobile": "DONE",
+        "Data truth": "DONE",
+        "Reference fidelity": "DONE"
+      },
+      "evidence": "artifacts/reference-fidelity/third-stage/archive",
+      "persistence": "browser archive confirmation/cancel and archive tab switching verified; isolated API flow archived a Journey, reloaded runtime, read the same archived record, stored a real export MediaAsset, restored it, and exercised the double-confirm deletion path",
+      "privacy": "allowJourneyArchiveRetention is enforced by the API before archive/export operations"
+    }
+  ],
+  "freeze": "THIRD_STAGE_SELF_SYSTEM_FROZEN=true"
+}

@@ -8,6 +8,16 @@ type PrivacySetting = {
   allowAnonymousPublic: boolean;
   allowHumanReplies: boolean;
   allowMonthlyReportShare: boolean;
+  allowPeerMatching: boolean;
+  allowAnonymousExperienceStats: boolean;
+  allowRecoveryData: boolean;
+  allowJourneyLongTermAnalysis: boolean;
+  allowLongTermMemory: boolean;
+  allowAiMemoryUse: boolean;
+  allowAnonymousExperienceShare: boolean;
+  allowJourneyArchiveRetention: boolean;
+  allowFutureSelfNotifications: boolean;
+  allowDataExport: boolean;
 };
 
 type ExportAsset = {
@@ -30,9 +40,11 @@ const setting = ref<PrivacySetting | null>(null);
 const message = ref('');
 const loadError = ref('');
 const explain = ref(false);
+const deleteConfirm = ref(false);
 const saving = ref(false);
 const clearingCache = ref(false);
 const exporting = ref(false);
+const deleting = ref(false);
 const exportResult = ref<DiaryExport | null>(null);
 const exportUrl = ref('');
 
@@ -127,6 +139,22 @@ async function exportDiaries() {
   }
 }
 
+async function deleteMyData() {
+  if (deleting.value) return;
+  deleting.value = true;
+  message.value = '';
+  try {
+    await api.delete('/api/v1/me/data');
+    deleteConfirm.value = false;
+    message.value = '你的日记、回信和收藏记录已经从服务端删除。';
+    await load();
+  } catch (error: any) {
+    message.value = error?.message ?? '删除数据失败，请稍后重试。';
+  } finally {
+    deleting.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -170,6 +198,19 @@ onMounted(load);
 
       <button
         class="privacy-toggle"
+        data-testid="toggle-privacy-human"
+        type="button"
+        :aria-pressed="setting.allowHumanReplies"
+        :disabled="saving"
+        @click="save({ allowHumanReplies: !setting.allowHumanReplies })"
+      >
+        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.6 3.2.8-3.2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" /></svg></span>
+        <span class="setting-copy"><strong>允许接收真人回应</strong><small>开启后，其他用户可以给你的情绪留下回应</small></span>
+        <span class="toggle-track" :class="{ on: setting.allowHumanReplies }" aria-hidden="true"><i></i></span>
+      </button>
+
+      <button
+        class="privacy-toggle"
         data-testid="toggle-privacy-anonymous"
         type="button"
         :aria-pressed="setting.allowAnonymousPublic"
@@ -183,15 +224,54 @@ onMounted(load);
 
       <button
         class="privacy-toggle"
-        data-testid="toggle-privacy-human"
+        data-testid="toggle-privacy-peer"
         type="button"
-        :aria-pressed="setting.allowHumanReplies"
+        :aria-pressed="setting.allowPeerMatching"
         :disabled="saving"
-        @click="save({ allowHumanReplies: !setting.allowHumanReplies })"
+        @click="save({ allowPeerMatching: !setting.allowPeerMatching })"
       >
         <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.6 3.2.8-3.2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" /></svg></span>
-        <span class="setting-copy"><strong>允许接收真人回应</strong><small>开启后，其他用户可对你的情绪进行回应</small></span>
-        <span class="toggle-track" :class="{ on: setting.allowHumanReplies }" aria-hidden="true"><i></i></span>
+        <span class="setting-copy"><strong>允许同路匹配</strong><small>根据相似经历，为你寻找走过来的人</small></span>
+        <span class="toggle-track" :class="{ on: setting.allowPeerMatching }" aria-hidden="true"><i></i></span>
+      </button>
+
+      <button
+        class="privacy-toggle"
+        data-testid="toggle-privacy-anonymous-stats"
+        type="button"
+        :aria-pressed="setting.allowAnonymousExperienceStats"
+        :disabled="saving"
+        @click="save({ allowAnonymousExperienceStats: !setting.allowAnonymousExperienceStats })"
+      >
+        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8" /><path d="m5.5 17 4.3-4.4 3.1 2.9 2.4-2.3 3.2 3.3M8.2 8.6h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></span>
+        <span class="setting-copy"><strong>允许匿名经历统计</strong><small>帮助生成更真实的同路洞察</small></span>
+        <span class="toggle-track" :class="{ on: setting.allowAnonymousExperienceStats }" aria-hidden="true"><i></i></span>
+      </button>
+
+      <button
+        class="privacy-toggle"
+        data-testid="toggle-privacy-long-memory"
+        type="button"
+        :aria-pressed="setting.allowLongTermMemory"
+        :disabled="saving"
+        @click="save({ allowLongTermMemory: !setting.allowLongTermMemory })"
+      >
+        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 4.2a7.8 7.8 0 1 0 7.8 7.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /><path d="M12 8v4l2.8 1.8M12 3v2.2M21 12h-2.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></span>
+        <span class="setting-copy"><strong>允许 AI 记住长期信息</strong><small>只记住你明确同意保留的内容</small></span>
+        <span class="toggle-track" :class="{ on: setting.allowLongTermMemory }" aria-hidden="true"><i></i></span>
+      </button>
+
+      <button
+        class="privacy-toggle"
+        data-testid="toggle-privacy-journey-analysis"
+        type="button"
+        :aria-pressed="setting.allowJourneyLongTermAnalysis"
+        :disabled="saving"
+        @click="save({ allowJourneyLongTermAnalysis: !setting.allowJourneyLongTermAnalysis })"
+      >
+        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5V5.2a1.7 1.7 0 0 1 1.7-1.7h12.6A1.7 1.7 0 0 1 20 5.2v14.3M7.5 15l2.6-3 2.3 1.8 3.8-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /><path d="M4 19.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></span>
+        <span class="setting-copy"><strong>允许生成长期旅程分析</strong><small>用来生成更完整的成长回顾</small></span>
+        <span class="toggle-track" :class="{ on: setting.allowJourneyLongTermAnalysis }" aria-hidden="true"><i></i></span>
       </button>
 
       <button
@@ -202,9 +282,22 @@ onMounted(load);
         :disabled="saving"
         @click="save({ allowMonthlyReportShare: !setting.allowMonthlyReportShare })"
       >
-        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" stroke-width="1.8" /><path d="m5.5 17 4.3-4.4 3.1 2.9 2.4-2.3 3.2 3.3M8.2 8.6h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></span>
-        <span class="setting-copy"><strong>情绪月报可生成分享图</strong><small>开启后可将月报生成精美图片分享</small></span>
+        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="1.8" /><path d="M8 16h8M8 12h6M8 8h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></span>
+        <span class="setting-copy"><strong>允许生成月报分享图</strong><small>开启后可把本月真实记录生成分享图片</small></span>
         <span class="toggle-track" :class="{ on: setting.allowMonthlyReportShare }" aria-hidden="true"><i></i></span>
+      </button>
+
+      <button
+        class="privacy-toggle"
+        data-testid="toggle-privacy-recovery-data"
+        type="button"
+        :aria-pressed="setting.allowRecoveryData"
+        :disabled="saving"
+        @click="save({ allowRecoveryData: !setting.allowRecoveryData })"
+      >
+        <span class="setting-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20.3S4.5 16 4.5 10.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.4c0 5.6-7.5 9.9-7.5 9.9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /><path d="M12 5.3v5.2M9.4 7.9h5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></span>
+        <span class="setting-copy"><strong>保存生活恢复记录</strong><small>帮助你看到生活有没有慢慢回来</small></span>
+        <span class="toggle-track" :class="{ on: setting.allowRecoveryData }" aria-hidden="true"><i></i></span>
       </button>
     </section>
 
@@ -232,7 +325,34 @@ onMounted(load);
         <span class="action-copy"><strong>账号与数据说明</strong><small>查看我们的隐私政策与数据使用说明</small></span>
         <span class="action-arrow" aria-hidden="true">›</span>
       </button>
+
+      <button class="privacy-action privacy-action-danger" data-testid="btn-delete-my-data" type="button" @click="deleteConfirm = true">
+        <span class="setting-icon action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 7h15M9.3 3.8h5.4l.8 3.2H8.5l.8-3.2ZM7 7l.8 13h8.4L17 7M10 11v5M14 11v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></span>
+        <span class="action-copy"><strong>删除我的数据</strong><small>删除日记、回信与收藏记录，此操作不可撤销</small></span>
+        <span class="action-arrow" aria-hidden="true">›</span>
+      </button>
     </section>
+
+    <details class="privacy-advanced">
+      <summary>更多细分权限</summary>
+      <div class="privacy-advanced-list">
+        <button class="privacy-toggle" data-testid="toggle-privacy-ai-memory-use" type="button" :aria-pressed="setting.allowAiMemoryUse" :disabled="saving" @click="save({ allowAiMemoryUse: !setting.allowAiMemoryUse })">
+          <span class="setting-copy"><strong>允许 AI 使用历史记忆</strong><small>仅在你开启后，用已保存的记忆辅助回应</small></span><span class="toggle-track" :class="{ on: setting.allowAiMemoryUse }" aria-hidden="true"><i></i></span>
+        </button>
+        <button class="privacy-toggle" data-testid="toggle-privacy-experience-share" type="button" :aria-pressed="setting.allowAnonymousExperienceShare" :disabled="saving" @click="save({ allowAnonymousExperienceShare: !setting.allowAnonymousExperienceShare })">
+          <span class="setting-copy"><strong>允许匿名分享同路经历</strong><small>毕业后可选择留下去标识化的经验</small></span><span class="toggle-track" :class="{ on: setting.allowAnonymousExperienceShare }" aria-hidden="true"><i></i></span>
+        </button>
+        <button class="privacy-toggle" data-testid="toggle-privacy-future-notifications" type="button" :aria-pressed="setting.allowFutureSelfNotifications" :disabled="saving" @click="save({ allowFutureSelfNotifications: !setting.allowFutureSelfNotifications })">
+          <span class="setting-copy"><strong>允许未来信提醒</strong><small>到期时通过站内提醒告诉你</small></span><span class="toggle-track" :class="{ on: setting.allowFutureSelfNotifications }" aria-hidden="true"><i></i></span>
+        </button>
+        <button class="privacy-toggle" data-testid="toggle-privacy-journey-archive" type="button" :aria-pressed="setting.allowJourneyArchiveRetention" :disabled="saving" @click="save({ allowJourneyArchiveRetention: !setting.allowJourneyArchiveRetention })">
+          <span class="setting-copy"><strong>允许保留旅程归档</strong><small>归档只保留在你的账户中</small></span><span class="toggle-track" :class="{ on: setting.allowJourneyArchiveRetention }" aria-hidden="true"><i></i></span>
+        </button>
+        <button class="privacy-toggle" data-testid="toggle-privacy-export" type="button" :aria-pressed="setting.allowDataExport" :disabled="saving" @click="save({ allowDataExport: !setting.allowDataExport })">
+          <span class="setting-copy"><strong>允许导出我的数据</strong><small>可随时生成自己的日记备份文件</small></span><span class="toggle-track" :class="{ on: setting.allowDataExport }" aria-hidden="true"><i></i></span>
+        </button>
+      </div>
+    </details>
 
     <p v-if="message" class="privacy-status" role="status" aria-live="polite">{{ message }}</p>
     <p class="privacy-reassurance">你可以随时调整隐私设置，我们会一直守护你的安心。<span aria-hidden="true">❧</span></p>
@@ -245,6 +365,18 @@ onMounted(load);
         <div class="privacy-modal-actions">
           <button class="privacy-modal-primary" data-testid="btn-data-policy-route" type="button" @click="router.push('/pages/settings/data-policy')">查看完整说明</button>
           <button data-testid="btn-data-explain-close" type="button" @click="explain = false">知道了</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="deleteConfirm" class="privacy-modal" data-testid="privacy-delete-panel" role="dialog" aria-modal="true" aria-labelledby="privacy-delete-title">
+      <section class="privacy-modal-card privacy-delete-card">
+        <p class="modal-kicker">不可撤销的操作</p>
+        <h2 id="privacy-delete-title">确认删除我的数据？</h2>
+        <p>这会通过服务端删除你的日记、回信和收藏记录。删除后无法恢复。</p>
+        <div class="privacy-modal-actions">
+          <button type="button" :disabled="deleting" @click="deleteConfirm = false">暂不删除</button>
+          <button class="privacy-modal-danger" data-testid="btn-delete-my-data-confirm" type="button" :disabled="deleting" @click="deleteMyData">{{ deleting ? '正在删除…' : '确认删除' }}</button>
         </div>
       </section>
     </div>
@@ -851,6 +983,41 @@ onMounted(load);
   padding-block: 6px;
 }
 
+.privacy-advanced {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(132, 143, 108, .16);
+  border-radius: 22px;
+  background: rgba(255, 255, 253, .9);
+  box-shadow: 0 12px 24px rgba(80, 83, 62, .05);
+}
+
+.privacy-advanced summary {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 16px;
+  color: #526d34;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.privacy-advanced summary::-webkit-details-marker { display: none; }
+.privacy-advanced summary::after { margin-left: auto; content: '›'; font-size: 22px; transition: transform .18s ease; }
+.privacy-advanced[open] summary { border-bottom: 1px solid rgba(134, 143, 111, .16); }
+.privacy-advanced[open] summary::after { transform: rotate(90deg); }
+.privacy-advanced-list { padding: 2px 14px; }
+.privacy-advanced .privacy-toggle { grid-template-columns: minmax(0, 1fr) 44px; min-height: 62px; }
+.privacy-advanced .privacy-toggle .setting-copy { grid-column: 1; }
+.privacy-advanced .privacy-toggle .toggle-track { grid-column: 2; }
+
+.privacy-action-danger { color: #b7544c; }
+.privacy-action-danger .setting-icon { color: #c45c51; background: #fff3ef; }
+.privacy-action-danger .action-copy strong { color: #a7473f; }
+.privacy-modal-danger { border-color: #c65a50; color: #fff; background: #c65a50; }
+
 .action-icon { width: 40px; height: 40px; }
 .action-arrow { font-size: 26px; }
 
@@ -897,5 +1064,161 @@ onMounted(load);
   .privacy-action { grid-template-columns: 39px minmax(0, 1fr) 15px; gap: 7px; }
   .setting-icon,
   .action-icon { width: 37px; height: 37px; }
+}
+
+/* Reference #07 keeps the first viewport deliberately compact: the promise,
+   persisted core choices and data actions all sit above the fixed navigation. */
+.privacy-page {
+  padding: 0 8px calc(104px + env(safe-area-inset-bottom));
+  background: #f7f1e4;
+}
+
+.privacy-hero {
+  min-height: 130px;
+  height: 130px;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 18px 18px;
+  background: #3f4f50;
+}
+
+.privacy-hero::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgba(14, 28, 35, .3);
+  content: '';
+}
+
+.privacy-hero-tree {
+  top: -22px;
+  right: -22px;
+  left: auto;
+  z-index: -1;
+  width: 252px;
+  height: auto;
+  opacity: .82;
+  filter: brightness(.62) saturate(.74) contrast(1.08);
+}
+
+.privacy-hero-sprout { display: none; }
+
+.privacy-back {
+  top: 12px;
+  left: 10px;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  color: #fffdf4;
+  font-size: 31px;
+}
+
+.privacy-hero-copy {
+  position: relative;
+  z-index: 1;
+  width: min(68%, 274px);
+  margin-top: 28px;
+  margin-left: 2px;
+}
+
+.privacy-hero h1 {
+  color: #fffdf5;
+  font-size: 29px;
+  letter-spacing: .055em;
+  text-shadow: 0 1px 1px rgba(18, 28, 27, .24);
+}
+
+.privacy-hero-copy > p:last-child {
+  margin-top: 7px;
+  margin-left: 0;
+  color: rgba(255, 253, 245, .88);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.privacy-promise {
+  grid-template-columns: 57px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 88px;
+  margin: 0 4px 9px;
+  padding: 10px 12px;
+  border-color: rgba(120, 128, 100, .17);
+  border-radius: 16px;
+  background: #fffdf8;
+  box-shadow: 0 7px 16px rgba(79, 83, 61, .07);
+}
+
+.promise-shield { width: 52px; height: 54px; color: #849063; }
+.promise-shield svg { width: 42px; height: 50px; }
+.privacy-promise h2 { margin-bottom: 3px; font-size: 13px; line-height: 1.35; }
+.privacy-promise p { font-size: 10px; line-height: 1.45; }
+.promise-leaves { right: -4px; bottom: -19px; font-size: 54px; }
+
+.privacy-controls,
+.privacy-action-list {
+  margin-right: 4px;
+  margin-left: 4px;
+  border-color: rgba(121, 129, 99, .16);
+  border-radius: 16px;
+  box-shadow: 0 7px 16px rgba(79, 83, 61, .055);
+}
+
+.privacy-controls { padding: 0 12px; }
+.privacy-toggle {
+  grid-template-columns: 36px minmax(0, 1fr) 40px;
+  gap: 8px;
+  min-height: 46px;
+  padding: 4px 0;
+}
+
+.setting-icon { width: 32px; height: 32px; }
+.setting-icon svg { width: 18px; height: 18px; }
+.setting-copy { gap: 1px; }
+.setting-copy strong,
+.action-copy strong { font-size: 12px; font-weight: 700; line-height: 1.26; }
+.setting-copy small,
+.action-copy small { font-size: 9px; line-height: 1.32; }
+.toggle-track { width: 38px; height: 22px; }
+.toggle-track i { top: 3px; left: 3px; width: 16px; height: 16px; }
+.toggle-track.on i { transform: translateX(16px); }
+
+.privacy-action-list {
+  margin-top: 8px;
+  padding: 0 12px;
+}
+
+.privacy-action {
+  grid-template-columns: 34px minmax(0, 1fr) 14px;
+  gap: 8px;
+  min-height: 42px;
+  padding: 4px 0;
+}
+
+.privacy-action .setting-icon,
+.privacy-action .action-icon { width: 29px; height: 29px; }
+.privacy-action .setting-icon svg { width: 16px; height: 16px; }
+.privacy-action .action-copy small { display: none; }
+.privacy-action .action-copy strong { font-size: 11px; }
+.action-arrow { font-size: 21px; }
+.export-ready { margin: 2px 0 6px 40px; font-size: 10px; }
+
+.privacy-advanced {
+  margin: 9px 4px 0;
+  border-radius: 16px;
+  box-shadow: 0 7px 16px rgba(79, 83, 61, .05);
+}
+
+.privacy-advanced summary { min-height: 44px; padding: 0 13px; font-size: 12px; }
+.privacy-advanced-list { padding: 0 12px; }
+.privacy-advanced .privacy-toggle { grid-template-columns: minmax(0, 1fr) 40px; min-height: 50px; }
+
+.privacy-status { margin-top: 8px; font-size: 11px; }
+.privacy-reassurance { margin-top: 12px; font-size: 11px; }
+
+@media (max-width: 374px) {
+  .privacy-hero-copy { width: 72%; }
+  .privacy-hero h1 { font-size: 27px; }
+  .privacy-toggle { grid-template-columns: 34px minmax(0, 1fr) 38px; gap: 6px; }
+  .setting-icon { width: 30px; height: 30px; }
 }
 </style>

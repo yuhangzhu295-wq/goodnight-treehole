@@ -53,29 +53,35 @@ const monthLabel = computed(() => {
   return year && selectedMonth ? `${year} 年 ${Number(selectedMonth)} 月` : month.value;
 });
 
-const distributionEntries = computed(() => Object.entries(report.value?.emotionDistribution ?? {})
-  .map(([label, count]) => ({ label, count: Number(count) || 0 }))
-  .sort((left, right) => right.count - left.count));
-
-const distributionTotal = computed(() => distributionEntries.value.reduce((sum, item) => sum + item.count, 0));
-const donutColors = ['#82945b', '#b0ba7c', '#f0ba55', '#d79b8b', '#aaa2ca', '#a7b6be'];
-const donutStyle = computed(() => {
-  if (!distributionTotal.value) return { background: 'conic-gradient(#e9eadf 0 100%)' };
-  let offset = 0;
-  const stops = distributionEntries.value.map((item, index) => {
-    const next = offset + (item.count / distributionTotal.value) * 100;
-    const stop = `${donutColors[index % donutColors.length]} ${offset.toFixed(2)}% ${next.toFixed(2)}%`;
-    offset = next;
-    return stop;
-  });
-  return { background: `conic-gradient(${stops.join(', ')})` };
+const recovery = computed(() => report.value?.recovery ?? {
+  journeyCount: 0,
+  completedJourneyCount: 0,
+  actionCount: 0,
+  completedActionCount: 0,
+  adaptedActionCount: 0,
+  missedActionCount: 0,
+  recoveryCheckinCount: 0,
+  peerConversationCount: 0,
+  peerExperienceCount: 0,
+  decisionCount: 0,
+  lifeFunctions: [],
 });
 
-const keywordEntries = computed(() => {
-  const counts = Array.isArray(report.value?.keywordCounts) ? report.value.keywordCounts : [];
-  const max = Math.max(1, ...counts.map((item: any) => Number(item.count) || 0));
-  return counts.map((item: any) => ({ keyword: String(item.keyword), count: Number(item.count) || 0, width: `${Math.max(18, ((Number(item.count) || 0) / max) * 100)}%` }));
-});
+const hardestMoment = computed(() => recovery.value.mostStuckAction || (report.value?.topEmotion === '暂无' ? '还在慢慢记录' : `${report.value.topEmotion}出现得更多`));
+const helpfulAction = computed(() => recovery.value.mostHelpfulAction || '本月还没有标记完成的行动');
+const lifeStateLabel: Record<string, string> = {
+  unrecorded: '还没有记录',
+  returning: '有在回来',
+  adjusting: '仍在调整',
+  steady: '持续照顾',
+};
+const lifeRows = computed(() => Array.isArray(recovery.value.lifeFunctions)
+  ? recovery.value.lifeFunctions.map((item: any) => ({
+      ...item,
+      stateLabel: lifeStateLabel[String(item.state)] ?? '如实记录',
+      width: `${Math.max(10, Math.min(100, ((Number(item.yesCount) * 2 + Number(item.partialCount)) / Math.max(1, Number(item.recordedCount) * 2)) * 100))}%`,
+    }))
+  : []);
 
 const trendPoints = computed(() => {
   const points = Array.isArray(report.value?.dailyTrend) ? report.value.dailyTrend : [];
@@ -185,84 +191,71 @@ onMounted(async () => {
 
 <template>
   <section v-if="report" class="page goodnight-page rest-page report-page">
-    <header class="report-hero">
-      <div class="report-topbar">
-        <button class="back-icon" data-testid="front-report-back" aria-label="返回" @click="router.back()">‹</button>
-        <h1>情绪月报</h1>
-      </div>
-      <div class="report-brand">
-        <strong>晚安树洞</strong>
-        <p><span data-visual-mask="time">{{ monthLabel }}</span>情绪总结</p>
-      </div>
+    <header class="monthly-hero">
+      <button class="report-back" data-testid="front-report-back" aria-label="返回" @click="router.back()">‹</button>
+      <p class="monthly-logo">❧ 晚安树洞</p>
+      <h1>这个月，你是怎么<br>走过来的？</h1>
+      <button class="monthly-month" data-testid="filter-report-month" @click="monthOpen = true"><span data-visual-mask="time">{{ monthLabel }}</span>⌄</button>
     </header>
 
-    <section class="report-stat-grid" aria-label="本月统计">
-      <article class="report-stat-card record-days">
-        <span class="report-stat-icon" aria-hidden="true">▣</span>
-        <div><small>本月记录天数</small><strong>{{ report.recordDays }}<em>天</em></strong><p>共记录情绪 {{ report.totalRecords }} 条</p></div>
+    <section class="monthly-brief" aria-label="本月旅程小结">
+      <h2>✦ 本月旅程小结</h2>
+      <div class="monthly-brief-grid">
+        <article><span>本月最容易卡住的</span><strong>{{ hardestMoment }}</strong></article>
+        <article><span>你反复回来过</span><strong>{{ recovery.recoveryCheckinCount }}<em>次</em></strong></article>
+        <article><span>你尝试过现实行动</span><strong>{{ recovery.actionCount }}<em>个</em></strong></article>
+      </div>
+    </section>
+
+    <section class="monthly-story-grid" aria-label="这个月的真实经历">
+      <article class="monthly-story-card helpful-card">
+        <span>● 最有帮助</span>
+        <strong>{{ helpfulAction }}</strong>
+        <p>本月完成 {{ recovery.completedActionCount }} 个行动，调整过 {{ recovery.adaptedActionCount }} 次。</p>
       </article>
-      <article class="report-stat-card top-emotion">
-        <span class="report-stat-icon" aria-hidden="true">♧</span>
-        <div><small>高频情绪</small><strong>{{ report.topEmotion }}</strong><p>出现 {{ report.topEmotionCount }} 次</p></div>
-      </article>
-      <article class="report-stat-card replies">
-        <span class="report-stat-icon" aria-hidden="true">♡</span>
-        <div><small>温柔回应次数</small><strong>{{ report.replyCount }}<em>次</em></strong><p>感谢你的真诚分享</p></div>
+      <article class="monthly-story-card stuck-card">
+        <span>☁ 最容易卡住</span>
+        <strong>{{ recovery.mostStuckAction || '还在看见自己的节奏' }}</strong>
+        <p>{{ recovery.missedActionCount ? `有 ${recovery.missedActionCount} 次回访没有完成` : '没有把未完成当成失败' }}</p>
       </article>
     </section>
 
-    <article class="report-trend-card">
-      <div class="report-card-heading">
-        <div><h2>情绪趋势</h2><p>每天的情绪就像天气，起起落落都是成长。</p></div>
-        <button class="report-month-select" data-testid="filter-report-month" @click="monthOpen = true">{{ report.month }}⌄</button>
+    <article class="monthly-life-card">
+      <h2>⌁ 生活正在慢慢回来</h2>
+      <div v-if="lifeRows.length" class="monthly-life-list">
+        <div v-for="item in lifeRows" :key="item.key" class="monthly-life-row">
+          <span>{{ item.label }}</span><i><b :style="{ width: item.width }"></b></i><small>{{ item.stateLabel }}</small>
+        </div>
       </div>
-      <div class="report-trend-plot" data-testid="report-trend-chart">
-        <div class="trend-levels" aria-hidden="true"><span>很棒</span><span>平静</span><span>有点难</span><span>很低落</span></div>
-        <svg viewBox="0 0 320 118" role="img" aria-label="根据真实日记记录生成的情绪趋势">
+      <p v-else class="monthly-empty">本月还没有生活恢复记录，先如实写下今天也可以。</p>
+    </article>
+
+    <article class="monthly-trend-card">
+      <div class="monthly-trend-heading"><div><h2>⌁ 这段时间的起伏</h2><p>来自本月真实记录，不给情绪打分。</p></div><span>{{ report.recordDays }} 天记录</span></div>
+      <div class="monthly-trend-plot" data-testid="report-trend-chart">
+        <svg viewBox="0 0 320 118" role="img" aria-label="根据真实日记记录生成的本月起伏">
           <path class="trend-grid" d="M22 28H300M22 50H300M22 72H300M22 94H300" />
           <polyline v-if="trendPolyline" class="trend-line" :points="trendPolyline" />
           <circle v-for="point in trendPoints" :key="point.day" class="trend-point" :cx="point.x" :cy="point.y" r="4" />
         </svg>
-        <div v-if="!trendPoints.length" class="trend-empty">本月还没有足够的记录来绘制趋势</div>
+        <div v-if="!trendPoints.length" class="trend-empty">本月还没有足够的记录来绘制起伏</div>
         <div class="trend-axis"><span v-for="day in trendTickDays" :key="day">{{ month.split('-')[1] }}/{{ day }}</span></div>
       </div>
     </article>
 
-    <section class="report-insights-grid">
-      <article class="report-insight-card distribution-card">
-        <h2>情绪分布</h2>
-        <div class="distribution-content">
-          <div class="report-donut" :style="donutStyle"><span><strong>{{ report.totalRecords }}</strong><small>总记录</small></span></div>
-          <ul v-if="distributionEntries.length" class="distribution-legend">
-            <li v-for="(item, index) in distributionEntries" :key="item.label"><i :style="{ background: donutColors[index % donutColors.length] }"></i><span>{{ item.label }}</span><b>{{ Math.round((item.count / distributionTotal) * 100) }}%</b><small>({{ item.count }}次)</small></li>
-          </ul>
-          <p v-else class="muted">暂无本月情绪分布</p>
-        </div>
-      </article>
-      <article class="report-insight-card keywords-card">
-        <h2>高频关键词</h2>
-        <div v-if="keywordEntries.length" class="keyword-list">
-          <div v-for="item in keywordEntries" :key="item.keyword" class="keyword-row"><span>{{ item.keyword }}</span><i><b :style="{ width: item.width }"></b></i><strong>{{ item.count }}次</strong></div>
-        </div>
-        <p v-else class="muted">本月暂无可统计的关键词</p>
-      </article>
-    </section>
-
-    <article class="report-reflection">
-      <span class="reflection-illustration" aria-hidden="true"></span>
-      <div>
-        <h2>这个月的你很努力，也在慢慢看见自己</h2>
-        <p v-if="summaryLoading">正在基于真实记录生成本月回顾…</p>
-        <p v-for="(paragraph, index) in summaryParagraphs.slice(0, 2)" :key="index">{{ paragraph }}</p>
-        <p v-if="!summaryLoading && !summaryParagraphs.length" class="muted">本月回顾暂时不可用，记录会在下次生成后呈现。</p>
-      </div>
+    <article class="monthly-ai-card">
+      <h2>这个月，你慢慢走过来了</h2>
+      <p v-if="summaryLoading">正在根据你允许的真实记录整理回顾…</p>
+      <p v-for="(paragraph, index) in summaryParagraphs.slice(0, 2)" :key="index">{{ paragraph }}</p>
+      <p v-if="!summaryLoading && !report.analysisAllowed" class="muted">长期旅程分析已关闭；你仍可以查看上面的真实记录。</p>
+      <p v-else-if="!summaryLoading && !summaryParagraphs.length" class="muted">本月回顾暂时不可用，稍后刷新可查看任务状态。</p>
     </article>
 
     <p v-if="loadError" class="error-text">{{ loadError }}</p>
 
     <div class="report-actions">
-      <button class="primary" data-testid="btn-report-poster" :disabled="summaryLoading || !report.summary" @click="makeShareImage"><span aria-hidden="true">▧</span>生成分享图<small>生成专属月报分享给自己或朋友</small></button>
-      <button data-testid="btn-report-advice" :disabled="adviceLoading" @click="loadAdvice"><span aria-hidden="true">♧</span>{{ adviceLoading ? '正在生成建议' : '查看详细建议' }}<small>获取个性化温柔建议</small></button>
+      <button class="primary" data-testid="btn-report-poster" :disabled="summaryLoading || !report.summary" @click="makeShareImage"><span aria-hidden="true">▧</span>生成分享图</button>
+      <button data-testid="btn-report-advice" :disabled="adviceLoading || !report.analysisAllowed" @click="loadAdvice"><span aria-hidden="true">♧</span>{{ adviceLoading ? '正在生成建议' : '查看温柔建议' }}</button>
     </div>
 
     <div v-if="monthOpen" class="sheet-mask">
@@ -298,47 +291,128 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Keep live report values intact while matching the supplied handset's calmer
-   type hierarchy.  These overrides only affect the rendered report shell;
-   charts, counts, and AI-generated copy remain API-backed. */
-.report-page .report-hero {
-  min-height: 154px;
-  padding-top: 16px;
-  padding-bottom: 14px;
+.report-page {
+  display: block;
+  min-height: 100vh;
+  padding: 0 12px calc(110px + env(safe-area-inset-bottom));
+  overflow-x: clip;
+  background: #f5efe2;
+  color: #394237;
 }
 
-.report-page .reflection-illustration {
-  background-image: url("../assets/goodnight/square-baby.png");
-  background-size: contain;
-  mix-blend-mode: multiply;
+.report-page * { box-sizing: border-box; }
+
+.monthly-hero {
+  position: relative;
+  height: 145px;
+  margin: 0 -12px 10px;
+  overflow: hidden;
+  padding: 17px 24px;
+  background: linear-gradient(145deg, #33404b 0%, #5f6260 62%, #928879 100%);
+  color: #fffdf5;
 }
 
-.report-page .report-topbar h1 { font-size: 21px; }
-.report-page .report-brand { margin-top: 17px; }
-.report-page .report-brand strong { font-size: 35px; line-height: 1.08; }
-.report-page .report-brand p { margin-top: 7px; font-size: 14px; }
-.report-page .report-stat-card { min-height: 86px; }
-.report-page .report-stat-card strong { font-size: 21px; }
-.report-page .report-card-heading h2,
-.report-page .report-insight-card h2 { font-size: 19px; }
-.report-page .report-trend-card { gap: 9px; padding-top: 13px; padding-bottom: 11px; }
-.report-page .report-trend-plot { min-height: 108px; }
-.report-page .report-trend-plot svg { height: 88px; }
-.report-page .trend-levels { bottom: 20px; }
-.report-page .report-reflection h2 { font-size: 17px; }
-.report-page .report-reflection { min-height: 118px; }
-.report-page .report-actions button { min-height: 60px; }
+.monthly-hero::after {
+  position: absolute;
+  top: -20px;
+  right: -15px;
+  width: 232px;
+  height: 160px;
+  opacity: .72;
+  background: url('../assets/goodnight/tree-top-cutout.png') top right / contain no-repeat;
+  filter: brightness(.7) saturate(.72) contrast(1.08);
+  content: '';
+  pointer-events: none;
+}
 
-/* Keep the two real report actions above the fixed tab bar. The page reserves
-   this space so the buttons never cover report content while still remaining
-   reachable at the end of a long monthly report. */
-.report-page.goodnight-page { padding-bottom: calc(196px + env(safe-area-inset-bottom)); }
-.report-page .report-actions {
-  position: fixed;
-  left: 50%;
-  bottom: calc(66px + env(safe-area-inset-bottom));
-  z-index: 19;
-  width: min(400px, calc(100vw - 30px));
-  transform: translateX(-50%);
+.report-back {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  color: rgba(255,255,255,.88);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.monthly-logo,
+.monthly-hero h1,
+.monthly-month { position: relative; z-index: 1; }
+.monthly-logo { margin: -25px 0 10px 30px; color: rgba(255,253,247,.87); font-size: 11px; font-weight: 700; }
+.monthly-hero h1 { margin: 0; font-family: var(--gn-font-display); font-size: 26px; font-weight: 700; letter-spacing: .04em; line-height: 1.22; }
+.monthly-month { display: inline-flex; min-height: 24px; margin-top: 8px; padding: 2px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: rgba(255,253,247,.85); font-size: 11px; }
+
+.monthly-brief,
+.monthly-story-card,
+.monthly-life-card,
+.monthly-trend-card,
+.monthly-ai-card {
+  border: 1px solid rgba(128, 133, 107, .17);
+  border-radius: 17px;
+  background: rgba(255, 253, 247, .94);
+  box-shadow: 0 8px 20px rgba(80, 82, 61, .06);
+}
+
+.monthly-brief { padding: 12px 14px 11px; }
+.monthly-brief h2,
+.monthly-life-card h2,
+.monthly-trend-heading h2,
+.monthly-ai-card h2 { margin: 0; color: #536c39; font-size: 13px; font-weight: 700; }
+.monthly-brief-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 9px; }
+.monthly-brief-grid article { min-width: 0; padding: 0 9px; border-right: 1px solid rgba(122, 132, 102, .17); }
+.monthly-brief-grid article:first-child { padding-left: 0; }
+.monthly-brief-grid article:last-child { padding-right: 0; border-right: 0; }
+.monthly-brief-grid span { display: block; overflow: hidden; color: #747a6d; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.monthly-brief-grid strong { display: block; overflow: hidden; margin-top: 7px; color: #526d38; text-overflow: ellipsis; white-space: nowrap; font-family: var(--gn-font-body); font-size: 16px; line-height: 1.1; }
+.monthly-brief-grid strong em { margin-left: 2px; font-size: 10px; font-style: normal; }
+
+.monthly-story-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+.monthly-story-card { position: relative; min-height: 104px; padding: 12px; overflow: hidden; }
+.monthly-story-card::after { position: absolute; right: -8px; bottom: -25px; color: rgba(129, 151, 89, .18); font-size: 76px; content: '❧'; }
+.monthly-story-card > * { position: relative; z-index: 1; }
+.monthly-story-card span { display: block; color: #71834e; font-size: 10px; }
+.monthly-story-card strong { display: -webkit-box; overflow: hidden; margin-top: 9px; color: #536b3c; font-size: 15px; line-height: 1.34; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.monthly-story-card p { display: -webkit-box; overflow: hidden; margin: 6px 0 0; color: #74796c; font-size: 9px; line-height: 1.42; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.stuck-card { background: rgba(252, 249, 239, .96); }
+
+.monthly-life-card { margin-top: 9px; padding: 12px 14px; }
+.monthly-life-list { display: grid; gap: 8px; margin-top: 11px; }
+.monthly-life-row { display: grid; grid-template-columns: 86px minmax(0, 1fr) 52px; align-items: center; gap: 7px; color: #6e7769; font-size: 10px; }
+.monthly-life-row i { display: block; height: 7px; overflow: hidden; border-radius: 999px; background: #e6e7dc; }
+.monthly-life-row b { display: block; height: 100%; border-radius: inherit; background: #829b58; }
+.monthly-life-row small { color: #748455; font-size: 9px; text-align: right; }
+.monthly-empty { margin: 10px 0 0; color: #80867b; font-size: 11px; }
+
+.monthly-trend-card { margin-top: 9px; padding: 12px 14px 10px; }
+.monthly-trend-heading { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.monthly-trend-heading p { margin: 4px 0 0; color: #82877d; font-size: 9px; }
+.monthly-trend-heading > span { color: #7d9060; font-size: 9px; white-space: nowrap; }
+.monthly-trend-plot { position: relative; min-height: 104px; margin-top: 8px; }
+.monthly-trend-plot svg { display: block; width: 100%; height: 82px; overflow: visible; }
+.trend-grid { fill: none; stroke: rgba(117, 137, 88, .17); stroke-dasharray: 3 3; }
+.trend-line { fill: none; stroke: #789254; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.trend-point { fill: #fffdf7; stroke: #759052; stroke-width: 2; }
+.trend-axis { display: flex; justify-content: space-between; padding: 0 8px; color: #8a8e83; font-size: 9px; }
+.trend-empty { position: absolute; top: 30px; right: 0; left: 0; color: #81877d; text-align: center; font-size: 11px; }
+
+.monthly-ai-card { margin-top: 9px; padding: 13px 15px; }
+.monthly-ai-card p { margin: 7px 0 0; color: #626a5e; font-size: 11px; line-height: 1.65; }
+.monthly-ai-card .muted { color: #848b80; }
+.error-text { margin: 9px 4px; color: #b75a51; font-size: 11px; }
+
+.report-page .report-actions { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; width: auto; margin: 10px 0 0; padding: 0; transform: none; }
+.report-page .report-actions button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 38px; padding: 7px 9px; border-radius: 999px; font-size: 11px; }
+.report-page .report-actions button > span { font-size: 14px; }
+
+@media (max-width: 374px) {
+  .monthly-hero h1 { font-size: 24px; }
+  .monthly-brief-grid article { padding-right: 6px; padding-left: 6px; }
+  .monthly-brief-grid strong { font-size: 14px; }
+  .monthly-life-row { grid-template-columns: 78px minmax(0, 1fr) 46px; gap: 5px; }
 }
 </style>

@@ -166,6 +166,7 @@ model User {
   trustedContacts      TrustedContact[]
   messagesToFutureSelf MessageToFutureSelf[]
   personalSupportPlans PersonalSupportPlan[]
+  stableSelfProfile    StableSelfProfile?
   memoryItems          MemoryItem[]
   recoverySnapshots    RecoverySnapshot[]
   safetyEvents         SafetyEvent[]
@@ -216,6 +217,11 @@ model PrivacySetting {
   allowRecoveryData             Boolean    @default(false)
   allowJourneyLongTermAnalysis  Boolean    @default(false)
   allowLongTermMemory           Boolean    @default(false)
+  allowAiMemoryUse              Boolean    @default(false)
+  allowAnonymousExperienceShare Boolean    @default(false)
+  allowJourneyArchiveRetention  Boolean    @default(true)
+  allowFutureSelfNotifications  Boolean    @default(true)
+  allowDataExport               Boolean    @default(true)
   createdAt                     DateTime   @default(now())
   updatedAt                     DateTime   @updatedAt
 }
@@ -564,6 +570,9 @@ model DecisionRecord {
   criteria  Json
   decision  String?
   status    String         @default("draft")
+  cooldownUntil DateTime?
+  outcome      String?
+  reviewedAt   DateTime?
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   cooldowns CooldownItem[]
@@ -618,15 +627,18 @@ model TrustedContact {
 }
 
 model MessageToFutureSelf {
-  id          String       @id @default(cuid())
-  userId      String
-  user        User         @relation(fields: [userId], references: [id])
-  journeyId   String?
-  journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
-  content     String
-  deliverAt   DateTime
-  deliveredAt DateTime?
-  createdAt   DateTime     @default(now())
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  journeyId      String?
+  journey        LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  contextType    String?
+  contextRefId   String?
+  contextLabel   String?
+  content        String
+  deliverAt      DateTime
+  deliveredAt    DateTime?
+  createdAt      DateTime     @default(now())
 
   @@index([userId, deliverAt])
 }
@@ -646,6 +658,17 @@ model PersonalSupportPlan {
   @@index([userId, active, updatedAt])
 }
 
+model StableSelfProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
 model MemoryItem {
   id          String       @id @default(cuid())
   userId      String
@@ -653,13 +676,19 @@ model MemoryItem {
   journeyId   String?
   journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
   category    String
+  title       String       @default("有限记忆")
   content     String
+  source      String       @default("user_saved")
+  scope       String       @default("all_ai")
+  status      String       @default("active")
   consentedAt DateTime
   expiresAt   DateTime
   deletedAt   DateTime?
   createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@index([userId, expiresAt])
+  @@index([userId, status, expiresAt])
 }
 
 model RecoverySnapshot {

@@ -80,6 +80,11 @@ export interface PrivacySetting {
   allowRecoveryData?: boolean;
   allowJourneyLongTermAnalysis?: boolean;
   allowLongTermMemory?: boolean;
+  allowAiMemoryUse?: boolean;
+  allowAnonymousExperienceShare?: boolean;
+  allowJourneyArchiveRetention?: boolean;
+  allowFutureSelfNotifications?: boolean;
+  allowDataExport?: boolean;
 }
 
 export interface LifeJourney {

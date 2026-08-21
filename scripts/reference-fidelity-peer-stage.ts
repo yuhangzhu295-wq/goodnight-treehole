@@ -148,7 +148,11 @@ async function main() {
 
     const owner = 'user_guest';
     const requester = 'user_demo';
-    await json('/api/v1/me/privacy', { method: 'PATCH', headers: apiHeaders(owner), body: JSON.stringify({ allowPeerMatching: true, allowAnonymousExperienceStats: true }) });
+    await json('/api/v1/me/privacy', {
+      method: 'PATCH',
+      headers: apiHeaders(owner),
+      body: JSON.stringify({ allowPeerMatching: true, allowAnonymousExperienceStats: true, allowAnonymousExperienceShare: true }),
+    });
     await json('/api/v1/me/privacy', { method: 'PATCH', headers: apiHeaders(requester), body: JSON.stringify({ allowPeerMatching: true, allowAnonymousExperienceStats: true }) });
     const ownerJourney = await json<{ journey: { id: string } }>('/api/v1/journeys', { method: 'POST', headers: apiHeaders(owner), body: JSON.stringify({ title: '把想发的消息放到明天', domain: '关系', content: '我那时总想立刻联系对方，后来先给自己一晚的时间。', intensity: 5 }) });
     const experience = await json<{ item: { id: string } }>('/api/v1/peer-experiences', { method: 'POST', headers: apiHeaders(owner), body: JSON.stringify({ journeyId: ownerJourney.journey.id, title: '把想说的话先留在草稿里', domain: '关系', stage: 'graduated', content: '我没有强迫自己马上放下，只先把今晚过完。', tags: ['分开后想联系'], consented: true, laterSummary: { summary: '第三周开始，我能先照顾自己的节奏，再决定要不要联系。' }, helpfulActions: ['把想说的话写进草稿', '先喝一杯温水'] }) });

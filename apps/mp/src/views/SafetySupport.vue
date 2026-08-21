@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
@@ -9,26 +9,493 @@ const router = useRouter();
 const journeyId = computed(() => String(route.query.journeyId ?? ''));
 const busy = ref(false);
 const error = ref('');
+const supportPlan = ref<Record<string, unknown> | null>(null);
+const savedSupport = computed(() => {
+  const plan = supportPlan.value ?? {};
+  const first = (key: string) => (Array.isArray(plan[key]) ? String((plan[key] as unknown[])[0] ?? '') : '');
+  return [
+    first('safePeople') ? `联系：${first('safePeople')}` : '',
+    first('places') ? `去：${first('places')}` : '',
+    first('smallActions') ? `先做：${first('smallActions')}` : '',
+    typeof plan.emergencyPreference === 'string' && plan.emergencyPreference.trim() ? `处理偏好：${plan.emergencyPreference}` : '',
+  ].filter(Boolean);
+});
+
+onMounted(async () => {
+  try {
+    supportPlan.value = (await api.get<any>('/api/v1/me/support-plan')).item?.plan ?? null;
+  } catch {
+    supportPlan.value = null;
+  }
+});
 
 async function stayHere() {
-  if (!journeyId.value) { await router.push('/pages/tonight/index'); return; }
-  busy.value = true; error.value = '';
-  try { await api.post(`/api/v1/journeys/${journeyId.value}/safety/acknowledge`, {}); await router.push(`/pages/journey/detail?id=${journeyId.value}&mode=stabilize`); } catch (cause) { error.value = cause instanceof Error ? cause.message : '当前安全状态没有保存'; } finally { busy.value = false; }
+  if (!journeyId.value) {
+    await router.push('/pages/tonight/index');
+    return;
+  }
+  busy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/api/v1/journeys/${journeyId.value}/safety/acknowledge`, {});
+    await router.push(`/pages/journey/detail?id=${journeyId.value}&mode=stabilize`);
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '当前安全状态没有保存';
+  } finally {
+    busy.value = false;
+  }
 }
 </script>
 
 <template>
   <section class="goodnight-page safety-page" data-testid="safety-support">
-    <header class="safety-hero"><button aria-label="返回" @click="router.back()"><AppIcon name="back" /></button><p>晚安树洞</p><h1>现在先优先保护你自己</h1><span>如果你现在有强烈的自伤冲动，先不要一个人扛。</span></header>
-    <section class="safety-copy"><span aria-hidden="true"><AppIcon name="shield" /></span><p>请先联系现实中的可信任的人，或寻求当地紧急支持。你现在最需要的是安全。</p></section>
-    <div class="safety-actions"><button data-testid="safety-handoff" @click="router.push(`/pages/reality-handoff/index${journeyId ? `?journeyId=${journeyId}` : ''}`)"><span><AppIcon name="message" /></span><div><strong>发求助卡给信任的人</strong><small>让他们知道你现在需要支持</small></div><AppIcon name="arrow" :size="19" /></button><a data-testid="safety-emergency" href="tel:12356"><span><AppIcon name="people" /></span><div><strong>联系当地紧急支持</strong><small>中国大陆可拨打 12356 心理援助热线</small></div><AppIcon name="arrow" :size="19" /></a><a class="urgent" href="tel:120"><span><AppIcon name="heart" /></span><div><strong>紧急医疗求助</strong><small>有即时危险或需要医疗急救时，请拨打 120</small></div><AppIcon name="arrow" :size="19" /></a><button data-testid="safety-stay" :disabled="busy" @click="stayHere"><span><AppIcon name="leaf" /></span><div><strong>我暂时安全，继续留在这里</strong><small>先做一轮稳定支持，再慢慢看接下来的事</small></div><AppIcon name="arrow" :size="19" /></button></div>
-    <section class="steps"><h2>先做这 3 件事</h2><p>先从最容易的一步开始照顾自己。</p><div><article><b>1</b><div><strong>去一个有人在的地方</strong><span>去一个能让你感到安全的地方。</span></div></article><article><b>2</b><div><strong>把危险物品暂时拿远一点</strong><span>先把可能伤害自己的物品放到够不着的地方。</span></div></article><article><b>3</b><div><strong>只撑过接下来的 10 分钟</strong><span>先只照顾眼前的十分钟，不要求自己解决全部。</span></div></article></div></section>
-    <p class="source-note">12356 为国家卫生健康委统一心理援助热线；110、120 为紧急求助电话。<a href="https://www.nhc.gov.cn/yzygj/c100068/202412/49a1a65386cd4be582d4702fd0926ee8.shtml" target="_blank" rel="noreferrer">查看官方说明</a></p>
+    <header class="safety-hero">
+      <button aria-label="返回" @click="router.back()"><AppIcon name="back" /></button>
+      <p>晚安树洞</p>
+      <h1>现在先优先保护你自己</h1>
+      <span>如果你现在有强烈的自伤冲动，先不要一个人扛。</span>
+    </header>
+    <section class="safety-copy">
+      <span aria-hidden="true"><AppIcon name="shield" /></span>
+      <p>请先联系现实中的可信任的人，或寻求当地紧急支持。你现在最需要的是安全。</p>
+    </section>
+    <section v-if="savedSupport.length" class="saved-plan" data-testid="safety-saved-support-plan">
+      <div><strong>你提前为自己留过的预案</strong><button @click="router.push('/pages/support-plan/index')">查看全部</button></div>
+      <p>这里只显示你主动保存的内容。</p>
+      <ul><li v-for="item in savedSupport" :key="item">{{ item }}</li></ul>
+    </section>
+    <div class="safety-actions">
+      <button
+        data-testid="safety-handoff"
+        @click="router.push(`/pages/reality-handoff/index${journeyId ? `?journeyId=${journeyId}` : ''}`)"
+      >
+        <span><AppIcon name="message" /></span>
+        <div><strong>发求助卡给信任的人</strong><small>让他们知道你现在需要支持</small></div>
+        <AppIcon name="arrow" :size="19" />
+      </button><a data-testid="safety-emergency" href="tel:12356"><span><AppIcon name="people" /></span>
+        <div><strong>联系当地紧急支持</strong><small>中国大陆可拨打 12356 心理援助热线</small></div>
+        <AppIcon name="arrow" :size="19" /></a><a class="urgent" href="tel:120"><span><AppIcon name="heart" /></span>
+        <div><strong>紧急医疗求助</strong><small>有即时危险或需要医疗急救时，请拨打 120</small></div>
+        <AppIcon name="arrow" :size="19" /></a><button data-testid="safety-stay" :disabled="busy" @click="stayHere">
+        <span><AppIcon name="leaf" /></span>
+        <div><strong>我暂时安全，继续留在这里</strong><small>先做一轮稳定支持，再慢慢看接下来的事</small></div>
+        <AppIcon name="arrow" :size="19" />
+      </button>
+    </div>
+    <section class="steps">
+      <h2>先做这 3 件事</h2>
+      <p>先从最容易的一步开始照顾自己。</p>
+      <div>
+        <article>
+          <b>1</b>
+          <div><strong>去一个有人在的地方</strong><span>去一个能让你感到安全的地方。</span></div>
+        </article>
+        <article>
+          <b>2</b>
+          <div><strong>把危险物品暂时拿远一点</strong><span>先把可能伤害自己的物品放到够不着的地方。</span></div>
+        </article>
+        <article>
+          <b>3</b>
+          <div><strong>只撑过接下来的 10 分钟</strong><span>先只照顾眼前的十分钟，不要求自己解决全部。</span></div>
+        </article>
+      </div>
+    </section>
+    <p class="source-note">
+      12356 为国家卫生健康委统一心理援助热线；110、120 为紧急求助电话。<a
+        href="https://www.nhc.gov.cn/yzygj/c100068/202412/49a1a65386cd4be582d4702fd0926ee8.shtml"
+        target="_blank"
+        rel="noreferrer"
+      >查看官方说明</a>
+    </p>
     <p v-if="error" class="error-text" role="alert">{{ error }}</p>
   </section>
 </template>
 
 <style scoped>
-.safety-page{display:grid;gap:14px;padding:0 14px 48px;background:#f4efe4}.safety-hero{position:relative;min-height:202px;margin:0 -14px;padding:18px 22px;overflow:hidden;background:radial-gradient(circle at 72% 68%,rgba(232,167,116,.42),transparent 25%),linear-gradient(164deg,#132130,#29404e 55%,#79645a)}.safety-hero::after{position:absolute;right:-11px;bottom:-22px;width:193px;height:193px;background:url('../assets/goodnight/tree-top-cutout.png') right bottom/contain no-repeat;opacity:.36;content:'';filter:brightness(.7);pointer-events:none}.safety-hero>*{position:relative;z-index:1}.safety-hero button{display:grid;place-items:center;width:34px;min-width:34px;height:34px;min-height:34px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:50%;background:rgba(255,255,255,.08);color:#fff;cursor:pointer}.safety-hero p{margin:27px 0 0;color:rgba(255,250,240,.78);font-size:13px}.safety-hero h1{max-width:315px;margin:8px 0;color:#fffaf2;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:27px;line-height:1.3}.safety-hero span{display:block;max-width:285px;color:rgba(255,250,240,.8);font-size:13px;line-height:1.55}.safety-copy{display:flex;gap:12px;align-items:center;border-radius:20px;background:linear-gradient(135deg,#fffdf6,#eee8d8);padding:15px}.safety-copy span{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#82946b;color:#fff}.safety-copy p{flex:1;margin:0;color:#52614e;line-height:1.6}.safety-actions{display:grid;gap:10px}.safety-actions button,.safety-actions a{display:grid;grid-template-columns:42px minmax(0,1fr) 20px;gap:11px;align-items:center;min-height:67px;border:1px solid rgba(95,127,62,.17);border-radius:18px;background:#fffdf8;padding:12px;color:#334934;text-align:left;text-decoration:none;font:inherit;cursor:pointer}.safety-actions>*>span{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:#e9efe1;color:#58764e}.safety-actions strong,.safety-actions small{display:block}.safety-actions small{margin-top:4px;color:#788078;font-size:12px;line-height:1.45}.safety-actions .urgent{border-color:rgba(197,107,90,.35)}.safety-actions .urgent>span{background:#f8e5df;color:#b45849}.steps{display:grid;gap:7px;border-radius:22px;background:#fffdf8;padding:17px}.steps h2{margin:0;color:#405c3c;font-size:20px}.steps>p{margin:0;color:#737c72;font-size:13px}.steps>div{display:grid;gap:8px}.steps article{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;border-radius:13px;background:#f4f0e4;padding:11px;color:#53674d}.steps article b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#6b825a;color:#fff;font-size:12px}.steps article strong,.steps article span{display:block}.steps article strong{font-size:13px;line-height:1.45}.steps article span{margin-top:3px;color:#788078;font-size:11px;line-height:1.5}.source-note{margin:2px 5px;color:#7b8279;font-size:12px;line-height:1.55}.source-note a{color:#4f704a}.error-text{margin:0;color:var(--gn-danger)}
-.safety-hero{min-height:178px}.safety-hero p{position:absolute;top:25px;left:70px;margin:0}.safety-hero h1{max-width:318px;margin:20px 0 4px;font-size:25px}.safety-hero span{max-width:300px}.safety-copy{position:relative;min-height:75px;overflow:hidden;padding-right:108px}.safety-copy::after{position:absolute;right:0;bottom:-4px;width:110px;height:88px;background:url('../assets/goodnight/illustrations/safety-shield-scene.png') right bottom/contain no-repeat;content:'';opacity:.65;pointer-events:none}.safety-copy>*{position:relative;z-index:1}.safety-copy p{font-size:14px}.safety-actions{gap:9px}.safety-actions button,.safety-actions a{min-height:64px;padding:11px}.steps{padding:16px}.steps article{padding:10px}.safety-page{padding-bottom:calc(36px + env(safe-area-inset-bottom))}
-.safety-hero{min-height:154px}.safety-hero h1{margin:16px 0 3px;font-size:24px}.safety-hero span{max-width:310px;font-size:13px}.safety-copy{min-height:82px;padding:12px 100px 12px 13px}.safety-copy p{font-size:13px;line-height:1.55}.safety-copy span{width:38px;height:38px}.safety-copy::after{width:98px;height:82px;opacity:.62}.safety-actions{gap:7px}.safety-actions button,.safety-actions a{min-height:58px;gap:9px;padding:9px 11px;border-radius:17px}.safety-actions>*>span{width:36px;height:36px}.safety-actions strong{font-size:15px}.safety-actions small{margin-top:2px;font-size:11px;line-height:1.35}.steps{gap:5px;padding:14px}.steps h2{font-size:19px}.steps>p{font-size:12px}.steps>div{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.steps article{grid-template-columns:1fr;align-content:start;gap:7px;min-height:119px;padding:9px 8px}.steps article b{width:21px;height:21px}.steps article strong{font-size:12px;line-height:1.38}.steps article span{font-size:10px;line-height:1.4}.safety-page{gap:11px;padding-bottom:calc(30px + env(safe-area-inset-bottom))}</style>
+.safety-page {
+  display: grid;
+  gap: 14px;
+  padding: 0 14px 48px;
+  background: #f4efe4;
+}
+.safety-hero {
+  position: relative;
+  min-height: 202px;
+  margin: 0 -14px;
+  padding: 18px 22px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 72% 68%, rgba(232, 167, 116, 0.42), transparent 25%),
+    linear-gradient(164deg, #132130, #29404e 55%, #79645a);
+}
+.safety-hero::after {
+  position: absolute;
+  right: -11px;
+  bottom: -22px;
+  width: 193px;
+  height: 193px;
+  background: url('../assets/goodnight/tree-top-cutout.png') right bottom/contain no-repeat;
+  opacity: 0.36;
+  content: '';
+  filter: brightness(0.7);
+  pointer-events: none;
+}
+.safety-hero > * {
+  position: relative;
+  z-index: 1;
+}
+.safety-hero button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+}
+.safety-hero p {
+  margin: 27px 0 0;
+  color: rgba(255, 250, 240, 0.78);
+  font-size: 13px;
+}
+.safety-hero h1 {
+  max-width: 315px;
+  margin: 8px 0;
+  color: #fffaf2;
+  font-family: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', serif;
+  font-size: 27px;
+  line-height: 1.3;
+}
+.safety-hero span {
+  display: block;
+  max-width: 285px;
+  color: rgba(255, 250, 240, 0.8);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.safety-copy {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fffdf6, #eee8d8);
+  padding: 15px;
+}
+.safety-copy span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #82946b;
+  color: #fff;
+}
+.safety-copy p {
+  flex: 1;
+  margin: 0;
+  color: #52614e;
+  line-height: 1.6;
+}
+.safety-actions {
+  display: grid;
+  gap: 10px;
+}
+.safety-actions button,
+.safety-actions a {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 20px;
+  gap: 11px;
+  align-items: center;
+  min-height: 67px;
+  border: 1px solid rgba(95, 127, 62, 0.17);
+  border-radius: 18px;
+  background: #fffdf8;
+  padding: 12px;
+  color: #334934;
+  text-align: left;
+  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
+}
+.safety-actions > * > span {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e9efe1;
+  color: #58764e;
+}
+.safety-actions strong,
+.safety-actions small {
+  display: block;
+}
+.safety-actions small {
+  margin-top: 4px;
+  color: #788078;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.safety-actions .urgent {
+  border-color: rgba(197, 107, 90, 0.35);
+}
+.safety-actions .urgent > span {
+  background: #f8e5df;
+  color: #b45849;
+}
+.steps {
+  display: grid;
+  gap: 7px;
+  border-radius: 22px;
+  background: #fffdf8;
+  padding: 17px;
+}
+.steps h2 {
+  margin: 0;
+  color: #405c3c;
+  font-size: 20px;
+}
+.steps > p {
+  margin: 0;
+  color: #737c72;
+  font-size: 13px;
+}
+.steps > div {
+  display: grid;
+  gap: 8px;
+}
+.steps article {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  border-radius: 13px;
+  background: #f4f0e4;
+  padding: 11px;
+  color: #53674d;
+}
+.steps article b {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #6b825a;
+  color: #fff;
+  font-size: 12px;
+}
+.steps article strong,
+.steps article span {
+  display: block;
+}
+.steps article strong {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.steps article span {
+  margin-top: 3px;
+  color: #788078;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.source-note {
+  margin: 2px 5px;
+  color: #7b8279;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.saved-plan {
+  border: 1px solid rgba(95, 127, 62, 0.17);
+  border-radius: 18px;
+  padding: 13px 15px;
+  background: #fffdf8;
+}
+.saved-plan > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+.saved-plan button {
+  border: 0;
+  background: transparent;
+  color: #4f704a;
+  font: 12px inherit;
+}
+.saved-plan p {
+  margin: 4px 0 8px;
+  color: #7b8279;
+  font-size: 11px;
+}
+.saved-plan ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.saved-plan li {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #e9efe1;
+  color: #4d6548;
+  font-size: 11px;
+}
+.source-note a {
+  color: #4f704a;
+}
+.error-text {
+  margin: 0;
+  color: var(--gn-danger);
+}
+.safety-hero {
+  min-height: 178px;
+}
+.safety-hero p {
+  position: absolute;
+  top: 25px;
+  left: 70px;
+  margin: 0;
+}
+.safety-hero h1 {
+  max-width: 318px;
+  margin: 20px 0 4px;
+  font-size: 25px;
+}
+.safety-hero span {
+  max-width: 300px;
+}
+.safety-copy {
+  position: relative;
+  min-height: 75px;
+  overflow: hidden;
+  padding-right: 108px;
+}
+.safety-copy::after {
+  position: absolute;
+  right: 0;
+  bottom: -4px;
+  width: 110px;
+  height: 88px;
+  background: url('../assets/goodnight/illustrations/safety-shield-scene.png') right bottom/contain no-repeat;
+  content: '';
+  opacity: 0.65;
+  pointer-events: none;
+}
+.safety-copy > * {
+  position: relative;
+  z-index: 1;
+}
+.safety-copy p {
+  font-size: 14px;
+}
+.safety-actions {
+  gap: 9px;
+}
+.safety-actions button,
+.safety-actions a {
+  min-height: 64px;
+  padding: 11px;
+}
+.steps {
+  padding: 16px;
+}
+.steps article {
+  padding: 10px;
+}
+.safety-page {
+  padding-bottom: calc(36px + env(safe-area-inset-bottom));
+}
+.safety-hero {
+  min-height: 154px;
+}
+.safety-hero h1 {
+  margin: 16px 0 3px;
+  font-size: 24px;
+}
+.safety-hero span {
+  max-width: 310px;
+  font-size: 13px;
+}
+.safety-copy {
+  min-height: 82px;
+  padding: 12px 100px 12px 13px;
+}
+.safety-copy p {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.safety-copy span {
+  width: 38px;
+  height: 38px;
+}
+.safety-copy::after {
+  width: 98px;
+  height: 82px;
+  opacity: 0.62;
+}
+.safety-actions {
+  gap: 7px;
+}
+.safety-actions button,
+.safety-actions a {
+  min-height: 58px;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 17px;
+}
+.safety-actions > * > span {
+  width: 36px;
+  height: 36px;
+}
+.safety-actions strong {
+  font-size: 15px;
+}
+.safety-actions small {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.steps {
+  gap: 5px;
+  padding: 14px;
+}
+.steps h2 {
+  font-size: 19px;
+}
+.steps > p {
+  font-size: 12px;
+}
+.steps > div {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.steps article {
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 7px;
+  min-height: 119px;
+  padding: 9px 8px;
+}
+.steps article b {
+  width: 21px;
+  height: 21px;
+}
+.steps article strong {
+  font-size: 12px;
+  line-height: 1.38;
+}
+.steps article span {
+  font-size: 10px;
+  line-height: 1.4;
+}
+.safety-page {
+  gap: 11px;
+  padding-bottom: calc(30px + env(safe-area-inset-bottom));
+}
+</style>

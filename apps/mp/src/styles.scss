@@ -4135,7 +4135,10 @@ body {
 .phone-shell:has(.tonight-page),
 .phone-shell:has(.safety-page),
 .phone-shell:has(.handoff-page),
-.phone-shell:has(.notification-page) {
+.phone-shell:has(.notification-page),
+.phone-shell:has(.support-plan-page),
+.phone-shell:has(.stable-self-page),
+.phone-shell:has(.memory-page) {
   padding-inline: 0;
 }
 

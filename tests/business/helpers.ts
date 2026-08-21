@@ -23,6 +23,17 @@ export async function createApiTestApp(): Promise<INestApplication> {
   return app;
 }
 
+export function followUpTestConnection() {
+  const value = new URL(process.env.REDIS_URL ?? 'redis://127.0.0.1:6380');
+  return {
+    host: value.hostname,
+    port: Number(value.port || 6379),
+    username: value.username || undefined,
+    password: value.password || undefined,
+    maxRetriesPerRequest: null,
+  };
+}
+
 export async function loginAdmin(server: unknown) {
   const response = await request(server).post('/api/admin/v1/login').send({ username: 'admin', password: 'admin123' }).expect(201);
   return response.body.token as string;

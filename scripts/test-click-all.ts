@@ -37,10 +37,13 @@ const adminBase = `http://127.0.0.1:${adminPort}`;
 const scope = String(process.env.CLICK_ALL_SCOPE ?? 'all').toLowerCase();
 const resumeFrom = String(process.env.CLICK_ALL_FROM_SELECTOR ?? '').trim();
 
-function resumeItems(items: ManifestItem[]) {
+function resumeItems(items: ManifestItem[], ignoreMissingResume = false) {
   if (!resumeFrom) return items;
   const index = items.findIndex((item) => item.selector === resumeFrom);
-  if (index < 0) throw new Error(`Resume selector not found: ${resumeFrom}`);
+  if (index < 0) {
+    if (ignoreMissingResume) return items;
+    throw new Error(`Resume selector not found: ${resumeFrom}`);
+  }
   return items.slice(index);
 }
 
@@ -56,6 +59,53 @@ async function wait(url: string) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timeout waiting for ${url}`);
+}
+
+async function enableMonthlyReportActions() {
+  const privacyResponse = await fetch(`${apiBase}/api/v1/me/privacy`);
+  if (!privacyResponse.ok) throw new Error(`Could not read monthly-report privacy: ${privacyResponse.status}`);
+  const privacyPayload = await privacyResponse.json() as { item?: Record<string, unknown> };
+  const updateResponse = await fetch(`${apiBase}/api/v1/me/privacy`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...privacyPayload.item,
+      allowJourneyLongTermAnalysis: true,
+      allowMonthlyReportShare: true,
+    }),
+  });
+  if (!updateResponse.ok) throw new Error(`Could not grant explicit monthly-report consent: ${updateResponse.status}`);
+
+  const month = new Date().toISOString().slice(0, 7);
+  const deadline = Date.now() + 120000;
+  let lastStatus = 'unavailable';
+  while (Date.now() < deadline) {
+    const response = await fetch(`${apiBase}/api/v1/reports/monthly?month=${month}`);
+    if (!response.ok) throw new Error(`Could not prepare monthly report: ${response.status}`);
+    const payload = await response.json() as { item?: { summary?: string; aiJobStatus?: string } };
+    const report = payload.item;
+    lastStatus = String(report?.aiJobStatus ?? 'unavailable');
+    if (report?.summary && lastStatus === 'succeeded') return;
+    if (['failed', 'fallback', 'cancelled'].includes(lastStatus)) {
+      throw new Error(`Monthly report job did not finish through DAPI: ${lastStatus}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  }
+  throw new Error(`Monthly report job did not complete before click verification: ${lastStatus}`);
+}
+
+async function createAdminReviewCandidate() {
+  const response = await fetch(`${apiBase}/api/v1/moods`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      content: `点击回归待审核内容 ${Date.now()}`,
+      emotion: 'anxious',
+      visibility: 'PUBLIC',
+      replyStyle: 'warm',
+    }),
+  });
+  if (!response.ok) throw new Error(`Could not create an isolated admin review candidate: ${response.status}`);
 }
 
 function spawnLogged(name: string, command: string, args: string[], env: Record<string, string>) {
@@ -259,6 +309,7 @@ async function main() {
       });
       if (!enableResponse.ok) throw new Error(`Could not enable peer matching for click-all precondition: ${enableResponse.status}`);
     }
+    await enableMonthlyReportActions();
 
     const frontManifest = JSON.parse(await fs.readFile('tests/interaction-manifest.front.json', 'utf8')) as ManifestItem[];
     const adminManifest = JSON.parse(await fs.readFile('tests/interaction-manifest.admin.json', 'utf8')) as ManifestItem[];
@@ -285,6 +336,9 @@ async function main() {
     }
 
     if (scope !== 'front') {
+      // Front click tests intentionally exercise hide/block actions. Seed one
+      // real, pending post so admin moderation always reviews an independent record.
+      await createAdminReviewCandidate();
       const loginItems = adminManifest.filter((item) => item.route === '/login');
       for (const item of loginItems) {
         const result = await runItem(admin, adminBase, item);
@@ -293,7 +347,7 @@ async function main() {
         await writeReports(results);
       }
       await loginAdmin(admin);
-      for (const item of resumeItems(adminManifest.filter((item) => item.route !== '/login'))) {
+      for (const item of resumeItems(adminManifest.filter((item) => item.route !== '/login'), true)) {
         const result = await runItem(admin, adminBase, item);
         results.push(result);
         console.log(`${result.ok ? 'PASS' : 'FAIL'} admin ${item.selector}`);

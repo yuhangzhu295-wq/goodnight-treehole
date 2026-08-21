@@ -26,6 +26,7 @@ describe('domain services', () => {
     const snapshots: unknown[] = [];
     const persistence = { saveRuntimeState: async (payload: unknown) => { snapshots.push(payload); } };
     const store = new StoreService(persistence as any);
+    store.privacySettings.user_demo.allowDataExport = true;
     const result = await store.createDiaryExport();
     const download = store.getDiaryExportDownload(result.asset.id);
 
