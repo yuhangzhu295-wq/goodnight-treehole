@@ -59,10 +59,10 @@ Reference: 420x786 · artifacts/reference-qa/journey/reference-timeline.png
 
 | viewport | Hero height | main top | main width | CTA y | tabBar y | scroll height | sections |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 375x812 | 154 | 140 | 347 | 571 | N/A | 812 | 2 |
-| 390x844 | 154 | 140 | 362 | 550 | N/A | 844 | 2 |
-| 393x852 | 154 | 140 | 365 | 550 | N/A | 852 | 2 |
-| 430x932 | 154 | 140 | 402 | 550 | N/A | 932 | 2 |
+| 375x812 | 154 | 140 | 347 | 699 | N/A | 911 | 3 |
+| 390x844 | 154 | 140 | 362 | 699 | N/A | 911 | 3 |
+| 393x852 | 154 | 140 | 365 | 699 | N/A | 911 | 3 |
+| 430x932 | 154 | 140 | 402 | 699 | N/A | 932 | 3 |
 
 ## Review
 

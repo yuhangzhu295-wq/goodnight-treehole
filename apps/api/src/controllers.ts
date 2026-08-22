@@ -627,38 +627,50 @@ export class PublicController {
   }
 
   @Post('support-plans')
-  async supportPlan(@Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> }) {
-    return await this.store.saveSupportPlan(body);
+  async supportPlan(
+    @Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    return await this.store.saveSupportPlan(body, runtimeUserId(userId));
   }
 
   @Get('me/support-plan')
-  supportPlanCurrent() {
-    return { item: this.store.supportPlan() };
+  supportPlanCurrent(@Headers('x-goodnight-user-id') userId?: string) {
+    return { item: this.store.supportPlan(runtimeUserId(userId)) };
   }
 
   @Put('me/support-plan')
-  async supportPlanPut(@Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> }) {
-    return await this.store.saveSupportPlan(body);
+  async supportPlanPut(
+    @Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    return await this.store.saveSupportPlan(body, runtimeUserId(userId));
   }
 
   @Get('me/stable-self')
-  stableSelfProfile() {
-    return { item: this.store.stableSelfProfile() };
+  stableSelfProfile(@Headers('x-goodnight-user-id') userId?: string) {
+    return { item: this.store.stableSelfProfile(runtimeUserId(userId)) };
   }
 
   @Put('me/stable-self')
-  async stableSelfProfilePut(@Body() body: { profile?: Record<string, unknown> }) {
-    return await this.store.saveStableSelfProfile(body);
+  async stableSelfProfilePut(
+    @Body() body: { profile?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    return await this.store.saveStableSelfProfile(body, runtimeUserId(userId));
   }
 
   @Get('me/recovery')
-  recovery() {
-    return { items: this.store.recoveryList() };
+  recovery(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: this.store.recoveryList(runtimeUserId(userId)) };
   }
 
   @Post('me/recovery')
-  async recoveryCheckin(@Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string }) {
-    return await this.store.saveRecoveryCheckin(body.journeyId, body.signals ?? {}, body.summary);
+  async recoveryCheckin(
+    @Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    return await this.store.saveRecoveryCheckin(body.journeyId, body.signals ?? {}, body.summary, runtimeUserId(userId));
   }
 
   @Get('notifications')
@@ -724,13 +736,13 @@ export class PublicController {
   }
 
   @Get('memory')
-  memories() {
-    return { items: this.store.memoryList(false) };
+  memories(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: this.store.memoryList(false, runtimeUserId(userId)) };
   }
 
   @Get('me/memories')
-  memoriesAlias() {
-    const items = this.store.memoryList(true).map((item) => {
+  memoriesAlias(@Headers('x-goodnight-user-id') userId?: string) {
+    const items = this.store.memoryList(true, runtimeUserId(userId)).map((item) => {
       const usages = this.store.aiJobs.flatMap((job) =>
         (job.traceJson ?? [])
           .filter(
@@ -755,26 +767,28 @@ export class PublicController {
       days?: number;
       scope?: string;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveMemory({ ...body, source: 'user_saved' });
+    return await this.store.saveMemory({ ...body, source: 'user_saved' }, runtimeUserId(userId));
   }
 
   @Patch('me/memories/:id')
   async updateMemory(
     @Param('id') id: string,
     @Body() body: { title?: string; content?: string; days?: number; scope?: string; status?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.updateMemory(id, body);
+    return await this.store.updateMemory(id, body, runtimeUserId(userId));
   }
 
   @Delete('memory/:id')
-  async deleteMemory(@Param('id') id: string) {
-    return await this.store.deleteMemory(id);
+  async deleteMemory(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.deleteMemory(id, runtimeUserId(userId));
   }
 
   @Delete('me/memories/:id')
-  async deleteMemoryAlias(@Param('id') id: string) {
-    return await this.store.deleteMemory(id);
+  async deleteMemoryAlias(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.deleteMemory(id, runtimeUserId(userId));
   }
 
   @Get('posts/:id')
@@ -969,20 +983,32 @@ export class PublicController {
   }
 
   @Post('ai/generate')
-  aiGenerate(@Body() body: AIGenerateInput) {
-    const job = this.store.queueAI(body);
+  aiGenerate(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
+    const job = this.store.queueAI({
+      ...body,
+      userId: this.store.resolveRuntimeUserId(runtimeUserId(userId)),
+    });
     return { jobId: job.id, status: job.status, job };
   }
 
   @Post('ai/tasks')
-  aiTask(@Body() body: AIGenerateInput) {
-    const job = this.store.queueAI(body);
+  aiTask(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
+    const job = this.store.queueAI({
+      ...body,
+      userId: this.store.resolveRuntimeUserId(runtimeUserId(userId)),
+    });
     return { jobId: job.id, status: job.status, job };
   }
 
   @Get('ai/tasks/latest')
-  latestAiTask(@Query('taskType') taskType = 'negative_rewrite') {
-    const job = this.store.latestSuccessfulAiJob(this.store.getDemoUserId(), taskType);
+  latestAiTask(
+    @Query('taskType') taskType = 'negative_rewrite',
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const job = this.store.latestSuccessfulAiJob(
+      this.store.resolveRuntimeUserId(runtimeUserId(userId)),
+      taskType,
+    );
     return {
       item: job ?? null,
       jobId: job?.id ?? null,
@@ -992,9 +1018,11 @@ export class PublicController {
   }
 
   @Get('ai/tasks/:id')
-  aiTaskStatus(@Param('id') id: string) {
+  aiTaskStatus(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
     const job = this.store.aiJobs.find((item) => item.id === id);
-    if (!job) throw new BadRequestException('AI 任务不存在');
+    if (!job || job.userId !== this.store.resolveRuntimeUserId(runtimeUserId(userId))) {
+      throw new NotFoundException('AI 任务不存在');
+    }
     return { jobId: job.id, status: job.status, job, result: job.result, structured: job.structuredResult ?? {} };
   }
 

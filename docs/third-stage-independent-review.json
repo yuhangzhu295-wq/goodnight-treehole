@@ -1,0 +1,126 @@
+{
+  "baseline": {
+    "branch": "codex/third-stage-self-system",
+    "originalHead": "ff8f52697fcc011ea730403b770a524b291c7af7",
+    "originMain": "99c84de678abf1bc5359b5d360699ce7dbb6d383",
+    "mergeBase": "99c84de678abf1bc5359b5d360699ce7dbb6d383"
+  },
+  "referenceRoot": "C:\\Users\\zyu33\\Desktop\\图片素材88\\晚安树洞_UI_01-41_业务说明",
+  "reviewer": {
+    "type": "independent agent visual and business audit",
+    "humanAcceptance": false,
+    "method": "side-by-side reference capture, responsive overflow assertions, API/DB assertions, and real browser flows"
+  },
+  "capture": {
+    "command": "THIRD_STAGE_REFERENCE_ARTIFACT_ROOT=artifacts/reference-fidelity/third-stage-independent pnpm test:reference-fidelity-third-stage",
+    "evidenceRoot": "artifacts/reference-fidelity/third-stage-independent",
+    "viewport": "420x786 plus 375x812, 390x844, 393x852, and 430x932",
+    "result": "PASS: every reviewed page had scrollWidth 420 at the primary viewport and the expected tabbar contract."
+  },
+  "pages": [
+    {
+      "reference": 38,
+      "referenceFile": "38_我的旅程_正式版.png",
+      "name": "我的 Final",
+      "route": "/pages/me/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/me/me-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/me/me-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/me/me-side-by-side.png", "differenceRate": 0.205376832666909, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: third-stage business/persistence tests", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Actual data entry and menus work, but the blue hero and white modular cards materially differ from the warm hand-journal reference hierarchy."
+    },
+    {
+      "reference": 9,
+      "referenceFile": "09_生活回来一点了吗.png",
+      "name": "Recovery",
+      "route": "/pages/recovery/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/recovery/recovery-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/recovery/recovery-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/recovery/recovery-side-by-side.png", "differenceRate": 0.2594995759117896, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: create/read/restart persistence", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Recovery records persist, but the implementation remains a conventional form rather than the reference's low-pressure illustrated single-card composition."
+    },
+    {
+      "reference": 41,
+      "referenceFile": "41_低谷预案_正式版.png",
+      "name": "Personal Support Plan",
+      "route": "/pages/support-plan/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/support-plan/support-plan-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/support-plan/support-plan-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/support-plan/support-plan-side-by-side.png", "differenceRate": 0.2637465164182721, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: save/edit/reload and Safety readback", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "The low-plan is real user data and Safety only shows it after real-world support actions, but the dark hero and dense inputs do not match the paper-plan reference."
+    },
+    {
+      "reference": 27,
+      "referenceFile": "27_清醒时候的我.png",
+      "name": "Stable Self",
+      "route": "/pages/stable-self/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/stable-self/stable-self-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/stable-self/stable-self-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/stable-self/stable-self-side-by-side.png", "differenceRate": 0.24973948867078638, "horizontalOverflow": false, "tabbarVisible": false },
+      "criteria": { "dataTruth": "DONE: user-owned profile persistence", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Profile save/reload is correct; the form-block density, whitespace, and narrative grouping still diverge from the stable-self reference."
+    },
+    {
+      "reference": 15,
+      "referenceFile": "15_AI记得什么.png",
+      "name": "AI Memory",
+      "route": "/pages/memory/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/memory/memory-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/memory/memory-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/memory/memory-side-by-side.png", "differenceRate": 0.24752211317096814, "horizontalOverflow": false, "tabbarVisible": false },
+      "criteria": { "dataTruth": "DONE: consented DAPI trace, edit/delete, and user isolation", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Memory transparency, enable/disable, deletion, and DAPI usage records are real, but the page reads as a dense management list instead of the reference's lightweight explanatory memory surface."
+    },
+    {
+      "reference": 12,
+      "referenceFile": "12_决定保险箱.png",
+      "name": "Decision Vault",
+      "route": "/pages/decision/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/decision/decision-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/decision/decision-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/decision/decision-side-by-side.png", "differenceRate": 0.2793287289470496, "horizontalOverflow": false, "tabbarVisible": false },
+      "criteria": { "dataTruth": "DONE: decision and cooldown business test", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Decision and cooldown data are verified; the generic form does not restore the reference's vault card, pacing, and supporting graphics."
+    },
+    {
+      "reference": 35,
+      "referenceFile": "35_写给未来的我_正式版.png",
+      "name": "Future Self Final",
+      "route": "/pages/future-self/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/future-self/future-self-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/future-self/future-self-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/future-self/future-self-side-by-side.png", "differenceRate": 0.2818823458136435, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: future-message persistence and privacy defaults", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Future messages are saved with real scheduling data, yet the photo-like dark hero and control geometry differ materially from the final letter reference."
+    },
+    {
+      "reference": 7,
+      "referenceFile": "07_隐私设置.png",
+      "name": "Privacy 2.0",
+      "route": "/pages/settings/privacy",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/privacy/privacy-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/privacy/privacy-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/privacy/privacy-side-by-side.png", "differenceRate": 0.2037713558705925, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: minimum defaults, explicit opt-in, and user isolation", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Privacy no longer silently inherits new consent from legacy flags; the moonlit private-card reference is nevertheless not matched by the current tree-list visual language."
+    },
+    {
+      "reference": 8,
+      "referenceFile": "08_这个月你是怎么走过来的.png",
+      "name": "Monthly Report 2.0",
+      "route": "/pages/report/month",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/report/report-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/report/report-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/report/report-side-by-side.png", "differenceRate": 0.22144371743608385, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: monthly report API and DAPI action verification", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Monthly reports are generated with real consent and API data, but the actual dashboard/chart treatment does not reproduce the reference's monthly reflection narrative."
+    },
+    {
+      "reference": 30,
+      "referenceFile": "30_日记与回信_正式版.png",
+      "name": "Archive Final",
+      "route": "/pages/archive/index",
+      "status": "PARTIAL",
+      "evidence": { "actual": "artifacts/reference-fidelity/third-stage-independent/archive/archive-actual.png", "reference": "artifacts/reference-fidelity/third-stage-independent/archive/archive-reference.png", "sideBySide": "artifacts/reference-fidelity/third-stage-independent/archive/archive-side-by-side.png", "differenceRate": 0.19233006179571066, "horizontalOverflow": false, "tabbarVisible": true },
+      "criteria": { "dataTruth": "DONE: archive/restore/export contract in business coverage", "responsive": "DONE", "referenceFidelity": "PARTIAL" },
+      "notes": "Archive list, detail, and actions use real data, but the current tabbed list remains visually distinct from the diary-and-letter archive reference."
+    }
+  ],
+  "freeze": "THIRD_STAGE_SELF_SYSTEM_FROZEN=false",
+  "freezeReason": "10/10 pages pass loading, responsive overflow, and relevant real-data checks, but 10/10 remain PARTIAL for reference fidelity. The requested no-redesign boundary prevents honestly claiming a visual freeze or opening a merge-ready PR.",
+  "noUnreviewedPages": true,
+  "allVisualReferencesComplete": false
+}

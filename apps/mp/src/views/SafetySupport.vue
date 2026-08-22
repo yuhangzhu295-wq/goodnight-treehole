@@ -17,13 +17,13 @@ const savedSupport = computed(() => {
     first('safePeople') ? `联系：${first('safePeople')}` : '',
     first('places') ? `去：${first('places')}` : '',
     first('smallActions') ? `先做：${first('smallActions')}` : '',
-    typeof plan.emergencyPreference === 'string' && plan.emergencyPreference.trim() ? `处理偏好：${plan.emergencyPreference}` : '',
   ].filter(Boolean);
 });
 
 onMounted(async () => {
   try {
-    supportPlan.value = (await api.get<any>('/api/v1/me/support-plan')).item?.plan ?? null;
+    supportPlan.value =
+      (await api.get<{ item?: { plan?: Record<string, unknown> } }>('/api/v1/me/support-plan')).item?.plan ?? null;
   } catch {
     supportPlan.value = null;
   }
@@ -58,11 +58,6 @@ async function stayHere() {
     <section class="safety-copy">
       <span aria-hidden="true"><AppIcon name="shield" /></span>
       <p>请先联系现实中的可信任的人，或寻求当地紧急支持。你现在最需要的是安全。</p>
-    </section>
-    <section v-if="savedSupport.length" class="saved-plan" data-testid="safety-saved-support-plan">
-      <div><strong>你提前为自己留过的预案</strong><button @click="router.push('/pages/support-plan/index')">查看全部</button></div>
-      <p>这里只显示你主动保存的内容。</p>
-      <ul><li v-for="item in savedSupport" :key="item">{{ item }}</li></ul>
     </section>
     <div class="safety-actions">
       <button
@@ -107,6 +102,15 @@ async function stayHere() {
         rel="noreferrer"
       >查看官方说明</a>
     </p>
+    <section v-if="savedSupport.length" class="saved-plan" data-testid="safety-saved-support-plan">
+      <div>
+        <strong>你提前为自己留过的预案</strong><button @click="router.push('/pages/support-plan/index')">查看全部</button>
+      </div>
+      <p>这里只显示你主动保存的内容。</p>
+      <ul>
+        <li v-for="item in savedSupport" :key="item">{{ item }}</li>
+      </ul>
+    </section>
     <p v-if="error" class="error-text" role="alert">{{ error }}</p>
   </section>
 </template>
@@ -308,44 +312,6 @@ async function stayHere() {
   font-size: 12px;
   line-height: 1.55;
 }
-.saved-plan {
-  border: 1px solid rgba(95, 127, 62, 0.17);
-  border-radius: 18px;
-  padding: 13px 15px;
-  background: #fffdf8;
-}
-.saved-plan > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-}
-.saved-plan button {
-  border: 0;
-  background: transparent;
-  color: #4f704a;
-  font: 12px inherit;
-}
-.saved-plan p {
-  margin: 4px 0 8px;
-  color: #7b8279;
-  font-size: 11px;
-}
-.saved-plan ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.saved-plan li {
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: #e9efe1;
-  color: #4d6548;
-  font-size: 11px;
-}
 .source-note a {
   color: #4f704a;
 }
@@ -497,5 +463,43 @@ async function stayHere() {
 .safety-page {
   gap: 11px;
   padding-bottom: calc(30px + env(safe-area-inset-bottom));
+}
+.saved-plan {
+  border: 1px solid rgba(95, 127, 62, 0.17);
+  border-radius: 18px;
+  background: #fffdf8;
+  padding: 13px 15px;
+}
+.saved-plan > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.saved-plan button {
+  border: 0;
+  background: transparent;
+  color: #4f704a;
+  font: 12px inherit;
+}
+.saved-plan p {
+  margin: 4px 0 8px;
+  color: #7b8279;
+  font-size: 11px;
+}
+.saved-plan ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.saved-plan li {
+  border-radius: 999px;
+  background: #e9efe1;
+  padding: 6px 10px;
+  color: #4d6548;
+  font-size: 11px;
 }
 </style>

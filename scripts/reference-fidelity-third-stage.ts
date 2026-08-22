@@ -5,7 +5,9 @@ import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 
 const referenceRoot = 'C:\\Users\\zyu33\\Desktop\\图片素材88\\晚安树洞_UI_01-41_业务说明';
-const artifactRoot = path.resolve('artifacts', 'reference-fidelity', 'third-stage');
+const artifactRoot = path.resolve(
+  process.env.THIRD_STAGE_REFERENCE_ARTIFACT_ROOT ?? path.join('artifacts', 'reference-fidelity', 'third-stage'),
+);
 const frontUrl = process.env.FRONT_URL ?? 'http://127.0.0.1:5173';
 const primaryViewport = { width: 420, height: 786 };
 const responsiveViewports = [

@@ -2344,11 +2344,11 @@ export class StoreService implements OnModuleInit {
         allowRecoveryData: false,
         allowJourneyLongTermAnalysis: false,
         allowLongTermMemory: false,
-        allowAiMemoryUse: privacy.allowLongTermMemory === true,
-        allowAnonymousExperienceShare: privacy.allowPeerMatching === true,
-        allowJourneyArchiveRetention: true,
-        allowFutureSelfNotifications: true,
-        allowDataExport: true,
+        allowAiMemoryUse: false,
+        allowAnonymousExperienceShare: false,
+        allowJourneyArchiveRetention: false,
+        allowFutureSelfNotifications: false,
+        allowDataExport: false,
       };
       for (const [key, fallback] of Object.entries(defaults)) {
         if (privacy[key] === undefined) {
@@ -4293,8 +4293,13 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  async saveRecoveryCheckin(journeyId: string | undefined, signals: Record<string, unknown>, summary?: unknown) {
-    const userId = this.getDemoUserId();
+  async saveRecoveryCheckin(
+    journeyId: string | undefined,
+    signals: Record<string, unknown>,
+    summary?: unknown,
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
     const journey = journeyId
       ? this.requireJourney(journeyId, userId)
@@ -4586,8 +4591,11 @@ export class StoreService implements OnModuleInit {
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   }
 
-  async saveSupportPlan(input: { journeyId?: string; title?: unknown; plan?: Record<string, unknown> }) {
-    const userId = this.getDemoUserId();
+  async saveSupportPlan(
+    input: { journeyId?: string; title?: unknown; plan?: Record<string, unknown> },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存支持计划');
     const journey = input.journeyId
       ? this.requireJourney(input.journeyId, userId)
@@ -4617,19 +4625,19 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  supportPlan() {
-    const userId = this.getDemoUserId();
+  supportPlan(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     return this.personalSupportPlans.find((item) => item.userId === userId && item.active) ?? null;
   }
 
-  stableSelfProfile() {
-    const userId = this.getDemoUserId();
+  stableSelfProfile(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
     return this.stableSelfProfiles.find((item) => item.userId === userId) ?? null;
   }
 
-  async saveStableSelfProfile(input: { profile?: Record<string, unknown> }) {
-    const userId = this.getDemoUserId();
+  async saveStableSelfProfile(input: { profile?: Record<string, unknown> }, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
     const source = input.profile ?? {};
     const textValue = (key: string, limit = 500) =>
@@ -4672,14 +4680,14 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  recoveryList() {
-    const userId = this.getDemoUserId();
+  recoveryList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
     return this.recoverySnapshots.filter((item) => item.userId === userId);
   }
 
-  memoryList(includeInactive = true) {
-    const userId = this.getDemoUserId();
+  memoryList(includeInactive = true, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     return this.memoryItems
       .filter((item) => item.userId === userId && !item.deletedAt)
       .filter((item) => includeInactive || (item.status === 'active' && Date.parse(item.expiresAt) > Date.now()))
@@ -4694,8 +4702,8 @@ export class StoreService implements OnModuleInit {
     days?: number;
     source?: unknown;
     scope?: unknown;
-  }) {
-    const userId = this.getDemoUserId();
+  }, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     this.privacyAllows(userId, 'allowLongTermMemory', '请先在隐私设置中允许保存有限记忆');
     const days = Math.max(1, Math.min(3650, Number(input.days ?? 90)));
     const journey = input.journeyId
@@ -4736,9 +4744,11 @@ export class StoreService implements OnModuleInit {
   async updateMemory(
     idValue: string,
     input: { title?: unknown; content?: unknown; days?: number; scope?: unknown; status?: unknown },
+    requestedUserId?: string,
   ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const item = this.memoryItems.find(
-      (memory) => memory.id === idValue && memory.userId === this.getDemoUserId() && !memory.deletedAt,
+      (memory) => memory.id === idValue && memory.userId === userId && !memory.deletedAt,
     );
     if (!item) throw new NotFoundException('记忆不存在');
     if (input.title !== undefined) item.title = this.text(input.title, '记忆标题', 100);
@@ -4764,8 +4774,9 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  async deleteMemory(idValue: string) {
-    const item = this.memoryItems.find((memory) => memory.id === idValue && memory.userId === this.getDemoUserId());
+  async deleteMemory(idValue: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const item = this.memoryItems.find((memory) => memory.id === idValue && memory.userId === userId);
     if (!item) throw new NotFoundException('记忆不存在');
     item.deletedAt = now();
     item.status = 'expired';

@@ -328,6 +328,7 @@ async function main() {
 
     if (scope !== 'admin') {
       for (const item of resumeItems(frontManifest)) {
+        console.log(`RUN front ${item.selector}`);
         const result = await runItem(front, frontBase, item);
         results.push(result);
         console.log(`${result.ok ? 'PASS' : 'FAIL'} front ${item.selector}`);
@@ -341,6 +342,7 @@ async function main() {
       await createAdminReviewCandidate();
       const loginItems = adminManifest.filter((item) => item.route === '/login');
       for (const item of loginItems) {
+        console.log(`RUN admin ${item.selector}`);
         const result = await runItem(admin, adminBase, item);
         results.push(result);
         console.log(`${result.ok ? 'PASS' : 'FAIL'} admin ${item.selector}`);
@@ -348,6 +350,7 @@ async function main() {
       }
       await loginAdmin(admin);
       for (const item of resumeItems(adminManifest.filter((item) => item.route !== '/login'), true)) {
+        console.log(`RUN admin ${item.selector}`);
         const result = await runItem(admin, adminBase, item);
         results.push(result);
         console.log(`${result.ok ? 'PASS' : 'FAIL'} admin ${item.selector}`);

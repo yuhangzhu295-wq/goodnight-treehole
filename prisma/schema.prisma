@@ -219,9 +219,9 @@ model PrivacySetting {
   allowLongTermMemory           Boolean    @default(false)
   allowAiMemoryUse              Boolean    @default(false)
   allowAnonymousExperienceShare Boolean    @default(false)
-  allowJourneyArchiveRetention  Boolean    @default(true)
-  allowFutureSelfNotifications  Boolean    @default(true)
-  allowDataExport               Boolean    @default(true)
+  allowJourneyArchiveRetention  Boolean    @default(false)
+  allowFutureSelfNotifications  Boolean    @default(false)
+  allowDataExport               Boolean    @default(false)
   createdAt                     DateTime   @default(now())
   updatedAt                     DateTime   @updatedAt
 }
