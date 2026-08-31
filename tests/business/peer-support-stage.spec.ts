@@ -125,6 +125,25 @@ describe('Peer Support Network second-stage loop', () => {
     await request(server).post(`/api/v1/peer-conversations/${match.id}/messages`).set('x-goodnight-user-id', owner).send({ content: '我的 QQ: 12345678' }).expect(400);
     await request(server).post(`/api/v1/peer-conversations/${match.id}/messages`).set('x-goodnight-user-id', owner).send({ content: '身份证是 11010519491231002X' }).expect(400);
     await request(server).post(`/api/v1/peer-conversations/${match.id}/messages`).set('x-goodnight-user-id', owner).send({ content: '我住在杭州市西湖区文三路附近' }).expect(400);
+    const legacyMessageId = `legacy_peer_message_${Date.now()}`;
+    await prisma.peerMessage.create({
+      data: {
+        id: legacyMessageId,
+        conversationId: active.body.conversation.id,
+        senderUserId: owner,
+        authorType: 'HUMAN',
+        content: '加我微信 wx:peertest',
+      },
+    });
+    await store.reloadRuntimeState();
+    const legacyConversation = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', requester).expect(200);
+    const legacyMessage = legacyConversation.body.items
+      .find((item: { matchId: string }) => item.matchId === match.id)
+      .messages.find((item: { id: string }) => item.id === legacyMessageId);
+    expect(legacyMessage.content).toContain('[已隐藏账号]');
+    expect(legacyMessage.content).not.toMatch(/peertest|微信|wx/i);
+    await prisma.peerMessage.delete({ where: { id: legacyMessageId } });
+    await store.reloadRuntimeState();
     const anonymousConversation = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', requester).expect(200);
     const anonymousMatchConversation = anonymousConversation.body.items.find((item: { matchId: string }) => item.matchId === match.id);
     expect(JSON.stringify(anonymousMatchConversation)).not.toMatch(/user_guest|user_demo|senderUserId|starterUserId|receiverUserId|viewerUserId/);

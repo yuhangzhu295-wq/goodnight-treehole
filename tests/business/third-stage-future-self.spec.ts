@@ -21,7 +21,10 @@ describe('third-stage future self business loop', () => {
 
   it('keeps user-selected context, persists it, and delivers a future message through the real follow-up queue', async () => {
     const server = app.getHttpServer();
-    await request(server).patch('/api/v1/me/privacy').send({ allowRecoveryData: true }).expect(200);
+    await request(server)
+      .patch('/api/v1/me/privacy')
+      .send({ allowRecoveryData: true, allowFutureSelfNotifications: true })
+      .expect(200);
     const journey = await request(server)
       .post('/api/v1/journeys')
       .send({

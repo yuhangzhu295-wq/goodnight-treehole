@@ -1214,6 +1214,12 @@ export class StoreService implements OnModuleInit {
     if (persisted) {
       this.data = persisted;
       this.ensurePhaseTwoCoverage();
+      // Reloaded relational data may contain a historical route definition.
+      // Reapply the runtime-only DAPI policy before any queued job can use it.
+      if (!visualFixtureMode) {
+        this.enforceRemoteAiProviderPolicy();
+        await this.flush();
+      }
     }
   }
 
@@ -3765,7 +3771,8 @@ export class StoreService implements OnModuleInit {
       id: message.id,
       author: message.senderUserId === viewerUserId ? 'self' : 'peer',
       authorType: message.authorType,
-      content: message.content,
+      // The write path rejects PII, but historic records must never bypass that boundary.
+      content: this.redactPeerPublicText(message.content),
       createdAt: message.createdAt,
     };
   }
@@ -3895,7 +3902,7 @@ export class StoreService implements OnModuleInit {
       .replace(/(?:^|\D)1[3-9]\d{9}(?:$|\D)/g, ' [已隐藏联系方式] ')
       .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[已隐藏邮箱]')
       .replace(
-        /(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/gi,
+        /(?:加我|我的)?\s*(?:(?:微信|wechat|weixin)(?:号|账号)?\s*)?(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/gi,
         '[已隐藏账号]',
       )
       .replace(

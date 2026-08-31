@@ -1018,11 +1018,12 @@ export class PublicController {
   }
 
   @Get('ai/tasks/:id')
-  aiTaskStatus(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+  async aiTaskStatus(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
     const job = this.store.aiJobs.find((item) => item.id === id);
     if (!job || job.userId !== this.store.resolveRuntimeUserId(runtimeUserId(userId))) {
       throw new NotFoundException('AI 任务不存在');
     }
+    if (!['queued', 'running'].includes(job.status)) await this.store.flush();
     return { jobId: job.id, status: job.status, job, result: job.result, structured: job.structuredResult ?? {} };
   }
 
