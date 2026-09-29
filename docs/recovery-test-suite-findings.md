@@ -135,6 +135,45 @@ structural rather than content-dependent.
 Left alone: the brief defers visual convergence to a separate task and forbids UI
 redesign during recovery.
 
+## 6. `scripts/problem02-ai-dynamic-report.ts` - waits for a retired endpoint
+
+**Fails with:** `page.waitForResponse: Timeout 10000ms exceeded while waiting for event "response"`
+
+The script fills `input-decompose`, clicks `btn-decompose-run`, and waits for a POST to
+`/api/v1/tools/emotion-decompose`. Driven by hand against the live page, the click works
+perfectly and the front end now uses the asynchronous job API instead:
+
+```
+click btn-decompose-run
+  -> POST /api/v1/ai/tasks
+  -> GET  /api/v1/ai/tasks/job_87c7555cc3   (polled until terminal)
+```
+
+and the result card renders the full decomposition (触发事件 / 核心情绪 / 真实需要 /
+可以先做的一件小事). So the control is fine; the script is waiting for a path the UI no
+longer calls.
+
+## 7. `scripts/problem01-layout-click-report.ts` - 8 of 9 rows fail while the page looks healthy
+
+**Fails with:** 8 of 9 checks FAIL, 1 PASS (`console has no blocking errors`).
+
+Every failing row's own evidence shows the page behaving correctly:
+
+```
+overflowX: 0            badButtons: []        forbiddenLayers: []
+visibleEnglishArtifacts: []                   hitTag: "SPAN", clickable: true
+```
+
+and each click does the right thing - the correct chip becomes `active: true` and the
+route updates to `/pages/square/index?mood=aggrieved`, `?mood=anxious`, `?mood=insomnia`,
+`?mood=love`, `?mood=work`, and back to `/pages/square/index` for 全部.
+
+What the evidence does show is `rowGapFromHero: 0` and `cardGapFromRow: 0`: the hero, the
+category row and the first card are flush against each other. The check is evidently
+asserting a non-zero gap, so this is a spacing expectation rather than a broken page. It is
+a visual matter, and the brief defers visual convergence to a separate task, so it is
+recorded rather than changed.
+
 ## Summary
 
 | Suite | Cause | Action taken |
@@ -144,7 +183,21 @@ redesign during recovery.
 | `tests/business/goodnight-2-incremental.spec.ts` | test misses a required privacy flag | reported |
 | `scripts/business-flow-01-02.ts` | expects an emotion the template slices off | reported |
 | `scripts/audit-front-navigation-layout.ts` | expects pre-third-stage tabs and alias routes | reported |
+| `scripts/problem02-ai-dynamic-report.ts` | waits for the retired `emotion-decompose` endpoint | reported |
+| `scripts/problem01-layout-click-report.ts` | asserts non-zero section gaps that are currently 0 | reported |
 | `test:reference-qa-first-stage-shells` | 6px layout overage on the notifications page | reported |
 
 Everything else that failed in this recovery failed for one reason only: the DeepSeek
 account returns HTTP 402, and those suites assert real funded remote AI output.
+
+## What did pass
+
+For context, the following all exit 0 on the restored environment: `lint`, `typecheck`,
+`test:unit`, `test:api`, `test:e2e`, `test:first-batch-core`, `test:reference-qa-journey`,
+`test:reference-qa-action`, `test:notification-truth-state`,
+`test:reference-fidelity-first-stage`, `test:reference-fidelity-peer-stage`,
+`test:reference-fidelity-third-stage`, `audit:first-stage-final` (FIRST_STAGE_UI_FROZEN=true),
+`audit:design-references`, `audit:ui-artifacts`, `test:ai-routing`,
+`test:third-stage-business`, `-persistence`, `-security`, `-decision`, `-privacy`,
+`-archive`, `-migrations`, `test:real-browser-front-clicks`, `-admin-clicks`, `-cross-flow`,
+`test:business-flow`, and the four-layer smoke test.
