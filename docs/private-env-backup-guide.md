@@ -34,6 +34,19 @@ Preferred, in order:
 Do not put it in OneDrive, a shared folder, or any synced location that other people can
 read, and do not paste it into a chat, an issue, or an AI session.
 
+### A copy already exists
+
+As of 2026-09-29 there is a copy at
+`C:\Users\zyu33\PrivateBackups\goodnight-treehole\.env`, byte-identical to the working one
+and outside the repository. It protects against losing the working directory again - the
+failure that actually happened - but it is plaintext on the same disk, so it does not
+protect against disk failure or theft. Prefer option 1 for that.
+
+What it does **not** contain is worth knowing: every provider key in it is empty. The real
+DeepSeek key lives only in the Windows user environment as `DEEPSEEK_API_KEY`, which this
+file copy does not cover. Back that up separately - a password manager entry is the right
+place, and it is the one credential that cannot be regenerated.
+
 ## Rebuilding .env from scratch
 
 If no copy exists, this is the whole procedure:
