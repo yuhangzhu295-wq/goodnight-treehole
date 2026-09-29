@@ -6,8 +6,11 @@ import vueParser from 'vue-eslint-parser';
 export default [
   // Flat-config ignores are rooted at the workspace. Generated package output
   // such as apps/admin/dist must be excluded explicitly; linting a minified
-  // bundle produces false source errors and hides the real code result.
-  { ignores: ['node_modules/**', '**/dist/**', '**/coverage/**', 'artifacts/**', 'design_refs/**', 'work/**', '.venv-litellm/**'] },
+  // bundle produces false source errors and hides the real code result. The
+  // Capacitor native projects are excluded for the same reason: `cap sync`
+  // copies the built web bundle into android/app/src/main/assets/public and
+  // ios/App/App/public, and those files are generated, not source.
+  { ignores: ['node_modules/**', '**/dist/**', '**/coverage/**', 'artifacts/**', 'design_refs/**', 'work/**', '.venv-litellm/**', 'apps/mp/android/**', 'apps/mp/ios/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...vue.configs['flat/recommended'],

@@ -6,6 +6,11 @@ node_modules/
 .env
 .env.*
 !.env.example
+# The native debug build needs its API base URL at bundle time, and the value is a
+# developer-machine address rather than a secret. Without this exception
+# `pnpm --filter @goodnight/mp build:native-debug` would silently produce a bundle
+# with no API URL. Never put a credential in this file.
+!apps/mp/.env.capacitor-debug
 *.pem
 *.key
 
