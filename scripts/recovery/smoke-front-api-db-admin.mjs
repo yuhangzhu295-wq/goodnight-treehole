@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global process, console, fetch, localStorage */
 /**
  * Disaster-recovery smoke test: front UI -> API -> PostgreSQL -> reload -> admin.
  *

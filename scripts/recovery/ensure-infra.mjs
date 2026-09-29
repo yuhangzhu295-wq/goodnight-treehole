@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global process, console, setTimeout */
 /**
  * Brings the recovery infrastructure online and waits until Windows can reach it.
  *

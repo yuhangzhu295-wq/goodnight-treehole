@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global process, console */
 /**
  * Runs a command with the repository .env loaded into its environment.
  *
