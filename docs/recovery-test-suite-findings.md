@@ -174,6 +174,77 @@ asserting a non-zero gap, so this is a spacing expectation rather than a broken 
 a visual matter, and the brief defers visual convergence to a separate task, so it is
 recorded rather than changed.
 
+## 8. `tests/business/front-me.spec.ts` - misses the long-term analysis consent
+
+**Fails with:** `expected 200 "OK", got 404 "Not Found"`
+
+Three of the four failures in `test:front-business` are the AI balance
+(`expected 'fallback' to be 'succeeded'`); this is the fourth, and it is different.
+
+The spec calls:
+
+```js
+const report = await request(server).get(`/api/v1/report/month?month=2026-07`).expect(200);
+const completed = await waitForAiJob(server, report.body.item.aiJobId);
+```
+
+but `/api/v1/report/month` returns early when long-term analysis has not been consented to
+(`apps/api/src/monthly-report.service.ts:312`):
+
+```js
+const analysisAllowed = this.store.privacySettings[userId]?.allowJourneyLongTermAnalysis === true;
+if (!monthly.item.analysisAllowed) return { item: { month, content: '', aiJobStatus: 'disabled', analysisAllowed: false } };
+```
+
+`allowJourneyLongTermAnalysis` defaults to `false` and the spec never grants it, so the
+response contains no `aiJobId`. Measured live:
+
+```
+GET /api/v1/report/month?month=2026-07
+  -> 200 { "aiJobId": null, "aiJobStatus": "disabled", "analysisAllowed": false }
+```
+
+`waitForAiJob(server, undefined)` then polls `/api/v1/ai/tasks/undefined`, which is a 404.
+So the endpoint is behaving correctly and the spec is missing a consent step, exactly like
+finding 2.
+
+## 9. `scripts/front-phase3-me.ts` - waits for a testid that only exists as a CSS class
+
+**Fails with:** `locator.waitFor: Timeout 10000ms exceeded` waiting for
+`getByTestId('me-user-card')`.
+
+`me-user-card` appears in `apps/mp/src/styles.scss` as a class selector, but no template
+in `apps/mp/src` carries `data-testid="me-user-card"`. The Me page's actual hooks are
+`me-current-journey`, `me-current-journey-empty`, `me-support-status`,
+`entry-current-journey`, `entry-start-journey`, `btn-clear-data` and friends.
+
+The page itself is fine - the route walk found `/pages/me/index` rendering with 20 visible
+controls and 21 testids - so this is a hook that was styled but never added to the markup.
+
+## 10. The `final-*` scripts are fixture-scoped and refuse the development database
+
+`test:final-live-admin-crud` exits with:
+
+```
+DATABASE_URL must use port 55432, received 15432
+```
+
+That is a deliberate guard (`scripts/final-live-admin-crud.ts:59`), and twelve scripts
+carry it: `final-ai-routing-proof`, `final-database-audit`, `final-human-reply-mute-flow`,
+`final-private-diary-flow`, `final-public-moderation-flow`, `final-feedback-upload-flow`,
+`import-json-store-to-db`, the `cleanup-*` scripts and others.
+
+They belong to the isolated visual-fixture harness, which runs its own PostgreSQL, API,
+front and admin on separate ports (the fixture API is 3001 and the fixture database port in
+`apps/api/src/runtime-environment.ts` is 55433). They are therefore **out of scope for the
+development-database regression** rather than broken; they correctly declined to touch the
+normal database. Their run recorded `Checks: 0; cleanup checks: 5; passed: 5; failed: 0` -
+no real check ran, which is why the exit code is non-zero.
+
+One inconsistency worth noting for whoever owns the fixture harness: the guard requires
+port **55432** while `runtime-environment.ts` declares the fixture database port as
+**55433**. Nothing was changed here.
+
 ## Summary
 
 | Suite | Cause | Action taken |
@@ -181,14 +252,20 @@ recorded rather than changed.
 | `tests/visual/front-layout.spec.ts` | capture never wrote the asserted path | **fixed** by producing the documented artifact |
 | `tests/visual/admin-layout.spec.ts` | expected filenames do not exist | reported |
 | `tests/business/goodnight-2-incremental.spec.ts` | test misses a required privacy flag | reported |
+| `tests/business/front-me.spec.ts` | test misses the long-term analysis consent | reported |
 | `scripts/business-flow-01-02.ts` | expects an emotion the template slices off | reported |
 | `scripts/audit-front-navigation-layout.ts` | expects pre-third-stage tabs and alias routes | reported |
 | `scripts/problem02-ai-dynamic-report.ts` | waits for the retired `emotion-decompose` endpoint | reported |
 | `scripts/problem01-layout-click-report.ts` | asserts non-zero section gaps that are currently 0 | reported |
+| `scripts/front-phase3-me.ts` | waits for a testid that only exists as a CSS class | reported |
+| `scripts/final-*` (12 scripts) | fixture-scoped; correctly refuse the dev database | out of scope |
 | `test:reference-qa-first-stage-shells` | 6px layout overage on the notifications page | reported |
 
 Everything else that failed in this recovery failed for one reason only: the DeepSeek
-account returns HTTP 402, and those suites assert real funded remote AI output.
+account returns HTTP 402, and those suites assert real funded remote AI output. That
+covers `test:cross`, `diagnose:all`, `test:click-all`, the four peer-stage aliases,
+`third-stage-memory`, `third-stage-monthly-report`, `third-stage-future-self`, and three of
+the four `test:front-business` failures.
 
 ## What did pass
 
@@ -197,7 +274,7 @@ For context, the following all exit 0 on the restored environment: `lint`, `type
 `test:reference-qa-action`, `test:notification-truth-state`,
 `test:reference-fidelity-first-stage`, `test:reference-fidelity-peer-stage`,
 `test:reference-fidelity-third-stage`, `audit:first-stage-final` (FIRST_STAGE_UI_FROZEN=true),
-`audit:design-references`, `audit:ui-artifacts`, `test:ai-routing`,
+`audit:design-references`, `audit:ui-artifacts`, `test:ai-routing`, `test:admin-sync`,
 `test:third-stage-business`, `-persistence`, `-security`, `-decision`, `-privacy`,
 `-archive`, `-migrations`, `test:real-browser-front-clicks`, `-admin-clicks`, `-cross-flow`,
 `test:business-flow`, and the four-layer smoke test.
