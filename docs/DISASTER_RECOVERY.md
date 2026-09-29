@@ -268,12 +268,18 @@ iOS needs macOS and Xcode. On Windows the iOS project can only be generated and 
 powershell -ExecutionPolicy Bypass -File scripts/backup-all.ps1
 ```
 
-Writes a `git bundle` of all refs, a bare mirror, and a `pg_dump` archive, then verifies
-each. `backup-code.ps1` fails loudly if any commit is unpushed. Backups default to
-`D:\Backups` and fall back to `%USERPROFILE%\Backups` when `D:` is not mounted.
+Writes a `git bundle` of all refs, a bare mirror, a `pg_dump` archive, and a zip of the
+recovery evidence, then verifies each. `backup-code.ps1` fails loudly if any commit is
+unpushed, and treats an unreachable remote as a warning rather than an abort, since the
+bundle is built from local refs and this is exactly when a backup matters most. Backups
+default to `D:\Backups` and fall back to `%USERPROFILE%\Backups` when `D:` is not mounted.
 
-End every working session with at least: `git commit`, `git push`, `backup-code.ps1`,
-`backup-db.ps1`.
+The evidence zip matters because `artifacts/` is gitignored: the screenshots and manifests
+the recovery documents cite are in neither the repository nor the code bundle, and the
+emulator session cannot be reproduced without the device. Service logs are excluded, since
+`start-services.ps1` keeps them open while the dev servers run.
+
+End every working session with at least: `git commit`, `git push`, `backup-all.ps1`.
 
 ## 11. Rules that keep this from happening again
 
