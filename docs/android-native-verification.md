@@ -99,8 +99,12 @@ correctly.
 | Keyboard | Resizes the WebView (`Keyboard.resize: 'body'`); the IME opens and closes cleanly and the page reflows |
 | Back button | Dismisses the IME when it is open; Capacitor's back handler is disabled by config, so the WebView keeps normal history behaviour |
 | Background / foreground | Force-stop and relaunch returns to the same route with data reloaded from the API |
-| Offline / online | Not exercised with the network toggled off |
+| Offline / online | **Not exercised.** The emulator was in use by another session during the coverage run and toggling its network would have disrupted that work, so it was left alone rather than forced |
 | Dial intent | `tel:12356` and `tel:120` exist as real anchors on the Safety page and are handled by Capacitor's WebView client as a dial intent. Not tapped during this run, and nothing auto-dials |
+
+Route coverage is verified separately: all 54 routes render inside the app with zero
+console errors, and the four 403 responses they produce are the third-stage privacy gate
+working as designed. See `docs/android-route-discovery.md`.
 
 Not verified, and not claimed: push notifications, background location, and the offline
 state.
