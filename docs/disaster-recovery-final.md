@@ -107,6 +107,14 @@ introduced by the recovery:
 
 No test was skipped, weakened or edited to make it pass. No failure was reported as a pass.
 
+Beyond the brief's list, every other suite in the repository was run as well. Most pass -
+`test:admin-sync`, `test:ai-routing`, `test:reference-fidelity-third-stage`,
+`test:reference-qa-journey`, `test:reference-qa-action`, `test:notification-truth-state`,
+`test:reference-fidelity-first-stage`, `audit:first-stage-final`, `audit:design-references`
+and others - and the rest are analysed individually in
+`docs/recovery-test-suite-findings.md`: eight further stale expectations, plus twelve
+`final-*` scripts that are fixture-scoped and correctly refuse the development database.
+
 ## 5. DAPI is not restored, and why
 
 The real key survived - it is in the Windows user environment as `DEEPSEEK_API_KEY`, and
