@@ -152,6 +152,10 @@ while every admin capture script in this codebase produces `<name>-<width>.png`
 the spec cannot pass without either renaming tooling output or rewriting its assertions.
 It is reported as a pre-existing defect rather than papered over.
 
+Four further suites fail for the same class of reason - a test expectation that no longer
+matches the code. They are analysed individually, with the code that proves each one, in
+`docs/recovery-test-suite-findings.md`.
+
 ## 7. What was found that the brief did not expect
 
 1. **A remnant of the deleted workspace still exists** at
