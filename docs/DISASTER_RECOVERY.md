@@ -63,6 +63,27 @@ If `pnpm -v` prints something other than 9.15.0, the global pnpm is too old to h
 `corepack enable` needs write access to the Node installation directory and will fail
 without administrator rights. That is fine - modern pnpm reads `packageManager` itself.
 
+### If the Prisma client is missing
+
+On a machine whose pnpm store is already warm, pnpm skips `@prisma/client`'s postinstall
+because its side effects are cached. That postinstall is what creates the root
+`node_modules/.prisma`, and without it the API dies at boot with:
+
+```
+SyntaxError: The requested module '@prisma/client' does not provide an export named 'Prisma'
+```
+
+Running `prisma generate` does not fix it - that writes to the pnpm virtual store only.
+Force the postinstall instead:
+
+```bash
+pnpm rebuild @prisma/client
+ls node_modules/.prisma   # must now exist
+```
+
+This was hit and fixed during the 2026-09-29 clean-room test, on a fresh clone whose store
+was already populated.
+
 ## 3. Configuration
 
 ```powershell
@@ -262,3 +283,26 @@ End every working session with at least: `git commit`, `git push`, `backup-code.
 - Never commit `.env`. Keep the private copy described in
   `docs/private-env-backup-guide.md`.
 - Never delete a local database volume without taking a `pg_dump` first.
+
+## 12. This document was tested
+
+The procedure above was replayed end to end on 2026-09-29 in a separate directory,
+`C:\Users\zyu33\Projects\recovery-cleanroom`, using only the recovery tag:
+
+```bash
+git clone --branch recovery-baseline-20260929 <repo> recovery-cleanroom   # 674 tracked files
+# separate database: goodnight_treehole_cleanroom
+pnpm install --frozen-lockfile      # exit 0, lockfile unchanged
+pnpm exec prisma generate
+pnpm rebuild @prisma/client         # see section 2
+pnpm exec prisma migrate deploy     # 9 migrations, 52 tables
+node scripts/recovery/with-env.mjs pnpm dev:api   # API_PORT=3100
+curl http://127.0.0.1:3100/api/health             # 200
+curl -X POST http://127.0.0.1:3100/api/v1/journeys -H 'content-type: application/json' \
+  -d '{"domain":"其他","relationScene":"","content":"CLEANROOM-20260929"}'
+# -> journey_279f52c345, read back from the clean-room database
+```
+
+So the clone, install, configuration, migration and API steps here are known to work from
+the tag alone, not just on the machine they were written on. The one gap the replay found
+is the Prisma postinstall issue in section 2, which is now part of the procedure.
