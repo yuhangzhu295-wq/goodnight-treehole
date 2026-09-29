@@ -77,6 +77,76 @@ journey_eb5b985b84 | user_demo | 2026-09-29 07:19:48.252
 
 So the chain **Android UI -> API -> PostgreSQL -> re-render** is verified on the emulator.
 
+### The full stage 1 chain, also with real taps
+
+`scripts/recovery/android-business-flow.mjs` runs a longer flow, again entirely through
+real touches, and it passes 8 of 8 steps:
+
+```
+PASS  tonight            -> /pages/tonight/index
+PASS  type-entry         -> (typed through the IME)
+PASS  dismiss-keyboard
+PASS  submit-journey     -> /pages/journey/detail?id=journey_7d70ee166a&analysisJob=job_660c285d26
+PASS  confirm-fingerprint-> (tapped [data-testid="fingerprint-accurate"])
+PASS  open-action-tab    -> /pages/action/index
+PASS  request-plan       -> (tapped [data-testid="action-request-plan"])
+PASS  accept-plan        -> (tapped [data-testid="action-accept-plan"])
+```
+
+PostgreSQL afterwards:
+
+```
+journey_7d70ee166a | stage=acting | created 2026-09-29 09:21:41   (was "clarifying")
+action_dda975e9a0  | status=active | "先完成一个五分钟的小动作" | journeyId=journey_7d70ee166a
+```
+
+So the stage 1 core loop runs end to end on the device: create the journey, confirm the
+situation fingerprint (which advances the journey from `clarifying` to `acting`), ask for a
+plan, accept it, and get a real `ActionCommitment` row. No console errors were recorded
+during the flow.
+
+### Offline, online and lifecycle
+
+`artifacts/recovery/android-network-check.json` records the three network states, measured
+by toggling the WebView's network through the DevTools protocol - scoped to this WebView,
+so nothing else on the emulator was disturbed.
+
+| State | Rendered |
+| --- | --- |
+| online | Full Tonight page, including the in-progress journey |
+| offline | Full shell - hero, input, shortcut chips, tab bar - with **`Failed to fetch`** where the journey section would be |
+| restored | Back to normal, journey visible again |
+
+This is the honest answer to the historical "Failed to fetch" problem. The app degrades
+gracefully rather than crashing or going blank, and it surfaces the failure only when the
+API genuinely cannot be reached. With `adb reverse` in place and the API up, it does not
+appear: the route walk recorded zero failed requests on the Tonight page and the online
+state above renders normally.
+
+Lifecycle, all confirmed on the device:
+
+| Action | Result |
+| --- | --- |
+| HOME | App goes to the background; the process stays alive |
+| Return to foreground | `MainActivity` resumes and the page is intact |
+| `am force-stop` | Process is gone (`pidof` returns nothing) |
+| Cold start | New process, full page re-rendered from the API |
+
+## A trap worth knowing: a leftover test stack owns the ports
+
+While running the stage 1 flow the created journey did not appear in the development
+database. The cause was not the app: a browser-flow suite (`test:front-phase3-me`) had
+started its own API on port 3000 against the `goodnight_treehole_test_front_phase3_me`
+schema and never stopped it. `start-services.ps1` saw the port busy, assumed its own
+service was already up, and skipped starting the real one - so the app's traffic went to
+the test schema. The journey was in `goodnight_treehole_test_front_phase3_me` all along.
+
+`start-services.ps1` now records the PIDs it starts in
+`artifacts/recovery/service-pids.json` and, when a port is held by a process it did not
+start, says so instead of skipping silently. `-Reclaim` stops the foreign process and
+starts ours. The flow above was re-run after reclaiming and the journey landed in `public`
+as expected.
+
 ## Cross-end check
 
 The admin console, reading through its own authenticated API, reported
@@ -98,16 +168,16 @@ correctly.
 | Safe area | Content clears the gesture bar; the tab bar sits above it |
 | Keyboard | Resizes the WebView (`Keyboard.resize: 'body'`); the IME opens and closes cleanly and the page reflows |
 | Back button | Dismisses the IME when it is open; Capacitor's back handler is disabled by config, so the WebView keeps normal history behaviour |
-| Background / foreground | Force-stop and relaunch returns to the same route with data reloaded from the API |
-| Offline / online | **Not exercised.** The emulator was in use by another session during the coverage run and toggling its network would have disrupted that work, so it was left alone rather than forced |
+| Background / foreground | Force-stop and relaunch returns to the same route with data reloaded from the API; HOME keeps the process alive and returning restores the page |
+| Offline / online | **Verified.** With the WebView's network disabled it renders the full shell and shows `Failed to fetch` where the data would be; re-enabling restores the page. Details above |
 | Dial intent | `tel:12356` and `tel:120` exist as real anchors on the Safety page and are handled by Capacitor's WebView client as a dial intent. Not tapped during this run, and nothing auto-dials |
 
 Route coverage is verified separately: all 54 routes render inside the app with zero
 console errors, and the four 403 responses they produce are the third-stage privacy gate
 working as designed. See `docs/android-route-discovery.md`.
 
-Not verified, and not claimed: push notifications, background location, and the offline
-state.
+Not verified, and not claimed: push notifications and background location. The dial intent
+is present in the markup but was not tapped.
 
 ## iOS
 
