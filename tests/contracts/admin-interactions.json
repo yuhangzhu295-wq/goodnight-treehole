@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T14:12:38.242Z",
+  "generatedAt": "2026-09-29T06:26:29.540Z",
   "rules": [
     "admin controls use /api/admin/v1/* unless explicitly crossing to front API",
     "management actions must update shared backend state"
