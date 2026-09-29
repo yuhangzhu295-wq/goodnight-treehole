@@ -16,6 +16,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $failures = @()
+$warnings = @()
 
 function Resolve-BackupRoot([string]$Requested) {
   if ($Requested) { return $Requested }
@@ -31,9 +32,16 @@ Write-Host "backup root: $backupRoot"
 
 Push-Location $repoRoot
 try {
-  Write-Host '==> git fetch --all --tags --prune'
+  # Fetch is best-effort on purpose. The bundle and the mirror below are built from local
+  # refs, and this tool runs at the end of a session when the network may well be flaky -
+  # that is exactly when a backup matters most. A failed fetch is recorded as a warning
+  # and the local history is still captured; it must not abort the backup.
+  Write-Host '==> git fetch --all --tags --prune (best effort)'
   git fetch --all --tags --prune
-  if ($LASTEXITCODE -ne 0) { throw "git fetch failed with exit code $LASTEXITCODE" }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "WARNING: git fetch exited $LASTEXITCODE; capturing local refs only"
+    $warnings += "git fetch exited $LASTEXITCODE; remote refs may be stale"
+  }
 
   $bundle = Join-Path $backupRoot "goodnight-treehole-$stamp.bundle"
   Write-Host "==> git bundle create $bundle --all"
@@ -94,6 +102,7 @@ try {
     branch         = $branch
     head           = (git rev-parse HEAD)
     unpushedCount  = if ($unpushed) { @($unpushed).Count } else { 0 }
+    warnings       = $warnings
     failures       = $failures
     ok             = ($failures.Count -eq 0)
   }
