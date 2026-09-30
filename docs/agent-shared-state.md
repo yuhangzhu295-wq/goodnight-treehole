@@ -87,10 +87,33 @@ Full list with evidence and minimal fixes: `docs/product-audit/ISSUE_REGISTER.md
 
 | Step | Value |
 | --- | --- |
-| Commit | `0f8b1f4` |
+| Commit | `0c3ee8b` (see the fix list below) |
 | Push | `origin/codex/post-recovery-validation` == HEAD |
-| Backup | `scripts/backup-all.ps1` PASS, `C:\Users\zyu33\Backups\backup-all-20261001-0352.json` |
-| Product code changed | none |
+| Backup | `scripts/backup-all.ps1` PASS, `C:\Users\zyu33\Backups\backup-all-20261001-0520.json` |
+| Product code changed | yes - the P0 and five P1 fixes below |
+
+## Fixes applied
+
+| Commit | Issue | Fix |
+| --- | --- | --- |
+| `356457f` | ISSUE-001 (P0) | `AdminAuthGuard` on `AdminController`; default deny with three public credential routes |
+| `91ba899` | ISSUE-002 (P1) | real admin user export, route declared before `users/:id`, CORS `Content-Disposition` |
+| `510742f` | ISSUE-003 (P1) | `ENFORCED_SETTING_KEYS`; the console marks the 15 write-only settings |
+| `082dca0` | ISSUE-004, ISSUE-005 | 情绪小工具 entry on Me; privacy-boundary link repaired |
+| `ea52129` | ISSUE-017 to ISSUE-019 (P1) | letters, peer experiences and handoffs scoped to the caller |
+| `0c3ee8b` | - | business-flow script authenticates; per-step qa:all results recorded |
+
+## Final verification
+
+- Android APK rebuilt from the fixed source and reinstalled: 54/54 routes rendered with 0
+  console errors and 0 failed requests; the tap-driven core flow passed 8/8 with the writes
+  confirmed in PostgreSQL.
+- `qa:all` run step by step: 10/14 pass. Three failures are the DAPI 402 blocker
+  (`diagnose:all`, `test:click-all`, `test:cross`) and one is pre-existing visual-spec debt
+  (`test:visual`, admin-layout expects filenames only the orphaned `visual-compare.ts`
+  writes). Results in `artifacts/product-audit/qa-all-results.json`.
+- Regression across the fixed areas: lint 0, typecheck 0, test:unit 7/7, test:api 2/2,
+  test:e2e 12/12, test:admin-sync 1/1, test:business-flow 10/10, real-browser cross flow 3/3.
 
 ## Open issues
 
