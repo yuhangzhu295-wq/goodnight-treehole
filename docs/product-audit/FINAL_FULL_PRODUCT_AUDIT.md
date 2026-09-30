@@ -184,6 +184,28 @@ Every page has its own audit file. The complete index with status and issue coun
 
 No page is reported as passing without its own file.
 
+## 12a. Fixes applied after the freeze
+
+Six defects were fixed after discovery was frozen, each as its own commit with its own
+verification and regression:
+
+| Commit | Issue | What changed | Verified by |
+| --- | --- | --- | --- |
+| `356457f` | ISSUE-001 (P0) | `AdminAuthGuard` on `AdminController`; default deny, three credential routes allow-listed | `scripts/product-audit/verify-admin-auth.mjs` - 401 without a token, 200 with one, 401 on a forged token |
+| `91ba899` | ISSUE-002 (P1) | real user export written through the MediaAsset mechanism, route declared before `users/:id`, admin download route, CORS `Content-Disposition` | `work/verify-export-ui.mjs` - the button downloads `goodnight-treehole-users-<date>.json` from the real console |
+| `510742f` | ISSUE-003 (P1) | `ENFORCED_SETTING_KEYS` is the single source of truth; the console marks the 15 write-only settings | `work/verify-settings-ui.mjs` - 19 fields, 14 flagged, the 6 live keys not flagged |
+| `082dca0` | ISSUE-004, ISSUE-005 | 情绪小工具 entry on Me; privacy-boundary link points at the real route | `work/verify-nav-fix.mjs`, `work/verify-privacy-link.mjs`, and the same two flows on the rebuilt APK |
+| `ea52129` | ISSUE-017 to ISSUE-019 (P1) | letters, peer experiences and handoffs scoped to the caller | `scripts/product-audit/verify-ownership.mjs`, `work/verify-peer-scope.mjs` |
+
+Three of the fixed areas had their regression suites re-run: `test:e2e` 12/12,
+`test:admin-sync` 1/1 (including the real-browser cross flow 3/3), `test:api` 2/2,
+`test:unit` 7/7. `test:cross` and the peer suite still show their single pre-existing DAPI
+402 failure, which was reproduced at the original HEAD before any change.
+
+The Android debug APK was rebuilt from the fixed source (`work/build-apk.ps1`, JDK 21) and
+re-verified on `emulator-5554`: 54/54 routes rendered with 0 console errors and 0 failed
+requests, and the tap-driven core flow passed 8/8 with the writes confirmed in PostgreSQL.
+
 ## 13. Why this run did not reach FULL_PRODUCT_VERIFIED
 
 The task defines a strict order: discover, freeze, then fix one issue class at a time with a
@@ -192,10 +214,10 @@ success while any fake button or fake function exists (section 130) or while an 
 blocker is being papered over (section 149).
 
 This run completed the discovery, froze it, verified the runtime, produced every per-page
-audit and wrote the fix specification for each issue. It did **not** apply the code fixes,
-because each fix requires its own regression cycle and the P0 alone (adding an authorization
-guard to the admin API) changes the contract of 58 endpoints and must not be bundled with
-anything else.
+audit, and then applied the P0 and five P1 fixes listed in section 12a, each with its own
+verification and regression. The remaining issues (ISSUE-006 to ISSUE-016, ISSUE-020 to
+ISSUE-028) are still open: they are specified in `ISSUE_REGISTER.md` but not yet fixed,
+because each needs its own regression cycle.
 
 Additionally:
 
@@ -240,17 +262,17 @@ ALL_MP_VIEWS_AUDITED=true             (39/39 with per-page audits)
 ALL_ADMIN_ROUTES_AUDITED=true         (26/26)
 ALL_PAGE_STATES_AUDITED=false         (states identified per page; not every state exercised at runtime)
 ALL_CONTROLS_AUDITED=false            (717 runtime controls: 358 pressed, 52 destructive skipped, 307 skipped with a stated reason)
-FAKE_BUTTONS_ZERO=false              (3)
-FAKE_FUNCTIONS_ZERO=false            (2)
-CORE_SUPPORT_FLOW_VERIFIED=false     (happy path verified on device; three intent branches do not work)
-PEER_FLOW_VERIFIED=false             (invariants hold; allowPeerMatching not applied on read paths)
-SELF_SYSTEM_FLOW_VERIFIED=false      (privacy gating gaps)
+FAKE_BUTTONS_ZERO=false              (1 left: ISSUE-012 admin captcha; ISSUE-002 and ISSUE-005 fixed)
+FAKE_FUNCTIONS_ZERO=false            (ISSUE-002 fixed; ISSUE-003's misleading UI fixed, the settings themselves still unwired)
+CORE_SUPPORT_FLOW_VERIFIED=false     (happy path verified on device; three intent branches do not work - ISSUE-006)
+PEER_FLOW_VERIFIED=false             (invariants hold and reads are now scoped; the 72h/consent loop is still unverified end to end)
+SELF_SYSTEM_FLOW_VERIFIED=false      (privacy gating gaps - ISSUE-021, ISSUE-022)
 LEGACY_FLOW_VERIFIED=false           (implemented; not exercised end to end at runtime)
-TOOLS_FLOW_VERIFIED=false            (unreachable from the UI)
-ADMIN_FLOW_VERIFIED=false            (unauthorised and partly unreadable)
+TOOLS_FLOW_VERIFIED=true             (tool subtree now reachable and verified on device)
+ADMIN_FLOW_VERIFIED=false            (now authorised; six pages still hide their error state and support-plans is unreadable)
 API_DB_CONSISTENCY_VERIFIED=true     (Android writes confirmed in PostgreSQL)
 ADMIN_SYNC_VERIFIED=false            (admin reads the same store; not verified for every resource)
-SECURITY_VERIFIED=false              (ISSUE-001, ISSUE-017 to ISSUE-019)
+SECURITY_VERIFIED=false              (ISSUE-001 and ISSUE-017 to ISSUE-019 fixed; ISSUE-013 login rate limiting still open)
 PRIVACY_VERIFIED=false               (ISSUE-021, ISSUE-022)
 DAPI_VERIFIED=false                  (BLOCKED_DAPI_BALANCE, HTTP 402)
 ANDROID_EMULATOR_VERIFIED=true

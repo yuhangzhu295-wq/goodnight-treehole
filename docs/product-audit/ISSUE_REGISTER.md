@@ -22,6 +22,10 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
 
 ## ISSUE-001 - Admin API has no server-side authorization; destructive endpoints are open
 
+**FIXED in `356457f`.** An `AdminAuthGuard` now covers `AdminController` with the three
+credential routes on the public allow-list. Re-verified live: every previously open
+endpoint answers 401 without a token and 200 with one; a forged token answers 401.
+
 - Severity: **P0**
 - Category: SECURITY
 - Evidence: `apps/api/src/controllers.ts` (AdminController, `@Controller('api/admin/v1')`).
@@ -46,9 +50,11 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
 - Minimal fix: add a controller-level guard (or a global interceptor) that requires a valid
   admin token for every `api/admin/v1` route except `auth/login`, `login`, `auth/logout`,
   then delete the now-redundant per-handler checks only after the guard is proven.
-- Status: OPEN. Not fixed in this run (see "Scope of this run" below).
+- Status: FIXED (`356457f`), verified.
 
 ## ISSUE-002 - Admin user export claims success but produces nothing
+
+**FIXED in `91ba899`.**
 
 - Severity: **P1**
 - Category: FAKE_FUNCTION
@@ -64,9 +70,14 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
 - Minimal fix: declare the literal `users/export` route before `users/:id`, and generate a
   real file through the existing `createJourneyArchiveExport`/`exports/:assetId/download`
   mechanism instead of inventing a URL.
-- Status: OPEN.
+- Status: FIXED (`91ba899`), verified in the real admin UI: the button downloads
+  `goodnight-treehole-users-<date>.json` with `format: goodnight-treehole-user-export/v1`.
 
 ## ISSUE-003 - 15 of 19 admin system settings are write-only
+
+**ADDRESSED in `510742f`.** The 15 write-only keys are now marked in the console as
+"仅保存，当前版本未接入业务逻辑", driven by `ENFORCED_SETTING_KEYS` in the API, so the
+operator is no longer told that every field changes behaviour.
 
 - Severity: **P1**
 - Category: FAKE_FUNCTION
@@ -77,9 +88,14 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
   changes. This is a fake capability even though the DB write is real.
 - Minimal fix: either wire each setting to the behaviour it claims to control, or remove
   the control from the UI. Do not leave a control that silently does nothing.
-- Status: OPEN.
+- Status: OPEN (partially addressed). The misleading UI is fixed; wiring the 15 settings
+  into real behaviour is still outstanding. The four AI keys were deliberately not wired:
+  that path cannot be verified while DAPI answers HTTP 402.
 
 ## ISSUE-004 - The tool subtree cannot be reached by tapping through the app
+
+**FIXED in `082dca0`.** An 情绪小工具 entry was added to the Me page. Verified on the
+rebuilt APK: Me -> tool index -> a tool, by tapping real controls.
 
 - Severity: **P1**
 - Category: ORPHAN / NAVIGATION
@@ -90,9 +106,11 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
 - Confirmed independently: `ToolIndex.vue` pushes to `/pages/tool/run` and `/pages/letter/today`,
   and a repo-wide search finds no `router.push('/pages/tool/index')` and no `RouterLink` to it.
 - Impact: an entire product area (情绪拆解 / 情绪工具) is dead for a real user.
-- Status: OPEN.
+- Status: FIXED (`082dca0`), verified on device.
 
 ## ISSUE-005 - The peer privacy-boundary button navigates to a route that does not exist
+
+**FIXED in `082dca0`.**
 
 - Severity: **P2**
 - Category: NAVIGATION / FAKE_BUTTON
@@ -101,7 +119,7 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
   `/pages/privacy/index`; the real route is `/pages/settings/privacy`.
 - Impact: the 看看隐私边界 control is a dead end on the page whose whole purpose is privacy.
 - Minimal fix: change the target to `/pages/settings/privacy`.
-- Status: OPEN.
+- Status: FIXED (`082dca0`), verified on device and in the browser.
 
 ## ISSUE-006 - Support-intent branches collapse; the recorded intent does not drive the UI
 
@@ -222,6 +240,8 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
 
 ## ISSUE-017 - Cross-user read of another person's letters
 
+**FIXED in `ea52129`.**
+
 - Severity: **P1**
 - Category: SECURITY / PRIVACY
 - Evidence: `apps/api/src/controllers.ts:1065-1069` -
@@ -236,9 +256,12 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
   `letter.userId === callerId` before returning; return 404 otherwise, matching the pattern
   already used by `/api/v1/me/support-plan` and `/api/v1/memory`, which correctly answer
   `404 当前匿名会话用户不存在` for an unknown user.
-- Status: OPEN.
+- Status: FIXED (`ea52129`). Verified: another user now gets 404 while the owner still
+  gets 200.
 
 ## ISSUE-018 - Cross-user read of peer experience details
+
+**FIXED in `ea52129`.**
 
 - Severity: **P1**
 - Category: SECURITY / PRIVACY
@@ -250,9 +273,12 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
   owner's privacy setting.
 - Minimal fix: require the caller to be the owner or an actively matched peer, and honour
   `allowPeerMatching` / `allowAnonymousExperienceShare` on the read path.
-- Status: OPEN.
+- Status: FIXED (`ea52129`). Verified: the owner gets 200, an unrelated user gets 403, and
+  a user with `allowPeerMatching` off gets 403.
 
 ## ISSUE-019 - Cross-user read of reality-handoff cards
+
+**FIXED in `ea52129`.**
 
 - Severity: **P1**
 - Category: SECURITY / PRIVACY
@@ -264,7 +290,8 @@ P2 secondary flow, navigation, keyboard, error state; P3 visual/low-priority UX.
   are not coping - exposed to any caller.
 - Minimal fix: accept the caller id and filter `handoffList(userId)`; return only that
   user's cards.
-- Status: OPEN.
+- Status: FIXED (`ea52129`). Verified: an unknown caller now gets 404 and the owner still
+  gets their own cards.
 
 ---
 
