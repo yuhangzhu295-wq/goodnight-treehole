@@ -76,9 +76,12 @@ Write-Host '################ recovery evidence ################'
 # servers' stdout/stderr into this directory, so those files are held open and are runtime
 # output rather than evidence. A staging copy is used so a single unreadable file cannot
 # abort the archive.
-$evidenceSource = Join-Path $repoRoot 'artifacts\recovery'
+$evidenceSources = @(
+  (Join-Path $repoRoot 'artifacts\recovery'),
+  (Join-Path $repoRoot 'artifacts\post-recovery')
+) | Where-Object { Test-Path $_ }
 $evidenceCode = 0
-if (Test-Path $evidenceSource) {
+if ($evidenceSources.Count -gt 0) {
   $evidenceDir = Join-Path $root 'goodnight-treehole-recovery-evidence'
   New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
   $evidenceZip = Join-Path $evidenceDir "recovery-evidence-$stamp.zip"
@@ -87,20 +90,31 @@ if (Test-Path $evidenceSource) {
     New-Item -ItemType Directory -Force -Path $staging | Out-Null
     $copied = 0
     $skipped = @()
-    foreach ($file in Get-ChildItem -Path $evidenceSource -Recurse -File) {
-      if ($file.Extension -eq '.log') { continue }
-      try {
-        Copy-Item -Path $file.FullName -Destination (Join-Path $staging $file.Name) -Force -ErrorAction Stop
-        $copied++
-      } catch {
-        $skipped += $file.Name
+    foreach ($source in $evidenceSources) {
+      $bucket = Split-Path $source -Leaf
+      $bucketDir = Join-Path $staging $bucket
+      New-Item -ItemType Directory -Force -Path $bucketDir | Out-Null
+      foreach ($file in Get-ChildItem -Path $source -Recurse -File) {
+        if ($file.Extension -eq '.log') { continue }
+        # Preserve the directory structure: issue archives and screenshot folders have files
+        # with the same base name, and flattening them would both lose the layout and
+        # silently overwrite one with another.
+        $relative = $file.FullName.Substring($source.Length).TrimStart('\', '/')
+        $target = Join-Path $bucketDir $relative
+        try {
+          New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+          Copy-Item -Path $file.FullName -Destination $target -Force -ErrorAction Stop
+          $copied++
+        } catch {
+          $skipped += $relative
+        }
       }
     }
     if ($skipped.Count) { Write-Host "WARNING: could not read $($skipped.Count) file(s): $($skipped -join ', ')" }
     if ($copied -eq 0) { throw 'no readable evidence files to archive' }
     Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $evidenceZip -Force
     $evidenceBytes = (Get-Item $evidenceZip).Length
-    Write-Host "evidence archive: $evidenceZip ($evidenceBytes bytes, $copied files)"
+    Write-Host "evidence archive: $evidenceZip ($evidenceBytes bytes, $copied files from $($evidenceSources.Count) source dirs)"
     if ($evidenceBytes -le 0) { Write-Host 'ERROR: evidence archive is empty'; $evidenceCode = 1 }
   } catch {
     Write-Host "exception archiving evidence: $_"
@@ -109,7 +123,7 @@ if (Test-Path $evidenceSource) {
     if (Test-Path $staging) { Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue }
   }
 } else {
-  Write-Host "no artifacts/recovery directory to archive"
+  Write-Host "no evidence directories to archive"
 }
 $results['evidence'] = $evidenceCode
 
