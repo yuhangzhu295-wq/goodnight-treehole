@@ -73,6 +73,16 @@ const primaryEntries = computed(() => [
     testId: 'entry-decision',
     route: '/pages/decision/index',
   },
+  // The tool pages (情绪拆解 / 情绪工具) had no inbound control anywhere in the app, so the
+  // whole area was reachable only by typing a URL (product audit ISSUE-004). This is the
+  // entry point; the tool index lists the individual tools.
+  {
+    title: '情绪小工具',
+    note: '把一大团情绪拆成能处理的几小步',
+    icon: '✂',
+    testId: 'entry-tool-index',
+    route: '/pages/tool/index',
+  },
 ]);
 
 const archiveEntries = [

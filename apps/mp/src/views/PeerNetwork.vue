@@ -60,7 +60,7 @@ onMounted(load);
       <p>只有你愿意，系统才会用匿名后的经历，帮你寻找走过相似道路的人。</p>
       <ul><li>会分享：经你确认的匿名经历与后来。</li><li>不会分享：昵称、联系方式、位置或真实身份。</li></ul>
       <button :disabled="enabling" @click="enable">{{ enabling ? '正在确认…' : '允许匿名寻找同路经历' }}</button>
-      <button class="privacy-link" type="button" @click="router.push('/pages/privacy/index')">看看隐私边界</button>
+      <button class="privacy-link" type="button" data-testid="peer-privacy-boundary" @click="router.push('/pages/settings/privacy')">看看隐私边界</button>
     </section>
 
     <template v-else>
