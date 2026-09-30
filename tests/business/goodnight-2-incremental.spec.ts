@@ -24,7 +24,10 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const privacy = await request(server)
       .patch('/api/v1/me/privacy')
-      .send({ allowPeerMatching: true, allowAnonymousExperienceStats: true, allowRecoveryData: true, allowLongTermMemory: true })
+      // allowAnonymousExperienceShare is the consent POST /api/v1/peer-experiences actually
+      // checks (store.service.ts:3541). Without it the server answers 403, which is correct
+      // behaviour - the consent belongs here, not removed from the server.
+      .send({ allowPeerMatching: true, allowAnonymousExperienceStats: true, allowAnonymousExperienceShare: true, allowRecoveryData: true, allowLongTermMemory: true })
       .expect(200);
     expect(privacy.body.item.allowPeerMatching).toBe(true);
 
@@ -223,7 +226,9 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
   it('connects two distinct persisted users through a reviewed experience and a 72 hour human conversation', async () => {
     const server = app.getHttpServer();
     const guest = 'user_guest';
-    const peerPrivacy = { allowPeerMatching: true, allowAnonymousExperienceStats: true };
+    // allowAnonymousExperienceShare is required by POST /api/v1/peer-experiences
+    // (store.service.ts:3541); without it the server answers 403, which is correct.
+    const peerPrivacy = { allowPeerMatching: true, allowAnonymousExperienceStats: true, allowAnonymousExperienceShare: true };
 
     await request(server).patch('/api/v1/me/privacy').send(peerPrivacy).expect(200);
     await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', guest).send(peerPrivacy).expect(200);

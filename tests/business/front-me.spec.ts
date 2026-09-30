@@ -23,7 +23,14 @@ describe('front me center interactions', () => {
       expect(response.body.item.diaryCount).toBeGreaterThanOrEqual(0);
       expect(response.body.item.streakDays).toBeGreaterThan(0);
     });
-    await request(server).patch('/api/v1/privacy-settings').send({ allowHumanReplies: false }).expect(200);
+    // allowJourneyLongTermAnalysis is the consent /api/v1/report/month checks before it
+    // will create a monthly_recovery_summary job (monthly-report.service.ts:312). Without
+    // it the endpoint correctly returns aiJobStatus "disabled" and no aiJobId, and the
+    // waitForAiJob below would poll /api/v1/ai/tasks/undefined.
+    await request(server)
+      .patch('/api/v1/privacy-settings')
+      .send({ allowHumanReplies: false, allowJourneyLongTermAnalysis: true })
+      .expect(200);
     await request(server).get('/api/v1/privacy-settings').expect((response) => {
       expect(response.body.item.allowHumanReplies).toBe(false);
     });
