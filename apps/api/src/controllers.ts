@@ -595,8 +595,8 @@ export class PublicController {
   }
 
   @Get('peer-experiences/:id')
-  peerExperience(@Param('id') id: string) {
-    return { item: this.store.peerExperienceDetail(id) };
+  peerExperience(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { item: this.store.peerExperienceDetail(id, this.store.resolveRuntimeUserId(runtimeUserId(userId))) };
   }
 
   @Post('actions/:id/adaptive-plan')
@@ -654,13 +654,13 @@ export class PublicController {
   }
 
   @Post('handoffs/:id/share')
-  async shareHandoff(@Param('id') id: string) {
-    return await this.store.shareRealityHandoff(id);
+  async shareHandoff(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.shareRealityHandoff(id, runtimeUserId(userId));
   }
 
   @Get('handoffs')
-  handoffs() {
-    return { items: this.store.handoffList() };
+  handoffs(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: this.store.handoffList(runtimeUserId(userId)) };
   }
 
   @Post('trusted-contacts')
@@ -1120,8 +1120,13 @@ export class PublicController {
   }
 
   @Get('letters/:id')
-  letter(@Param('id') id: string) {
+  letter(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    // The letter is private to its owner. The ownership check has to happen before the
+    // lookup: an unknown caller id must not silently fall back to the demo user's letters
+    // (product audit ISSUE-017).
+    const caller = this.store.resolveRuntimeUserId(runtimeUserId(userId));
     const letter = this.store.letters.find((item) => item.id === id);
+    if (letter && letter.userId !== caller) throw new NotFoundException('回信不存在');
     return { item: letter ? this.store.decorateLetter(letter) : undefined };
   }
 

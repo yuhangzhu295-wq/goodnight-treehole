@@ -4190,9 +4190,31 @@ export class StoreService implements OnModuleInit {
       .map((match) => this.peerMatchForUser(match));
   }
 
-  peerExperienceDetail(experienceId: string) {
+  /**
+   * Resolves a published peer experience for a specific viewer.
+   *
+   * Access is limited to the owner and to users who have an active relationship with the
+   * experience (a match on it in any non-declined state), and peer matching must still be
+   * enabled for the viewer. Previously any caller could read any published experience by
+   * id, and revoking `allowPeerMatching` did not gate this read (product audit ISSUE-018).
+   * `viewerId` is optional so the existing single-argument call sites keep working; pass it
+   * from any request-handling path.
+   */
+  peerExperienceDetail(experienceId: string, viewerId?: string) {
     const experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published');
     if (!experience) throw new NotFoundException('这段同路经历不存在');
+    if (viewerId && experience.userId !== viewerId) {
+      if (this.privacySettings[viewerId]?.allowPeerMatching !== true) {
+        throw new ForbiddenException('请先在隐私设置中允许同路匹配');
+      }
+      const related = this.peerMatches.some(
+        (match) =>
+          match.peerExperienceId === experienceId &&
+          match.status !== 'declined' &&
+          match.userId === viewerId,
+      );
+      if (!related) throw new ForbiddenException('这段同路经历暂不向你开放');
+    }
     const journey = experience.journeyId
       ? this.lifeJourneys.find((item) => item.id === experience.journeyId)
       : undefined;
@@ -4573,9 +4595,10 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  async shareRealityHandoff(idValue: string) {
+  async shareRealityHandoff(idValue: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const item = this.realityHandoffs.find(
-      (handoff) => handoff.id === idValue && handoff.userId === this.getDemoUserId(),
+      (handoff) => handoff.id === idValue && handoff.userId === userId,
     );
     if (!item) throw new NotFoundException('现实交接不存在');
     item.status = 'shared';
@@ -4585,8 +4608,13 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  handoffList() {
-    const userId = this.getDemoUserId();
+  /**
+   * Lists one user's reality-handoff cards. The caller must be passed in: the list is the
+   * most sensitive text in the product (a person saying they are not coping), and it was
+   * previously returned for the demo user to every caller (product audit ISSUE-019).
+   */
+  handoffList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     return this.realityHandoffs.filter((item) => item.userId === userId);
   }
 
