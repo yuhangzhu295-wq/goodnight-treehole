@@ -159,14 +159,33 @@ degradation (ISSUE-007).
 
 ## 10. Build and QA
 
+Every `qa:all` step was run individually after the fixes (`work/qa-summary.mjs`, results in
+`artifacts/product-audit/qa-all-results.json`). **10 of 14 pass.**
+
+| Step | Result |
+| --- | --- |
+| lint | PASS |
+| typecheck | PASS |
+| test:unit | PASS 7/7 |
+| test:api | PASS 2/2 |
+| test:e2e | PASS 12/12 |
+| test:visual | FAIL - front-layout passes; admin-layout expects `artifacts/screenshots/admin/login.png` and the other flat names, which only `scripts/visual-compare.ts` writes and nothing invokes (pre-existing test debt, unrelated to this run) |
+| diagnose:all | FAIL - `Monthly report job did not finish through DAPI: fallback` (DAPI 402) |
+| audit:ui-artifacts | PASS |
+| test:real-browser-front-clicks | PASS |
+| test:real-browser-admin-clicks | PASS |
+| test:real-browser-cross-flow | PASS 3/3 |
+| test:click-all | FAIL - `Monthly report job did not finish through DAPI: fallback` (DAPI 402) |
+| test:business-flow | PASS 10/10 |
+| test:cross | FAIL - 2/3; the failing case asserts a `succeeded` DAPI job (DAPI 402) |
+
+Android, re-run against the APK rebuilt from the fixed source:
+
 | Check | Result |
 | --- | --- |
-| `pnpm lint` | PASS (exit 0) |
-| `pnpm typecheck` | PASS (exit 0) |
-| Android route walk | PASS 54/54 |
-| Android control coverage | PASS (inventory + click) |
-| Android business flow | PASS 8/8 |
-| `pnpm qa:all` | NOT RUN - see section 13 |
+| Android route walk | PASS 54/54 rendered, 0 console errors, 0 failed requests |
+| Android tap-driven core flow | PASS 8/8, writes confirmed in PostgreSQL |
+| Fix verification on device | PASS - Me -> tool index -> tool, and the peer privacy link -> `/pages/settings/privacy` |
 
 ## 11. Issues
 
@@ -277,7 +296,7 @@ PRIVACY_VERIFIED=false               (ISSUE-021, ISSUE-022)
 DAPI_VERIFIED=false                  (BLOCKED_DAPI_BALANCE, HTTP 402)
 ANDROID_EMULATOR_VERIFIED=true
 PHYSICAL_ANDROID_VERIFIED=false      (no physical device attached)
-QA_ALL_PASS=false                    (not run)
+QA_ALL_PASS=false                    (10/14; 3 blocked by DAPI 402, 1 pre-existing visual-spec debt)
 BACKUP_SAFE=true                     (scripts/backup-all.ps1 PASS; C:\Users\zyu33\Backups\backup-all-20261001-0352.json)
 FULL_PRODUCT_VERIFIED=false
 ```
