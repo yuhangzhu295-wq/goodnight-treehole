@@ -196,6 +196,11 @@ function journeyArchiveExportFilename(generatedAt: string) {
   return `goodnight-treehole-journey-archive-${date}.json`;
 }
 
+function userExportFilename(generatedAt: string) {
+  const date = generatedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
+  return `goodnight-treehole-users-${date}.json`;
+}
+
 function escapeSvgText(value: string) {
   return value.replace(
     /[&<>"']/g,
@@ -1770,7 +1775,7 @@ export class StoreService implements OnModuleInit {
       (item) =>
         item.id === assetId &&
         item.userId === userId &&
-        ['diary-export', 'journey-archive-export'].includes(item.usageType) &&
+        ['diary-export', 'journey-archive-export', 'user-export'].includes(item.usageType) &&
         item.status === 'ready',
     );
     if (!asset) throw new NotFoundException('导出文件不存在或无权访问');
@@ -1781,8 +1786,88 @@ export class StoreService implements OnModuleInit {
     const filename =
       asset.usageType === 'journey-archive-export'
         ? journeyArchiveExportFilename(asset.createdAt)
-        : diaryExportFilename(asset.createdAt);
+        : asset.usageType === 'user-export'
+          ? userExportFilename(asset.createdAt)
+          : diaryExportFilename(asset.createdAt);
     return { asset, filePath: target, filename };
+  }
+
+  /**
+   * Writes a real admin user export to disk and returns a URL the admin can download.
+   *
+   * The previous implementation returned a hard-coded `/exports/users-<ts>.json` that no
+   * code ever wrote and no route served, so the admin UI reported a successful export for
+   * a file that did not exist (product audit ISSUE-002). This reuses the same MediaAsset
+   * mechanism as the diary and journey-archive exports so the returned URL really resolves.
+   *
+   * MediaAsset.userId is a foreign key to User, so the row has to be attributed to a real
+   * user account; it is attributed to the runtime user. That does not make it public: the
+   * user-facing download route only accepts the diary and journey-archive usage types, so a
+   * `user-export` asset can only be fetched through the admin route, which is behind the
+   * admin token guard.
+   */
+  async createUserExport() {
+    const generatedAt = now();
+    const assetId = id('export');
+    const storageKey = `user-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
+    const target = path.join(uploadsDirectory, storageKey);
+    const users = this.users.map((user) => ({
+      id: user.id,
+      nickname: user.nickname,
+      anonymousCode: user.anonymousCode,
+      status: user.status,
+      createdAt: user.createdAt,
+      privacy: this.privacySettings[user.id] ?? null,
+    }));
+    const asset: MediaAsset = {
+      id: assetId,
+      userId: this.getDemoUserId(),
+      storageKey,
+      url: `/api/admin/v1/users/export/${assetId}/download`,
+      mimeType: 'application/json; charset=utf-8',
+      size: 0,
+      width: 0,
+      height: 0,
+      usageType: 'user-export',
+      status: 'ready',
+      createdAt: generatedAt,
+    };
+    const document = {
+      format: 'goodnight-treehole-user-export/v1',
+      generatedAt,
+      count: users.length,
+      users,
+    };
+    const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+    asset.size = contents.length;
+    fs.mkdirSync(uploadsDirectory, { recursive: true });
+    fs.writeFileSync(target, contents);
+    this.assets.unshift(asset);
+    this.persist();
+    try {
+      await this.flush();
+    } catch (error) {
+      this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+      throw error;
+    }
+    return { generatedAt, count: users.length, downloadUrl: asset.url, assetId: asset.id };
+  }
+
+  /**
+   * Resolves an admin user-export asset for download. Callers are already behind the admin
+   * token guard, so no further per-admin scoping is applied.
+   */
+  getUserExportDownload(assetId: string) {
+    const asset = this.assets.find(
+      (item) => item.id === assetId && item.usageType === 'user-export' && item.status === 'ready',
+    );
+    if (!asset) throw new NotFoundException('导出文件不存在或无权访问');
+    const target = path.resolve(uploadsDirectory, asset.storageKey);
+    if (!target.startsWith(`${uploadsDirectory}${path.sep}`) || !fs.existsSync(target)) {
+      throw new NotFoundException('导出文件已不存在，请重新导出');
+    }
+    return { asset, filePath: target, filename: userExportFilename(asset.createdAt) };
   }
 
   async createLetterPoster(letter: Letter): Promise<MediaAsset> {

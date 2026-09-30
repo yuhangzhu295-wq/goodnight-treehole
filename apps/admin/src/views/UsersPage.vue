@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Layout from './Layout.vue';
-import { adminApi } from '../api';
+import { adminApi, downloadAdminFile } from '../api';
 
 const items = ref<any[]>([]);
 const total = ref(0);
@@ -102,7 +102,10 @@ async function exportUsers() {
   busy.value = true;
   try {
     const response = await adminApi.get<any>('/api/admin/v1/users/export');
-    status.value = response.item?.downloadUrl ? `导出文件已生成：${response.item.downloadUrl}` : '导出文件已生成';
+    const url = response.item?.downloadUrl;
+    if (!url) throw new Error('导出失败，请稍后重试');
+    const filename = await downloadAdminFile(url);
+    status.value = `已导出 ${response.item.count} 位用户：${filename}`;
   } catch (error: any) {
     status.value = error?.message ?? '导出失败，请稍后重试';
   } finally {

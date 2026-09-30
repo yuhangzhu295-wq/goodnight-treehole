@@ -2140,6 +2140,30 @@ export class AdminController {
     });
     return this.list(items, page, pageSize);
   }
+  // Declared before @Get('users/:id') on purpose. Nest matches routes in declaration
+  // order, so a literal segment declared after the parameterised one is shadowed: the
+  // previous `users/export` answered as `users/:id` with an empty body, which is why the
+  // admin export button reported success while producing nothing (ISSUE-002).
+  @Get('users/export')
+  async exportUsers(@Headers('authorization') auth: string) {
+    const admin = this.admin(auth);
+    const item = await this.store.createUserExport();
+    this.store.audit(admin.id, 'USER_EXPORT', 'User', 'export', null, { count: item.count, assetId: item.assetId });
+    await this.store.flush();
+    return { item };
+  }
+
+  @Get('users/export/:assetId/download')
+  userExportDownload(@Headers('authorization') auth: string, @Param('assetId') assetId: string) {
+    this.admin(auth);
+    const download = this.store.getUserExportDownload(assetId);
+    return new StreamableFile(fs.createReadStream(download.filePath), {
+      type: download.asset.mimeType,
+      length: download.asset.size,
+      disposition: `attachment; filename="${download.filename}"`,
+    });
+  }
+
   @Get('users/:id')
   user(@Param('id') id: string) {
     return { item: this.store.users.find((u) => u.id === id), privacy: this.store.privacySettings[id] };
@@ -2176,16 +2200,6 @@ export class AdminController {
     return { item };
   }
 
-  @Get('users/export')
-  exportUsers() {
-    return {
-      item: {
-        count: this.store.users.length,
-        downloadUrl: `/exports/users-${Date.now()}.json`,
-        generatedAt: new Date().toISOString(),
-      },
-    };
-  }
   @Patch('users/:id/tags')
   userTags(@Param('id') id: string, @Body() body: { tags: string[] }) {
     return { item: { id, tags: body.tags } };

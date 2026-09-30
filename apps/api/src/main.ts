@@ -194,7 +194,12 @@ function setupOpenApi(app: any) {
 
 export async function createServer() {
   assertVisualFixtureRuntime();
-  const app = await NestFactory.create(AppModule, { cors: true });
+  // Content-Disposition must be exposed explicitly: it is not one of the CORS-safelisted
+  // response headers, so without this the admin app can download a file but cannot read the
+  // filename the server chose and has to fall back to a generic name.
+  const app = await NestFactory.create(AppModule, {
+    cors: { origin: true, exposedHeaders: ['Content-Disposition'] },
+  });
   (app as any).useStaticAssets(resolveUploadsDirectory(), { prefix: '/uploads/' });
   setupOpenApi(app);
   return app;

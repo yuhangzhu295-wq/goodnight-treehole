@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import Layout from './Layout.vue';
-import { adminApi } from '../api';
+import { adminApi, downloadAdminFile } from '../api';
 
 type Resource =
   | 'users'
@@ -470,7 +470,8 @@ async function saveUserNote() {
 
 async function exportUsers() {
   const res = await adminApi.get<any>('/api/admin/v1/users/export');
-  status.value = `已生成导出文件：${res.item.downloadUrl}`;
+  const filename = await downloadAdminFile(res.item.downloadUrl);
+  status.value = `已导出 ${res.item.count} 位用户：${filename}`;
 }
 
 async function reviewPost(action: 'approve' | 'reject' | 'hide' | 'risk') {
