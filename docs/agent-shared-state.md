@@ -80,8 +80,17 @@ Full list with evidence and minimal fixes: `docs/product-audit/ISSUE_REGISTER.md
 | Id | Type | Status | Evidence |
 | --- | --- | --- | --- |
 | BLOCKED_DAPI_BALANCE | EXTERNAL_BLOCKER | OPEN | `provider_dapi_deepseek: Remote provider returned HTTP 402` recorded on every `AIJob`; jobs terminate as `fallback` to `provider_safe_template` with the error preserved |
-| GIT_REMOTE_UNREACHABLE | ENVIRONMENT | OPEN | `git fetch` fails with `schannel: failed to receive handshake, SSL/TLS connection failed` |
-| WSL_LOCALHOST_FORWARDING | ENVIRONMENT | WORKAROUND | WSL2 localhost forwarding is intermittent; containers are kept alive with a detached sleep and re-checked with `ensure-infra.mjs` |
+| GIT_REMOTE_UNREACHABLE | ENVIRONMENT | RESOLVED | An early `git fetch` failed with `schannel: failed to receive handshake`; the network recovered and the checkpoint was pushed successfully |
+| WSL_LOCALHOST_FORWARDING | ENVIRONMENT | WORKAROUND | WSL2 localhost forwarding is intermittent; containers are kept alive with a detached sleep and re-checked with `ensure-infra.mjs`. A user-space relay is kept in `work/tcp-relay.mjs` as a fallback but is not needed while the VM stays up |
+
+## Checkpoints
+
+| Step | Value |
+| --- | --- |
+| Commit | `0f8b1f4` |
+| Push | `origin/codex/post-recovery-validation` == HEAD |
+| Backup | `scripts/backup-all.ps1` PASS, `C:\Users\zyu33\Backups\backup-all-20261001-0352.json` |
+| Product code changed | none |
 
 ## Open issues
 

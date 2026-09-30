@@ -203,8 +203,19 @@ Additionally:
   every AI-dependent acceptance step is unverifiable and must stay `false`.
 - `pnpm qa:all` was not run: it includes steps that require a funded AI provider and the
   visual regression fixtures, so running it would not produce a truthful pass.
-- `git fetch` fails on this workstation (`schannel: failed to receive handshake`), so the
-  branch could not be pushed; commits are local.
+
+## 13a. Checkpoint, push and backup
+
+| Step | Result |
+| --- | --- |
+| Commit | `0f8b1f4 audit: complete product graph audit, all pages/states/controls` (91 files, +14380) |
+| Push | `158c298..0f8b1f4 codex/post-recovery-validation` -> pushed; `origin/codex/post-recovery-validation` == HEAD |
+| Product code changed | none - `git status --porcelain apps packages prisma tests` is empty |
+| `scripts/backup-all.ps1` | **PASS** - code bundle (53,256,842 bytes, verified, 10 refs), database dump (159,607 bytes, 337 archive entries, 52 tables), MinIO check, evidence archive (26,400,889 bytes, 64 files) |
+| Backup artefacts | `C:\Users\zyu33\Backups\backup-all-20261001-0352.json` |
+
+An earlier `git fetch` failed with `schannel: failed to receive handshake, SSL/TLS connection
+failed`; the network recovered and the push above succeeded, so no checkpoint was left local.
 
 ## 14. Required next steps
 
@@ -245,6 +256,6 @@ DAPI_VERIFIED=false                  (BLOCKED_DAPI_BALANCE, HTTP 402)
 ANDROID_EMULATOR_VERIFIED=true
 PHYSICAL_ANDROID_VERIFIED=false      (no physical device attached)
 QA_ALL_PASS=false                    (not run)
-BACKUP_SAFE=                         (see the backup section of the run report)
+BACKUP_SAFE=true                     (scripts/backup-all.ps1 PASS; C:\Users\zyu33\Backups\backup-all-20261001-0352.json)
 FULL_PRODUCT_VERIFIED=false
 ```
