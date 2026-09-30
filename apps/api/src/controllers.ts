@@ -159,6 +159,23 @@ const CONFIG_DEFAULTS = {
   dailyDigestTime: '09:00',
 };
 
+// Settings the running service actually reads when it makes a decision.
+//
+// Everything in CONFIG_DEFAULTS is persisted and editable, but only the keys below are
+// consulted by backend logic; the rest are stored values with no consumer, so changing
+// them in the admin console has no effect on the product (product audit ISSUE-003).
+// This list is the single source of truth for that distinction and is returned by the
+// config endpoints so the admin UI can say which settings are live instead of implying
+// that every field changes behaviour.
+const ENFORCED_SETTING_KEYS = [
+  'appName',
+  'appShortName',
+  'defaultVisibility',
+  'allowHumanRepliesDefault',
+  'localModelFirst',
+  'allowMonthlyReportShare',
+];
+
 const EMOTION_TO_STORE: Record<string, Emotion> = {
   焦虑: '焦虑' as Emotion,
   委屈: '委屈' as Emotion,
@@ -239,7 +256,7 @@ export class PublicController {
     const item = Object.fromEntries(
       Object.entries(CONFIG_DEFAULTS).map(([key, value]) => [key, this.store.systemSettings[key]?.value ?? value]),
     );
-    return { item };
+    return { item, enforcedKeys: ENFORCED_SETTING_KEYS };
   }
 
   @Get('tonight')
@@ -2973,6 +2990,7 @@ export class AdminController {
         description: this.store.systemSettings[key]?.description ?? key,
         updatedAt: this.store.systemSettings[key]?.updatedAt,
       })),
+      enforcedKeys: ENFORCED_SETTING_KEYS,
     };
   }
 
@@ -2983,7 +3001,7 @@ export class AdminController {
 
   @Get('config')
   config() {
-    return { item: this.configObject() };
+    return { item: this.configObject(), enforcedKeys: ENFORCED_SETTING_KEYS };
   }
 
   @Put('system/settings')

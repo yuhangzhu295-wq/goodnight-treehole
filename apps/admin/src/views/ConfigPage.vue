@@ -14,6 +14,13 @@ const form = ref<Record<string, any>>({});
 const original = ref<Record<string, any>>({});
 const status = ref('正在读取系统设置…');
 const busy = ref(false);
+// Keys the running service actually reads. Served by the API so this page cannot drift
+// from the backend; a field outside the list is stored but has no effect (ISSUE-003).
+const enforcedKeys = ref<string[]>([]);
+
+function isEnforced(key: string) {
+  return enforcedKeys.value.includes(key);
+}
 
 const groups: SettingGroup[] = [
   {
@@ -141,6 +148,7 @@ async function load() {
     const response = await adminApi.get<any>('/api/admin/v1/system/settings');
     form.value = Object.fromEntries((response.items ?? []).map((item: any) => [item.key, item.value]));
     original.value = { ...form.value };
+    enforcedKeys.value = response.enforcedKeys ?? [];
     status.value = '设置已从服务端读取';
   } catch (error: any) {
     status.value = error?.message ?? '设置加载失败';
@@ -209,6 +217,11 @@ onMounted(load);
               <span class="config-field-copy">
                 <strong>{{ labels[key] }}</strong>
                 <small v-if="fieldHint(key)">{{ fieldHint(key) }}</small>
+                <small
+                  v-if="enforcedKeys.length && !isEnforced(key)"
+                  class="config-field-inert"
+                  :data-testid="'admin-config-inert-' + key"
+                >仅保存，当前版本未接入业务逻辑</small>
               </span>
 
               <input
@@ -368,6 +381,12 @@ onMounted(load);
   white-space: nowrap;
   font-size: 11px;
   line-height: 1.35;
+}
+
+/* Flags a stored-but-not-yet-enforced setting so the console does not imply that every
+   field changes product behaviour. */
+.config-field-copy small.config-field-inert {
+  color: #b08968;
 }
 
 .config-field > input:not(.config-switch),
