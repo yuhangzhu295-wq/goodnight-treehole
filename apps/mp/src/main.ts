@@ -25,6 +25,7 @@ import { FINGERPRINT } from '@goodnight/shared-types';
 };
 import App from './App.vue';
 import { router } from './router';
+import './native/back-button';
 import './styles.scss';
 
 createApp(App).use(createPinia()).use(router).mount('#app');

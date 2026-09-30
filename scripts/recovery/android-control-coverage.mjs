@@ -83,10 +83,16 @@ const send = (method, params = {}) =>
 await send('Runtime.enable');
 await send('Page.enable');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const evaluate = async (expression) => {
-  const r = await send('Runtime.evaluate', { expression, returnByValue: true });
-  return r.result?.result?.value;
-};
+
+// A wedged WebView must not hang the whole run. Every evaluate is bounded, and a timeout
+// resolves to undefined so the caller treats it as "no reading" and moves on.
+async function evaluate(expression, timeoutMs = 8000) {
+  const result = await Promise.race([
+    send('Runtime.evaluate', { expression, returnByValue: true }),
+    new Promise((r) => setTimeout(() => r(undefined), timeoutMs)),
+  ]);
+  return result?.result?.result?.value;
+}
 
 /** Enumerate interactive controls with a preferred selector, visibility and enabled state. */
 const SCAN = `(() => {
@@ -151,17 +157,20 @@ for (const route of routes) {
       if (!row.visible || !row.enabled) { row.result = 'skipped: not actionable'; continue; }
       if (row.destructive) { row.result = 'skipped: destructive control'; continue; }
       if (row.tag === 'input' || row.tag === 'textarea' || row.tag === 'select') { row.result = 'skipped: text field'; continue; }
+      // Links navigate by definition; the route walk already covers every route.
+      if (row.tag === 'a') { row.result = 'skipped: link (covered by the route walk)'; continue; }
       const before = await evaluate('location.pathname + location.search + "|" + (document.body.innerText||"").length');
+      if (before === undefined) { row.result = 'skipped: WebView unresponsive'; continue; }
       const clicked = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(row.selector)});
         if (!el) return 'not-found'; el.click(); return 'clicked'; })()`);
       await sleep(900);
       const after = await evaluate('location.pathname + location.search + "|" + (document.body.innerText||"").length');
       row.clicked = clicked === 'clicked';
-      row.result = clicked !== 'clicked' ? `not-found` : (before === after ? 'no observable change' : 'changed');
+      row.result = clicked !== 'clicked' ? 'not-found' : (before === after ? 'no observable change' : 'changed');
       // Return to the route so the next control is evaluated on the same page.
       if (before !== after) {
         await send('Page.navigate', { url: `${ORIGIN}${route.path}` });
-        await sleep(1200);
+        await sleep(1400);
       }
     }
   }

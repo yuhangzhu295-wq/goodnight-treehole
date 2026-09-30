@@ -20,7 +20,14 @@ const config: CapacitorConfig = {
   backgroundColor: '#fbf8ef',
   plugins: {
     App: {
-      disableBackButtonHandler: true,
+      // false, not the recovered true. @capacitor/app registers an OnBackPressedCallback
+      // with enabled = !disableBackButtonHandler, so true disables it entirely: Capacitor
+      // then never handles BACK, the activity falls through to the default behaviour and
+      // the app exits from any page, even one the user navigated into. Measured on the
+      // emulator: Me -> Privacy (a real in-app navigation), then BACK, exited the app.
+      // With false the callback is active and BACK walks the WebView history first, only
+      // leaving the app at a root route. See docs/post-recovery-android-findings.md.
+      disableBackButtonHandler: false,
     },
     Keyboard: {
       resize: 'body',
