@@ -13,7 +13,7 @@ describe('main user/admin flows', () => {
     const server = app.getHttpServer();
     const login = await request(server).post('/api/admin/v1/auth/login').send({ username: 'admin', password: 'admin123' });
     const reply = await request(server).post('/api/v1/posts/post_1/replies').send({ content: '前台回复抽屉发布', anonymous: true }).expect(201);
-    await request(server).get('/api/admin/v1/replies').expect((res) => expect(res.body.items.some((r: any) => r.id === reply.body.item.id)).toBe(true));
+    await request(server).get('/api/admin/v1/replies').set('Authorization', `Bearer ${login.body.token}`).expect((res) => expect(res.body.items.some((r: any) => r.id === reply.body.item.id)).toBe(true));
     await request(server).patch(`/api/admin/v1/replies/${reply.body.item.id}/moderation`).set('Authorization', `Bearer ${login.body.token}`).send({ action: 'block' }).expect(200);
     await request(server).get('/api/v1/posts/post_1/replies').expect((res) => expect(res.body.items.some((r: any) => r.id === reply.body.item.id)).toBe(false));
   });

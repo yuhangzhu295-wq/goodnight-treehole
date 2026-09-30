@@ -1,3 +1,4 @@
+/* global process, console */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -62,9 +63,7 @@ for (const route of runtime.coverage) {
     if (c.testid) runtimeByTestId.set(c.testid, c);
   }
 }
-function verdict(c) {
-  const testid = (String(c.handler).match(/data-testid|testid/) || [])[0];
-  const t = (c.handler.match(/[\w-]+/) || [])[0];
+function verdict() {
   // handlers are @click expressions; the testid lives on the element, not the handler,
   // so fall back to matching by view + kind.
   const key = null;
@@ -126,7 +125,7 @@ cm.push('| # | Surface | View | Kind | Handler | Line | Status |');
 cm.push('| ---: | --- | --- | --- | --- | ---: | --- |');
 controlManifest.controls.forEach((c, idx) => {
   const h = String(c.handler).replace(/\|/g, '\\|').replace(/\n/g, ' ').slice(0, 90);
-  cm.push(`| ${idx + 1} | ${c.surface} | ${c.view} | ${c.kind} | \`${h}\` | ${c.line} | ${verdict(c)} |`);
+  cm.push(`| ${idx + 1} | ${c.surface} | ${c.view} | ${c.kind} | \`${h}\` | ${c.line} | ${verdict()} |`);
 });
 cm.push('');
 write('docs/product-audit/CONTROL_AUDIT_MATRIX.md', cm.join('\n'));

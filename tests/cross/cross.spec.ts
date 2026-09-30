@@ -75,9 +75,9 @@ describe('cross terminal acceptance loops', () => {
     const server = app.getHttpServer();
     await request(server).put('/api/admin/v1/system/settings').set('Authorization', `Bearer ${token}`).send({ localModelFirst: true }).expect(400);
     await request(server).post('/api/admin/v1/ai/ollama/sync-models').set('Authorization', `Bearer ${token}`).expect(400);
-    await request(server).get('/api/admin/v1/ai/routes?page=1&pageSize=100').expect((response) => {
+    await request(server).get('/api/admin/v1/ai/routes?page=1&pageSize=100').set('Authorization', `Bearer ${token}`).expect((response) => {
       expect(response.body.items.every((route: any) => route.primaryProviderId === DAPI_PROVIDER_ID)).toBe(true);
     });
-    await request(server).get('/api/admin/v1/config').expect((response) => expect(response.body.item.localModelFirst).toBe(false));
+    await request(server).get('/api/admin/v1/config').set('Authorization', `Bearer ${token}`).expect((response) => expect(response.body.item.localModelFirst).toBe(false));
   });
 });

@@ -1,3 +1,4 @@
+/* global console */
 import fs from 'node:fs';
 const src = fs.readFileSync('apps/api/src/controllers.ts', 'utf8');
 

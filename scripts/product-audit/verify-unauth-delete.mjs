@@ -1,3 +1,4 @@
+/* global process, console, fetch */
 // Proves whether admin destructive endpoints are reachable without a token.
 // Uses a throwaway record created and deleted by this script only.
 const BASE = 'http://127.0.0.1:3000';

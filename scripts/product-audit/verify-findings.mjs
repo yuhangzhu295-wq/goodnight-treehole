@@ -1,3 +1,4 @@
+/* global console, fetch */
 const BASE = 'http://127.0.0.1:3000';
 const out = [];
 const show = async (label, path, init) => {
@@ -22,7 +23,7 @@ await show('A03d  users list', '/api/admin/v1/users', auth);
 // does the fabricated export URL resolve?
 const exp = await (await fetch(BASE + '/api/admin/v1/users/export', auth)).text();
 let downloadUrl = null;
-try { downloadUrl = JSON.parse(exp).item?.downloadUrl ?? JSON.parse(exp).downloadUrl ?? null; } catch {}
+try { downloadUrl = JSON.parse(exp).item?.downloadUrl ?? JSON.parse(exp).downloadUrl ?? null; } catch { downloadUrl = null; }
 out.push(`A03e  downloadUrl parsed = ${JSON.stringify(downloadUrl)}`);
 if (downloadUrl) await show('A03f  fabricated downloadUrl fetch', downloadUrl);
 

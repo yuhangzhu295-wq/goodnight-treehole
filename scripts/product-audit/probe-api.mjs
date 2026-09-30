@@ -1,9 +1,10 @@
+/* global console, fetch */
 const BASE = 'http://127.0.0.1:3000';
 async function hit(path, init) {
   const res = await fetch(BASE + path, init);
   const text = await res.text();
   let body = text;
-  try { body = JSON.stringify(JSON.parse(text)); } catch {}
+  try { body = JSON.stringify(JSON.parse(text)); } catch { body = text; }
   return `${res.status} ${path}\n   ${body.slice(0, 600)}`;
 }
 const out = [];

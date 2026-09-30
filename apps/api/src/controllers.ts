@@ -16,6 +16,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import fs from 'node:fs';
@@ -85,6 +86,45 @@ function assertProviderMutation(current: Partial<AIProvider>, patch: Partial<AIP
 }
 
 const apiStartedAt = new Date().toISOString();
+
+// Admin authorization used to be enforced one handler at a time by calling
+// `this.admin(auth)` inside the method body. Any handler that forgot the call was
+// silently public - including destructive ones - which is exactly what the product
+// audit found. A controller guard makes the default deny and keeps the decision in
+// one place, so a new endpoint cannot be added without a token by accident.
+//
+// The guard only proves a valid admin session exists; it does not replace the
+// per-handler `this.admin(auth)` calls, which also resolve the acting admin for the
+// audit trail.
+const ADMIN_PUBLIC_ROUTES = new Set([
+  'POST /api/admin/v1/auth/login',
+  'POST /api/admin/v1/login',
+  'POST /api/admin/v1/auth/logout',
+]);
+
+function normalizeRoutePath(path: string) {
+  const value = path.startsWith('/') ? path : `/${path}`;
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+@Injectable()
+class AdminAuthGuard implements CanActivate {
+  constructor(@Inject(StoreService) private readonly store: StoreService) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<{
+      method?: string;
+      path?: string;
+      url?: string;
+      headers?: Record<string, string | undefined>;
+    }>();
+    const routePath = normalizeRoutePath(request.path ?? (request.url ?? '').split('?')[0]);
+    const key = `${String(request.method ?? 'GET').toUpperCase()} ${routePath}`;
+    if (ADMIN_PUBLIC_ROUTES.has(key)) return true;
+    this.store.verifyToken(tokenFrom(request.headers?.authorization));
+    return true;
+  }
+}
 
 function runtimeUserId(header?: string) {
   return header?.trim() || undefined;
@@ -1755,6 +1795,7 @@ export class PublicController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Controller('api/admin/v1')
+@UseGuards(AdminAuthGuard)
 export class AdminController {
   constructor(@Inject(StoreService) private readonly store: StoreService) {}
 

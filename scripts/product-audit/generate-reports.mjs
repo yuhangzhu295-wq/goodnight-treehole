@@ -1,3 +1,4 @@
+/* global process, console */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -55,7 +56,6 @@ const mpViews = fs.readdirSync(path.join(ROOT, 'apps/mp/src/views')).filter((f) 
 const adminViews = fs.readdirSync(path.join(ROOT, 'apps/admin/src/views')).filter((f) => f.endsWith('.vue'));
 
 // ---------- PRODUCT_INVENTORY.md ----------
-const aliasGroups = mpRoutes.routes.filter((r) => r.aliasCount > 1);
 const inventory = [];
 inventory.push('# PRODUCT INVENTORY');
 inventory.push('');

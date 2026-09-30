@@ -1,3 +1,4 @@
+/* global console, fetch */
 const BASE = 'http://127.0.0.1:3000';
 const out = [];
 const show = async (label, path, userHeader) => {

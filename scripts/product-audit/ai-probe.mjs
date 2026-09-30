@@ -1,3 +1,4 @@
+/* global console, fetch, setTimeout */
 const BASE = 'http://127.0.0.1:3000';
 const create = await fetch(BASE + '/api/v1/ai/tasks', {
   method: 'POST',
