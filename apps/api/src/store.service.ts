@@ -4948,7 +4948,10 @@ export class StoreService implements OnModuleInit {
     if (input.days !== undefined) {
       const days = Math.max(1, Math.min(3650, Number(input.days)));
       item.expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
-      item.status = 'active';
+      // Extending the retention window must not silently re-activate a memory the user
+      // switched off. Only a memory that was already active stays active; a disabled one
+      // keeps its status unless the caller also sends an explicit status (ISSUE-022).
+      if (item.status !== 'disabled') item.status = 'active';
     }
     if (input.status !== undefined) {
       if (!['active', 'disabled', 'expired'].includes(String(input.status)))

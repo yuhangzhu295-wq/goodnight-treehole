@@ -243,8 +243,13 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
   margin-left: auto;
 }
 
-.users-status {
+/* The status line carries load and write failures, so it must be visible. Hiding it meant a
+   failed request looked like a successful empty table (product audit ISSUE-023). */
+.users-status:empty {
   display: none;
+}
+.users-status {
+  margin: 6px 0 0;
 }
 
 .users-metrics {

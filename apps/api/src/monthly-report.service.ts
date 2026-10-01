@@ -148,6 +148,27 @@ export class MonthlyReportService {
   }
 
   private recoveryFactsFor(userId: string, month: string): MonthlyRecoveryFacts {
+    // Recovery snapshots, decisions and check-ins are only allowed into the report when the
+    // user has switched on `allowRecoveryData`. Every other recovery read in the product is
+    // gated the same way, and this one was not (product audit ISSUE-021).
+    if (this.store.privacySettings[userId]?.allowRecoveryData !== true) {
+      return {
+        journeyCount: 0,
+        completedJourneyCount: 0,
+        supportIntentCount: 0,
+        intensityCheckinCount: 0,
+        intensityChangeCount: 0,
+        actionCount: 0,
+        completedActionCount: 0,
+        adaptedActionCount: 0,
+        missedActionCount: 0,
+        recoveryCheckinCount: 0,
+        peerConversationCount: 0,
+        peerExperienceCount: 0,
+        decisionCount: 0,
+        lifeFunctions: [],
+      };
+    }
     const journeys = this.store.lifeJourneys.filter(
       (item) =>
         item.userId === userId &&
@@ -279,8 +300,8 @@ export class MonthlyReportService {
     };
   }
 
-  async availableMonths() {
-    const userId = this.store.getDemoUserId();
+  async availableMonths(requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requestedUserId);
     const months = new Set<string>();
     const addMonths = (...values: Array<string | undefined>) => {
       for (const value of values) if (value && /^\d{4}-\d{2}/.test(value)) months.add(value.slice(0, 7));
@@ -305,9 +326,11 @@ export class MonthlyReportService {
     return { items: [...months].sort((left, right) => right.localeCompare(left)) };
   }
 
-  async monthly(value?: string) {
+  // The report is built for the caller. It used to always resolve the demo user, so the
+  // figures were never scoped to whoever asked (product audit ISSUE-021).
+  async monthly(value?: string, requestedUserId?: string) {
     const month = assertMonth(value);
-    const userId = this.store.getDemoUserId();
+    const userId = this.store.resolveRuntimeUserId(requestedUserId);
     const statistics = this.statisticsFor(userId, month);
     const analysisAllowed = this.store.privacySettings[userId]?.allowJourneyLongTermAnalysis === true;
     const sourceSignature = signatureFor({ userId, ...statistics });
@@ -397,9 +420,9 @@ export class MonthlyReportService {
     };
   }
 
-  async advice(value: string) {
-    const monthly = await this.monthly(value);
-    const userId = this.store.getDemoUserId();
+  async advice(value: string, requestedUserId?: string) {
+    const monthly = await this.monthly(value, requestedUserId);
+    const userId = this.store.resolveRuntimeUserId(requestedUserId);
     if (!monthly.item.analysisAllowed)
       return { item: { month: monthly.item.month, content: '', aiJobStatus: 'disabled', analysisAllowed: false } };
     const report = await this.prisma.monthlyReport.findUniqueOrThrow({ where: { userId_month: { userId, month: monthly.item.month } } });
@@ -434,8 +457,8 @@ export class MonthlyReportService {
     };
   }
 
-  async poster(value: string) {
-    const userId = this.store.getDemoUserId();
+  async poster(value: string, requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requestedUserId);
     if (!this.store.privacySettings[userId]?.allowMonthlyReportShare) throw new ForbiddenException('当前隐私设置未允许生成月报分享图');
     const monthly = await this.monthly(value);
     if (!monthly.item.summary || !['succeeded', 'fallback'].includes(String(monthly.item.aiJobStatus))) {

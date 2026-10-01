@@ -363,7 +363,10 @@ onMounted(load);
 .ai-jobs-filters input, .ai-jobs-filters select { width: 100%; min-width: 0; min-height: 36px; padding: 7px 9px; font-size: 13px; }
 .job-date-range { min-width: 0; }.date-range-inputs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 5px; align-items: center; min-width: 0; }.date-range-inputs i { color: #899187; font-style: normal; font-size: 12px; }.date-range-inputs input { min-width: 0; padding-inline: 6px; }
 .filter-actions { display: flex; gap: 7px; align-items: end; justify-content: flex-end; }.filter-actions button { min-width: 57px; min-height: 36px; padding: 7px 11px; font-size: 13px; }
-.filter-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+/* Visible: this line reports load and action failures. It used to be clipped to 1px, so a
+   failed request left a bare empty table with no on-screen explanation (ISSUE-023). */
+.filter-status { margin: 6px 0 0; }
+.filter-status:empty { display: none; }
 
 .ai-job-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .ai-job-metrics article { position: relative; display: flex; min-width: 0; min-height: 132px; flex-direction: column; align-items: flex-start; padding: 18px 20px; border: 1px solid #e6e8df; border-radius: 12px; background: linear-gradient(135deg, #fff 0%, #fbfcf8 100%); box-shadow: 0 10px 22px rgba(44, 60, 49, .045); }

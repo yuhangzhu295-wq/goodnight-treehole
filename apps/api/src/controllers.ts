@@ -5,6 +5,8 @@ import {
   Delete,
   Get,
   Headers,
+  HttpException,
+  HttpStatus,
   Inject,
   NotFoundException,
   Param,
@@ -39,6 +41,7 @@ import {
   REMOTE_BACKUP_PROVIDER_ID,
 } from './remote-ai-provider.service.js';
 import { assertNoLegacyLocalModelEndpoint, visualFixtureIdentity } from './runtime-environment.js';
+import { loginRetryAfterSeconds, recordLoginFailure, recordLoginSuccess } from './login-throttle.js';
 
 function tokenFrom(header?: string) {
   return header?.replace(/^Bearer\s+/i, '');
@@ -1658,33 +1661,33 @@ export class PublicController {
   }
 
   @Get('reports/monthly')
-  async monthly(@Query('month') month?: string) {
-    return await this.reports.monthly(month);
+  async monthly(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.monthly(month, runtimeUserId(userId));
   }
 
   @Get('reports/monthly/months')
-  async monthlyMonths() {
-    return await this.reports.availableMonths();
+  async monthlyMonths(@Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.availableMonths(runtimeUserId(userId));
   }
 
   @Get('report/month')
-  async monthReportAlias(@Query('month') month?: string) {
-    return await this.monthly(month);
+  async monthReportAlias(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.monthly(month, userId);
   }
 
   @Get('me/month-report')
-  async meMonthReport(@Query('month') month?: string) {
-    return await this.monthly(month);
+  async meMonthReport(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.monthly(month, userId);
   }
 
   @Get('reports/monthly/:month/advice')
-  async advice(@Param('month') month: string) {
-    return await this.reports.advice(month);
+  async advice(@Param('month') month: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.advice(month, runtimeUserId(userId));
   }
 
   @Post('reports/monthly/:month/poster')
-  async reportPoster(@Param('month') month: string) {
-    return await this.reports.poster(month);
+  async reportPoster(@Param('month') month: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.poster(month, runtimeUserId(userId));
   }
 
   @Post('report/share-image')
@@ -1951,15 +1954,40 @@ export class AdminController {
   }
 
   @Post('auth/login')
-  async login(@Body() body: { username: string; password: string }) {
-    const result = this.store.login(body.username, body.password);
-    await this.store.flush();
-    return result;
+  async login(
+    @Body() body: { username: string; password: string },
+    @Headers('x-forwarded-for') forwardedFor?: string,
+    @Headers('x-real-ip') realIp?: string,
+  ) {
+    // Real server-side throttling replaces the decorative captcha. A 429 carries Retry-After
+    // so the client can tell the user how long to wait instead of guessing.
+    const ip = (forwardedFor ?? realIp ?? 'unknown').split(',')[0].trim() || 'unknown';
+    const username = String(body?.username ?? '');
+    const retryAfter = loginRetryAfterSeconds(ip, username);
+    if (retryAfter > 0) {
+      throw new HttpException(
+        { message: '登录尝试过于频繁，请稍后再试。', retryAfterSeconds: retryAfter },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    try {
+      const result = this.store.login(body.username, body.password);
+      recordLoginSuccess(ip, username);
+      await this.store.flush();
+      return result;
+    } catch (error) {
+      recordLoginFailure(ip, username);
+      throw error;
+    }
   }
 
   @Post('login')
-  async loginAlias(@Body() body: { username: string; password: string }) {
-    return await this.login(body);
+  async loginAlias(
+    @Body() body: { username: string; password: string },
+    @Headers('x-forwarded-for') forwardedFor?: string,
+    @Headers('x-real-ip') realIp?: string,
+  ) {
+    return await this.login(body, forwardedFor, realIp);
   }
 
   @Post('auth/logout')

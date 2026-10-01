@@ -102,6 +102,39 @@ function text(value: unknown, fallback = '-') {
   return String(value);
 }
 
+/**
+ * Flattens a support plan into labelled rows for the detail drawer.
+ *
+ * The plan is free-form JSON authored by the user, so the labels are humanised keys and the
+ * values are coerced to text; arrays are joined. Rendering the object itself produced
+ * "[object Object]" (product audit ISSUE-024).
+ */
+function planEntries(plan: unknown) {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
+    return [{ label: '计划内容', value: text(plan) }];
+  }
+  const entries = Object.entries(plan as Record<string, unknown>).filter(([, value]) => value != null && value !== '');
+  if (!entries.length) return [{ label: '计划内容', value: '尚未填写' }];
+  return entries.map(([key, value]) => ({
+    label: PLAN_LABELS[key] ?? key,
+    value: Array.isArray(value) ? value.map((item) => text(item)).join('、') : text(value),
+  }));
+}
+
+/** Known support-plan keys get a readable label; unknown keys keep their own name. */
+const PLAN_LABELS: Record<string, string> = {
+  warningSigns: '预警信号',
+  triggers: '容易触发的事',
+  earlyWarnings: '早期信号',
+  trustedContacts: '信任联系人',
+  selfHelp: '自我照顾',
+  grounding: '稳定方法',
+  helpPhrase: '求助话术',
+  avoid: '希望别人不要做',
+  emergency: '紧急时做什么',
+  notes: '备注',
+};
+
 function mediaUrl(url: string) {
   if (url.startsWith('http')) return url;
   return `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'}${url}`;
@@ -761,8 +794,14 @@ const detailGroups = computed<DetailGroup[]>(() => {
     'support-plans': () => [{ title: '个人支持计划', entries: [
       { label: '用户', value: userName(row.userId) },
       { label: '计划名称', value: row.title },
-      { label: '计划内容', value: text(row.plan) },
-      { label: '状态', value: statusLabel(row.status) },
+      // `plan` is a JSON object; rendering it directly printed the literal "[object Object]"
+      // so the operator could not read the one thing this resource exists for (ISSUE-024).
+      // It is shown as its real fields.
+      ...planEntries(row.plan),
+      // `PersonalSupportPlan` has no `status` column, only `active`, so the previous binding
+      // always rendered '-'.
+      { label: '状态', value: row.active === false ? '已停用' : '生效中' },
+      { label: '更新时间', value: time(row.updatedAt) },
     ] }],
     memory: () => [{ title: '有限记忆', entries: [
       { label: '用户', value: userName(row.userId) },

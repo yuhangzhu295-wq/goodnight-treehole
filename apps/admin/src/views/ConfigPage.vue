@@ -300,16 +300,14 @@ onMounted(load);
 }
 
 .config-intro,
+/* Visible, not screen-reader-only: this line reports load and save failures. It used to be
+   clipped to 1px, so a rejected save looked like a silent no-op (ISSUE-023). */
 .config-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+  margin: 6px 0 0;
+}
+
+.config-status:empty {
+  display: none;
 }
 
 .config-cards {

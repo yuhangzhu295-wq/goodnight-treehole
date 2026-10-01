@@ -23,6 +23,8 @@ const busyId = ref('');
 const error = ref('');
 const notice = ref('');
 const memoryAllowed = ref(false);
+/** Whether an AI task may read these memories. Distinct from `memoryAllowed`. */
+const aiMemoryAllowed = ref(false);
 const composerOpen = ref(false);
 const editingId = ref('');
 const pendingDeleteId = ref('');
@@ -61,6 +63,10 @@ async function load() {
     ]);
     items.value = memoryResult.items ?? [];
     memoryAllowed.value = privacyResult.item?.allowLongTermMemory === true;
+    // Two independent permissions: storing a memory, and letting a model read it. The page
+    // previously gated the "no AI task can read this" claim on the storage flag, so the
+    // banner could be wrong in either direction (product audit ISSUE-022).
+    aiMemoryAllowed.value = privacyResult.item?.allowAiMemoryUse === true;
   } catch (cause: any) {
     error.value = cause?.message ?? '记忆资料读取失败';
   } finally {
@@ -144,6 +150,11 @@ onMounted(load);
       <div class="memory-trust">
         <span aria-hidden="true">⌁</span><strong>你可以完全掌控这里</strong><small>目前有 {{ activeCount }} 条可被允许范围内的 AI 使用</small>
       </div>
+      <section v-if="!aiMemoryAllowed" class="memory-off" data-testid="memory-ai-off">
+        <strong>AI 暂时不能读取这些记忆</strong>
+        <p>内容仍然保留在这里，只有你自己能看。想让 AI 在陪伴时参考，可以去隐私设置打开。</p>
+        <button @click="router.push('/pages/settings/privacy')">去隐私设置</button>
+      </section>
       <section v-if="!memoryAllowed" class="memory-off" data-testid="memory-privacy-off">
         <strong>AI 记忆当前已关闭</strong>
         <p>现有内容仍对你可见，但任何 AI 任务都不能读取。</p>

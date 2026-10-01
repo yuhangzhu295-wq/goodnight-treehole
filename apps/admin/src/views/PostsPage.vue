@@ -189,7 +189,10 @@ onMounted(load);
             <fieldset class="filter-field filter-date"><legend>时间范围</legend><div><input v-model="dateStart" type="date" aria-label="开始日期" /><span>至</span><input v-model="dateEnd" type="date" aria-label="结束日期" /></div></fieldset>
             <label class="filter-field filter-search"><span>搜索内容</span><input data-testid="admin-post-search" v-model="search" placeholder="内容、树洞 ID 或用户" /></label>
             <div class="filter-actions"><button type="button" @click="load">刷新列表</button><button type="button" class="batch-hide" :disabled="!selectedCount || busy" @click="hideSelected">批量隐藏<span v-if="selectedCount">（{{ selectedCount }}）</span></button></div>
-            <p class="muted filter-status" role="status">{{ status }}</p>
+      <!-- Rendered only when it carries a message. The line reports load and moderation
+           failures; a CSS rule used to hide it outright on wide screens, so a failed request
+           looked like an empty table (ISSUE-023). -->
+      <p v-if="status" class="muted posts-status-line" role="status">{{ status }}</p>
           </section>
 
           <section class="panel table-panel ops-table-panel">
@@ -298,6 +301,10 @@ onMounted(load);
 .posts-page .filter-actions .batch-hide { border-color: #f0d6b8; color: #a86a21; background: #fff8ed; }
 .posts-page .filter-actions .batch-hide:disabled { cursor: not-allowed; opacity: .55; }
 .posts-page .filter-status { grid-column: 1 / -1; margin: -5px 0 0; font-size: 12px; }
+/* `!important` is deliberate. Some rule in the wide-screen cascade hides this line, and the
+   element is only rendered when it carries a message, so forcing it visible is always
+   correct here: a load or moderation failure must not be silently swallowed (ISSUE-023). */
+.posts-page .posts-status-line { display: block !important; grid-column: 1 / -1; margin: -5px 0 0; font-size: 12px; }
 
 .posts-page .ops-table-panel { min-width: 0; overflow: auto; }
 .posts-page .ops-table { min-width: 700px; table-layout: fixed; }
@@ -355,7 +362,6 @@ onMounted(load);
   .posts-page .posts-workspace.has-detail .detail-drawer-body { padding: 9px 18px 22px; }
   .posts-page .posts-workspace.has-detail .detail-drawer .detail-group { padding: 14px 0; }
   .posts-page .ops-filters { min-height: 164px; }
-  .posts-page .filter-status { display: none; }
 }
 
 @media (max-width: 1239px) {
