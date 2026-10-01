@@ -886,26 +886,18 @@ export class PublicController {
   }
 
   @Post('posts/:id/hug')
-  async hug(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    post.hugCount += 1;
-    this.store.persist();
-    await this.store.flush();
-    return { item: post };
+  async hug(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.hugPost(id, runtimeUserId(userId));
   }
 
   @Delete('posts/:id/hug')
-  async unHug(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    post.hugCount = Math.max(0, post.hugCount - 1);
-    this.store.persist();
-    await this.store.flush();
-    return { item: post };
+  async unHug(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.unHugPost(id, runtimeUserId(userId));
   }
 
   @Post('posts/:id/hugs')
-  hugs(@Param('id') id: string) {
-    return this.hug(id);
+  hugs(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return this.hug(id, userId);
   }
 
   @Post('posts/:id/favorite')

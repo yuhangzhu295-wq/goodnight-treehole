@@ -2261,6 +2261,52 @@ export class StoreService implements OnModuleInit {
     return 'user_demo';
   }
 
+  /**
+   * Records one hug from one user on one post, idempotently.
+   *
+   * The counter used to be a bare `hugCount += 1` with no per-user row, so a client could
+   * inflate it without limit and there was no way to tell who reacted (product audit
+   * ISSUE-020). `HugAction` already existed in the schema for exactly this and was never
+   * written; the counter is now derived from it, and the (userId, postId, presetCode) unique
+   * constraint makes a repeat request a no-op.
+   *
+   * `presetCode` has no product meaning yet, so a single constant is used. That keeps the
+   * existing unique constraint meaningful without inventing a preset feature.
+   */
+  async hugPost(postId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const post = this.getPost(postId, true);
+    const existing = await this.prisma.hugAction.findFirst({ where: { userId, postId } });
+    // The displayed count predates this change (seeded posts show values like 28), so the
+    // difference between the stored number and the real rows is kept as a baseline and the
+    // real rows are layered on top. That preserves existing content while making new
+    // reactions idempotent and attributable.
+    const rowsBefore = await this.prisma.hugAction.count({ where: { postId } });
+    const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
+    if (!existing) {
+      await this.prisma.hugAction.create({ data: { userId, postId, presetCode: 'default' } });
+    }
+    const count = await this.prisma.hugAction.count({ where: { postId } });
+    post.hugCount = baseline + count;
+    this.persist();
+    await this.flush();
+    return { item: this.decoratePost(post), alreadyHugged: Boolean(existing) };
+  }
+
+  /** Removes this user's hug and re-derives the counter. */
+  async unHugPost(postId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const post = this.getPost(postId, true);
+    const rowsBefore = await this.prisma.hugAction.count({ where: { postId } });
+    const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
+    await this.prisma.hugAction.deleteMany({ where: { userId, postId } });
+    const count = await this.prisma.hugAction.count({ where: { postId } });
+    post.hugCount = baseline + count;
+    this.persist();
+    await this.flush();
+    return { item: this.decoratePost(post) };
+  }
+
   /** `manualReviewThreshold` (admin 系统设置), clamped to a usable probability range. */
   manualReviewThreshold() {
     const configured = Number(this.systemSettings.manualReviewThreshold?.value);
