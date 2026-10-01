@@ -1194,6 +1194,8 @@ export class StoreService implements OnModuleInit {
   private data: StoreData;
   private persistQueue: Promise<void> = Promise.resolve();
   private persistenceError?: string;
+  /** Incremented on every `persist()`; used to detect a mutation racing a state reload. */
+  private mutationVersion = 0;
   private ollamaOnline = false;
   private ollamaLastCheckedAt?: string;
   private ollamaLastError?: string;
@@ -1221,8 +1223,16 @@ export class StoreService implements OnModuleInit {
   }
 
   async reloadRuntimeState() {
+    // The BullMQ worker calls this after delivering a follow-up. It used to read straight from
+    // the database and replace the in-memory state, which silently discarded any mutation made
+    // while the read was in flight: observed as a handoff being created (201) and then not
+    // existing a moment later, and as a journey graduating and reverting to active. Draining
+    // the write queue first, then refusing to adopt a snapshot that is older than a mutation
+    // that happened during the read, closes both windows.
+    await this.persistQueue;
+    const versionAtStart = this.mutationVersion;
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
-    if (persisted) {
+    if (persisted && this.mutationVersion === versionAtStart) {
       this.data = persisted;
       this.ensurePhaseTwoCoverage();
       // Reloaded relational data may contain a historical route definition.
@@ -1971,6 +1981,7 @@ export class StoreService implements OnModuleInit {
     // The relational mapper performs several awaited writes in one transaction.
     // Snapshot only when this queue entry begins: this avoids both in-transaction
     // mutation and an older queued snapshot overwriting a later user action.
+    this.mutationVersion += 1;
     this.persistQueue = this.persistQueue
       .catch(() => undefined)
       .then(async () => {
@@ -2944,18 +2955,18 @@ export class StoreService implements OnModuleInit {
       FIND_PEOPLE: { key: 'peers', targetRoute: '/pages/peers/index', message: '去看看真正经历过相似阶段的人。' },
       SEE_OUTCOMES: {
         key: 'outcomes',
-        targetRoute: '/pages/peers/index?view=outcomes',
+        targetRoute: '/pages/peers/index',
         message: '先看看相似经历后来发生了什么。',
       },
       NEXT_STEP: { key: 'action', targetRoute: '/pages/action/index', message: '把下一步缩到今晚做得完的一件事。' },
       STOP_IMPULSE: {
         key: 'cooldown',
-        targetRoute: '/pages/action/index?section=vault',
+        targetRoute: '/pages/action/index',
         message: '先把冲动放进决定保险箱。',
       },
       PREPARE_CONVERSATION: {
         key: 'handoff',
-        targetRoute: '/pages/action/index?section=handoff',
+        targetRoute: '/pages/reality-handoff/index',
         message: '先整理想对现实中的人说的话。',
       },
       NOTHING_NOW: { key: 'pause', targetRoute: '/pages/tonight/index', message: '今天不解决，也是一种照顾。' },
@@ -3395,13 +3406,37 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  async generateActionPlan(journeyId: string, content?: string) {
+  /**
+   * Queues a real `action_plan` AiJob.
+   *
+   * `mode: 'smaller'` is what 换一个更小的版本 sends. It used to call this with no
+   * distinction, so the button re-ran the identical request and produced the identical plan
+   * (product audit ISSUE-008). The mode is now part of the job's prompt summary, so the
+   * request semantics genuinely differ and can be asserted on the AiJob rather than on the
+   * generated text.
+   */
+  async generateActionPlan(journeyId: string, content?: string, mode: 'initial' | 'smaller' = 'initial') {
     const journey = this.requireJourney(journeyId);
-    const source =
+    const base =
       content?.trim() ||
       this.journeyUpdates.find((item) => item.journeyId === journeyId)?.content ||
       this.situationSnapshots.find((item) => item.journeyId === journeyId)?.facts.join('、') ||
       journey.title;
+    const previous = this.actionCommitments
+      .filter((item) => item.journeyId === journeyId)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    const source =
+      mode === 'smaller'
+        ? [
+            '【缩小一步】',
+            `上一步行动：${previous?.title ?? '（还没有已接受的行动）'}`,
+            previous?.description ? `上一步说明：${previous.description}` : '',
+            `原始处境：${base}`,
+            '请给出比上一步更小、更短、难度更低的版本：几分钟内就能开始，不要求完成质量。',
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : base;
     const job = this.queueAI({
       taskType: 'action_plan',
       userId: journey.userId,

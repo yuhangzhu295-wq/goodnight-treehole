@@ -24,7 +24,22 @@ async function load() {
   try { notices.value = (await api.get<{ items: Notice[] }>('/api/v1/notifications')).items; } catch (cause) { error.value = cause instanceof Error ? cause.message : '提醒暂时没有加载出来'; } finally { loading.value = false; }
 }
 async function open(item: Notice) {
-  try { if (item.status === 'unread') await api.patch(`/api/v1/notifications/${item.id}/read`); notices.value = notices.value.map((notice) => notice.id === item.id ? { ...notice, status: 'read' } : notice); if (item.targetRoute) await router.push(item.targetRoute); } catch (cause) { error.value = cause instanceof Error ? cause.message : '提醒状态更新失败'; }
+  // Navigation must not depend on the read receipt. Previously both were in one try block,
+  // so a failed mark-read stopped the tap from opening its target at all (ISSUE-010).
+  if (item.status === 'unread') {
+    try {
+      await api.patch(`/api/v1/notifications/${item.id}/read`);
+      notices.value = notices.value.map((notice) => notice.id === item.id ? { ...notice, status: 'read' } : notice);
+    } catch {
+      error.value = '这条提醒暂时没能标记为已读，但内容仍然可以打开。';
+    }
+  }
+  if (!item.targetRoute) return;
+  try {
+    await router.push(item.targetRoute);
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '这个提醒的目标暂时打不开';
+  }
 }
 onMounted(load);
 </script>

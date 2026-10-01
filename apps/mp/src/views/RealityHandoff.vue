@@ -46,6 +46,21 @@ async function saveCard() {
 async function copyCard() {
   try { await navigator.clipboard.writeText(generatedText.value); status.value = '已复制到剪贴板，请由你亲自发给信任的人。'; } catch { error.value = '浏览器没有允许复制，请手动选择文字复制。'; }
 }
+// Marks the card as actually told to someone. The endpoint already existed and nothing in the
+// app called it, so the "I told them" half of the handoff story had no UI at all
+// (product audit ISSUE-011). The system still never sends anything: this only records that
+// the person did it themselves.
+async function markShared() {
+  if (!saved.value || busy.value) return;
+  busy.value = true; error.value = '';
+  try {
+    const response = await api.post<{ item: Handoff }>(`/api/v1/handoffs/${saved.value.id}/share`, {});
+    saved.value = response.item;
+    status.value = '已经记下：你真的把这张卡告诉了现实中的人。';
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '这个状态暂时没有保存成功';
+  } finally { busy.value = false; }
+}
 async function saveContact() {
   if (!contactForm.value.nickname.trim() || !contactForm.value.contactHint.trim()) return;
   busy.value = true;
@@ -57,7 +72,7 @@ onMounted(load);
 <template>
   <section class="goodnight-page handoff-page">
     <header class="handoff-hero"><button aria-label="返回" @click="router.back()"><AppIcon name="back" /></button><AppIcon class="handoff-moon" name="moon" :size="23" /><h1>帮我告诉现实中的一个人</h1><span>如果你愿意，我们可以把求助的话整理得更容易说出口。</span></header>
-    <section class="handoff-card" data-testid="reality-support-card"><h2>现实求助卡</h2><p class="step-title">1 <strong>你想告诉谁？</strong></p><div class="choice-grid"><button v-for="item in recipients" :key="item" :class="{ selected: recipient === item }" @click="selectRecipient(item)">{{ item }}</button></div><p class="step-title">2 <strong>你希望 TA 怎么帮你？</strong></p><div class="choice-grid need-grid"><button v-for="item in needs" :key="item" :class="{ selected: need === item }" @click="selectNeed(item)">{{ item }}</button></div><div class="card-preview"><p>为你生成的求助话术预览</p><textarea v-if="editing" v-model="cardText" maxlength="1000" aria-label="编辑求助卡" /><blockquote v-else>{{ generatedText }}</blockquote></div><div class="card-actions"><button class="primary-button" :disabled="busy" data-testid="handoff-save" @click="saveCard">{{ saved ? '保存这一版求助卡' : '生成并保存求助卡' }}</button><button class="outline-button" :disabled="!saved" data-testid="handoff-copy" @click="copyCard">复制这张求助卡</button><button class="text-button" @click="editing = !editing">{{ editing ? '完成编辑' : '我自己改一下' }}</button></div><small class="privacy-note">只保存你确认过的内容，系统不会自动联系任何人。</small></section>
+    <section class="handoff-card" data-testid="reality-support-card"><h2>现实求助卡</h2><p class="step-title">1 <strong>你想告诉谁？</strong></p><div class="choice-grid"><button v-for="item in recipients" :key="item" :class="{ selected: recipient === item }" @click="selectRecipient(item)">{{ item }}</button></div><p class="step-title">2 <strong>你希望 TA 怎么帮你？</strong></p><div class="choice-grid need-grid"><button v-for="item in needs" :key="item" :class="{ selected: need === item }" @click="selectNeed(item)">{{ item }}</button></div><div class="card-preview"><p>为你生成的求助话术预览</p><textarea v-if="editing" v-model="cardText" maxlength="1000" aria-label="编辑求助卡" /><blockquote v-else>{{ generatedText }}</blockquote></div><div class="card-actions"><button class="primary-button" :disabled="busy" data-testid="handoff-save" @click="saveCard">{{ saved ? '保存这一版求助卡' : '生成并保存求助卡' }}</button><button class="outline-button" :disabled="!saved" data-testid="handoff-copy" @click="copyCard">复制这张求助卡</button><button class="text-button" :disabled="!saved || busy" data-testid="handoff-mark-shared" @click="markShared">我已经告诉 TA 了</button><button class="text-button" @click="editing = !editing">{{ editing ? '完成编辑' : '我自己改一下' }}</button></div><small class="privacy-note">只保存你确认过的内容，系统不会自动联系任何人。</small></section>
     <p v-if="status" class="status" role="status">{{ status }}</p><p v-if="error" class="error-text" role="alert">{{ error }}</p>
     <button class="contacts-trigger" type="button" @click="contactSheet = true"><AppIcon name="people" :size="18" /><span>管理信任联系人</span><AppIcon name="arrow" :size="18" /></button>
     <Teleport to="body"><div v-if="contactSheet" class="contact-mask" @click.self="contactSheet = false"><section class="contacts-sheet" data-testid="trusted-contacts-sheet"><span class="sheet-handle" /><header><div><h2>信任联系人</h2><p>只保存在你的支持卡里，不会自动联系任何人。</p></div><button class="sheet-close" type="button" aria-label="关闭" @click="contactSheet = false">×</button></header><div v-if="contacts.length" class="contact-list"><article v-for="person in contacts" :key="person.id"><strong>{{ person.nickname }}</strong><span>{{ person.relation || '联系人' }} · {{ person.contactHint }}</span></article></div><p v-else class="muted">还没有保存联系人。</p><div class="contact-form"><input v-model="contactForm.nickname" placeholder="称呼" /><input v-model="contactForm.relation" placeholder="关系" /><input v-model="contactForm.contactHint" placeholder="联系方式提示" /><button class="outline-button" :disabled="busy" @click="saveContact">保存联系人</button></div></section></div></Teleport>

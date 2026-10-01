@@ -70,7 +70,17 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
       const decisionId = typeof payload?.decisionId === 'string' ? payload.decisionId : '';
       return { type: 'COOLDOWN_RELEASED', title: '现在还想这样做吗？', body: '你之前放进决定保险箱的事情，已经到了可以重新看一眼的时间。', targetRoute: `/pages/decision/index${decisionId ? `?id=${encodeURIComponent(decisionId)}` : ''}` };
     }
-    return { type: 'FOLLOW_UP', title: '昨天那件事，后来怎么样了？', body: '不用写得完整，告诉我现在发生了什么就好。', targetRoute: '/pages/action/index?section=follow-up' };
+    // The check-in the user has to answer belongs to a specific commitment, so the deep link
+    // carries it. The previous `?section=follow-up` was never read by any view, so tapping a
+    // follow-up notification landed on the generic action card with no way to check in
+    // (product audit ISSUE-010).
+    const commitmentId = typeof payload?.actionId === 'string' ? payload.actionId : '';
+    return {
+      type: 'FOLLOW_UP',
+      title: '昨天那件事，后来怎么样了？',
+      body: '不用写得完整，告诉我现在发生了什么就好。',
+      targetRoute: `/pages/action/index?followUp=1${commitmentId ? `&commitmentId=${encodeURIComponent(commitmentId)}` : ''}`,
+    };
   }
 
   async onModuleDestroy() {

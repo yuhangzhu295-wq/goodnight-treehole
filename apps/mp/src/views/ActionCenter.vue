@@ -88,7 +88,7 @@ async function waitForJob<T extends Record<string, unknown>>(jobId: string) {
   throw new Error('整理这一步花的时间有点久，请稍后再试');
 }
 
-async function requestTonightAction() {
+async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
   const journeyId = String(route.query.journeyId ?? currentJourney.value?.id ?? '');
   if (!journeyId) {
     router.push('/pages/tonight/index');
@@ -98,7 +98,7 @@ async function requestTonightAction() {
   recommendation.value = null;
   error.value = '';
   try {
-    const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, { content: currentJourney.value?.summary });
+    const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, { content: currentJourney.value?.summary, mode });
     const task = await waitForJob<Record<string, unknown>>(queued.job.id);
     const structured = task.structured ?? {};
     const title = typeof structured.title === 'string' ? structured.title : '';
@@ -112,6 +112,7 @@ async function requestTonightAction() {
       difficulty: typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty) ? structured.difficulty as ActionRecommendation['difficulty'] : undefined,
       dueInDays: typeof structured.dueInDays === 'number' ? structured.dueInDays : 1,
     };
+    if (mode === 'smaller') smallerNotice.value = '已经换成一个更小的版本，可以只做开头那一下。';
   } catch (cause: any) {
     error.value = cause?.message ?? '行动建议暂时不可用';
   } finally {
@@ -251,6 +252,91 @@ function openShortcut(key: 'cooldown' | 'decision' | 'handoff' | 'future') {
   shortcutSheet.value = key;
 }
 
+const smallerNotice = ref('');
+
+// The due check-in. `dueCheckins` and `primaryFollowUp` were already computed here but never
+// rendered, and the `?section=follow-up` target the follow-up worker emits was never read,
+// so a due check-in had no way to be completed in the UI (product audit ISSUE-009).
+const followUpOpen = ref(false);
+const followUpBusy = ref(false);
+const followUpNotice = ref('');
+const followUpReflection = ref('');
+const followUpResult = ref<'completed' | 'partial' | 'missed'>('completed');
+const followUpAction = computed<ActionRecord | null>(() => {
+  const checkin = primaryFollowUp.value;
+  if (!checkin) return null;
+  const commitmentId = checkin.commitmentId ?? checkin.commitment?.id;
+  return activeActions.value.find((item) => item.id === commitmentId)
+    ?? (commitmentId ? { id: commitmentId, title: checkin.commitment?.title ?? '之前定下的小行动', description: '', status: 'active' } as ActionRecord : null);
+});
+
+// The follow-up notification deep-links with `?followUp=1&commitmentId=...`. The action may
+// already be `completed`, so the check-in target is resolved from the journey detail rather
+// than only from the active list (ISSUE-010).
+const deepLinkFollowUpAction = computed<ActionRecord | null>(() => {
+  if (!route.query.followUp) return null;
+  const wanted = String(route.query.commitmentId ?? '');
+  const commitments = (journeyDetail.value?.commitments ?? []) as ActionRecord[];
+  if (wanted) return commitments.find((item) => item.id === wanted) ?? null;
+  return commitments.find((item) => item.status === 'active') ?? null;
+});
+
+const followUpTarget = computed<ActionRecord | null>(() => deepLinkFollowUpAction.value ?? followUpAction.value);
+
+function openFollowUp() {
+  followUpNotice.value = '';
+  followUpReflection.value = '';
+  followUpResult.value = 'completed';
+  followUpOpen.value = true;
+}
+
+async function submitFollowUp() {
+  const action = followUpTarget.value;
+  if (!action) return;
+  followUpBusy.value = true;
+  error.value = '';
+  try {
+    // 'partial' is stored as a completed check-in with an explicit result note, because
+    // OutcomeCheckinStatus has no partial member; the distinction the user made is kept in
+    // `result` rather than being silently flattened to completed or missed.
+    const status = followUpResult.value === 'missed' ? 'missed' : 'completed';
+    const result = followUpResult.value === 'partial' ? `部分完成：${followUpReflection.value.trim() || '只做了一部分'}` : followUpResult.value === 'completed' ? '完成' : '未完成';
+    await api.post(`/api/v1/actions/${action.id}/checkin`, { status, reflection: followUpReflection.value.trim(), result });
+    followUpOpen.value = false;
+    followUpNotice.value = '已经记下来了，谢谢你回来告诉我。';
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这次回访没有保存成功';
+  } finally {
+    followUpBusy.value = false;
+  }
+}
+
+// The support intent the person chose is carried on the URL. STOP_IMPULSE and
+// PREPARE_CONVERSATION used to be encoded as `?section=` values that nothing read, so both
+// collapsed onto the generic action card (product audit ISSUE-006). The intent now decides
+// which real surface opens, and `intentOpened` makes it happen once per entry.
+const intentOpened = ref(false);
+const intentNotice = ref('');
+
+function applyIntentFromRoute() {
+  const intent = String(route.query.intent ?? '');
+  if (!intent || intentOpened.value) return;
+  intentOpened.value = true;
+  if (intent === 'STOP_IMPULSE') {
+    openShortcut('cooldown');
+    return;
+  }
+  if (intent === 'PREPARE_CONVERSATION') {
+    openShortcut('handoff');
+    return;
+  }
+  if (intent === 'NOTHING_NOW') {
+    intentNotice.value = '今天不解决，也是一种照顾。你可以随时回来。';
+  }
+  if (route.query.followUp) openFollowUp();
+}
+
 function closeShortcutSheet() {
   if (!shortcutBusy.value) shortcutSheet.value = null;
 }
@@ -285,8 +371,13 @@ async function saveDecision() {
   }
 }
 
-watch(() => route.query.journeyId, () => { recommendation.value = null; closeAdaptive(); void load(); });
-onMounted(load);
+watch(() => [route.query.journeyId, route.query.intent], () => {
+  recommendation.value = null;
+  closeAdaptive();
+  intentOpened.value = false;
+  void load().then(applyIntentFromRoute);
+});
+onMounted(async () => { await load(); applyIntentFromRoute(); });
 </script>
 
 <template>
@@ -310,9 +401,25 @@ onMounted(load);
     </header>
 
     <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <p v-if="intentNotice" class="intent-note" role="status" data-testid="action-intent-note">{{ intentNotice }}</p>
+    <p v-if="smallerNotice" class="intent-note" role="status" data-testid="action-smaller-note">{{ smallerNotice }}</p>
+    <p v-if="followUpNotice" class="intent-note" role="status" data-testid="action-followup-note">{{ followUpNotice }}</p>
     <p v-if="loading" class="loading-note">正在读取今晚的行动...</p>
 
     <main v-else class="action-content">
+      <button
+        v-if="followUpTarget && (primaryFollowUp || route.query.followUp)"
+        class="followup-entry"
+        type="button"
+        data-testid="action-followup-entry"
+        @click="openFollowUp"
+      >
+        <span class="followup-dot" aria-hidden="true"></span>
+        <span>
+          <strong>回来看看：{{ followUpTarget.title }}</strong>
+          <small>{{ followUpMessage(followUpTarget) }} 现在告诉我结果就好。</small>
+        </span>
+      </button>
       <PrimaryActionCard
         :mode="mainMode"
         :title="mainMode === 'accepted' ? activeAction?.title : recommendation?.title"
@@ -321,9 +428,9 @@ onMounted(load);
         :difficulty="recommendation?.difficulty"
         :follow-up-message="mainMode === 'accepted' ? followUpMessage(activeAction) : undefined"
         :loading="planning"
-        @request="requestTonightAction"
+        @request="requestTonightAction('initial')"
         @accept="acceptTonightAction"
-        @smaller="requestTonightAction"
+        @smaller="requestTonightAction('smaller')"
         @complete="openCompletionSheet"
         @missed="openAdaptive()"
         @timeline="router.push(`/pages/journey/detail?id=${currentJourney?.id}`)"
@@ -338,6 +445,22 @@ onMounted(load);
 
       <SupportShortcutGrid @select="openShortcut" />
     </main>
+
+    <div v-if="followUpOpen" class="sheet-backdrop" @click.self="!followUpBusy && (followUpOpen = false)">
+      <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="followup-title" data-testid="action-followup-sheet">
+        <span class="sheet-handle" aria-hidden="true" />
+        <button class="close-sheet" aria-label="关闭回访" :disabled="followUpBusy" @click="followUpOpen = false">×</button>
+        <h2 id="followup-title">后来怎么样了？</h2>
+        <p>{{ followUpTarget?.title }}</p>
+        <div class="followup-choices" role="radiogroup" aria-label="结果">
+          <button type="button" :aria-pressed="followUpResult === 'completed'" data-testid="followup-completed" @click="followUpResult = 'completed'">完成了</button>
+          <button type="button" :aria-pressed="followUpResult === 'partial'" data-testid="followup-partial" @click="followUpResult = 'partial'">做了一部分</button>
+          <button type="button" :aria-pressed="followUpResult === 'missed'" data-testid="followup-missed" @click="followUpResult = 'missed'">没有完成</button>
+        </div>
+        <textarea v-model="followUpReflection" maxlength="800" placeholder="写一句就好，也可以留空。" />
+        <button class="sheet-primary" :disabled="followUpBusy" data-testid="followup-submit" @click="submitFollowUp">{{ followUpBusy ? '正在保存...' : '记下这次结果' }}</button>
+      </section>
+    </div>
 
     <div v-if="completionSheetOpen" class="sheet-backdrop" @click.self="completionSheetOpen = false">
       <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="completion-title">
@@ -378,6 +501,8 @@ onMounted(load);
 .action-hero::before { position:absolute; top:-2px; right:0; width:188px; height:178px; background:url('../assets/goodnight/illustrations/action-night-corner.png') right top/cover no-repeat; content:''; opacity:.9; pointer-events:none; mask-image:linear-gradient(90deg,transparent 0,#000 36%); -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 36%); }
 .action-hero::after { position:absolute; right:88px; top:45px; width:106px; height:106px; border-radius:50%; background:radial-gradient(circle,rgba(245,202,142,.18),transparent 68%); content:''; filter:blur(4px); pointer-events:none; }
 .hero-topline,.action-hero h1,.action-hero > p { position:relative; z-index:1; }.hero-topline { display:flex; justify-content:space-between; color:rgba(255,249,236,.72); font-size:13px; }.brand-mark { font-weight:650; letter-spacing:.03em; }.action-hero h1 { max-width:320px; margin:27px 0 6px; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:28px; font-weight:650; letter-spacing:0; line-height:1.28; }.action-hero > p { max-width:290px; margin:0; color:rgba(255,249,237,.84); font-size:14px; line-height:1.55; }
+.followup-entry { display:grid; grid-template-columns:12px minmax(0,1fr); align-items:center; gap:10px; width:100%; margin-bottom:8px; border:1px solid rgba(95,127,62,.22); border-radius:18px; background:linear-gradient(120deg,#eef3e6,#fbf8ef); padding:13px 14px; color:#3f5a3c; text-align:left; font:inherit; cursor:pointer; box-shadow:0 7px 16px rgba(44,58,42,.06); } .followup-entry strong { display:block; font-size:14px; line-height:1.4; } .followup-entry small { display:block; margin-top:3px; color:#6d7a68; font-size:11px; line-height:1.45; } .followup-dot { width:10px; height:10px; border-radius:50%; background:var(--gn-green); } .followup-choices { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:10px 0; } .followup-choices button { min-height:40px; border:1px solid rgba(95,127,62,.22); border-radius:12px; background:#fffefa; color:#4b6247; font:inherit; font-size:13px; cursor:pointer; } .followup-choices button[aria-pressed='true'] { border-color:var(--gn-green); background:#e8efdd; color:var(--gn-green-dark); font-weight:600; }
+.intent-note { margin:12px 4px 0; border-radius:14px; background:#eef3e6; padding:12px; color:#4e6a49; font-size:13px; line-height:1.55; }
 .action-content { display:grid; gap:8px; margin-top:-8px; position:relative; z-index:2; }.loading-note,.error-text { margin:20px 4px; color:#687566; }.error-text { color:var(--gn-danger); }
 .sheet-backdrop { position:fixed; z-index:20; inset:0; display:flex; align-items:flex-end; justify-content:center; background:rgba(16,28,34,.48); padding:16px; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }.completion-sheet,.shortcut-sheet { position:relative; box-sizing:border-box; width:min(100%, 430px); border-radius:28px 28px 20px 20px; background:#fffdf7; padding:28px 20px 20px; box-shadow:0 -14px 36px rgba(14,26,33,.2); }.sheet-handle { position:absolute; top:10px; left:50%; width:44px; height:4px; border-radius:999px; background:#d9dbd0; transform:translateX(-50%); }.close-sheet { position:absolute; top:18px; right:16px; display:grid; width:30px; height:30px; place-items:center; border:0; border-radius:50%; background:#f3f1e8; color:#5d6b5b; font:inherit; font-size:22px; line-height:1; cursor:pointer; }.completion-sheet h2,.shortcut-sheet h2 { margin:8px 0 8px; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; color:#2d4434; font-size:24px; font-weight:650; }.completion-sheet p,.shortcut-sheet p { margin:0; color:#737d70; font-size:14px; line-height:1.65; }.completion-sheet textarea,.shortcut-sheet input { box-sizing:border-box; width:100%; margin-top:18px; border:1px solid rgba(101,122,91,.2); border-radius:17px; background:#fbf9f1; padding:13px; color:#2e4034; font:inherit; line-height:1.55; resize:none; }.completion-sheet textarea { min-height:108px; }.shortcut-sheet input { min-height:50px; }.sheet-primary { width:100%; min-height:50px; margin-top:13px; border:1px solid #436b52; border-radius:999px; background:#436b52; color:#fffdf6; font:inherit; font-size:15px; cursor:pointer; }.sheet-primary:disabled { cursor:wait; opacity:.64; }.shortcut-notice { margin-top:12px !important; color:#527151 !important; text-align:center; }
 @media (max-width:374px) { .action-page { padding-inline:12px; }.action-hero { margin-inline:-12px; padding-inline:24px; min-height:170px; }.action-hero h1 { margin-top:24px; font-size:26px; }.sheet-backdrop { padding-inline:10px; } }

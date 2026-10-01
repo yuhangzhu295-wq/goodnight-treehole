@@ -113,6 +113,56 @@ function requestArchive() {
   archiveConfirmationOpen.value = true;
 }
 
+// Journey graduation. `POST /journeys/:id/graduate` and `/graduation-consent` were fully
+// implemented on the server and never called from the app, so a journey could never formally
+// end and the anonymous-experience story had no UI (product audit ISSUE-011).
+const graduateOpen = ref(false);
+const graduateStep = ref<'confirm' | 'consent'>('confirm');
+const graduateNotice = ref('');
+const completedActions = computed(
+  () => (detail.value?.commitments ?? []).filter((item: { status: string }) => item.status === 'completed').length,
+);
+
+function requestGraduate() {
+  if (!detail.value || busy.value) return;
+  graduateNotice.value = '';
+  graduateStep.value = 'confirm';
+  graduateOpen.value = true;
+}
+
+async function confirmGraduate() {
+  if (!detail.value || busy.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/api/v1/journeys/${detail.value.journey.id}/graduate`, {});
+    await load({ infer: false });
+    graduateStep.value = 'consent';
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '这段旅程暂时没有结束';
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function chooseConsent(decision: 'willing' | 'later' | 'no') {
+  if (!detail.value || busy.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/api/v1/journeys/${detail.value.journey.id}/graduation-consent`, { decision });
+    graduateOpen.value = false;
+    graduateNotice.value =
+      decision === 'willing'
+        ? '谢谢你愿意把这段路留给后来的人。它会先经过审核，再以匿名形式出现。'
+        : '这段旅程已经好好结束了。想分享的时候，随时可以回来。';
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '这个选择暂时没有保存';
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function archiveJourney() {
   if (!detail.value || busy.value) return;
   busy.value = true;
@@ -144,8 +194,37 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
       <template v-else>
         <JourneyTimelineScreen :title="detail.journey.title" :created-at="detail.journey.createdAt" :initial-intensity="detail.journey.initialIntensity" :current-intensity="intensity" :updates="chronologicalUpdates" :later="later" :busy="busy" @update:later="later = $event" @save-later="saveLater" @action="router.push(`/pages/action/index?journeyId=${detail.journey.id}`)" @change-support="flowStep = 'intent'" />
         <button v-if="detail.journey.status === 'active' || detail.journey.status === 'paused'" class="archive-trigger" data-testid="journey-archive-start" :disabled="busy" @click="requestArchive">归档这段旅程</button>
+        <button
+          v-if="completedActions > 0 && detail.journey.status !== 'completed' && detail.journey.status !== 'archived'"
+          class="graduate-trigger"
+          data-testid="journey-graduate-start"
+          :disabled="busy"
+          @click="requestGraduate"
+        >走完了，结束这段旅程</button>
       </template>
     </template>
+    <p v-if="graduateNotice" class="journey-notice" role="status" data-testid="journey-graduate-notice">{{ graduateNotice }}</p>
+    <div v-if="graduateOpen" class="archive-confirm-mask" data-testid="journey-graduate-sheet">
+      <section class="archive-confirm-card" role="dialog" aria-modal="true" aria-labelledby="journey-graduate-title">
+        <template v-if="graduateStep === 'confirm'">
+          <h2 id="journey-graduate-title">结束这段旅程？</h2>
+          <p>你已经完成了 {{ completedActions }} 个小行动。结束不会删除任何记录，之后仍然可以在归档里回看。</p>
+          <div>
+            <button :disabled="busy" @click="graduateOpen = false">再陪一会儿</button>
+            <button class="archive-confirm-primary" data-testid="journey-graduate-confirm" :disabled="busy" @click="confirmGraduate">确认结束</button>
+          </div>
+        </template>
+        <template v-else>
+          <h2 id="journey-graduate-title">愿意把这段路留给后来的人吗？</h2>
+          <p>如果愿意，我们会先整理成一段完全匿名的经历，经过审核后才会出现。你随时可以说不。</p>
+          <div class="graduate-choices">
+            <button data-testid="journey-graduate-willing" :disabled="busy" @click="chooseConsent('willing')">愿意匿名分享</button>
+            <button data-testid="journey-graduate-later" :disabled="busy" @click="chooseConsent('later')">以后再说</button>
+            <button data-testid="journey-graduate-no" :disabled="busy" @click="chooseConsent('no')">不分享</button>
+          </div>
+        </template>
+      </section>
+    </div>
     <div v-if="archiveConfirmationOpen" class="archive-confirm-mask" data-testid="journey-archive-confirm">
       <section class="archive-confirm-card" role="dialog" aria-modal="true" aria-labelledby="journey-archive-title">
         <h2 id="journey-archive-title">归档这段旅程？</h2>
@@ -160,5 +239,7 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
 </template>
 
 <style scoped>
-.journey-error{margin:0;border-radius:14px;background:#fff0ed;padding:11px 13px;color:#ad4b41;font-size:14px}.loading-note{margin:0;border-radius:18px;background:rgba(255,253,247,.92);padding:28px 16px;color:#69745f;text-align:center}.archive-trigger{display:block;width:calc(100% - 24px);min-height:38px;margin:3px auto 0;border:0;border-radius:999px;background:transparent;box-shadow:none;color:#75866b;font:inherit;font-size:13px;cursor:pointer}.archive-trigger:disabled{opacity:.55;cursor:wait}.archive-confirm-mask{position:fixed;z-index:50;inset:0;display:grid;place-items:end center;padding:20px;background:rgba(26,37,31,.34);backdrop-filter:blur(2px)}.archive-confirm-card{width:min(430px,100%);padding:21px 20px calc(21px + env(safe-area-inset-bottom));border-radius:24px 24px 16px 16px;background:#fffdf7;box-shadow:0 18px 48px rgba(26,37,31,.2)}.archive-confirm-card h2{margin:0;color:#40523e;font-size:19px}.archive-confirm-card p{margin:9px 0 18px;color:#697368;font-size:13px;line-height:1.68}.archive-confirm-card>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}.archive-confirm-card button{min-height:43px;border:1px solid rgba(92,117,75,.2);border-radius:12px;background:#f5f6ee;color:#5f7354;font:inherit;cursor:pointer}.archive-confirm-card .archive-confirm-primary{border:0;background:#5f7f3e;color:#fff}.archive-confirm-card button:disabled{opacity:.55;cursor:wait}
+.journey-error{margin:0;border-radius:14px;background:#fff0ed;padding:11px 13px;color:#ad4b41;font-size:14px}.loading-note{margin:0;border-radius:18px;background:rgba(255,253,247,.92);padding:28px 16px;color:#69745f;text-align:center}.graduate-trigger { width: 100%; min-height: 40px; margin-top: 8px; border: 1px solid var(--gn-green); border-radius: 999px; background: transparent; color: var(--gn-green-dark); font: inherit; font-size: 13px; cursor: pointer; } .graduate-choices { display: grid; gap: 8px; margin-top: 6px; } .graduate-choices button { min-height: 40px; border: 1px solid var(--gn-border); border-radius: 999px; background: #fffdf8; color: var(--gn-green-dark); font: inherit; font-size: 13px; cursor: pointer; } .graduate-choices button:first-child { border-color: var(--gn-green); background: var(--gn-green); color: #fff; }
+.journey-notice { margin: 10px 0 0; border-radius: 14px; background: #eef3e6; padding: 12px; color: #4e6a49; font-size: 13px; line-height: 1.55; }
+.archive-trigger{display:block;width:calc(100% - 24px);min-height:38px;margin:3px auto 0;border:0;border-radius:999px;background:transparent;box-shadow:none;color:#75866b;font:inherit;font-size:13px;cursor:pointer}.archive-trigger:disabled{opacity:.55;cursor:wait}.archive-confirm-mask{position:fixed;z-index:50;inset:0;display:grid;place-items:end center;padding:20px;background:rgba(26,37,31,.34);backdrop-filter:blur(2px)}.archive-confirm-card{width:min(430px,100%);padding:21px 20px calc(21px + env(safe-area-inset-bottom));border-radius:24px 24px 16px 16px;background:#fffdf7;box-shadow:0 18px 48px rgba(26,37,31,.2)}.archive-confirm-card h2{margin:0;color:#40523e;font-size:19px}.archive-confirm-card p{margin:9px 0 18px;color:#697368;font-size:13px;line-height:1.68}.archive-confirm-card>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}.archive-confirm-card button{min-height:43px;border:1px solid rgba(92,117,75,.2);border-radius:12px;background:#f5f6ee;color:#5f7354;font:inherit;cursor:pointer}.archive-confirm-card .archive-confirm-primary{border:0;background:#5f7f3e;color:#fff}.archive-confirm-card button:disabled{opacity:.55;cursor:wait}
 </style>

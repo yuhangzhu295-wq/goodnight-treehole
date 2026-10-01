@@ -469,8 +469,9 @@ export class PublicController {
   }
 
   @Post('journeys/:id/action-plan')
-  async actionPlan(@Param('id') id: string, @Body() body: { content?: string }) {
-    return await this.store.generateActionPlan(id, body.content);
+  async actionPlan(@Param('id') id: string, @Body() body: { content?: string; mode?: 'initial' | 'smaller' }) {
+    const mode = body.mode === 'smaller' ? 'smaller' : 'initial';
+    return await this.store.generateActionPlan(id, body.content, mode);
   }
 
   @Post('journeys/:id/actions')
