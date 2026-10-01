@@ -35,22 +35,23 @@ rewritten; they were regression-tested:
 | ISSUE-009 follow-up entry | P2 | **FIXED_VERIFIED** | real entry + sheet; check-in writes and persists |
 | ISSUE-010 notification deep link | P2 | **FIXED_VERIFIED** | target carries `commitmentId`; read receipt decoupled from navigation |
 | ISSUE-011 graduation / handoff share | P2 | **FIXED_VERIFIED** | graduate + consent + share all reachable and persisting |
-| ISSUE-012 decorative captcha | P2 | OPEN_CONFIRMED | |
-| ISSUE-013 admin login rate limit | P2 | OPEN_CONFIRMED | |
+| ISSUE-012 decorative captcha | P2 | **FIXED_VERIFIED** | `a94e119`; the field is removed, not faked; `work/verify-login-throttle.mjs` 7/7 |
+| ISSUE-013 admin login rate limit | P2 | **FIXED_VERIFIED** | `a94e119`; real 429 with a retry hint after 5 failures per (IP, username) |
 | ISSUE-014 orphan admin endpoints | P3 | OPEN_CONFIRMED | |
 | ISSUE-015 dead aliases | P3 | OPEN_CONFIRMED | |
 | ISSUE-016 Square reachability | P3 | OPEN_CONFIRMED | product decision, not a code defect |
 | ISSUE-017 letter ownership | P1 | FIXED_VERIFIED | `ea52129`; regression above |
 | ISSUE-018 peer experience ownership | P1 | FIXED_VERIFIED | `ea52129`; regression above |
 | ISSUE-019 handoff ownership | P1 | FIXED_VERIFIED | `ea52129`; regression above |
-| ISSUE-020 hug / report counters | P2 | OPEN_CONFIRMED | |
-| ISSUE-021 monthly privacy | P2 | OPEN_CONFIRMED | |
-| ISSUE-022 memory permission | P2 | OPEN_CONFIRMED | |
-| ISSUE-023 admin error visibility | P2 | OPEN_CONFIRMED | |
-| ISSUE-024 support-plan admin render | P2 | OPEN_CONFIRMED | |
-| ISSUE-025 safety event closure | P2 | OPEN_CONFIRMED | |
+| ISSUE-020 hug counter | P2 | **FIXED_VERIFIED** | `260030b`; derived from real `HugAction` rows, idempotent per user; `work/verify-hug.mjs` 7/7 |
+| ISSUE-020 report counter | P2 | BLOCKED_ENVIRONMENT | needs a new Prisma model; `prisma generate` cannot update the runtime client on this machine |
+| ISSUE-021 monthly privacy | P2 | **FIXED_VERIFIED** | `a94e119`; caller-scoped and `allowRecoveryData`-gated; `work/verify-privacy-data.mjs` 8/8 |
+| ISSUE-022 memory permission | P2 | **FIXED_VERIFIED** | `a94e119`; correct flag for AI use, disabled memories no longer re-activate |
+| ISSUE-023 admin error visibility | P2 | **FIXED_VERIFIED** | `a94e119`; six screens now render their status line; `work/verify-admin-error-visible.mjs` 4/4 |
+| ISSUE-024 support-plan admin render | P2 | **FIXED_VERIFIED** | `a94e119`; real plan fields, real `active` column; no `[object Object]` |
+| ISSUE-025 safety event closure | P2 | OPEN_CONFIRMED | needs an acknowledgement column; same generate blocker |
 | ISSUE-026 admin search / pagination | P3 | OPEN_CONFIRMED | |
-| ISSUE-027 user note persistence | P2 | OPEN_CONFIRMED | |
+| ISSUE-027 user note persistence | P2 | OPEN_CONFIRMED | needs its own model; same generate blocker |
 | ISSUE-028 peer conversation reports | P3 | OPEN_CONFIRMED | |
 
 ## Newly found in this round
@@ -64,8 +65,21 @@ rewritten; they were regression-tested:
 ```
 OPEN_P0=0
 OPEN_P1=1            (ISSUE-007 product-side; its verification is BLOCKED_EXTERNAL)
-FAKE_BUTTON_COUNT=1  (ISSUE-012)
-FAKE_FUNCTION_COUNT=1 (ISSUE-012 is also the remaining decorative control)
+FAKE_BUTTON_COUNT=0
+FAKE_FUNCTION_COUNT=0
 WRITE_ONLY_OPERATION_COUNT=0
-DECORATIVE_SECURITY_CONTROL_COUNT=1 (ISSUE-012)
+DECORATIVE_SECURITY_CONTROL_COUNT=0
+BLOCKED_ENVIRONMENT=3 (ISSUE-020 report counter, ISSUE-025, ISSUE-027 - each needs a new
+                       Prisma model, and prisma generate cannot update the client here)
+DAPI_VERIFIED=false  (HTTP 402)
+PHYSICAL_ANDROID_VERIFIED=false (no device attached)
 ```
+
+## Fix commits in this round
+
+| Commit | Scope |
+| --- | --- |
+| `ae285b1` | ISSUE-003 - every admin setting is enforced or refused |
+| `62712f1` | ISSUE-006 / 008 / 009 / 010 / 011, plus ISSUE-029 (lost-update race) |
+| `a94e119` | ISSUE-012 / 013 / 021 / 022 / 023 / 024 |
+| `260030b` | ISSUE-020 hug counter |
