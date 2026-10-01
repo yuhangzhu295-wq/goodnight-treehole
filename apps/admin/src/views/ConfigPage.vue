@@ -17,9 +17,16 @@ const busy = ref(false);
 // Keys the running service actually reads. Served by the API so this page cannot drift
 // from the backend; a field outside the list is stored but has no effect (ISSUE-003).
 const enforcedKeys = ref<string[]>([]);
+// Keys the backend refuses to save because nothing consumes them yet. They are rendered
+// read-only so the operator cannot save a value that has no effect (ISSUE-003).
+const notImplementedKeys = ref<string[]>([]);
 
 function isEnforced(key: string) {
   return enforcedKeys.value.includes(key);
+}
+
+function isNotImplemented(key: string) {
+  return notImplementedKeys.value.includes(key);
 }
 
 const groups: SettingGroup[] = [
@@ -149,6 +156,7 @@ async function load() {
     form.value = Object.fromEntries((response.items ?? []).map((item: any) => [item.key, item.value]));
     original.value = { ...form.value };
     enforcedKeys.value = response.enforcedKeys ?? [];
+    notImplementedKeys.value = response.notImplementedKeys ?? [];
     status.value = '设置已从服务端读取';
   } catch (error: any) {
     status.value = error?.message ?? '设置加载失败';
@@ -218,10 +226,10 @@ onMounted(load);
                 <strong>{{ labels[key] }}</strong>
                 <small v-if="fieldHint(key)">{{ fieldHint(key) }}</small>
                 <small
-                  v-if="enforcedKeys.length && !isEnforced(key)"
+                  v-if="isNotImplemented(key)"
                   class="config-field-inert"
                   :data-testid="'admin-config-inert-' + key"
-                >仅保存，当前版本未接入业务逻辑</small>
+                >尚未接入业务逻辑，当前不可保存</small>
               </span>
 
               <input
@@ -230,7 +238,7 @@ onMounted(load);
                 class="config-switch"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
                 type="checkbox"
               >
               <select
@@ -238,7 +246,7 @@ onMounted(load);
                 v-model="form[key]"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
               >
                 <option value="PRIVATE">仅自己可见</option>
                 <option value="PUBLIC">匿名公开</option>
@@ -248,7 +256,7 @@ onMounted(load);
                 v-model.number="form[key]"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
                 :max="numberMax(key)"
                 min="0"
                 :step="numberStep(key)"
@@ -259,7 +267,7 @@ onMounted(load);
                 v-model="form[key]"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
                 :type="key === 'dailyDigestTime' ? 'time' : key === 'notifyEmail' ? 'email' : 'text'"
               >
             </label>

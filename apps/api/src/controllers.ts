@@ -171,9 +171,37 @@ const ENFORCED_SETTING_KEYS = [
   'appName',
   'appShortName',
   'defaultVisibility',
+  'defaultPageSize',
+  'highRiskBlockEnabled',
   'allowHumanRepliesDefault',
   'localModelFirst',
   'allowMonthlyReportShare',
+  'logRetentionDays',
+];
+
+// Settings that are stored and editable but whose behaviour is deliberately not wired yet.
+// They stay out of the operable part of the console so the operator cannot save a value
+// that looks active but does nothing (product audit ISSUE-003, closure task section 22).
+//   - the four AI keys need the remote provider to be reachable to be verified at all, and
+//     DAPI currently answers HTTP 402, so wiring them would be an unverifiable change to the
+//     failover path; they remain visible and clearly marked as not yet enforced
+//   - the notification keys have no mail transport in this project at all, so they are
+//     presented as a future capability rather than a working setting
+const NOT_IMPLEMENTED_SETTING_KEYS = [
+  // Every public post is gated by manual review already, which is a deliberate product
+  // contract; auto-publishing below a threshold would weaken moderation, so the setting
+  // has no legitimate consumer and stays read-only.
+  'manualReviewThreshold',
+  'cloudModelBackup',
+  'aiTimeoutSeconds',
+  'aiFailoverEnabled',
+  'aiRetryCount',
+  'sensitiveContentEncrypted',
+  'scheduledCacheCleanup',
+  'abnormalNotifyEnabled',
+  'notifyEmail',
+  'dailyDigestEnabled',
+  'dailyDigestTime',
 ];
 
 const EMOTION_TO_STORE: Record<string, Emotion> = {
@@ -256,7 +284,7 @@ export class PublicController {
     const item = Object.fromEntries(
       Object.entries(CONFIG_DEFAULTS).map(([key, value]) => [key, this.store.systemSettings[key]?.value ?? value]),
     );
-    return { item, enforcedKeys: ENFORCED_SETTING_KEYS };
+    return { item, enforcedKeys: ENFORCED_SETTING_KEYS, notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS };
   }
 
   @Get('tonight')
@@ -1826,8 +1854,13 @@ export class AdminController {
   }
 
   private list<T>(items: T[], pageValue?: string | number, pageSizeValue?: string | number) {
+    // `defaultPageSize` (admin 系统设置) supplies the page size when the caller does not ask
+    // for one, so the setting changes real list behaviour instead of being stored and
+    // ignored (product audit ISSUE-003).
+    const configured = Number(this.store.systemSettings.defaultPageSize?.value);
+    const fallbackSize = Number.isFinite(configured) && configured > 0 ? configured : 20;
     const page = Math.max(1, Number(pageValue ?? 1) || 1);
-    const pageSize = Math.max(1, Math.min(100, Number(pageSizeValue ?? 20) || 20));
+    const pageSize = Math.max(1, Math.min(100, Number(pageSizeValue ?? fallbackSize) || fallbackSize));
     const total = items.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const start = (page - 1) * pageSize;
@@ -2996,6 +3029,7 @@ export class AdminController {
         updatedAt: this.store.systemSettings[key]?.updatedAt,
       })),
       enforcedKeys: ENFORCED_SETTING_KEYS,
+      notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS,
     };
   }
 
@@ -3006,7 +3040,7 @@ export class AdminController {
 
   @Get('config')
   config() {
-    return { item: this.configObject(), enforcedKeys: ENFORCED_SETTING_KEYS };
+    return { item: this.configObject(), enforcedKeys: ENFORCED_SETTING_KEYS, notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS };
   }
 
   @Put('system/settings')
@@ -3015,6 +3049,13 @@ export class AdminController {
     const before = this.configObject();
     if (body.localModelFirst === true) {
       throw new BadRequestException('本地模型已被 DAPI-only 运行策略永久禁用。');
+    }
+    // A setting that is presented as a future capability must not be saved as if it were
+    // active: accepting the write would let the console report a change that has no effect
+    // (closure task sections 22 and 57).
+    const refused = Object.keys(body).filter((key) => NOT_IMPLEMENTED_SETTING_KEYS.includes(key));
+    if (refused.length > 0) {
+      throw new BadRequestException(`这些设置当前版本尚未接入业务逻辑，无法保存：${refused.join('、')}`);
     }
     for (const [key, value] of Object.entries(body)) {
       this.store.systemSettings[key] = {

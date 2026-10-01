@@ -41,6 +41,11 @@ const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
 const SUPPORTED_AI_REPLY_STYLES: readonly AIStyle[] = ['warm', 'rational', 'light', 'clear', 'poetic'];
 
+// The single high-risk pattern list. It is a deliberate, conservative literal set: it is
+// the input to `highRiskBlockEnabled`, which is an admin-controlled setting, so the list
+// has to be readable and reviewable rather than clever.
+const HIGH_RISK_PATTERN = /自杀|自伤|伤害别人|杀|暴力/;
+
 function isSupportedAiReplyStyle(value: unknown): value is AIStyle {
   return typeof value === 'string' && SUPPORTED_AI_REPLY_STYLES.includes(value as AIStyle);
 }
@@ -1207,6 +1212,7 @@ export class StoreService implements OnModuleInit {
     this.recoverInterruptedAiJobs();
     this.reconcileFavoriteCounts();
     this.reconcileLetterFavorites();
+    this.pruneAuditLogsByRetention();
     this.ensureGoodnightTwoCoverage();
     this.ensurePhaseTwoCoverage();
     this.ensureSeedCoverage();
@@ -2242,6 +2248,32 @@ export class StoreService implements OnModuleInit {
 
   getDemoUserId() {
     return 'user_demo';
+  }
+
+  /** `manualReviewThreshold` (admin 系统设置), clamped to a usable probability range. */
+  manualReviewThreshold() {
+    const configured = Number(this.systemSettings.manualReviewThreshold?.value);
+    return Number.isFinite(configured) && configured >= 0 && configured <= 1 ? configured : 0.65;
+  }
+
+  /**
+   * Enforces `logRetentionDays` (admin 系统设置) on the audit log at startup.
+   *
+   * Without this the setting was stored and never applied, so an operator lowering the
+   * retention window saw no effect (product audit ISSUE-003). The window is applied to
+   * AuditLog rows only - the operational log of admin actions - not to user content.
+   */
+  pruneAuditLogsByRetention() {
+    const configured = Number(this.systemSettings.logRetentionDays?.value);
+    const days = Number.isFinite(configured) && configured > 0 ? Math.min(3650, Math.floor(configured)) : 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const before = this.auditLogs.length;
+    const kept = this.auditLogs.filter((item) => {
+      const at = Date.parse(String(item.createdAt ?? ''));
+      return Number.isNaN(at) || at >= cutoff;
+    });
+    if (kept.length !== before) this.data.auditLogs = kept;
+    return { removed: before - kept.length, retentionDays: days };
   }
 
   /**
@@ -5022,6 +5054,11 @@ export class StoreService implements OnModuleInit {
         content: mood.content,
         visibility: 'PUBLIC',
         status: 'active',
+        // Every public post goes to manual review. This is a deliberate product contract
+        // asserted by tests/api and the business suites, and `manualReviewThreshold` must
+        // NOT be wired here: making low-risk content publish directly would weaken
+        // moderation to give a stored setting something to do. The setting is therefore
+        // classified as not-implemented and is read-only in the console (ISSUE-003).
         reviewStatus: 'pending_review',
         hugCount: 0,
         replyCount: 0,
@@ -5119,7 +5156,12 @@ export class StoreService implements OnModuleInit {
   }
 
   detectRisk(content: string) {
-    const high = /自杀|自伤|伤害别人|杀|暴力/.test(content);
+    // `highRiskBlockEnabled` (admin 系统设置) is a real switch here: when it is on, a hit on
+    // the high-risk pattern list marks the content high risk. When the operator turns it
+    // off, detection stops and the result is always low. Previously the flag was stored and
+    // never read, so the control did nothing (product audit ISSUE-003).
+    const enabled = this.systemSettings.highRiskBlockEnabled?.value !== false;
+    const high = enabled && HIGH_RISK_PATTERN.test(content);
     return { level: high ? ('high' as const) : ('low' as const), score: high ? 0.92 : 0.08 };
   }
 
