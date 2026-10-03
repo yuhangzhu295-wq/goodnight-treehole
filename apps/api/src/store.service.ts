@@ -2684,6 +2684,7 @@ export class StoreService implements OnModuleInit {
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     this.assertCanWrite(userId);
+    const userSuppliedTitle = typeof input.title === 'string' && Boolean(input.title.trim());
     const title =
       typeof input.title === 'string' && input.title.trim() ? input.title.trim().slice(0, 80) : '正在整理的一件事';
     const domain = this.text(input.domain ?? '其他', '困境领域', 40);
@@ -2813,7 +2814,12 @@ export class StoreService implements OnModuleInit {
           current.confidence = 'agent_draft';
           current.updatedAt = now();
           target.summary = String(structured.summary ?? completed.result).slice(0, 500);
-          if (typeof structured.title === 'string' && structured.title.trim())
+          // Same rule as the facts above: what the user supplied is authoritative. A title the
+          // user wrote was being replaced by the generated one ("<domain>里正在整理的一件事"),
+          // so a journey named by its owner silently lost that name a moment after creation.
+          // The generated title is still applied when the user did not supply one, which is the
+          // case it exists for.
+          if (!userSuppliedTitle && typeof structured.title === 'string' && structured.title.trim())
             target.title = structured.title.trim().slice(0, 80);
           target.updatedAt = now();
         }
