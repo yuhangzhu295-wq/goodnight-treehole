@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // ISSUE-007 (product side): when the remote model is unavailable the product degrades to a
 // safe template. That is legitimate, but the user must be told the content is a fallback and
 // not a live model reply. This drives the real mp surfaces and asserts the notice appears.

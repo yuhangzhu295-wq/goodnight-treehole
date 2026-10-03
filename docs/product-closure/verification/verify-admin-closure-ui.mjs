@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // Browser-level acceptance for the admin surfaces touched by the closure round.
 // Real entry (sidebar) -> real action (button click) -> real API -> real DB -> real refresh.
 import { chromium } from 'playwright';

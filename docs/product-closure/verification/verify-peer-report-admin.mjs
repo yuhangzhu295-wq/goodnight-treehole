@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // ISSUE-028: a report a user files against a peer conversation must reach the admin
 // back office and be readable there (reason, time, status) - it must not be written and
 // then hidden, which is what "reportedAt/reportReason are never rendered" meant.

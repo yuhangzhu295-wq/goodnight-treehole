@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // Android native verification for the closure round.
 //
 // Drives the real Capacitor WebView on the running emulator over the WebView DevTools

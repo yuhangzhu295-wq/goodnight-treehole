@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // ISSUE-025: a user-triggered risk must become a real SafetyEvent that admin can see,
 // handle, and that leaves an audit trail - with no fake button anywhere in the loop.
 //

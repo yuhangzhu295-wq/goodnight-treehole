@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // Security controls that the closure round touched or depends on, re-asserted against the running
 // stack. Each check states the control, not just a status code.
 import { PrismaClient } from '@prisma/client';

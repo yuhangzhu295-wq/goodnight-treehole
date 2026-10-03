@@ -1,4 +1,4 @@
-/* global console, fetch */
+/* global console, fetch, process */
 // ISSUE-026: admin list search and pagination must really reach the API and the dataset for
 // the experience and safety groups. Before this fix the search box sent `q` and no handler in
 // those groups read it (journeys?q=zzzznomatch returned the same rows), and no page beyond 1
