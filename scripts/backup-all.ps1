@@ -78,7 +78,11 @@ Write-Host '################ recovery evidence ################'
 # abort the archive.
 $evidenceSources = @(
   (Join-Path $repoRoot 'artifacts\recovery'),
-  (Join-Path $repoRoot 'artifacts\post-recovery')
+  (Join-Path $repoRoot 'artifacts\post-recovery'),
+  # The product-closure round keeps its evidence here: the verification scripts that were run,
+  # their captured output, the qa:all log and the emulator screenshots. It is gitignored, so
+  # this archive is the only durable copy.
+  (Join-Path $repoRoot 'artifacts\product-closure')
 ) | Where-Object { Test-Path $_ }
 $evidenceCode = 0
 if ($evidenceSources.Count -gt 0) {
