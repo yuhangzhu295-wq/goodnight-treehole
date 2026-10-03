@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T21:17:15.831Z",
+  "generatedAt": "2026-10-03T10:53:17.162Z",
   "rules": [
     "data-testid must be on the visible Chinese control itself",
     "reply sheet is a state of /pages/post/detail",
