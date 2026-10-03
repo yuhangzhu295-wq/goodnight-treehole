@@ -1863,6 +1863,18 @@ export class AdminController {
     return { items: items.slice(start, start + pageSize), page, pageSize, total, totalPages };
   }
 
+  private matchesNeedle(values: unknown[], needle: string) {
+    return values.some((value) => String(value ?? '').toLowerCase().includes(needle));
+  }
+
+  private safetyTriggerText(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return '';
+    const record = payload as Record<string, unknown>;
+    return [record.triggerExcerpt, record.intent]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .join(' · ');
+  }
+
   private dashboardData() {
     const today = new Date().toISOString().slice(0, 10);
     const dayKeys = Array.from({ length: 7 }, (_, index) => {
@@ -2034,13 +2046,22 @@ export class AdminController {
   @Get('journeys')
   adminJourneys(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    const needle = q?.trim().toLowerCase();
+    const userNames = new Map(this.store.users.map((user) => [user.id, user.nickname]));
     const items = this.store.lifeJourneys
-      .filter((item) => !status || status === 'all' || item.status === status)
+      .filter((item) => {
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle([item.id, item.userId, userNames.get(item.userId), item.title, item.domain, item.summary], needle);
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        return matchesQuery && matchesStatus;
+      })
       .map((item) => ({
         ...item,
         updates: this.store.journeyUpdates.filter((update) => update.journeyId === item.id).length,
@@ -2052,13 +2073,19 @@ export class AdminController {
   @Get('actions')
   adminActions(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    const needle = q?.trim().toLowerCase();
     return this.list(
-      this.store.actionCommitments.filter((item) => !status || status === 'all' || item.status === status),
+      this.store.actionCommitments.filter((item) => {
+        const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.title, item.description], needle);
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        return matchesQuery && matchesStatus;
+      }),
       page,
       pageSize,
     );
@@ -2067,13 +2094,19 @@ export class AdminController {
   @Get('checkins')
   adminCheckins(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    const needle = q?.trim().toLowerCase();
     return this.list(
-      this.store.outcomeCheckins.filter((item) => !status || status === 'all' || item.status === status),
+      this.store.outcomeCheckins.filter((item) => {
+        const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.journeyId, item.reflection, item.result, item.barrier], needle);
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        return matchesQuery && matchesStatus;
+      }),
       page,
       pageSize,
     );
@@ -2082,12 +2115,19 @@ export class AdminController {
   @Get('peer-experiences')
   adminPeerExperiences(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
-    const items = this.store.peerExperiences.filter((item) => !status || status === 'all' || item.status === status);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.peerExperiences.filter((item) => {
+      const matchesQuery =
+        !needle || this.matchesNeedle([item.id, item.userId, item.title, item.domain, item.subDomain, item.content], needle);
+      const matchesStatus = !status || status === 'all' || item.status === status;
+      return matchesQuery && matchesStatus;
+    });
     return this.list(items, page, pageSize);
   }
 
@@ -2110,49 +2150,79 @@ export class AdminController {
   @Get('peer-matches')
   adminPeerMatches(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
-    const items = this.store.peerMatches.filter((item) => !status || status === 'all' || item.status === status);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.peerMatches.filter((item) => {
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle([item.id, item.userId, item.peerExperienceId, item.explanation, item.requestReason, item.requestQuestion], needle);
+      const matchesStatus = !status || status === 'all' || item.status === status;
+      return matchesQuery && matchesStatus;
+    });
     return this.list(items, page, pageSize);
   }
 
   @Get('follow-ups')
   adminFollowUps(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
-    const items = this.store.followUpJobs.filter((item) => !status || status === 'all' || item.status === status);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.followUpJobs.filter((item) => {
+      const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.journeyId, item.kind], needle);
+      const matchesStatus = !status || status === 'all' || item.status === status;
+      return matchesQuery && matchesStatus;
+    });
     return this.list(items, page, pageSize);
   }
 
   @Get('notifications')
   adminNotifications(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
-    const items = this.store.notifications.filter((item) => !status || status === 'all' || item.status === status);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.notifications.filter((item) => {
+      const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.type, item.title, item.body, item.targetRoute], needle);
+      const matchesStatus = !status || status === 'all' || item.status === status;
+      return matchesQuery && matchesStatus;
+    });
     return this.list(items, page, pageSize);
   }
 
   @Get('peer-conversations')
   adminPeerConversations(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('status') status?: string,
+    @Query('reported') reported?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    const needle = q?.trim().toLowerCase();
     const items = this.store.peerConversations
-      .filter((item) => !status || status === 'all' || item.status === status)
+      .filter((item) => {
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle([item.id, item.matchId, item.starterUserId, item.receiverUserId, item.reportReason], needle);
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        const matchesReported = reported !== 'true' || Boolean(item.reportedAt);
+        return matchesQuery && matchesStatus && matchesReported;
+      })
       .map((item) => ({
         ...item,
         messageCount: this.store.peerMessages.filter((message) => message.conversationId === item.id).length,
@@ -2163,32 +2233,75 @@ export class AdminController {
   @Get('safety/events')
   safetyEvents(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
-    return this.list(this.store.safetyEvents, page, pageSize);
+    const needle = q?.trim().toLowerCase();
+    const userNames = new Map(this.store.users.map((user) => [user.id, user.nickname]));
+    const items = this.store.safetyEvents
+      .filter((event) => {
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle(
+            [event.id, event.userId, userNames.get(event.userId), this.safetyTriggerText(event.payload)],
+            needle,
+          );
+        const matchesStatus = !status || status === 'all' || event.status === status;
+        return matchesQuery && matchesStatus;
+      })
+      .map((event) => ({ ...event, triggerExcerpt: this.safetyTriggerText(event.payload) }));
+    return this.list(items, page, pageSize);
+  }
+
+  @Patch('safety/events/:id/handle')
+  async handleSafetyEvent(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status?: 'open' | 'handled'; note?: string },
+  ) {
+    const admin = this.admin(auth);
+    const existing = this.store.safetyEvents.find((event) => event.id === id);
+    if (!existing) throw new NotFoundException('安全事件不存在');
+    const before = { ...existing };
+    const result = await this.store.handleSafetyEvent(id, admin.id, body ?? {});
+    this.store.audit(admin.id, 'SAFETY_EVENT_HANDLE', 'SafetyEvent', id, before, result.item);
+    await this.store.persistAndFlush();
+    return result;
   }
 
   @Get('support/plans')
   supportPlans(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
-    return this.list(this.store.personalSupportPlans, page, pageSize);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.personalSupportPlans.filter(
+      (item) => !needle || this.matchesNeedle([item.id, item.userId, item.title, JSON.stringify(item.plan ?? {})], needle),
+    );
+    return this.list(items, page, pageSize);
   }
 
   @Get('memory')
   adminMemory(
     @Headers('authorization') auth: string,
+    @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    const needle = q?.trim().toLowerCase();
     return this.list(
-      this.store.memoryItems.filter((item) => !item.deletedAt),
+      this.store.memoryItems.filter(
+        (item) =>
+          !item.deletedAt &&
+          (!needle || this.matchesNeedle([item.id, item.userId, item.category, item.title, item.content], needle)),
+      ),
       page,
       pageSize,
     );

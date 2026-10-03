@@ -76,6 +76,17 @@ const navTestIds: Record<string, string> = {
   '/ops/feedback-categories': 'admin-nav-categories',
   '/ops/config': 'admin-nav-config',
   '/audit-logs': 'admin-nav-audit',
+  '/experience/journeys': 'admin-nav-journeys',
+  '/experience/actions': 'admin-nav-actions',
+  '/experience/checkins': 'admin-nav-checkins',
+  '/experience/peers': 'admin-nav-peers',
+  '/experience/matches': 'admin-nav-matches',
+  '/experience/follow-ups': 'admin-nav-follow-ups',
+  '/experience/peer-conversations': 'admin-nav-peer-conversations',
+  '/experience/notifications': 'admin-nav-notifications',
+  '/safety/events': 'admin-nav-safety-events',
+  '/safety/support-plans': 'admin-nav-support-plans',
+  '/safety/memory': 'admin-nav-memory',
 };
 
 function searchWorkspace() {

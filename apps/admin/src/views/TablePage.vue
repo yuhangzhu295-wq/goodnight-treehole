@@ -75,6 +75,7 @@ const actionText = ref('');
 const status = ref('');
 const busy = ref(false);
 const total = ref(0);
+const totalPages = ref(1);
 const page = ref(1);
 const pageSize = ref(20);
 const configForm = ref<Record<string, any>>({});
@@ -175,6 +176,15 @@ function statusLabel(value?: string) {
     processing: '处理中',
     resolved: '已解决',
     closed: '已关闭',
+    handled: '已处理',
+  };
+  return map[value ?? ''] ?? text(value);
+}
+
+function safetySourceLabel(value?: string) {
+  const map: Record<string, string> = {
+    journey_create: '倾诉创建',
+    support_intent: '求助意图',
   };
   return map[value ?? ''] ?? text(value);
 }
@@ -331,6 +341,9 @@ const columns = computed<Column[]>(() => {
       { key: 'matchId', label: '匹配 ID', value: (row) => row.matchId },
       { key: 'status', label: '状态', className: 'status-cell', value: (row) => row.status },
       { key: 'messageCount', label: '消息数', value: (row) => row.messageCount },
+      { key: 'report', label: '举报状态', className: 'status-cell', value: (row) => (row.reportedAt ? '已举报' : '正常') },
+      { key: 'reportReason', label: '举报原因', className: 'wide-cell', value: (row) => clip(row.reportReason ?? '') || '-' },
+      { key: 'reportedAt', label: '举报时间', value: (row) => (row.reportedAt ? time(row.reportedAt) : '-') },
       { key: 'expiresAt', label: '结束时间', value: (row) => time(row.expiresAt) },
     ],
     notifications: [
@@ -344,7 +357,9 @@ const columns = computed<Column[]>(() => {
       { key: 'id', label: '事件 ID', value: (row) => row.id },
       { key: 'userId', label: '用户', value: (row) => userName(row.userId) },
       { key: 'level', label: '风险等级', className: 'status-cell', value: (row) => row.level },
-      { key: 'source', label: '来源', value: (row) => row.source },
+      { key: 'source', label: '来源', value: (row) => safetySourceLabel(row.source) },
+      { key: 'triggerExcerpt', label: '触发文本', className: 'wide-cell', value: (row) => clip(row.triggerExcerpt ?? '') || '-' },
+      { key: 'status', label: '处理状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
       { key: 'createdAt', label: '时间', value: (row) => time(row.createdAt) },
     ],
     'support-plans': [
@@ -370,6 +385,8 @@ const filterOptions = computed(() => {
   if (props.resource === 'posts') return [['all', '全部审核'], ['pending_review', '待审核'], ['published', '已发布'], ['hidden', '已隐藏'], ['rejected', '已拒绝']];
   if (props.resource === 'replies') return [['all', '全部回应'], ['pending_review', '待审核'], ['published', '已通过'], ['blocked', '已拦截']];
   if (props.resource === 'tickets') return [['all', '全部工单'], ['open', '待处理'], ['processing', '处理中'], ['resolved', '已解决'], ['closed', '已关闭']];
+  if (props.resource === 'safety-events') return [['all', '全部安全事件'], ['open', '待处理'], ['handled', '已处理']];
+  if (props.resource === 'peer-conversations') return [['all', '全部会话'], ['reported', '已举报']];
   return [];
 });
 
@@ -440,6 +457,8 @@ function queryString() {
   if (search.value.trim()) params.set('q', search.value.trim());
   if (filter.value !== 'all') {
     if (props.resource === 'users' || props.resource === 'replies' || props.resource === 'tickets') params.set('status', filter.value);
+    if (props.resource === 'safety-events') params.set('status', filter.value);
+    if (props.resource === 'peer-conversations' && filter.value === 'reported') params.set('reported', 'true');
     if (props.resource === 'posts') params.set('reviewStatus', filter.value);
   }
   return params.toString();
@@ -459,6 +478,7 @@ async function load() {
       const res = await adminApi.get<any>(`${endpoint}?${queryString()}`);
       items.value = (res.items ?? []).map(mapRow);
       total.value = res.total ?? items.value.length;
+      totalPages.value = Math.max(1, Number(res.totalPages ?? (Math.ceil(total.value / pageSize.value) || 1)));
     }
     if (!items.value.some((item) => item.__rowId === selectedId.value)) selectedId.value = items.value[0]?.__rowId ?? '';
     status.value = `已加载 ${total.value} 条，当前显示 ${items.value.length} 条`;
@@ -477,6 +497,13 @@ function selectRow(row: any) {
 
 function closeDetail() {
   detailOpen.value = false;
+}
+
+function changePage(nextPage: number) {
+  const bounded = Math.max(1, Math.min(totalPages.value, nextPage));
+  if (bounded === page.value) return;
+  page.value = bounded;
+  load();
 }
 
 async function mutate(message: string, fn: () => Promise<unknown>) {
@@ -499,6 +526,17 @@ async function setUserStatus(value: 'normal' | 'limited' | 'banned') {
 
 async function saveUserNote() {
   await mutate('用户备注已保存', () => adminApi.post(`/api/admin/v1/users/${selected.value.id}/note`, { note: actionText.value || '后台备注', tags: ['运营关注'] }));
+}
+
+async function handleSafetyEvent(status: 'handled' | 'open') {
+  await mutate(
+    status === 'handled' ? '安全事件已标记为已处理' : '安全事件已重新打开',
+    () =>
+      adminApi.patch(`/api/admin/v1/safety/events/${selected.value.id}/handle`, {
+        status,
+        note: actionText.value || undefined,
+      }),
+  );
 }
 
 async function exportUsers() {
@@ -774,6 +812,10 @@ const detailGroups = computed<DetailGroup[]>(() => {
       { label: '匹配 ID', value: row.matchId },
       { label: '状态', value: row.status },
       { label: '消息数', value: row.messageCount },
+      { label: '举报状态', value: row.reportedAt ? '已举报' : '正常' },
+      { label: '举报原因', value: text(row.reportReason) || '-' },
+      { label: '举报时间', value: row.reportedAt ? time(row.reportedAt) : '-' },
+      { label: '举报人', value: row.reporterUserId ? text(row.reporterUserId) : '-' },
       { label: '结束时间', value: time(row.expiresAt) },
     ] }],
     notifications: () => [{ title: '用户提醒', entries: [
@@ -785,10 +827,16 @@ const detailGroups = computed<DetailGroup[]>(() => {
       { label: '状态', value: row.status },
     ] }],
     'safety-events': () => [{ title: '安全事件', entries: [
+      { label: '事件 ID', value: row.id },
       { label: '用户', value: userName(row.userId) },
       { label: '风险等级', value: row.level },
-      { label: '来源', value: row.source },
+      { label: '来源', value: safetySourceLabel(row.source) },
       { label: '触发原因', value: text(row.action) },
+      { label: '触发文本', value: text(row.triggerExcerpt) || '未记录触发文本' },
+      { label: '处理状态', value: statusLabel(row.status) },
+      { label: '处理时间', value: row.handledAt ? time(row.handledAt) : '-' },
+      { label: '处理人', value: row.handledBy ? text(row.handledBy) : '-' },
+      { label: '处理备注', value: text(row.note) || '-' },
       { label: '创建时间', value: time(row.createdAt) },
     ] }],
     'support-plans': () => [{ title: '个人支持计划', entries: [
@@ -949,6 +997,11 @@ onMounted(load);
         <button data-testid="admin-peer-hide" @click="reviewPeerExperience('hidden')">隐藏经历</button>
         <button class="danger" data-testid="admin-peer-reject" @click="reviewPeerExperience('rejected')">拒绝经历</button>
       </template>
+
+      <template v-if="resource === 'safety-events'">
+        <button class="primary" data-testid="admin-safety-handle" @click="handleSafetyEvent('handled')">标记为已处理</button>
+        <button data-testid="admin-safety-reopen" @click="handleSafetyEvent('open')">重新打开</button>
+      </template>
     </div>
 
     <div class="table-layout admin-table-layout">
@@ -981,6 +1034,19 @@ onMounted(load);
             </tr>
           </tbody>
         </table>
+        <nav v-if="resource !== 'settings'" class="table-pagination" :aria-label="`${title}分页`" data-testid="admin-table-pagination">
+          <span>共 {{ total }} 条</span>
+          <div>
+            <select v-model.number="pageSize" data-testid="admin-table-page-size" @change="page = 1; load()">
+              <option :value="10">10 条/页</option>
+              <option :value="20">20 条/页</option>
+              <option :value="50">50 条/页</option>
+            </select>
+            <button type="button" :disabled="page <= 1 || busy" data-testid="admin-table-prev-page" @click="changePage(page - 1)">上一页</button>
+            <strong>{{ page }} / {{ totalPages }}</strong>
+            <button type="button" :disabled="page >= totalPages || busy" data-testid="admin-table-next-page" @click="changePage(page + 1)">下一页</button>
+          </div>
+        </nav>
       </section>
     </div>
 
