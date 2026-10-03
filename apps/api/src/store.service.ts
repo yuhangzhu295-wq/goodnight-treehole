@@ -551,6 +551,10 @@ type SafetyEvent = {
   source: string;
   action: string;
   payload?: Record<string, unknown>;
+  status: string;
+  handledAt?: string;
+  handledBy?: string;
+  note?: string;
   createdAt: string;
 };
 type AgentDecisionLog = {
@@ -2709,7 +2713,8 @@ export class StoreService implements OnModuleInit {
         level: 'high',
         source: 'journey_create',
         action: 'real_world_support_prompt',
-        payload: { escalation: true },
+        payload: { escalation: true, triggerExcerpt: String(content).slice(0, 400) },
+        status: 'open',
         createdAt,
       });
     const job = this.queueAI({
@@ -2953,7 +2958,7 @@ export class StoreService implements OnModuleInit {
     const requiresSafetyFirst =
       intent === 'HIGH_DISTRESS' ||
       (journey.stage === 'safety_first' &&
-        this.safetyEvents.some((item) => item.journeyId === journey.id && ['high', 'critical'].includes(item.level)));
+        this.safetyEvents.some((item) => item.journeyId === journey.id && item.level === 'high'));
     if (requiresSafetyFirst) {
       journey.stage = 'safety_first';
       journey.currentIntent = 'HIGH_DISTRESS';
@@ -2966,6 +2971,7 @@ export class StoreService implements OnModuleInit {
         source: 'support_intent',
         action: 'real_world_support_prompt',
         payload: { intent },
+        status: 'open',
         createdAt: now(),
       });
     } else {
@@ -3416,6 +3422,26 @@ export class StoreService implements OnModuleInit {
     });
     await this.persistAndFlush();
     return { journey };
+  }
+
+  async handleSafetyEvent(eventId: string, adminUserId: string, input: { status?: unknown; note?: unknown }) {
+    const event = this.safetyEvents.find((item) => item.id === eventId);
+    if (!event) throw new NotFoundException('安全事件不存在');
+    const status = input.status === 'open' ? 'open' : input.status === 'handled' ? 'handled' : undefined;
+    if (!status) throw new BadRequestException('处理状态无效');
+    // Mutates in memory only: the caller writes the audit row and flushes once so the
+    // handled state and its audit entry commit in the same transaction.
+    event.status = status;
+    if (status === 'handled') {
+      event.handledAt = now();
+      event.handledBy = adminUserId;
+      event.note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : undefined;
+    } else {
+      event.handledAt = undefined;
+      event.handledBy = undefined;
+      event.note = undefined;
+    }
+    return { item: event };
   }
 
   async addJourneyUpdate(

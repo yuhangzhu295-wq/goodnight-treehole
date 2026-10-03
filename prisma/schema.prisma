@@ -714,6 +714,10 @@ model SafetyEvent {
   source    String
   action    String
   payload   Json?
+  status    String       @default("open")
+  handledAt DateTime?
+  handledBy String?
+  note      String?
   createdAt DateTime     @default(now())
 
   @@index([level, createdAt])
