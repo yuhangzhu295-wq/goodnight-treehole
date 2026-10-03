@@ -159,6 +159,8 @@ model User {
   outcomeCheckins      OutcomeCheckin[]
   peerExperiences      PeerExperience[]
   peerMatches          PeerMatch[]
+  peerReports          PeerReport[]    @relation("PeerReportReporter")
+  adminNotes           AdminUserNote[]
   peerReputation       PeerReputation?
   decisionRecords      DecisionRecord[]
   cooldownItems        CooldownItem[]
@@ -194,6 +196,26 @@ model AdminUser {
   updatedAt      DateTime        @updatedAt
   auditLogs      AuditLog[]
   moderationLogs ModerationLog[]
+  userNotes      AdminUserNote[]
+}
+
+// Operator notes about a user. Previously "saving a note" only wrote an AuditLog row, so the
+// note the operator typed was never business data and vanished on the next load (ISSUE-027).
+// Notes are append-only: a new save adds a row and the current note is the newest one that has
+// not been retracted, so an earlier note is never overwritten.
+model AdminUserNote {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authorAdminId String
+  author        AdminUser @relation(fields: [authorAdminId], references: [id])
+  content       String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([userId, createdAt])
+  @@index([userId, deletedAt])
 }
 
 model AdminRole {
@@ -516,6 +538,7 @@ model PeerExperience {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
   matches     PeerMatch[]
+  reports     PeerReport[]
 
   @@index([status, domain, stage])
   @@index([userId, createdAt])
@@ -794,13 +817,45 @@ model PeerConversation {
   closedReason String?
   feedback    String?
   feedbackNote String?
+  // Denormalised pointer to the MOST RECENT report, kept for the conversation list. The
+  // authoritative, non-overwriting history is PeerReport; these three columns exist so an
+  // operator scanning the list sees the current state without a join. They must never be
+  // treated as the record of what was reported (ISSUE-020).
   reportedAt  DateTime?
   reporterUserId String?
   reportReason String?
   messages    PeerMessage[]
+  reports     PeerReport[]
 
   @@index([starterUserId, status, expiresAt])
   @@index([receiverUserId, status, expiresAt])
+}
+
+// One row per report a user files. Replaces the previous behaviour where each report
+// overwrote the conversation's single set of report columns, so a second report destroyed the
+// first one's reason and reporter (ISSUE-020).
+model PeerReport {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   PeerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // The experience behind the conversation, when it can be resolved. Kept so the report
+  // counter and the admin list can be derived from history rather than from a bare increment.
+  experienceId   String?
+  experience     PeerExperience?  @relation(fields: [experienceId], references: [id], onDelete: SetNull)
+  matchId        String?
+  reporterUserId String
+  reporter       User             @relation("PeerReportReporter", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  reason         String
+  status         String           @default("open")
+  handledAt      DateTime?
+  handledBy      String?
+  note           String?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([experienceId, status])
+  @@index([status, createdAt])
+  @@index([reporterUserId, createdAt])
 }
 
 model PeerMessage {

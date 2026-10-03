@@ -22,7 +22,7 @@ function attachmentIds(items: Array<{ mediaAssetId: string; sortOrder: number }>
 }
 
 export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeData | undefined> {
-  const [users, adminUsers, moods, posts, replies, letters, diaries, favorites, categories, faqs, presets, tickets, settings, providers, routes, jobs, assets, audits, journeys, snapshots, journeyUpdates, commitments, checkins, peerExperiences, peerMatches, peerReputations, decisions, cooldowns, handoffs, contacts, futureMessages, supportPlans, stableSelfProfiles, memories, recoverySnapshots, safetyEvents, agentDecisionLogs, followUpJobs, notifications, peerConversations, peerMessages] = await Promise.all([
+  const [users, adminUsers, moods, posts, replies, letters, diaries, favorites, categories, faqs, presets, tickets, settings, providers, routes, jobs, assets, audits, journeys, snapshots, journeyUpdates, commitments, checkins, peerExperiences, peerMatches, peerReputations, decisions, cooldowns, handoffs, contacts, futureMessages, supportPlans, stableSelfProfiles, memories, recoverySnapshots, safetyEvents, agentDecisionLogs, followUpJobs, notifications, peerConversations, peerMessages, peerReports, adminUserNotes] = await Promise.all([
     db.user.findMany({ include: { privacySetting: true }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
     db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
@@ -64,6 +64,8 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerConversation.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerMessage.findMany({ orderBy: { createdAt: 'asc' } }),
+    db.peerReport.findMany({ orderBy: { createdAt: 'desc' } }),
+    db.adminUserNote.findMany({ orderBy: { createdAt: 'desc' } }),
   ]);
   if (!users.length) return undefined;
 
@@ -126,6 +128,8 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     notifications: notifications.map((item: any) => ({ id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? undefined, status: item.status, createdAt: iso(item.createdAt), readAt: item.readAt ? iso(item.readAt) : undefined })),
     peerConversations: peerConversations.map((item: any) => ({ id: item.id, matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status, startsAt: item.startsAt ? iso(item.startsAt) : iso(item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? iso(item.consentAcceptedAt) : undefined, expiresAt: iso(item.expiresAt), createdAt: iso(item.createdAt), closedAt: item.closedAt ? iso(item.closedAt) : undefined, closedReason: item.closedReason ?? undefined, feedback: item.feedback ?? undefined, feedbackNote: item.feedbackNote ?? undefined, reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined, reporterUserId: item.reporterUserId ?? undefined, reportReason: item.reportReason ?? undefined })),
     peerMessages: peerMessages.map((item: any) => ({ id: item.id, conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType, createdAt: iso(item.createdAt), reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined, blockedAt: item.blockedAt ? iso(item.blockedAt) : undefined, piiFlags: asArray(item.piiFlags).map(String) })),
+    peerReports: peerReports.map((item: any) => ({ id: item.id, conversationId: item.conversationId, experienceId: item.experienceId ?? undefined, matchId: item.matchId ?? undefined, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
+    adminUserNotes: adminUserNotes.map((item: any) => ({ id: item.id, userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt), deletedAt: item.deletedAt ? iso(item.deletedAt) : undefined })),
   };
 }
 
@@ -158,8 +162,10 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
   const decisionIds = new Set(asArray(state.decisionRecords).map((item: any) => item.id));
   const peerExperienceIds = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
   const userIds = new Set(users.map((item: any) => item.id));
+  const adminUserIds = new Set(asArray(state.adminUsers).map((item: any) => item.id));
   const peerMatchIds = new Set(asArray(state.peerMatches).map((item: any) => item.id));
   const peerConversationIds = new Set(asArray(state.peerConversations).map((item: any) => item.id));
+  const peerExperienceIdSet = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
 
   await db.$transaction(async (tx: DbClient) => {
     const adminUsers = asArray(state.adminUsers);
@@ -244,6 +250,12 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     await deleteAbsent(tx.journeyUpdate, asArray(state.journeyUpdates).map((item: any) => item.id));
     await deleteAbsent(tx.actionCommitment, asArray(state.actionCommitments).map((item: any) => item.id));
     await deleteAbsent(tx.peerMessage, asArray(state.peerMessages).map((item: any) => item.id));
+    // Reports are written before their conversations are pruned so the cascade never races the
+    // history: a report whose conversation is gone is filtered out here instead.
+    for (const item of asArray(state.peerReports).filter((item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.reporterUserId))) await tx.peerReport.upsert({ where: { id: item.id }, create: { id: item.id, conversationId: item.conversationId, experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null, matchId: item.matchId ?? null, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { conversationId: item.conversationId, experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null, matchId: item.matchId ?? null, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
+    await deleteAbsent(tx.peerReport, asArray(state.peerReports).map((item: any) => item.id));
+    for (const item of asArray(state.adminUserNotes).filter((item: any) => userIds.has(item.userId) && adminUserIds.has(item.authorAdminId))) await tx.adminUserNote.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null }, update: { userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, updatedAt: date(item.updatedAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null } });
+    await deleteAbsent(tx.adminUserNote, asArray(state.adminUserNotes).map((item: any) => item.id));
     await deleteAbsent(tx.peerConversation, asArray(state.peerConversations).map((item: any) => item.id));
     await deleteAbsent(tx.userNotification, asArray(state.notifications).map((item: any) => item.id));
     await deleteAbsent(tx.peerMatch, asArray(state.peerMatches).map((item: any) => item.id));

@@ -595,6 +595,28 @@ type PeerConversationRecord = {
   reporterUserId?: string;
   reportReason?: string;
 };
+type PeerReportRecord = {
+  id: string;
+  conversationId: string;
+  experienceId?: string;
+  matchId?: string;
+  reporterUserId: string;
+  reason: string;
+  status: 'open' | 'handled';
+  handledAt?: string;
+  handledBy?: string;
+  note?: string;
+  createdAt: string;
+};
+type AdminUserNoteRecord = {
+  id: string;
+  userId: string;
+  authorAdminId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+};
 type PeerMessageRecord = {
   id: string;
   conversationId: string;
@@ -697,6 +719,8 @@ interface StoreData {
   notifications: UserNotification[];
   peerConversations: PeerConversationRecord[];
   peerMessages: PeerMessageRecord[];
+  peerReports: PeerReportRecord[];
+  adminUserNotes: AdminUserNoteRecord[];
 }
 
 function seedData(): StoreData {
@@ -1190,6 +1214,8 @@ function seedData(): StoreData {
     notifications: [],
     peerConversations: [],
     peerMessages: [],
+    peerReports: [],
+    adminUserNotes: [],
   };
 }
 
@@ -1397,6 +1423,12 @@ export class StoreService implements OnModuleInit {
   }
   get peerMessages() {
     return this.data.peerMessages;
+  }
+  get peerReports() {
+    return this.data.peerReports;
+  }
+  get adminUserNotes() {
+    return this.data.adminUserNotes;
   }
 
   private ensurePhaseTwoCoverage() {
@@ -4449,14 +4481,129 @@ export class StoreService implements OnModuleInit {
   async reportPeerConversation(matchId: string, reason: unknown, requestedUserId?: string) {
     const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     const reportReason = this.text(reason, '举报原因', 300);
-    conversation.reportedAt = now();
+    const match = this.peerMatches.find((item) => item.id === matchId);
+    // One open report per (conversation, reporter). Reporting again while an earlier report is
+    // still open updates that report rather than creating a duplicate; reporting again after the
+    // previous one was handled is a new signal and does create a new row. Different reporters
+    // always get their own rows, so one user's report can never overwrite another's.
+    const existingOpen = this.peerReports.find(
+      (item) => item.conversationId === conversation.id && item.reporterUserId === userId && item.status === 'open',
+    );
+    const report: PeerReportRecord = existingOpen
+      ? { ...existingOpen, reason: reportReason, createdAt: now() }
+      : {
+          id: id('peer_report'),
+          conversationId: conversation.id,
+          experienceId: match?.peerExperienceId,
+          matchId,
+          reporterUserId: userId,
+          reason: reportReason,
+          status: 'open',
+          createdAt: now(),
+        };
+    if (existingOpen) this.peerReports[this.peerReports.indexOf(existingOpen)] = report;
+    else this.peerReports.unshift(report);
+    // These three conversation columns are only a pointer to the most recent report so the
+    // operator list can show current state without a join. PeerReport is the record of what was
+    // reported, so a later report no longer destroys an earlier one (ISSUE-020).
+    conversation.reportedAt = report.createdAt;
     conversation.reporterUserId = userId;
     conversation.reportReason = reportReason;
-    const match = this.peerMatches.find((item) => item.id === matchId);
-    const experience = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
-    if (experience) experience.reportCount += 1;
+    this.syncPeerReportCounts();
     await this.persistAndFlush();
     return { item: this.peerConversationForUser(conversation, userId) };
+  }
+
+  /**
+   * `PeerExperience.reportCount` feeds peer matching, which drops an experience's safety score
+   * once it has any report, so the counter has to stay true to the rows it summarises. It is
+   * recomputed from the report history instead of incremented: the previous bare `+= 1` drifted
+   * from the history it was supposed to represent (ISSUE-020). Every report counts, whatever its
+   * status, which is the semantic the increment had.
+   */
+  syncPeerReportCounts() {
+    for (const experience of this.peerExperiences) {
+      experience.reportCount = this.peerReports.filter((report) => report.experienceId === experience.id).length;
+    }
+  }
+
+  /** Operator view of a report: the history row plus the context needed to act on it. */
+  peerReportForAdmin(report: PeerReportRecord) {
+    const conversation = this.peerConversations.find((item) => item.id === report.conversationId);
+    const experience = report.experienceId
+      ? this.peerExperiences.find((item) => item.id === report.experienceId)
+      : undefined;
+    const reporter = this.users.find((item) => item.id === report.reporterUserId);
+    return {
+      ...report,
+      matchId: report.matchId ?? conversation?.matchId,
+      conversationStatus: conversation?.status,
+      experienceTitle: experience?.title,
+      experienceStatus: experience?.status,
+      reporterNickname: reporter?.nickname,
+      reporterAnonymousCode: reporter?.anonymousCode,
+    };
+  }
+
+  /** Mutates in memory only; the caller writes the audit row and flushes once, so the state
+   *  change and its audit entry commit together. Mirrors handleSafetyEvent. */
+  handlePeerReport(reportId: string, adminUserId: string, input: { status?: unknown; note?: unknown }) {
+    const report = this.peerReports.find((item) => item.id === reportId);
+    if (!report) throw new NotFoundException('举报记录不存在');
+    const status = input.status === 'open' ? 'open' : input.status === 'handled' ? 'handled' : undefined;
+    if (!status) throw new BadRequestException('处理状态无效');
+    report.status = status;
+    if (status === 'handled') {
+      report.handledAt = now();
+      report.handledBy = adminUserId;
+      report.note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : undefined;
+    } else {
+      report.handledAt = undefined;
+      report.handledBy = undefined;
+      report.note = undefined;
+    }
+    return { item: report };
+  }
+
+  /**
+   * Operator notes about a user. Append-only: a save adds a row, so an earlier note is never
+   * overwritten, and the "current" note is the newest one that has not been retracted. The
+   * previous implementation wrote only an AuditLog row, so the note was not business data and
+   * disappeared on the next load (ISSUE-027).
+   */
+  adminUserNoteList(userId: string) {
+    return this.adminUserNotes
+      .filter((note) => note.userId === userId && !note.deletedAt)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }
+
+  currentAdminUserNote(userId: string) {
+    return this.adminUserNoteList(userId)[0];
+  }
+
+  createAdminUserNote(userId: string, authorAdminId: string, content: unknown) {
+    if (!this.users.some((user) => user.id === userId)) throw new NotFoundException('用户不存在');
+    const noteContent = this.text(content, '备注内容', 500);
+    const timestamp = now();
+    const note: AdminUserNoteRecord = {
+      id: id('user_note'),
+      userId,
+      authorAdminId,
+      content: noteContent,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.adminUserNotes.unshift(note);
+    return note;
+  }
+
+  /** Soft delete, so the note leaves the operator view without destroying the record. */
+  deleteAdminUserNote(userId: string, noteId: string) {
+    const note = this.adminUserNotes.find((item) => item.id === noteId && item.userId === userId);
+    if (!note) throw new NotFoundException('备注不存在');
+    note.deletedAt = now();
+    note.updatedAt = now();
+    return note;
   }
 
   async blockPeerConversation(matchId: string, requestedUserId?: string) {

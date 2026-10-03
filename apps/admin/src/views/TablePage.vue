@@ -23,6 +23,7 @@ type Resource =
   | 'peer-matches'
   | 'follow-ups'
   | 'peer-conversations'
+  | 'peer-reports'
   | 'notifications'
   | 'safety-events'
   | 'support-plans'
@@ -60,6 +61,7 @@ const endpoints: Record<Resource, string> = {
   'peer-matches': '/api/admin/v1/peer-matches',
   'follow-ups': '/api/admin/v1/follow-ups',
   'peer-conversations': '/api/admin/v1/peer-conversations',
+  'peer-reports': '/api/admin/v1/peer-reports',
   notifications: '/api/admin/v1/notifications',
   'safety-events': '/api/admin/v1/safety/events',
   'support-plans': '/api/admin/v1/support/plans',
@@ -362,6 +364,15 @@ const columns = computed<Column[]>(() => {
       { key: 'status', label: '处理状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
       { key: 'createdAt', label: '时间', value: (row) => time(row.createdAt) },
     ],
+    'peer-reports': [
+      { key: 'id', label: '举报 ID', value: (row) => row.id },
+      { key: 'reporterUserId', label: '举报人', value: (row) => userName(row.reporterUserId) },
+      { key: 'reason', label: '举报原因', className: 'wide-cell', value: (row) => clip(row.reason ?? '') || '-' },
+      { key: 'status', label: '处理状态', className: 'status-cell', value: (row) => statusLabel(row.status) },
+      { key: 'experienceTitle', label: '被举报经历', value: (row) => clip(row.experienceTitle ?? '') || '-' },
+      { key: 'createdAt', label: '举报时间', value: (row) => time(row.createdAt) },
+      { key: 'handledAt', label: '处理时间', value: (row) => (row.handledAt ? time(row.handledAt) : '-') },
+    ],
     'support-plans': [
       { key: 'id', label: '计划 ID', value: (row) => row.id },
       { key: 'userId', label: '用户', value: (row) => userName(row.userId) },
@@ -387,6 +398,7 @@ const filterOptions = computed(() => {
   if (props.resource === 'tickets') return [['all', '全部工单'], ['open', '待处理'], ['processing', '处理中'], ['resolved', '已解决'], ['closed', '已关闭']];
   if (props.resource === 'safety-events') return [['all', '全部安全事件'], ['open', '待处理'], ['handled', '已处理']];
   if (props.resource === 'peer-conversations') return [['all', '全部会话'], ['reported', '已举报']];
+  if (props.resource === 'peer-reports') return [['all', '全部举报'], ['open', '待处理'], ['handled', '已处理']];
   return [];
 });
 
@@ -458,6 +470,7 @@ function queryString() {
   if (filter.value !== 'all') {
     if (props.resource === 'users' || props.resource === 'replies' || props.resource === 'tickets') params.set('status', filter.value);
     if (props.resource === 'safety-events') params.set('status', filter.value);
+    if (props.resource === 'peer-reports') params.set('status', filter.value);
     if (props.resource === 'peer-conversations' && filter.value === 'reported') params.set('reported', 'true');
     if (props.resource === 'posts') params.set('reviewStatus', filter.value);
   }
@@ -533,6 +546,17 @@ async function handleSafetyEvent(status: 'handled' | 'open') {
     status === 'handled' ? '安全事件已标记为已处理' : '安全事件已重新打开',
     () =>
       adminApi.patch(`/api/admin/v1/safety/events/${selected.value.id}/handle`, {
+        status,
+        note: actionText.value || undefined,
+      }),
+  );
+}
+
+async function handlePeerReport(status: 'handled' | 'open') {
+  await mutate(
+    status === 'handled' ? '举报已标记为已处理' : '举报已重新打开',
+    () =>
+      adminApi.patch(`/api/admin/v1/peer-reports/${selected.value.id}/handle`, {
         status,
         note: actionText.value || undefined,
       }),
@@ -818,6 +842,20 @@ const detailGroups = computed<DetailGroup[]>(() => {
       { label: '举报人', value: row.reporterUserId ? text(row.reporterUserId) : '-' },
       { label: '结束时间', value: time(row.expiresAt) },
     ] }],
+    'peer-reports': () => [{ title: '举报记录', entries: [
+      { label: '举报 ID', value: row.id },
+      { label: '举报人', value: userName(row.reporterUserId) },
+      { label: '举报原因', value: text(row.reason) || '-' },
+      { label: '处理状态', value: statusLabel(row.status) },
+      { label: '被举报经历', value: text(row.experienceTitle) || '-' },
+      { label: '经历状态', value: row.experienceStatus ? statusLabel(row.experienceStatus) : '-' },
+      { label: '会话 ID', value: text(row.conversationId) },
+      { label: '会话状态', value: row.conversationStatus ? statusLabel(row.conversationStatus) : '-' },
+      { label: '举报时间', value: time(row.createdAt) },
+      { label: '处理时间', value: row.handledAt ? time(row.handledAt) : '-' },
+      { label: '处理人', value: row.handledBy ? text(row.handledBy) : '-' },
+      { label: '处理备注', value: text(row.note) || '-' },
+    ] }],
     notifications: () => [{ title: '用户提醒', entries: [
       { label: '提醒 ID', value: row.id },
       { label: '用户', value: userName(row.userId) },
@@ -1001,6 +1039,11 @@ onMounted(load);
       <template v-if="resource === 'safety-events'">
         <button class="primary" data-testid="admin-safety-handle" @click="handleSafetyEvent('handled')">标记为已处理</button>
         <button data-testid="admin-safety-reopen" @click="handleSafetyEvent('open')">重新打开</button>
+      </template>
+
+      <template v-if="resource === 'peer-reports'">
+        <button class="primary" data-testid="admin-report-handle" @click="handlePeerReport('handled')">标记为已处理</button>
+        <button data-testid="admin-report-reopen" @click="handlePeerReport('open')">重新打开</button>
       </template>
     </div>
 

@@ -83,6 +83,7 @@ const navTestIds: Record<string, string> = {
   '/experience/matches': 'admin-nav-matches',
   '/experience/follow-ups': 'admin-nav-follow-ups',
   '/experience/peer-conversations': 'admin-nav-peer-conversations',
+  '/experience/peer-reports': 'admin-nav-peer-reports',
   '/experience/notifications': 'admin-nav-notifications',
   '/safety/events': 'admin-nav-safety-events',
   '/safety/support-plans': 'admin-nav-support-plans',

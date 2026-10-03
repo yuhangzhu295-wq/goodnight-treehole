@@ -2272,6 +2272,50 @@ export class AdminController {
     return result;
   }
 
+  // One row per report, so an operator sees every report rather than only the most recent one
+  // per conversation. The reporter identity is exposed here on purpose: acting on a report
+  // needs it, and this route sits behind AdminAuthGuard. It is never exposed to the peers.
+  @Get('peer-reports')
+  peerReports(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.peerReports
+      .filter((report) => {
+        const matchesStatus = !status || status === 'all' || report.status === status;
+        if (!matchesStatus) return false;
+        if (!needle) return true;
+        const view = this.store.peerReportForAdmin(report);
+        return this.matchesNeedle(
+          [report.id, report.reason, report.reporterUserId, view.reporterNickname, view.matchId, view.experienceTitle],
+          needle,
+        );
+      })
+      .map((report) => this.store.peerReportForAdmin(report));
+    return this.list(items, page, pageSize);
+  }
+
+  @Patch('peer-reports/:id/handle')
+  async handlePeerReport(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status?: 'open' | 'handled'; note?: string },
+  ) {
+    const admin = this.admin(auth);
+    const existing = this.store.peerReports.find((report) => report.id === id);
+    if (!existing) throw new NotFoundException('举报记录不存在');
+    const before = { ...existing };
+    const result = this.store.handlePeerReport(id, admin.id, body ?? {});
+    this.store.audit(admin.id, 'PEER_REPORT_HANDLE', 'PeerReport', id, before, result.item);
+    await this.store.persistAndFlush();
+    return result;
+  }
+
   @Get('support/plans')
   supportPlans(
     @Headers('authorization') auth: string,
@@ -2327,7 +2371,14 @@ export class AdminController {
       const matchesStatus = !status || status === 'all' || user.status === status;
       return matchesQuery && matchesStatus;
     });
-    return this.list(items, page, pageSize);
+    // The operator list carries each user's current note. The admin view read `user.note`
+    // before, which this payload never contained, so the saved note vanished on the next load
+    // (ISSUE-027).
+    const withNotes = items.map((user) => {
+      const note = this.store.currentAdminUserNote(user.id);
+      return { ...user, note: note?.content, noteUpdatedAt: note?.updatedAt };
+    });
+    return this.list(withNotes, page, pageSize);
   }
   // Declared before @Get('users/:id') on purpose. Nest matches routes in declaration
   // order, so a literal segment declared after the parameterised one is shadowed: the
@@ -2373,20 +2424,53 @@ export class AdminController {
     return { item: user };
   }
 
+  // Kept for compatibility with the existing admin call, but it now writes real business data
+  // instead of only an AuditLog row (ISSUE-027). New callers should use POST users/:id/notes.
   @Post('users/:id/note')
-  userNote(
+  async userNote(
     @Headers('authorization') auth: string,
     @Param('id') id: string,
     @Body() body: { note?: string; tags?: string[] },
   ) {
     const admin = this.admin(auth);
-    const before = this.store.auditLogs
-      .filter((item) => item.resourceType === 'User' && item.resourceId === id)
-      .slice(0, 3);
-    const item = { id, note: body.note ?? '', tags: body.tags ?? [], updatedAt: new Date().toISOString() };
-    this.store.audit(admin.id, 'USER_NOTE', 'User', id, before, item);
-    this.store.persist();
-    return { item };
+    const note = this.store.createAdminUserNote(id, admin.id, body?.note);
+    this.store.audit(admin.id, 'USER_NOTE', 'User', id, null, { noteId: note.id, content: note.content });
+    await this.store.persistAndFlush();
+    return { item: { id, note: note.content, noteId: note.id, tags: body?.tags ?? [], updatedAt: note.updatedAt } };
+  }
+
+  @Get('users/:id/notes')
+  userNotes(@Headers('authorization') auth: string, @Param('id') id: string) {
+    this.admin(auth);
+    const items = this.store.adminUserNoteList(id);
+    return { items, current: items[0] ?? null, total: items.length };
+  }
+
+  @Post('users/:id/notes')
+  async createUserNote(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { content?: string },
+  ) {
+    const admin = this.admin(auth);
+    const note = this.store.createAdminUserNote(id, admin.id, body?.content);
+    this.store.audit(admin.id, 'USER_NOTE_CREATE', 'AdminUserNote', note.id, null, note);
+    await this.store.persistAndFlush();
+    return { item: note };
+  }
+
+  @Delete('users/:id/notes/:noteId')
+  async deleteUserNote(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+  ) {
+    const admin = this.admin(auth);
+    const before = { ...(this.store.adminUserNotes.find((note) => note.id === noteId) ?? {}) };
+    const note = this.store.deleteAdminUserNote(id, noteId);
+    this.store.audit(admin.id, 'USER_NOTE_DELETE', 'AdminUserNote', noteId, before, note);
+    await this.store.persistAndFlush();
+    return { item: note };
   }
 
   @Patch('users/:id/tags')
