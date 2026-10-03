@@ -1,0 +1,10 @@
+PASS the target is the native app WebView :: https://localhost/pages/safety/index?journeyId=journey_a95a86ecec
+PASS the native app renders the tool page :: inputs=1
+PASS the native app reaches the real API and completes an AI task :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS the native app labels the fallback instead of faking a model answer :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS the native app shows the real result content :: resultCards=1
+PASS the AI job from the native app is persisted in PostgreSQL :: id=job_dfcd8d9706 status=fallback provider=provider_safe_template age=6s
+PASS the native decompose surface carries the same notice :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS the API is still serving after the native flows :: adminConfigStatus=401
+
+8/8 pass

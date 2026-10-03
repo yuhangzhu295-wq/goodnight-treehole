@@ -152,6 +152,9 @@ yield theirs). Confirmed again on the **native Android app** in `work/verify-and
 
 ## Verification evidence for this round
 
+The scripts are versioned in [`verification/`](verification/README.md) alongside their captured
+output, so each result below can be re-run rather than taken on trust.
+
 | Suite | Result |
 | --- | --- |
 | `work/verify-safety-closure.mjs` | 19/19 |

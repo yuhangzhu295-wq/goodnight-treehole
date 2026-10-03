@@ -1,0 +1,22 @@
+PASS admin login succeeds with valid credentials :: status=201
+PASS admin reads reject a missing token :: 4 routes -> 401
+PASS admin reads reject a forged token :: status=401
+PASS the new safety write route requires admin auth :: status=401
+PASS repeated login failures are throttled with 429 :: statuses=429
+PASS the 429 carries a retry hint :: retryAfterSeconds=682
+PASS a throttled identity stays blocked even with the right password :: status=429
+PASS another user's letter is not readable :: status=404
+PASS an unknown user identity is rejected on user-scoped reads :: status=404
+PASS a real user can read their own handoffs :: status=200 count=10
+PASS peer network exposes nothing while the privacy flag is off :: status=200 privacyEnabled=false experiences=0 matches=0
+PASS the journey-scoped peer route refuses while the flag is off :: status=403
+PASS peer network opens once the flag is on :: status=200 privacyEnabled=true
+PASS contact details are refused in a peer request :: phone=400 email=400 address=400 wechat=400 national id=400
+PASS a clean peer request is accepted :: status=200
+PASS the user-facing conversation payload does not expose report fields :: keys=id,matchId,status,startsAt,consentAcceptedAt,expiresAt,createdAt,messages
+PASS the counterpart does not see the report either :: status=200
+PASS privileged safety writes are audited :: SAFETY_EVENT_HANDLE rows=11
+PASS the audit row records actor, resource and before/after state :: admin=admin_1 resource=SafetyEvent/safety_cd5b89d405 before={"id":"safety_cd5b89d405","level":"high"
+PASS the admin login page ships no decorative captcha :: pageBytes=124
+
+20/20 pass

@@ -1,0 +1,11 @@
+PASS the remote model is genuinely unavailable (HTTP 402) :: Remote provider returned HTTP 402.
+PASS the tool result carries a visible degradation notice :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS the notice says the content is not a live model reply :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS the real fallback content is still shown to the user :: resultCards=1
+PASS the emotion-decompose result carries the same notice :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS a real model answer produces no notice :: ""
+PASS a fallback job produces the notice :: 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+PASS a failed job produces its own notice :: 这次生成没有完成，你可以根据自己原来的话改一处再继续。
+PASS fallbackUsed alone is enough to flag degradation :: 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+
+9/9 pass

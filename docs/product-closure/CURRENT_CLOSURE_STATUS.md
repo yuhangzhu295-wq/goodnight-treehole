@@ -7,6 +7,11 @@ claim. Where a row still rests on the previous round's regression run, it says s
 
 Status vocabulary: `FIXED_VERIFIED` / `OPEN` / `BLOCKED_EXTERNAL` / `BLOCKED_ENVIRONMENT`.
 
+The scripts behind every result below are versioned in
+[`verification/`](verification/README.md), together with the output each one produced. They were
+authored in `work/`, which `.gitignore` excludes; they are mirrored there so the citations in these
+documents point at files a reader can actually open and re-run.
+
 Round scope (the five items the closure round was asked to close): ISSUE-025, ISSUE-026,
 ISSUE-028, the Prisma environment blocker, and DAPI.
 
