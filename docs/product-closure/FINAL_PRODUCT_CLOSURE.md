@@ -16,7 +16,7 @@ ALL_CORE_FLOW=true
 ANDROID_VERIFIED=true
 ADMIN_VERIFIED=true
 QA_ALL_PASS=false        <-- 13 of 14 steps pass; test:cross is blocked on the DAPI balance
-BACKUP_SAFE=true
+BACKUP_SAFE=false        <-- bundle/mirror/pg_dump/evidence all verified; 8 commits not pushed
 ```
 
 ## What this round changed
@@ -164,17 +164,26 @@ yield theirs). Confirmed again on the **native Android app** in `work/verify-and
 
 ## Why the tag was not created
 
-The round's rule is explicit: the tag requires `QA_ALL_PASS=true`, among other gates. `pnpm qa:all`
-runs 14 steps; 13 pass and the 14th is `test:cross`, whose single failing case is
-`uses the supplied remote DAPI and persists the completed AiJob`. That test exists to prove the live
-provider path works — it asserts `providerId: 'provider_dapi_deepseek'`, `status: 'succeeded'`,
-`fallbackUsed: false`. It cannot pass while the account returns 402, and weakening it to accept a
-fallback would delete the only test that covers the real DAPI integration. It was therefore left
-intact and the gate is reported as false.
+Two gates are false, for two different reasons.
 
-To reach `FULL_PRODUCT_VERIFIED`, the owner needs to fund the DeepSeek account (or supply a working
-primary key), then re-run `pnpm test:cross` and `pnpm qa:all`. Everything else in the gate list is
-already satisfied and reproducible.
+**1. `QA_ALL_PASS=false` — externally blocked.** The round's rule is explicit: the tag requires
+`QA_ALL_PASS=true`, among other gates. `pnpm qa:all` runs 14 steps; 13 pass and the 14th is
+`test:cross`, whose single failing case is `uses the supplied remote DAPI and persists the completed
+AiJob`. That test exists to prove the live provider path works — it asserts
+`providerId: 'provider_dapi_deepseek'`, `status: 'succeeded'`, `fallbackUsed: false`. It cannot pass
+while the account returns 402, and weakening it to accept a fallback would delete the only test that
+covers the real DAPI integration. It was therefore left intact and the gate is reported as false.
+
+**2. `BACKUP_SAFE=false` — one push short.** `scripts/backup-all.ps1` produced and verified the
+bundle (53,680,223 bytes), the mirror, the `pg_dump` (18,742,030 bytes, 34,470 entries, 52 live
+tables) and the evidence archive (28,474,212 bytes, 89 files, now including
+`artifacts/product-closure`). The only failing component is `backup-code`'s integrity check: the
+branch is 8 commits ahead of `origin/codex/post-recovery-validation`. Publishing to GitHub was not
+authorised in this round, so it was not done — `git push` on this branch is the single action needed.
+
+To reach `FULL_PRODUCT_VERIFIED`: fund the DeepSeek account (or supply a working primary key), push
+the branch, then re-run `pnpm test:cross` and `pnpm qa:all`. Every other gate in the list is already
+satisfied and reproducible from the commands in `CURRENT_CLOSURE_STATUS.md`.
 
 ## Remaining open items (recorded, not hidden)
 

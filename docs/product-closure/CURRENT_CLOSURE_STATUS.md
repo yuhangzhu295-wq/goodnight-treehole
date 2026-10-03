@@ -96,9 +96,30 @@ DAPI_VERIFIED=false           (HTTP 402 on the primary, HTTP 401 on the secondar
 ANDROID_VERIFIED=true
 ADMIN_VERIFIED=true
 QA_ALL_PASS=false             (13 of 14 steps pass; test:cross is blocked on the DAPI balance)
-BACKUP_SAFE=true
+BACKUP_SAFE=false             (bundle, mirror, pg_dump and evidence all verified, but 8 commits
+                               exist only on this machine - see below)
 FULL_PRODUCT_VERIFIED=false   (QA_ALL_PASS is false, so the verified tag is NOT created)
 ```
+
+## Backup state
+
+`scripts/backup-all.ps1` run at 2026-10-03 19:22.
+
+| Component | Result | Detail |
+| --- | --- | --- |
+| bundle | created | `goodnight-treehole-20261003-1922.bundle`, 53,680,223 bytes, HEAD `1b8cc91` |
+| mirror | created | `goodnight-treehole.git`, integrity check ran |
+| pg_dump | PASS | 18,742,030 bytes, 34,470 archive entries, `pg_restore --list` readable, 52 live tables |
+| minio | PASS | reachable on 19000; no application objects are stored there (uploads are local files) |
+| evidence | PASS | 28,474,212 bytes, 89 files from 3 source dirs, now including `artifacts/product-closure` |
+| **code backup** | **FAIL** | 8 commits on `codex/post-recovery-validation` are not on `origin/codex/post-recovery-validation` |
+
+`backup-code` treats "the work exists only on this machine" as an unsafe backup, so
+`BACKUP_SAFE` is **false**. The bundle and mirror are valid and were verified — the repository is
+recoverable from them — but the branch is 8 commits ahead of `origin` (0 behind), and every earlier
+round's report shows `unpushedCount: 0`, so pushing is the project's normal step. Pushing was **not**
+performed here: it publishes to GitHub and the round was not authorised to do it. `git push` on this
+branch is the single action needed to turn this gate true.
 
 ## Gate evidence
 
