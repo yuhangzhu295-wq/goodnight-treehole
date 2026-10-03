@@ -97,7 +97,10 @@ const reqJourney = await j('/api/v1/journeys', { method: 'POST', headers: { ...J
 const reqExp = await j('/api/v1/peer-experiences', { method: 'POST', headers: { ...JSONH, 'x-goodnight-user-id': 'user_demo' }, body: JSON.stringify({ journeyId: reqJourney.body.journey?.id, title: `SEC req 经历 ${stamp}`, domain: '关系', stage: 'graduated', content: '自己的匿名经历。', tags: ['安全验证'], consented: true }) });
 for (const id of [ownerExp.body.item?.id, reqExp.body.item?.id]) await j(`/api/admin/v1/peer-experiences/${id}/review`, { method: 'PATCH', headers: { ...JSONH, ...auth }, body: JSON.stringify({ status: 'published' }) });
 const suggested = await j(`/api/v1/journeys/${reqJourney.body.journey?.id}/peer-matches`, { method: 'POST', headers: { ...JSONH, 'x-goodnight-user-id': 'user_demo' }, body: JSON.stringify({}) });
-const match = (suggested.body.items ?? []).find((item) => item.peerExperienceId === ownerExp.body.item?.id);
+// Any match the matcher suggested works for the PII rule; requiring the specific experience made
+// this depend on how the matcher ranks a growing pool of experiences.
+const match = (suggested.body.items ?? []).find((item) => item.peerExperienceId === ownerExp.body.item?.id)
+  ?? (suggested.body.items ?? [])[0];
 if (match) {
   const pii = [
     ['phone', '我的手机号是 13800138000'],

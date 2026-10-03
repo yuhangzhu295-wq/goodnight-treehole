@@ -3,24 +3,24 @@ PASS privacy allows peer matching for user_demo :: status=200
 PASS admin login :: status=201
 PASS owner publishes a consented experience :: status=201
 PASS requester publishes a consented experience :: status=201
-PASS admin publishes experience experience_dde85de :: status=200
-PASS admin publishes experience experience_50d453a :: status=200
+PASS admin publishes experience experience_63f9de0 :: status=200
+PASS admin publishes experience experience_0d71bfa :: status=200
 PASS the requester is matched to the owner experience :: status=201 candidates=1
 PASS requester sends a real match request :: status=200
 PASS owner accepts the request :: status=201
-PASS consent opens a real conversation :: status=201 conversationId=peer_conversation_e32b61af42
+PASS consent opens a real conversation :: status=201 conversationId=peer_conversation_c012cced49
 PASS user report is accepted :: status=201
 PASS the user-facing response does not leak the reporter identity :: reporterUserId=undefined keys=id,matchId,status,startsAt,consentAcceptedAt,expiresAt,createdAt,messages
-PASS the reported conversation reaches the admin list :: status=200 total=3
-PASS admin list carries the report reason :: reportReason="CLOSURE-REPORT-1791026345368 对方一直索要我的真实联系方式"
-PASS admin list carries the report time :: reportedAt=2026-10-03T11:19:35.360Z
+PASS the reported conversation reaches the admin list :: status=200 total=6
+PASS admin list carries the report reason :: reportReason="CLOSURE-REPORT-1791056092393 对方一直索要我的真实联系方式"
+PASS admin list carries the report time :: reportedAt=2026-10-03T19:35:54.434Z
 PASS admin list carries the reporter identity :: reporterUserId=user_demo
 PASS admin list carries the conversation status :: status=active
-PASS reported=true returns the reported conversation :: total=3
-PASS reported=true excludes unreported conversations :: rows=3
+PASS reported=true returns the reported conversation :: total=6
+PASS reported=true excludes unreported conversations :: rows=6
 PASS admin search matches the report reason :: total=1
 PASS admin search really filters (no match -> 0 rows) :: total=0
-PASS report is persisted in PostgreSQL :: reportReason="CLOSURE-REPORT-1791026345368 对方一直索要我的真实联" reportedAt=2026-10-03T11:19:35.360Z
+PASS report is persisted in PostgreSQL :: reportReason="CLOSURE-REPORT-1791056092393 对方一直索要我的真实联" reportedAt=2026-10-03T19:35:54.434Z
 PASS the admin conversation list requires auth :: status=401
 
 24/24 pass

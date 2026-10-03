@@ -1,18 +1,18 @@
-PASS user journey with high-risk text is accepted :: status=201 journeyId=journey_6f389bc43b
+PASS user journey with high-risk text is accepted :: status=201 journeyId=journey_c10a446359
 PASS admin login :: status=201
 PASS the risk produced a SafetyEvent visible in admin :: status=200 total=1
-PASS the triggering text is persisted on the event :: triggerExcerpt="CLOSURE-SAFETY-1791026329294 我又有了自杀的念头，撑不住了"
+PASS the triggering text is persisted on the event :: triggerExcerpt="CLOSURE-SAFETY-1791056058271 我又有了自杀的念头，撑不住了"
 PASS a new event starts open :: status=open
 PASS safety search really filters (no match -> 0 rows) :: total=0
-PASS safety search matches the owning user :: total=18
-PASS pagination returns distinct pages with a stable total :: total=18 totalPages=9 page1=2 page2=2
+PASS safety search matches the owning user :: total=21
+PASS pagination returns distinct pages with a stable total :: total=21 totalPages=11 page1=2 page2=2
 PASS admin can mark the event handled :: status=200
-PASS handle records time, actor and note :: handledAt=2026-10-03T11:18:56.387Z handledBy=admin_1
+PASS handle records time, actor and note :: handledAt=2026-10-03T19:34:35.169Z handledBy=admin_1
 PASS handling writes an AuditLog row :: SAFETY_EVENT_HANDLE with before=open after=handled
-PASS handled events leave the open queue :: open=16 handled=2
-PASS handled state is persisted in PostgreSQL :: status=handled handledAt=2026-10-03T11:18:56.387Z
-PASS audit trail is persisted in PostgreSQL :: auditId=audit_3e64b7af48
-PASS trigger text is persisted in the DB payload :: payload={"escalation":true,"triggerExcerpt":"CLOSURE-SAFETY-17910263
+PASS handled events leave the open queue :: open=18 handled=3
+PASS handled state is persisted in PostgreSQL :: status=handled handledAt=2026-10-03T19:34:35.169Z
+PASS audit trail is persisted in PostgreSQL :: auditId=audit_e33584ddb8
+PASS trigger text is persisted in the DB payload :: payload={"escalation":true,"triggerExcerpt":"CLOSURE-SAFETY-17910560
 PASS an event can be reopened :: status=open
 PASS an invalid status is rejected :: status=400
 PASS an unknown event is rejected :: status=404

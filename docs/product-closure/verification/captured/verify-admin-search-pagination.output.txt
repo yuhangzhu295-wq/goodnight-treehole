@@ -2,8 +2,8 @@ PASS admin login :: status=201
 PASS a real memory item exists for the list to page through :: status=201
 PASS journeys: search finds a real row by id :: total=1 expected>=1
 PASS journeys: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS journeys: page size is honoured and the total is the full dataset :: total=47 totalPages=10 expected=10
-PASS journeys: page 2 returns a different slice :: total=47 page1=5 page2=5 disjoint=true
+PASS journeys: page size is honoured and the total is the full dataset :: total=68 totalPages=14 expected=14
+PASS journeys: page 2 returns a different slice :: total=68 page1=5 page2=5 disjoint=true
 PASS journeys: page size is clamped to a sane maximum :: pageSize=100
 PASS actions: search finds a real row by id :: total=1 expected>=1
 PASS actions: search is not a no-op (nonsense query -> 0 rows) :: total=0
@@ -17,13 +17,13 @@ PASS checkins: page 2 returns a different slice :: total=24 page1=5 page2=5 disj
 PASS checkins: page size is clamped to a sane maximum :: pageSize=100
 PASS peer-experiences: search finds a real row by id :: total=1 expected>=1
 PASS peer-experiences: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS peer-experiences: page size is honoured and the total is the full dataset :: total=10 totalPages=2 expected=2
-PASS peer-experiences: page 2 returns a different slice :: total=10 page1=5 page2=5 disjoint=true
+PASS peer-experiences: page size is honoured and the total is the full dataset :: total=24 totalPages=5 expected=5
+PASS peer-experiences: page 2 returns a different slice :: total=24 page1=5 page2=5 disjoint=true
 PASS peer-experiences: page size is clamped to a sane maximum :: pageSize=100
 PASS peer-matches: search finds a real row by id :: total=1 expected>=1
 PASS peer-matches: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS peer-matches: page size is honoured and the total is the full dataset :: total=6 totalPages=2 expected=2
-PASS peer-matches: page 2 returns a different slice :: total=6 page1=5 page2=1 disjoint=true
+PASS peer-matches: page size is honoured and the total is the full dataset :: total=13 totalPages=3 expected=3
+PASS peer-matches: page 2 returns a different slice :: total=13 page1=5 page2=5 disjoint=true
 PASS peer-matches: page size is clamped to a sane maximum :: pageSize=100
 PASS follow-ups: search finds a real row by id :: total=1 expected>=1
 PASS follow-ups: search is not a no-op (nonsense query -> 0 rows) :: total=0
@@ -32,18 +32,18 @@ PASS follow-ups: page 2 returns a different slice :: total=27 page1=5 page2=5 di
 PASS follow-ups: page size is clamped to a sane maximum :: pageSize=100
 PASS notifications: search finds a real row by id :: total=1 expected>=1
 PASS notifications: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS notifications: page size is honoured and the total is the full dataset :: total=14 totalPages=3 expected=3
-PASS notifications: page 2 returns a different slice :: total=14 page1=5 page2=5 disjoint=true
+PASS notifications: page size is honoured and the total is the full dataset :: total=24 totalPages=5 expected=5
+PASS notifications: page 2 returns a different slice :: total=24 page1=5 page2=5 disjoint=true
 PASS notifications: page size is clamped to a sane maximum :: pageSize=100
 PASS peer-conversations: search finds a real row by id :: total=1 expected>=1
 PASS peer-conversations: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS peer-conversations: page size is honoured and the total is the full dataset :: total=2 totalPages=1 expected=1
-PASS peer-conversations: page 2 returns a different slice :: total=2 page1=2 page2=0 disjoint=true
+PASS peer-conversations: page size is honoured and the total is the full dataset :: total=5 totalPages=1 expected=1
+PASS peer-conversations: page 2 returns a different slice :: total=5 page1=5 page2=0 disjoint=true
 PASS peer-conversations: page size is clamped to a sane maximum :: pageSize=100
 PASS safety-events: search finds a real row by id :: total=1 expected>=1
 PASS safety-events: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS safety-events: page size is honoured and the total is the full dataset :: total=18 totalPages=4 expected=4
-PASS safety-events: page 2 returns a different slice :: total=18 page1=5 page2=5 disjoint=true
+PASS safety-events: page size is honoured and the total is the full dataset :: total=21 totalPages=5 expected=5
+PASS safety-events: page 2 returns a different slice :: total=21 page1=5 page2=5 disjoint=true
 PASS safety-events: page size is clamped to a sane maximum :: pageSize=100
 PASS support-plans: search finds a real row by id :: total=1 expected>=1
 PASS support-plans: search is not a no-op (nonsense query -> 0 rows) :: total=0
@@ -52,8 +52,8 @@ PASS support-plans: page 2 returns a different slice :: total=1 page1=1 page2=0 
 PASS support-plans: page size is clamped to a sane maximum :: pageSize=100
 PASS memory: search finds a real row by id :: total=1 expected>=1
 PASS memory: search is not a no-op (nonsense query -> 0 rows) :: total=0
-PASS memory: page size is honoured and the total is the full dataset :: total=2 totalPages=1 expected=1
-PASS memory: page 2 returns a different slice :: total=2 page1=2 page2=0 disjoint=true
+PASS memory: page size is honoured and the total is the full dataset :: total=3 totalPages=1 expected=1
+PASS memory: page 2 returns a different slice :: total=3 page1=3 page2=0 disjoint=true
 PASS memory: page size is clamped to a sane maximum :: pageSize=100
 PASS a malformed page falls back to page 1 :: page=1 pageSize=20
 

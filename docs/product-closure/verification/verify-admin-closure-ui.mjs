@@ -80,7 +80,13 @@ const afterItem = (afterApi.items ?? []).find((item) => item.id === firstId);
 record('clicking 标记为已处理 really writes through the API', afterItem?.status === 'handled' && Boolean(afterItem?.handledAt),
   `status=${afterItem?.status} handledAt=${afterItem?.handledAt}`);
 
-const rowStatusAfter = (await page.getByTestId('safety-events-row-first').locator('td').allInnerTexts()).join(' | ');
+// The admin reloads its list after a write; a single read races that reload, so poll for it.
+let rowStatusAfter = '';
+for (let attempt = 0; attempt < 30; attempt += 1) {
+  rowStatusAfter = (await page.getByTestId('safety-events-row-first').locator('td').allInnerTexts()).join(' | ');
+  if (rowStatusAfter.includes('已处理')) break;
+  await page.waitForTimeout(400);
+}
 record('the table refreshes and shows the new state', rowStatusAfter.includes('已处理'), rowStatusAfter.replace(/\n/g, ' ').slice(0, 120));
 
 // the handled event must leave the 待处理 filter

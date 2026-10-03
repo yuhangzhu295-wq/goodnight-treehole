@@ -1,20 +1,20 @@
 PASS admin login through the real form :: http://127.0.0.1:5174/dashboard
 PASS safety page is reachable from the sidebar :: http://127.0.0.1:5174/safety/events
 PASS safety table shows the trigger text and the handled state :: 事件 ID | 用户 | 风险等级 | 来源 | 触发文本 | 处理状态 | 时间
-PASS the first row carries a real event id :: id=safety_cd5b89d405
-PASS an open event renders as 待处理 before handling :: safety_cd5b89d405 | 晚安旅人 / 树洞 0427 | high | 倾诉创建 | CLOSURE-SAFETY-1791026329294 我又有了自杀的... | 待处理 | 2026/10/3 19:18:49
+PASS the first row carries a real event id :: id=safety_3cf8ba590c
+PASS an open event renders as 待处理 before handling :: safety_3cf8ba590c | 晚安旅人 / 树洞 0427 | high | 倾诉创建 | CLOSURE-SAFETY-1791056058271 我又有了自杀的... | 待处理 | 2026/10/4 03:34:18
 PASS selecting a row opens the detail drawer :: drawer visible
-PASS the safety drawer shows the trigger text and the handled state :: 记录详情 安全事件 × 安全事件 事件 ID safety_cd5b89d405 用户 晚安旅人 / 树洞 0427 风险等级 high 来源 倾诉创建 触发原因 real_world_support_prompt 触发文本 CLOSURE-SAFETY-1791026329294 我又有了自杀的念头，撑不住了 处理状
-PASS clicking 标记为已处理 really writes through the API :: status=handled handledAt=2026-10-03T11:19:46.188Z
-PASS the table refreshes and shows the new state :: safety_cd5b89d405 | 晚安旅人 / 树洞 0427 | high | 倾诉创建 | CLOSURE-SAFETY-1791026329294 我又有了自杀的... | 已处理 | 2026/10/3 19:18:49
-PASS the 待处理 filter excludes the handled event :: openRows=16 containsHandled=false
+PASS the safety drawer shows the trigger text and the handled state :: 记录详情 安全事件 × 安全事件 事件 ID safety_3cf8ba590c 用户 晚安旅人 / 树洞 0427 风险等级 high 来源 倾诉创建 触发原因 real_world_support_prompt 触发文本 CLOSURE-SAFETY-1791056058271 我又有了自杀的念头，撑不住了 处理状
+PASS clicking 标记为已处理 really writes through the API :: status=handled handledAt=2026-10-03T19:43:27.748Z
+PASS the table refreshes and shows the new state :: safety_3cf8ba590c | 晚安旅人 / 树洞 0427 | high | 倾诉创建 | CLOSURE-SAFETY-1791056058271 我又有了自杀的... | 已处理 | 2026/10/4 03:34:18
+PASS the 待处理 filter excludes the handled event :: openRows=18 containsHandled=false
 PASS searching a nonsense query shows the empty state :: emptyCells=1
-PASS the pager moves to page 2 and shows a different slice :: pager1=共 18 条 10 条/页 20 条/页 50 条/页 上一页1 / 2下一页 pager2=共 18 条 10 条/页 20 条/页 50 条/页 上一页2 / 2下一页
-PASS the pager returns to page 1 :: 共 18 条 10 条/页 20 条/页 50 条/页 上一页1 / 2下一页
+PASS the pager moves to page 2 and shows a different slice :: pager1=共 21 条 10 条/页 20 条/页 50 条/页 上一页1 / 3下一页 pager2=共 21 条 10 条/页 20 条/页 50 条/页 上一页2 / 3下一页
+PASS the pager returns to page 1 :: 共 21 条 10 条/页 20 条/页 50 条/页 上一页1 / 3下一页
 PASS peer-conversations page is reachable from the sidebar :: http://127.0.0.1:5174/experience/peer-conversations
 PASS the conversation table renders report reason, time and state :: 会话 ID | 匹配 ID | 状态 | 消息数 | 举报状态 | 举报原因 | 举报时间 | 结束时间
-PASS a reported conversation is visibly marked :: 已举报 | CLOSURE-REPORT-1791026345368 对方一直索要我... | 2026/10/3 19:19:35
-PASS the 已举报 filter only shows reported conversations :: rows=3 allReported=true
-PASS the detail drawer exposes reason, time and reporter :: 记录详情 匿名会话 × 匿名会话 会话 ID peer_conversation_e32b61af42 匹配 ID peer_match_f08d2bc857 状态 active 消息数 0 举报状态 已举报 举报原因 CLOSURE-REPORT-1791026345368 对方一直索要我的真实联系方式 举报时间 2
+PASS a reported conversation is visibly marked :: 已举报 | RC-REPORT-A4-1791056158258 补充说明 | 2026/10/4 03:37:22
+PASS the 已举报 filter only shows reported conversations :: rows=7 allReported=true
+PASS the detail drawer exposes reason, time and reporter :: 记录详情 匿名会话 × 匿名会话 会话 ID peer_conversation_89cba4cbd6 匹配 ID peer_match_66e64045dc 状态 active 消息数 0 举报状态 已举报 举报原因 RC-REPORT-A4-1791056158258 补充说明 举报时间 2026/10/4 03:
 
 18/18 pass

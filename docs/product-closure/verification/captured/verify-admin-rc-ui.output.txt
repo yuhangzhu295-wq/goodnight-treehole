@@ -1,0 +1,18 @@
+PASS admin login through the real form :: http://127.0.0.1:5174/dashboard
+PASS the report queue is reachable from the sidebar :: http://127.0.0.1:5174/experience/peer-reports
+PASS the report table renders reporter, reason and state :: 举报 ID | 举报人 | 举报原因 | 处理状态 | 被举报经历 | 举报时间 | 处理时间
+PASS there is an open report to work :: openReports=4
+PASS the first row carries a real report id :: id=peer_report_b43c485f68
+PASS an open report renders as 待处理 :: peer_report_b43c485f68 | 晚安旅人 / 树洞 0427 | RC-REPORT-A4-1791056158258 补充说明 | 待处理 | RC-RPT 经历 1791056158258 | 20
+PASS the report drawer shows reason, time and reporter :: 记录详情 举报处理 × 举报记录 举报 ID peer_report_b43c485f68 举报人 晚安旅人 / 树洞 0427 举报原因 RC-REPORT-A4-1791056158258 补充说明 处理状态 待处理 被举报经历 RC-RPT 经历 179
+PASS clicking 标记为已处理 writes through the API :: status=handled handledAt=2026-10-03T19:38:29.676Z
+PASS the row leaves the 待处理 list after handling :: openRows=3
+PASS the report appears under 已处理 :: row-updated
+PASS the user drawer opens :: drawer visible
+PASS the note history block renders :: history element present
+PASS saving a note appends it to the visible history :: history-updated
+PASS the saved note is persisted for that user :: userId=user_demo items=5
+PASS deleting through the UI removes the note :: before=5 after=4
+PASS the history refreshes after the delete :: history-updated
+
+16/16 pass
