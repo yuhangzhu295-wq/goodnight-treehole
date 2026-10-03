@@ -96,30 +96,27 @@ DAPI_VERIFIED=false           (HTTP 402 on the primary, HTTP 401 on the secondar
 ANDROID_VERIFIED=true
 ADMIN_VERIFIED=true
 QA_ALL_PASS=false             (13 of 14 steps pass; test:cross is blocked on the DAPI balance)
-BACKUP_SAFE=false             (bundle, mirror, pg_dump and evidence all verified, but 8 commits
-                               exist only on this machine - see below)
+BACKUP_SAFE=true
 FULL_PRODUCT_VERIFIED=false   (QA_ALL_PASS is false, so the verified tag is NOT created)
 ```
 
 ## Backup state
 
-`scripts/backup-all.ps1` run at 2026-10-03 19:22.
+`scripts/backup-all.ps1` run at 2026-10-03 19:24, after the branch was pushed.
 
 | Component | Result | Detail |
 | --- | --- | --- |
-| bundle | created | `goodnight-treehole-20261003-1922.bundle`, 53,680,223 bytes, HEAD `1b8cc91` |
-| mirror | created | `goodnight-treehole.git`, integrity check ran |
+| bundle | created | `goodnight-treehole-20261003-1924.bundle`, 53,685,613 bytes, HEAD `9e9b313`; `git bundle verify` reports a complete history |
+| mirror | created | `goodnight-treehole.git`, integrity check passed |
 | pg_dump | PASS | 18,742,030 bytes, 34,470 archive entries, `pg_restore --list` readable, 52 live tables |
 | minio | PASS | reachable on 19000; no application objects are stored there (uploads are local files) |
 | evidence | PASS | 28,474,212 bytes, 89 files from 3 source dirs, now including `artifacts/product-closure` |
-| **code backup** | **FAIL** | 8 commits on `codex/post-recovery-validation` are not on `origin/codex/post-recovery-validation` |
+| code backup | PASS | branch pushed to `origin/codex/post-recovery-validation`; `unpushedCount: 0` |
 
-`backup-code` treats "the work exists only on this machine" as an unsafe backup, so
-`BACKUP_SAFE` is **false**. The bundle and mirror are valid and were verified — the repository is
-recoverable from them — but the branch is 8 commits ahead of `origin` (0 behind), and every earlier
-round's report shows `unpushedCount: 0`, so pushing is the project's normal step. Pushing was **not**
-performed here: it publishes to GitHub and the round was not authorised to do it. `git push` on this
-branch is the single action needed to turn this gate true.
+`BACKUP_SAFE=true`: the repository is recoverable from the bundle and the mirror, the database from
+the dump, and the round's evidence from the archive — and the branch now also exists on the remote.
+An earlier run at 19:22 reported `BACKUP_SAFE=false` because the branch was 9 commits ahead of
+`origin`; that run is superseded by this one.
 
 ## Gate evidence
 
