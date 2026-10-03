@@ -54,13 +54,14 @@ unchanged — but surfaced by accumulated data and worth recording before an RC.
 upsert per row across all 54 tables, with `{ maxWait: 10_000, timeout: 30_000 }`. Its cost is
 proportional to the total number of rows.
 
-Measured on the development database (12,558 live rows; AIJob 189, Journey 75, JourneyUpdate 118,
-AuditLog 267), timing three consecutive writes that each trigger a flush:
+Measured on the development database, timing three consecutive writes that each trigger a flush
+(raw output: `artifacts/product-closure/evidence/flush-timing.txt`; 12,599 live rows at capture time,
+AIJob 195, Journey 81, JourneyUpdate 124, AuditLog 274):
 
 ```
-attempt 1: HTTP 201 in  6,401 ms
-attempt 2: HTTP 201 in 16,297 ms
-attempt 3: HTTP 201 in 19,924 ms
+attempt 1: HTTP 201 in  7,508 ms
+attempt 2: HTTP 201 in 12,900 ms
+attempt 3: HTTP 201 in 16,423 ms
 ```
 
 Each write adds rows, so each subsequent flush is slower. One admin login during back-to-back
@@ -87,6 +88,15 @@ is recorded rather than attempted. Raising the transaction timeout would only mo
 500 was observed once, during rapid back-to-back writes on a database that had grown from this round's
 own test traffic. The suites that ran afterwards were re-captured and pass. The finding is about the
 ceiling, not about the results below it.
+
+## Which documents are current
+
+`RC_STATUS.md`, `RC_QA_MATRIX.md` and the four verification documents are the current state. The
+previous closure round's set — `FINAL_PRODUCT_CLOSURE.md`, `CURRENT_CLOSURE_STATUS.md`,
+`ADMIN_FINAL_MATRIX.md`, `ANDROID_FINAL_MATRIX.md`, `SECURITY_FINAL_MATRIX.md` — is kept as the record
+of that round and is **stale on the two issues this round fixed**: it lists ISSUE-020 (report counter)
+and ISSUE-027 (user note) as open, and `BACKUP_SAFE` as false. Both issues are closed in this round and
+`BACKUP_SAFE` is true. Read this document first.
 
 ## What this round changed
 

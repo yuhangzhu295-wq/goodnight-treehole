@@ -1,5 +1,11 @@
 # FINAL PRODUCT CLOSURE
 
+> **Superseded for current status.** This is the record of the closure round that ended at `c2eaeb6`.
+> A later release-candidate round closed ISSUE-020 (report history) and ISSUE-027 (user note), fixed
+> the migration reproducibility problem, and made `BACKUP_SAFE` true. For the current state read
+> [`RC_STATUS.md`](RC_STATUS.md) and [`RC_QA_MATRIX.md`](RC_QA_MATRIX.md); the two issues named as
+> open below are no longer open.
+
 **`FULL_PRODUCT_VERIFIED` = `false`.**
 
 The closure round closed every issue it was given, plus the one remaining P1. It did **not** reach

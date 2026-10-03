@@ -122,12 +122,15 @@ Details in `DAPI_FINAL_VERIFICATION.md`.
 
 ## Fake-control re-scan
 
-| Counter | Value | Basis |
-| --- | --- | --- |
-| `FAKE_BUTTON_COUNT` | 0 | `test:click-all` asserts, per interaction, that the expected API call and/or URL was actually observed. 124/124 interactions pass, so no audited control is inert. |
-| `FAKE_FUNCTION_COUNT` | 0 | same run; plus the closure suites assert persistence after each write |
-| `WRITE_ONLY_OPERATION_COUNT` | 0 | the two write-only operations found in the audit were closed this round: the user note now persists a real row, and the peer report now has history. Both asserted against PostgreSQL. |
-| `DECORATIVE_SECURITY_CONTROL_COUNT` | 0 | the decorative captcha is gone (`verify-login-throttle.mjs` 7/7) and throttling is real (429 with a retry hint) |
+These counters are claims about the **audited surface**, not about every route that exists. The scope
+is stated so the numbers cannot be read as broader than they are.
+
+| Counter | Value | Basis | Scope |
+| --- | --- | --- | --- |
+| `FAKE_BUTTON_COUNT` | 0 | `test:click-all` asserts, per interaction, that the expected API call and/or URL was observed. 124/124 pass. | the 124 interactions in `tests/interaction-manifest.front.json` and `…admin.json` |
+| `FAKE_FUNCTION_COUNT` | 0 | same run, plus every closure suite asserts persistence after the write | same 124 interactions |
+| `WRITE_ONLY_OPERATION_COUNT` | 0 | the two write-only operations found in the audit were closed this round: the user note now persists a real row, and the peer report now has history. Both asserted against PostgreSQL. | controls reachable from the product UI. **Not a claim that no endpoint anywhere echoes its input** — `PATCH/POST users/:id/tags` does exactly that and is recorded as an open P3 in `RC_STATUS.md`. It is unreachable from the UI, so it is not a product-facing write-only control. |
+| `DECORATIVE_SECURITY_CONTROL_COUNT` | 0 | the decorative captcha is gone (`verify-login-throttle.mjs` 7/7), throttling is real (429 with a retry hint), and the dead captcha CSS was removed from the admin stylesheet this round | admin login surface |
 
 ## Security
 
@@ -146,8 +149,32 @@ below were re-captured afterwards and pass; the finding is about the ceiling abo
 
 ## Why `QA_ALL_PASS` is false
 
-Exactly one assertion in the whole matrix fails: `tests/cross/cross.spec.ts` expects a live
+Exactly one assertion **inside `qa:all`** fails: `tests/cross/cross.spec.ts` expects a live
 `provider_dapi_deepseek` job with `status: 'succeeded'` and `fallbackUsed: false`, and the account
 returns HTTP 402. It is the only coverage of the real DAPI integration, so it was left intact rather
-than weakened to accept a fallback. Funding the account and re-running `pnpm test:cross` and
-`pnpm qa:all` is the whole remedy; no code change is needed.
+than weakened to accept a fallback.
+
+Outside `qa:all`, the same class of assertion fails in the suites above: the four `test:peer-stage-*`
+invocations (one spec), `test:third-stage-memory` and `test:third-stage-monthly-report`, plus
+`test:dapi-live` and `tests/business/third-stage-monthly-report.spec.ts`. So "one failing assertion"
+is true of the gate, not of the whole matrix — the matrix has six AI-success assertions that cannot
+pass without a funded account. For the peer path the cause is proven directly, not inferred: a probe
+of the same endpoint records `taskType=peer_response_assist`, `status=failed`,
+`providerId=provider_dapi_deepseek`, `fallbackUsed=false`, error `... HTTP 402`
+(`artifacts/product-closure/evidence/dapi-live.txt`).
+
+Funding the account and re-running `pnpm test:cross` and `pnpm qa:all` is the whole remedy; no code
+change is needed.
+
+## Raw evidence
+
+The captured outputs in `docs/product-closure/verification/captured/` are the versioned record of the
+verification scripts. Three claims rest on commands whose output is kept in
+`artifacts/product-closure/evidence/` instead, because they are shell proofs rather than scripts:
+
+| File | Proves |
+| --- | --- |
+| `migration-reproducibility.txt` | the three `migrate diff` results, the empty database, `migrate deploy` applying 12 migrations, 0 → 54 tables |
+| `flush-timing.txt` | the row counts, the three timed writes, and the transaction settings the flush uses |
+| `dapi-live.txt` | the provider probes, the `test:dapi-live` output including its native assertion, the job status counts, and the peer-assist probe |
+| `rc-qa-all.log` | the full `qa:all` run, ANSI-stripped |

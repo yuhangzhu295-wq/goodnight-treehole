@@ -5,25 +5,36 @@
 
 ## What was tested
 
-`pnpm test:dapi-live`, which drives a real `AiJob` through the application's own provider
-configuration — `DAPI_API_KEY`, `DAPI_BASE_URL`, `DAPI_MODEL` — and requires the job to end
-`succeeded` with `providerId = provider_dapi_deepseek` and `fallbackUsed = false`.
+Two things, and they are not the same kind of evidence.
 
-Result: **failed**. The provider refuses the work:
+**1. The provider probe — clean evidence.** `POST /api/admin/v1/ai/providers/provider_dapi_deepseek/test`
+drives the application's own provider configuration (`DAPI_API_KEY`, `DAPI_BASE_URL`, `DAPI_MODEL`):
 
 ```
-POST /api/admin/v1/ai/providers/provider_dapi_deepseek/test
 {"ok":false,"message":"Remote provider returned HTTP 402.",
  "item":{"ok":false,"providerId":"provider_dapi_deepseek","modelName":"deepseek-chat",
          "durationMs":0,"result":"Remote provider returned HTTP 402."}}
 ```
 
-The secondary provider is also unusable:
+`durationMs: 0` — the request never reached a model. The secondary provider is also unusable:
 
 ```
-POST /api/admin/v1/ai/providers/provider_openai_remote/test
 {"ok":false,"message":"Remote provider returned HTTP 401."}
 ```
+
+**2. `pnpm test:dapi-live` — the script does not fail cleanly, and this is recorded as it is.**
+It prints `DAPI provider test did not succeed.` and then aborts on a native Node assertion:
+
+```
+DAPI provider test did not succeed.
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76
+ELIFECYCLE Command failed with exit code 3221226505.
+```
+
+So it cannot be described as "failing only because of the 402": it reports the provider failure and
+then dies on a Windows teardown assertion while unwinding. The 402 itself is evidenced by the probe
+above and by the per-job records below, not by this script's exit path. Raw output:
+`artifacts/product-closure/evidence/dapi-live.txt`.
 
 HTTP 402 is "payment required" — the DeepSeek account has no balance. HTTP 401 is an invalid key.
 Neither is a code defect and neither can be fixed from inside the repository.
@@ -64,6 +75,25 @@ the database are `fallback` with the message
 
 These are all the same class: an assertion that a model answered. They are recorded as
 `BLOCKED_EXTERNAL`, not as passes and not as product failures.
+
+**How the peer-assist attribution was proven rather than inferred.** The four `test:peer-stage-*`
+scripts run against a transient test database that is dropped when they exit, so their job records
+cannot be queried afterwards and the earlier draft of this document attributed their failure to the
+402 without direct evidence. Probing the same path against the development API settles it:
+
+```
+POST /api/v1/peer-conversations/:matchId/assist -> 201, job job_5577dff6b3
+terminal status: failed
+DB job: {"taskType":"peer_response_assist","status":"failed","providerId":"provider_dapi_deepseek",
+         "fallbackUsed":false,
+         "error":"provider_dapi_deepseek:Remote provider returned HTTP 402. | provider_dapi_deepseek:Remote "}
+```
+
+Two things this shows. The peer assist job is `failed` **because of the 402**, with the provider error
+recorded on the job. And it is `failed` rather than `fallback` because `fallbackUsed: false` — the
+peer assist route has no fallback template, so an unavailable provider fails it outright instead of
+producing template text. That is why the peer spec sees `failed` where the tool, decompose and report
+paths see `fallback`.
 
 ## What is verified instead
 
