@@ -578,6 +578,11 @@ model DecisionRecord {
   cooldowns CooldownItem[]
 
   @@index([userId, status, updatedAt])
+  // Declared by 20260821003000_third_stage_decision_vault, which creates this index to
+  // look up a user's open cooldowns. The declaration was lost from the schema while the
+  // migration kept creating it, so `migrate diff` reported the index as removable. The
+  // migration and the database are authoritative here; the schema is the stale side.
+  @@index([userId, cooldownUntil])
 }
 
 model CooldownItem {
@@ -685,7 +690,11 @@ model MemoryItem {
   expiresAt   DateTime
   deletedAt   DateTime?
   createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  // 20260820020000_third_stage_memory_transparency adds this column as
+  // `TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`. The schema omitted the default, so
+  // `migrate diff` wanted to drop it from the database. The migration is authoritative;
+  // the schema now declares the default it has always had.
+  updatedAt   DateTime     @default(now()) @updatedAt
 
   @@index([userId, expiresAt])
   @@index([userId, status, expiresAt])

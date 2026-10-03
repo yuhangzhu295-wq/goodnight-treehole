@@ -9,18 +9,29 @@ const port = process.env.TEST_PG_PORT ?? process.env.PGPORT ?? '5432';
 const user = 'goodnight';
 const password = process.env.TEST_PG_PASSWORD ?? process.env.PGPASSWORD ?? 'goodnight';
 const database = process.env.TEST_PG_DATABASE ?? 'goodnight_treehole';
-const allMigrations = [
-  '20260712000000_runtime_state',
-  '20260808010000_hidden_post',
-  '20260816000000_goodnight_2_incremental',
-  '20260819000000_second_stage_peer_support',
-  '20260820010000_third_stage_stable_self',
-  '20260820020000_third_stage_memory_transparency',
-  '20260821003000_third_stage_decision_vault',
-  '20260821004000_third_stage_future_self_context',
-  '20260821005000_third_stage_privacy_2',
-] as const;
-const baseMigrations = allMigrations.slice(0, 4);
+// Discovered from the migrations directory rather than listed by hand. The previous hardcoded
+// list is why nobody noticed that `20261001000000_action_plan_mode` had been applied locally
+// with no file in the repository: this check simply never looked at it, so a database that could
+// run and a source tree that could not be rebuilt from zero both passed. Reading the directory
+// means a new migration is covered the moment it is added.
+const migrationsDir = path.resolve('prisma', 'migrations');
+async function trackedMigrations(): Promise<string[]> {
+  const entries = await fs.readdir(migrationsDir, { withFileTypes: true });
+  const names = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  for (const name of names) {
+    const sql = path.join(migrationsDir, name, 'migration.sql');
+    try {
+      await fs.access(sql);
+    } catch {
+      throw new Error(`Migration directory ${name} has no migration.sql; the repository cannot rebuild from zero.`);
+    }
+  }
+  if (!names.length) throw new Error('No migrations found; refusing to report a pass.');
+  return names;
+}
 const reportPath = path.resolve('artifacts', 'test-report', 'third-stage-migration-verification.json');
 
 function executable(name: string) {
@@ -176,6 +187,10 @@ function seedUpgradeFixture(schema: string) {
 }
 
 async function main() {
+  const allMigrations = await trackedMigrations();
+  // The first four are the pre-third-stage set; the upgrade path applies them, seeds rows that
+  // must survive, then applies the rest.
+  const baseMigrations = allMigrations.slice(0, 4);
   const suffix = `${process.pid}_${Date.now().toString(36)}`;
   const freshSchema = `gn_migration_test_fresh_${suffix}`;
   const upgradeSchema = `gn_migration_test_upgrade_${suffix}`;
