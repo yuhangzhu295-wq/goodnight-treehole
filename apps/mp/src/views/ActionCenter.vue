@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { ActionBarrier, ActionRecommendation, AdaptiveActionResult } from '@goodnight/shared-types';
 import { api } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import PrimaryActionCard from '../components/action/PrimaryActionCard.vue';
 import AdaptiveActionSheet from '../components/action/AdaptiveActionSheet.vue';
 import ActionFollowupStrip from '../components/action/ActionFollowupStrip.vue';
@@ -18,6 +20,7 @@ const home = ref<any>(null);
 const journeyDetail = ref<any>(null);
 const loading = ref(true);
 const error = ref('');
+const aiNotice = ref('');
 const planning = ref(false);
 const recommendation = ref<ActionRecommendation | null>(null);
 const completionSheetOpen = ref(false);
@@ -82,6 +85,7 @@ async function waitForJob<T extends Record<string, unknown>>(jobId: string) {
     const task = await api.get<{ status: string; result?: string; structured?: T }>(`/api/v1/ai/tasks/${jobId}`);
     if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
       if (task.status === 'failed') throw new Error('这次没有形成可确认的行动');
+      aiNotice.value = aiDegradationNotice(task);
       return task;
     }
   }
@@ -97,6 +101,7 @@ async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
   planning.value = true;
   recommendation.value = null;
   error.value = '';
+  aiNotice.value = '';
   try {
     const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, { content: currentJourney.value?.summary, mode });
     const task = await waitForJob<Record<string, unknown>>(queued.job.id);
@@ -186,6 +191,7 @@ async function chooseBarrier(barrier: ActionBarrier) {
   adaptiveResult.value = null;
   adapting.value = true;
   error.value = '';
+  aiNotice.value = '';
   try {
     if (!missedRecorded.value) {
       await api.post(`/api/v1/actions/${missedAction.value.id}/checkin`, {
@@ -420,6 +426,7 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
           <small>{{ followUpMessage(followUpTarget) }} 现在告诉我结果就好。</small>
         </span>
       </button>
+      <AiDegradationNotice :notice="aiNotice" />
       <PrimaryActionCard
         :mode="mainMode"
         :title="mainMode === 'accepted' ? activeAction?.title : recommendation?.title"

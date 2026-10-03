@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import { copyText } from '../clipboard';
 
 type DecomposeResult = { triggerEvent: string; coreEmotions: string[]; realNeeds: string[]; nextSmallStep: string; summary?: string };
@@ -13,6 +15,7 @@ const copied = ref(false);
 const saved = ref(false);
 const loading = ref(false);
 const message = ref('');
+const aiNotice = ref('');
 const count = computed(() => content.value.length);
 
 function displayPrompt(value: unknown) {
@@ -35,6 +38,7 @@ async function poll(id: string) {
     const state = await api.get<any>(`/api/v1/ai/tasks/${id}`);
     if (!['queued', 'running'].includes(state.status)) {
       if (!['succeeded', 'fallback'].includes(state.status)) throw new Error(state.job?.errorMessage ?? '情绪拆解失败');
+      aiNotice.value = aiDegradationNotice(state);
       return state.structured;
     }
     await new Promise((resolve) => window.setTimeout(resolve, 350));
@@ -43,7 +47,7 @@ async function poll(id: string) {
 }
 
 async function run() {
-  loading.value = true; message.value = '';
+  loading.value = true; message.value = ''; aiNotice.value = '';
   try {
     const queued = await api.post<any>('/api/v1/ai/tasks', { taskType: 'emotion_analysis', content: content.value || '我说不清楚自己为什么难受。', style: 'rational', sourceId: `emotion_${Date.now()}` });
     const structured = await poll(queued.jobId);
@@ -69,10 +73,12 @@ async function restoreExistingResult() {
   if (!jobId) return;
   loading.value = true;
   message.value = '';
+  aiNotice.value = '';
   try {
     const state = await api.get<any>(`/api/v1/ai/tasks/${encodeURIComponent(jobId)}`);
     const structured = ['queued', 'running'].includes(state.status) ? await poll(jobId) : state.structured;
     if (!['succeeded', 'fallback'].includes(state.status) && !structured) throw new Error(state.job?.errorMessage ?? '情绪拆解任务尚未完成');
+    aiNotice.value = aiDegradationNotice(state);
     const prompt = displayPrompt(state.job?.promptSummary ?? content.value);
     const restored = toResult(structured);
     if (/^(?:ROUTE|FLOW|DECOMPOSE)_/i.test(restored.triggerEvent)) restored.triggerEvent = prompt;
@@ -96,6 +102,7 @@ onMounted(() => { void restoreExistingResult(); });
     <p class="decompose-guide" aria-label="情绪拆解说明">把情绪理清楚，才能温柔地照顾自己</p>
     <article class="decompose-input-card"><div class="section-heading"><h2>此刻的你，想拆解什么情绪呢？</h2><span>{{ count }}/1000</span></div><textarea v-model="content" class="textarea" data-testid="input-decompose" maxlength="1000" placeholder="比如：今天被一句话影响了很久，我不知道自己为什么这么难过……" /><button class="submit-wide" data-testid="btn-decompose-run" :disabled="loading" @click="run">{{ loading ? '拆解中…' : '开始拆解' }}</button></article>
     <section v-if="result" class="decompose-result-section" data-testid="decompose-result-card">
+      <AiDegradationNotice :notice="aiNotice" />
       <h2><span class="decompose-result-title-mark" aria-hidden="true">⌁</span>拆解结果</h2>
       <article class="decompose-result-card">
         <div class="result-block" data-tone="event"><span class="result-icon" aria-hidden="true">♡</span><div class="result-copy"><strong>触发事件</strong><p>{{ result.triggerEvent }}</p></div></div>

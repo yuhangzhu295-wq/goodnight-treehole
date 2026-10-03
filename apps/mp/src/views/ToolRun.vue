@@ -2,7 +2,9 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
 import { copyText } from '../clipboard';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import ToolTaskContracts from '../components/ToolTaskContracts.vue';
 
 const route = useRoute();
@@ -14,6 +16,7 @@ const saved = ref(false);
 const copied = ref(false);
 const loading = ref(false);
 const error = ref('');
+const aiNotice = ref('');
 
 const type = computed(() => {
   const alias = String(route.path.split('/').pop() ?? '');
@@ -38,11 +41,13 @@ async function restoreLatestResult() {
   saved.value = false;
   copied.value = false;
   error.value = '';
+  aiNotice.value = '';
   try {
     const latest = await api.get<any>(`/api/v1/ai/tasks/latest?taskType=${encodeURIComponent(type.value)}`);
     if (!latest.item?.result) return;
     jobId.value = latest.item.id;
     result.value = latest.item.result;
+    aiNotice.value = aiDegradationNotice({ status: latest.item.status, job: latest.item });
     if (latest.item.promptSummary) input.value = latest.item.promptSummary;
   } catch (cause: any) {
     error.value = cause?.message ?? '无法恢复最近的生成结果';
@@ -69,11 +74,13 @@ async function runTool() {
   saved.value = false;
   copied.value = false;
   error.value = '';
+  aiNotice.value = '';
   try {
     const queued = await api.post<any>('/api/v1/ai/tasks', { taskType: type.value, content: input.value, sourceId: `tool_${Date.now()}` });
     jobId.value = queued.jobId;
     const completed = await poll(queued.jobId);
     result.value = completed.result;
+    aiNotice.value = aiDegradationNotice(completed);
   } catch (cause: any) {
     error.value = cause?.message ?? '生成失败，请稍后再试';
   } finally {
@@ -104,6 +111,7 @@ async function copyResult() {
       <button class="submit-wide" data-testid="btn-tool-run-submit" :disabled="loading" @click="runTool">{{ loading ? '生成中…' : meta.action }}</button>
       <p v-if="loading" class="tool-job-status">正在排队并生成（任务 {{ jobId || '创建中' }}）</p>
     </article>
+    <AiDegradationNotice :notice="aiNotice" />
     <article v-if="result" class="decompose-result-card" data-testid="tool-run-result-card">
       <h2>{{ type === 'negative_rewrite' ? '更温和但不虚假的表达' : '生成结果' }}</h2>
       <p class="tool-original" v-if="type === 'negative_rewrite'"><strong>原始表达：</strong>{{ input }}</p>

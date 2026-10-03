@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
@@ -24,6 +26,7 @@ const statusText = ref('');
 const activeAdvice = ref('water');
 const busyAction = ref('');
 const aiStructured = ref<Record<string, any>>({});
+const aiNotice = ref('');
 const loading = ref(true);
 const loadError = ref('');
 
@@ -89,7 +92,8 @@ async function load() {
     if (res.jobId && !res.item.content) {
       busyAction.value = 'initial';
       statusText.value = '正在生成今日回信';
-      await waitForAiJob(res.jobId);
+      const completed = await waitForAiJob(res.jobId);
+      aiNotice.value = aiDegradationNotice(completed);
       const refreshed = await api.get<{ item: Letter }>('/api/v1/letters/today');
       letter.value = refreshed.item;
       style.value = refreshed.item.style || style.value;
@@ -115,6 +119,7 @@ async function regenerate(nextStyle = style.value) {
     const completed = await waitForAiJob(res.jobId);
     letter.value = { ...letter.value, content: completed.result, style: nextStyle, savedToDiary: false };
     aiStructured.value = completed.structured ?? {};
+    aiNotice.value = aiDegradationNotice(completed);
     activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
     statusText.value = '回信已换成新的语气';
   } catch (error) {
@@ -201,6 +206,8 @@ onMounted(load);
       <p class="letter-content">{{ letter.content }}</p>
       <p class="signature">{{ signatureText }} ♧</p>
     </article>
+
+    <AiDegradationNotice :notice="aiNotice" />
 
     <div class="letter-actions">
       <button data-testid="btn-letter-regenerate" @click="regenerate()">

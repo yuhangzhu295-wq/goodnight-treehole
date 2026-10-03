@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -18,6 +20,7 @@ const saved = ref(false);
 const summaryLoading = ref(false);
 const adviceLoading = ref(false);
 const loadError = ref('');
+const aiNotice = ref('');
 
 async function waitForAiJob(jobId: string) {
   const deadline = Date.now() + 120_000;
@@ -113,11 +116,13 @@ async function loadMonths() {
 
 async function load() {
   loadError.value = '';
+  aiNotice.value = '';
   try {
     report.value = (await api.get<any>(`/api/v1/reports/monthly?month=${encodeURIComponent(month.value)}`)).item;
     if (report.value.aiJobId && !report.value.summary && ['queued', 'running'].includes(report.value.aiJobStatus)) {
       summaryLoading.value = true;
       const completed = await waitForAiJob(report.value.aiJobId);
+      aiNotice.value = aiDegradationNotice(completed);
       for (let attempt = 0; attempt < 8; attempt += 1) {
         report.value = (await api.get<any>(`/api/v1/reports/monthly?month=${encodeURIComponent(month.value)}`)).item;
         if (report.value.summary || !['succeeded', 'fallback'].includes(completed.status)) break;
@@ -164,11 +169,13 @@ function saveShareImage() {
 async function loadAdvice() {
   if (!report.value) return;
   loadError.value = '';
+  aiNotice.value = '';
   try {
     advice.value = (await api.get<any>(`/api/v1/reports/monthly/${encodeURIComponent(report.value.month)}/advice`)).item;
     if (advice.value.aiJobId && !advice.value.content && ['queued', 'running'].includes(advice.value.aiJobStatus)) {
       adviceLoading.value = true;
-      await waitForAiJob(advice.value.aiJobId);
+      const completed = await waitForAiJob(advice.value.aiJobId);
+      aiNotice.value = aiDegradationNotice(completed);
       advice.value = (await api.get<any>(`/api/v1/reports/monthly/${encodeURIComponent(report.value.month)}/advice`)).item;
     }
   } catch (cause: any) {
@@ -197,6 +204,8 @@ onMounted(async () => {
       <h1>这个月，你是怎么<br>走过来的？</h1>
       <button class="monthly-month" data-testid="filter-report-month" @click="monthOpen = true"><span data-visual-mask="time">{{ monthLabel }}</span>⌄</button>
     </header>
+
+    <AiDegradationNotice :notice="aiNotice" />
 
     <section class="monthly-brief" aria-label="本月旅程小结">
       <h2>✦ 本月旅程小结</h2>

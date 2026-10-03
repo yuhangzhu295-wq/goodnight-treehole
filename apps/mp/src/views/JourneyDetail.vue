@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { SupportIntent } from '@goodnight/shared-types';
 import { api } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import JourneyFlowShell from '../components/journey/JourneyFlowShell.vue';
 import SituationConfirmationScreen from '../components/journey/SituationConfirmationScreen.vue';
 import EmotionTemperatureScreen from '../components/journey/EmotionTemperatureScreen.vue';
@@ -22,6 +24,7 @@ const loading = ref(true);
 const busy = ref(false);
 const analysisBusy = ref(false);
 const error = ref('');
+const aiNotice = ref('');
 const flowStep = ref<FlowStep>('confirm');
 const later = ref('');
 const archiveConfirmationOpen = ref(false);
@@ -59,10 +62,15 @@ async function load({ infer = true } = {}) {
 const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 async function waitForAnalysis(jobId: string) {
   analysisBusy.value = true;
+  aiNotice.value = '';
   try {
     for (let attempt = 0; attempt < 36; attempt += 1) {
       const task = await api.get<{ status: string }>(`/api/v1/ai/tasks/${jobId}`);
-      if (['succeeded', 'fallback', 'failed'].includes(task.status)) { if (task.status === 'failed') error.value = '这次整理暂时没有完成，你可以根据原话自己改一处。'; break; }
+      if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
+        if (task.status === 'failed') error.value = '这次整理暂时没有完成，你可以根据原话自己改一处。';
+        aiNotice.value = aiDegradationNotice(task);
+        break;
+      }
       await sleep(500);
     }
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '经历整理状态没有更新'; } finally { analysisBusy.value = false; await load(); }
@@ -185,6 +193,7 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
 <template>
   <JourneyFlowShell :mode="flowStep" :title="sceneCopy.title" :subtitle="sceneCopy.subtitle" @back="router.back()">
     <p v-if="error" class="journey-error" role="alert">{{ error }}</p>
+    <AiDegradationNotice :notice="aiNotice" />
     <p v-if="loading && !detail" class="loading-note">正在打开这段经历…</p>
     <template v-if="detail">
       <SituationConfirmationScreen v-if="flowStep === 'confirm' && detail.snapshot" :snapshot="detail.snapshot" :busy="busy" :analyzing="analysisBusy" @confirm="confirmSituation" @reanalyze="reanalyze" />
