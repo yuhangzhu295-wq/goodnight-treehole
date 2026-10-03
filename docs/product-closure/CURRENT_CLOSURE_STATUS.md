@@ -102,21 +102,25 @@ FULL_PRODUCT_VERIFIED=false   (QA_ALL_PASS is false, so the verified tag is NOT 
 
 ## Backup state
 
-`scripts/backup-all.ps1` run at 2026-10-03 19:24, after the branch was pushed.
+`scripts/backup-all.ps1` finished **PASS** — all four components green. The authoritative record is
+the report set in the backup root (`C:\Users\zyu33\Backups\backup-all-*.json`,
+`backup-code-*.json`, `goodnight-treehole-db\backup-db-*.json`).
 
 | Component | Result | Detail |
 | --- | --- | --- |
-| bundle | created | `goodnight-treehole-20261003-1924.bundle`, 53,685,613 bytes, HEAD `9e9b313`; `git bundle verify` reports a complete history |
-| mirror | created | `goodnight-treehole.git`, integrity check passed |
+| bundle | PASS | `goodnight-treehole-20261003-2029.bundle`, 53,684,302 bytes, `git bundle verify` reports a complete history |
+| mirror | PASS | `goodnight-treehole.git`, integrity check passed |
 | pg_dump | PASS | 18,742,030 bytes, 34,470 archive entries, `pg_restore --list` readable, 52 live tables |
 | minio | PASS | reachable on 19000; no application objects are stored there (uploads are local files) |
 | evidence | PASS | 28,474,212 bytes, 89 files from 3 source dirs, now including `artifacts/product-closure` |
-| code backup | PASS | branch pushed to `origin/codex/post-recovery-validation`; `unpushedCount: 0` |
+| code backup | PASS | `unpushedCount: 0` — branch pushed to `origin/codex/post-recovery-validation` |
 
-`BACKUP_SAFE=true`: the repository is recoverable from the bundle and the mirror, the database from
-the dump, and the round's evidence from the archive — and the branch now also exists on the remote.
-An earlier run at 19:22 reported `BACKUP_SAFE=false` because the branch was 9 commits ahead of
-`origin`; that run is superseded by this one.
+`BACKUP_SAFE=true`. The repository is recoverable from the bundle and the mirror, the database from
+the dump, and the round's evidence from the archive; the branch also exists on the remote.
+
+Two earlier runs in the same session reported `FAIL` on `backup-code` only, because the nine closure
+commits existed solely on this machine. They were superseded once the branch was pushed; the push is
+recorded in the remote's `87fb958..9e9b313` and `9e9b313..72e6926` updates.
 
 ## Gate evidence
 
