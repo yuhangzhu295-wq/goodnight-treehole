@@ -107,7 +107,44 @@ and ISSUE-027 (user note) as open, and `BACKUP_SAFE` as false. Both issues are c
 | `9da861f` | the AI result no longer overwrites a journey title the user chose (found while investigating a flaky Stage 3 spec) |
 | `f7240f4` | lint fix for the versioned verification scripts |
 | `a6c431d` | the three P3 findings adjudicated with explicit verdicts |
-| this commit | RC documents, and removal of the dead captcha CSS left behind by the decorative control that was already removed |
+| this commit | RC documents, removal of the dead captcha CSS, and the code-review fix below |
+
+## Code review of this round's changes
+
+The round's instructions call for a security/privacy/data-contract review of the new code, separate
+from the runtime verification. It was run over `c2eaeb6..HEAD`, covering peer-report ownership and
+multi-user privacy, admin note authorization, safety admin auth, migration data safety, the journey
+title rule, and DAPI secret handling.
+
+**One real defect was found, in this round's own fix**, and is fixed:
+
+- **P2, `store.service.ts` `reanalyzeSituation`** — the title guard added in `9da861f` covered the
+  creation flow but not re-analysis, so a user who named their journey and then asked for a
+  re-analysis had that name replaced by the AI's generated one. Same bug, second code path.
+
+The fix states the rule **once** instead of guarding two paths separately: a private
+`isGeneratedJourneyTitle(title)` predicate, used by both the creation completion and the
+re-analysis. Only the create-time placeholder (`正在整理的一件事`) and the generated form
+(`<domain>里正在整理的一件事`) may be replaced. This replaced the `userSuppliedTitle` flag, which had
+two advantages beyond consistency: it applies retroactively to journeys created before the rule
+existed, and it cannot drift from the other call site.
+
+Verified by `verification/verify-journey-title.mjs` — **11/11**: a named journey keeps its name
+through the creation job and through a re-analysis, and is persisted unchanged; a journey the user
+left unnamed is still named by the product; a product-generated title may still be refined. The
+existing `test:third-stage-future-self` regression still passes.
+
+Everything else the review examined was clean or acceptable as-is with the reasoning stated: report
+rows cannot overwrite or hide each other, the reporter identity is not reachable by the counterpart
+through any user-facing route, the one-open-report rule holds under the store's single-threaded
+execution, the handle routes audit and mutate in one transaction, both migrations are purely
+additive with foreign keys matching the mapper's filtering, the schema declarations added for
+`DecisionRecord` and `MemoryItem` match what the migrations actually create, and no key material is
+logged, returned or committed.
+
+The review also noted two pre-existing gaps outside this round's scope: `GET admin/v1/users/:id` and
+`PATCH/POST users/:id/tags` sit behind the class-level `AdminAuthGuard` but call no `this.admin(auth)`,
+so they resolve no audit identity. Neither was introduced here.
 
 ## Gate evidence
 

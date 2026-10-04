@@ -2608,6 +2608,20 @@ export class StoreService implements OnModuleInit {
     }
   }
 
+  /**
+   * True when a journey title is one the product generated rather than one the user wrote: the
+   * create-time default, or the `<domain>里正在整理的一件事` form the situation analysis produces.
+   *
+   * Only a generated title may be replaced by a later AI result. This is deliberately a test on
+   * the title itself rather than a flag recorded at creation: it applies retroactively to journeys
+   * created before the rule existed, and it is the single place the rule is stated, so the creation
+   * flow and the re-analysis flow cannot drift apart.
+   */
+  private isGeneratedJourneyTitle(title: string) {
+    const value = title.trim();
+    return value === '正在整理的一件事' || /^.{1,12}里正在整理的一件事$/.test(value);
+  }
+
   private requireJourney(journeyId: string, userId = this.getDemoUserId()) {
     const journey = this.lifeJourneys.find((item) => item.id === journeyId && item.userId === userId);
     if (!journey) throw new NotFoundException('旅程不存在或无权访问');
@@ -2684,7 +2698,6 @@ export class StoreService implements OnModuleInit {
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     this.assertCanWrite(userId);
-    const userSuppliedTitle = typeof input.title === 'string' && Boolean(input.title.trim());
     const title =
       typeof input.title === 'string' && input.title.trim() ? input.title.trim().slice(0, 80) : '正在整理的一件事';
     const domain = this.text(input.domain ?? '其他', '困境领域', 40);
@@ -2817,9 +2830,7 @@ export class StoreService implements OnModuleInit {
           // Same rule as the facts above: what the user supplied is authoritative. A title the
           // user wrote was being replaced by the generated one ("<domain>里正在整理的一件事"),
           // so a journey named by its owner silently lost that name a moment after creation.
-          // The generated title is still applied when the user did not supply one, which is the
-          // case it exists for.
-          if (!userSuppliedTitle && typeof structured.title === 'string' && structured.title.trim())
+          if (this.isGeneratedJourneyTitle(target.title) && typeof structured.title === 'string' && structured.title.trim())
             target.title = structured.title.trim().slice(0, 80);
           target.updatedAt = now();
         }
@@ -3424,7 +3435,11 @@ export class StoreService implements OnModuleInit {
         };
         current.updatedAt = now();
         journey.summary = String(structured.summary ?? completed.result).slice(0, 500);
-        if (typeof structured.title === 'string' && structured.title.trim())
+        // The same rule as the creation flow: a re-analysis may refine a title the product
+        // generated, never one the user wrote. Re-analysis is a deliberate user action, but it is
+        // still the user asking for a better analysis of their situation, not for their name for
+        // it to be replaced.
+        if (this.isGeneratedJourneyTitle(journey.title) && typeof structured.title === 'string' && structured.title.trim())
           journey.title = structured.title.trim().slice(0, 80);
         if (current.intensity !== undefined) journey.intensity = current.intensity;
         journey.updatedAt = now();
