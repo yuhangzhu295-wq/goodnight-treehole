@@ -2,16 +2,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { auth, createApiTestApp, loginAdmin } from './helpers';
+import { createApiTestApp, loginAdmin } from './helpers';
 
 describe('persistence durability regression tests', () => {
   let app: INestApplication;
-  let adminToken: string;
 
   beforeAll(async () => {
     app = await createApiTestApp();
     const server = app.getHttpServer();
-    adminToken = await loginAdmin(server);
+    // Both endpoints under test are public routes, so no admin token is needed here. The login is
+    // kept because it triggers a full flush, leaving the store settled before the assertions below.
+    await loginAdmin(server);
   });
 
   afterAll(async () => {

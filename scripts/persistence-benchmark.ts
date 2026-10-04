@@ -37,7 +37,8 @@ export class BenchmarkPrismaService extends PrismaClient {
       log: [{ emit: 'event', level: 'query' }],
     });
 
-    // @ts-ignore
+    // @ts-expect-error the 'query' overload only exists when the client is constructed with the
+    // event-level log option, which this subclass does, but the inherited type does not carry it.
     this.$on('query', (e: any) => {
       if (this.recording) {
         this.capturedQueries.push({
