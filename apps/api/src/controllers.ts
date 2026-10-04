@@ -2477,13 +2477,17 @@ export class AdminController {
   }
 
   @Patch('users/:id/tags')
-  userTags(@Param('id') id: string, @Body() body: { tags: string[] }) {
-    return { item: { id, tags: body.tags } };
+  userTags(@Headers('authorization') auth: string, @Param('id') _id: string, @Body() _body?: unknown) {
+    this.admin(auth);
+    throw new HttpException(
+      { code: 'ENDPOINT_DEPRECATED', message: '用户标签功能未实现；本请求未保存任何标签' },
+      HttpStatus.GONE,
+    );
   }
 
   @Post('users/:id/tags')
-  userTagsPost(@Param('id') id: string, @Body() body: { tags: string[] }) {
-    return this.userTags(id, body);
+  userTagsPost(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body?: unknown) {
+    return this.userTags(auth, id, body);
   }
 
   @Delete('users/:id/data')
@@ -2569,20 +2573,17 @@ export class AdminController {
   @Patch('posts/:id/visibility')
   postVisibility(
     @Headers('authorization') auth: string,
-    @Param('id') id: string,
-    @Body() body: { visibility: Visibility; reviewStatus?: string },
+    @Param('id') _id: string,
+    @Body() _body?: unknown,
   ) {
-    const admin = this.admin(auth);
-    const post = this.store.getPost(id, true);
-    const before = { ...post };
-    post.visibility = body.visibility;
-    if (body.reviewStatus) {
-      post.reviewStatus = body.reviewStatus as typeof post.reviewStatus;
-      if (post.reviewStatus === 'published') post.publishedAt ??= new Date().toISOString();
-    }
-    this.store.audit(admin.id, 'POST_VISIBILITY', 'Post', id, before, post);
-    this.store.persist();
-    return { item: post };
+    this.admin(auth);
+    throw new HttpException(
+      {
+        code: 'ENDPOINT_DEPRECATED',
+        message: '该接口不再修改帖子内容或可见范围；审核、隐藏与恢复请使用 PATCH /api/admin/v1/posts/:id/review',
+      },
+      HttpStatus.GONE,
+    );
   }
 
   @Patch('posts/:id/risk')

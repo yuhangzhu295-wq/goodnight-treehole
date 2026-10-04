@@ -66,7 +66,7 @@ async function load() {
 
 function openDetail(user: any) {
   selectedId.value = user.id;
-  note.value = user.note ?? '';
+  note.value = '';
   detailOpen.value = true;
   void loadNotes(user.id);
 }
@@ -129,8 +129,9 @@ async function saveNote() {
   const userId = selected.value?.id;
   if (!userId) return;
   // Appends a note row through the notes collection, which is the persisted business record.
-  await mutate('用户备注已保存', async () => {
+  await mutate('用户备注已添加', async () => {
     await adminApi.post(`/api/admin/v1/users/${userId}/notes`, { content: note.value });
+    note.value = '';
     await loadNotes(userId);
   });
 }
@@ -205,7 +206,8 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
               <section class="detail-group">
                 <h3>运营备注</h3>
                 <textarea v-model="note" rows="4" placeholder="仅供管理员内部协作使用"></textarea>
-                <div class="drawer-actions"><button class="primary" type="button" data-testid="admin-user-note" :disabled="busy" @click="saveNote">保存备注</button><button class="danger" type="button" data-testid="admin-user-ban" :disabled="busy" @click="requestStatus('banned')">封禁用户</button><details><summary data-testid="admin-user-more">更多操作</summary><button type="button" data-testid="admin-user-mute" :disabled="busy" @click="requestStatus('limited')">禁言</button><button type="button" data-testid="admin-user-restore" :disabled="busy" @click="requestStatus('normal')">恢复正常</button></details></div>
+                <p class="note-hint">提交将追加新备注，不会修改已有历史记录。</p>
+                <div class="drawer-actions"><button class="primary" type="button" data-testid="admin-user-note" :disabled="busy" @click="saveNote">新增备注</button><button class="danger" type="button" data-testid="admin-user-ban" :disabled="busy" @click="requestStatus('banned')">封禁用户</button><details><summary data-testid="admin-user-more">更多操作</summary><button type="button" data-testid="admin-user-mute" :disabled="busy" @click="requestStatus('limited')">禁言</button><button type="button" data-testid="admin-user-restore" :disabled="busy" @click="requestStatus('normal')">恢复正常</button></details></div>
                 <ol v-if="noteHistory.length" class="note-history" data-testid="admin-user-note-history">
                   <li v-for="item in noteHistory" :key="item.id">
                     <p>{{ item.content }}</p>
@@ -439,6 +441,13 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
 }
 /* Operator note history: append-only, so the drawer lists every note that has not been
    retracted instead of only the most recent one (ISSUE-027). */
+.note-hint {
+  margin: 6px 0 0;
+  color: var(--gn-ink-soft, #5b6257);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .note-history {
   margin: 10px 0 0;
   padding-left: 18px;
