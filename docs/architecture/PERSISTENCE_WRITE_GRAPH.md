@@ -178,25 +178,54 @@ FollowUpJob, AuditLog, and the legacy nullable Journey/AIJob links.
 | JourneyUpdate | Create-time update, confirmation intensity update, reanalysis-request update, safety acknowledgement, manual update, action-create/checkin updates, archive deletion | Journey detail/timeline/archive, action-plan prompt fallback, graduation peer draft, admin counts |
 | ActionCommitment | Create, checkin status, adaptive create, archive deletion | `tonightHome`, journey detail/actions/archive/graduation, adaptive-plan parent, peer draft, admin actions, monthly statistics |
 | OutcomeCheckin | Pending creation, completion/miss update, optional new checkin, archive deletion | `tonightHome`, journey detail/archive/graduation intensity, admin checkins, monthly statistics |
-| SafetyEvent | High-risk journey creation, high-distress intent, admin handling with AuditLog **in the same scoped transaction**, archive-link detach | Intent safety check; admin safety list/detail/dashboard |
+| SafetyEvent | High-risk journey creation, high-distress intent, admin handling with AuditLog **in the same scoped transaction**, archive-link detach | Intent safety check; admin safety list/detail/dashboard; **and the pre-write existence guard at `controllers.ts:2269`** — the admin handler reads `this.store.safetyEvents.find(id)` before calling the service and throws `NotFoundException` when it finds nothing, so after cutover it would reject every real event |
 | UserNotification | Worker create, `readNotification`, peer notification creation/update, archive deletion | Front and admin notification lists, dashboard counts. Peer is batch 2, so its notification helper must use the new repository in batch 1 or its notifications are lost once the Notification sweep is disabled |
-| AIJob | `queueAiJob`, `runAiJob` status/terminal/error updates, boot recovery, admin retry, archive and test-cleanup deletions | `waitForAiJob`, latest/status/admin-job reads, tool-save lookup, monthly report/advice, memory usage, dashboards. Legacy Letter/Reply/AgentDecisionLog FK mapping must resolve DB-owned ids |
+| AIJob | `queueAiJob`, `runAiJob` status/terminal/error updates, boot recovery, admin retry, archive and test-cleanup deletions. **The async completion callbacks for `createJourney`, `confirmSituationSnapshot` and `reanalyzeSituationSnapshot` must themselves be rewritten as scoped DB reads and writes** — they call `this.lifeJourneys.find(...)` and `this.situationSnapshots.find(...)` immediately after `waitForAiJob` resolves and exit early when the arrays are unhydrated, so fixing `waitForAiJob` alone leaves them silently incomplete | `waitForAiJob`, latest/status/admin-job reads, tool-save lookup, monthly report/advice, memory usage, dashboards. Legacy Letter/Reply/AgentDecisionLog FK mapping must resolve DB-owned ids |
+
+**Two reads that the per-model table above understates, because each spans several models.** Both fail
+silently rather than loudly, so they belong in the gate explicitly:
+
+- `monthly-report.service.ts:303-327` `availableMonths()` reads `lifeJourneys`, `actionCommitments`
+  and `outcomeCheckins` to decide which months to offer the user. With those arrays unhydrated it
+  returns only the current month's hardcoded fallback, whatever the database holds.
+- `controllers.ts:1881-1919` `dashboardData()` reads eight store collections for the admin dashboard
+  counts. It would report zeros while live rows accumulate in PostgreSQL.
 
 **Cutover gate:** a model may not be added to `DIRECT_DB_MODELS` while any mutation or read above still
 requires its store array to be authoritative. Batch 1 cannot be claimed by converting only the eight
-principal HTTP writes — peer notification production, monthly reports, legacy FK mapping, async AI
-callbacks, archive deletion, boot recovery, admin views and the worker are all part of the gate.
+principal HTTP writes — peer notification production, monthly reports (including `availableMonths`),
+the admin dashboard, legacy FK mapping, the async AI completion callbacks, archive deletion, boot
+recovery and the worker are all part of the gate.
+
+**The gate must be checkable, not a matter of trust.** As prose it is unverifiable from a diff: a read
+that still touches an unhydrated store array compiles and runs, and merely returns nothing. So a model
+may only be registered when the following holds, and the check must exist before the registry entry is
+committed:
+
+1. **A DB-read test per migrated model.** Seed one row of the model in PostgreSQL, then call each read
+   path listed for that model **through a fresh Prisma client** — not through the API, which reads the
+   store — and assert it returns that row. A read that has not switched returns nothing and the test
+   fails. This is the mechanism that makes "the reads have switched" observable.
+2. **The FK-preservation regression** from the first risk row above, which must exist before Journey or
+   AIJob is registered, because that is the change that can silently null every legacy FK.
+3. Optionally, a runtime assertion in each migrated model's store getter that throws when the model is
+   registered in `DIRECT_DB_MODELS`, so any surviving store read fails loudly across the existing
+   suite instead of returning empty data. This is the cheaper version if the DB-read tests prove
+   impractical to write per read path.
 
 ## 8. Risks
 
 | Risk | Mitigation |
 | --- | --- |
+| **The first legacy flush after cutover silently NULLs the FKs of every legacy model.** This is the highest-probability failure and it is silent. `mapper:159-160` builds `journeyIds` from `state.lifeJourneys` and `jobIds` from `state.aiJobs`; once those models are in `DIRECT_DB_MODELS` and their arrays stop being hydrated, both sets are empty. They are not used only by the migrated models' own upserts — they guard the nullable FK of **every legacy model**: `journeyId` on Mood (`:198`), Post (`:199`), Diary (`:212`), PeerExperience (`:195`), PeerMatch (`:196`), DecisionRecord (`:219`), CooldownItem (`:220`), RealityHandoff (`:221`), MemoryItem (`:226`), RecoverySnapshot (`:227`), MessageToFutureSelf (`:223`), AgentDecisionLog (`:229`); and `aiJobId` on Letter (`:207`), Reply (`:217`), AgentDecisionLog (`:229`). Each guard reads `journeyIds.has(item.journeyId) ? item.journeyId : null`, so an empty set nulls the column. No error is raised and the triggering request returns 200. | The id sets used by legacy FK guards must be rebuilt **from the database** when the referenced model is DB-owned — a query, not `state.lifeJourneys`. Mandatory regression test: create a Mood and a Letter with known `journeyId`/`aiJobId`, register the referenced model in `DIRECT_DB_MODELS`, trigger an unrelated legacy flush (an admin login does it), and assert in PostgreSQL that both FKs are unchanged. Compare `SELECT COUNT(*) … WHERE "journeyId" IS NULL` before and after. |
 | A legacy FULL flush overwrites or deletes a newly committed DB-owned row | The registry must exclude both upsert and sweep per migrated model; add a regression where a legacy login flush follows a direct Journey/AIJob/Notification write |
+| **The AI completion callbacks break even if `waitForAiJob` is fixed.** The callbacks at `store.service.ts:2776`, `:2837`, `:3391`, `:3446` call `this.lifeJourneys.find(...)` and `this.situationSnapshots.find(...)` immediately after `waitForAiJob` resolves, and return early when they find nothing. With those arrays unhydrated the callback exits silently: the journey is created, analysis completes, and the snapshot and AgentDecisionLog are never updated, with no user-visible error. | Rewrite the callbacks for `createJourney`, `confirmSituationSnapshot` and `reanalyzeSituationSnapshot` as scoped DB reads and writes **before** AIJob or Journey/SituationSnapshot is registered — not merely fix `waitForAiJob`. |
+| **A missed read returns stale or empty data instead of failing.** Two reads were missing from section 7 and both fail silently: `monthly-report.service.ts:303-327` `availableMonths()` reads `lifeJourneys`, `actionCommitments` and `outcomeCheckins` to decide which months to offer, and would return only the current month's hardcoded fallback; `controllers.ts:1881-1919` `dashboardData()` reads eight store collections for the admin dashboard counts and would report zeros. | Add both to the reads that must switch. See the cutover gate below for how to make this checkable rather than a matter of trust. |
 | A mixed-domain operation reads stale model A from the store while writing model B to the DB | Switch those decision-making reads to repository queries before cutover; use scoped cross-model transactions; do not treat a post-commit projection as authority |
-| Snapshot id sets null legitimate FKs, or absence sweeps delete linked data | Verify FK existence against PostgreSQL for DB-owned models; test that legacy writes keep their links to a migrated Journey/AIJob |
+| Snapshot id sets null legitimate FKs, or absence sweeps delete linked data | See the first row: verify FK existence against PostgreSQL for DB-owned models; test that legacy writes keep their links to a migrated Journey/AIJob |
 | Boot is still O(rows) and boot repair can write the whole store | Stop hydrating migrated models once their reads switch; scope startup repairs to affected rows. Shortening the flush does not remove boot cost |
-| An AI completion writes after the creating request committed, or after the user confirmed facts | The callback loads current DB state and commits a conditional update that cannot replace `user_confirmed`; one-row AIJob transitions with idempotent completion ids |
-| Direct BullMQ writes and the whole-store reload race API mutations | Make delivery idempotent and scoped, remove the reload, use one transaction where delivery changes related rows |
+| An AI completion writes after the creating request committed, or after the user confirmed facts | The callback loads current DB state and commits a conditional update that cannot replace `user_confirmed`; one-row AIJob transitions with idempotent completion ids. The `confidence` column already carries this guard, so no schema change is needed |
+| **The worker's whole-store reload defeats batch 1 and re-runs the FK nulling.** `follow-up-worker.service.ts:63` reloads the store and then flushes on every delivery, adding a ~15 s transaction per delivery and re-running the mapper against unhydrated arrays. | Removing the reload is a **required part of the batch-1 gate** for UserNotification and FollowUpJob, not optional cleanup. |
 | Archive delete or cleanup silently loses cross-domain records | Specify and test an explicit delete/detach matrix first; never read a missing projected row as delete intent |
 | A request claims success before durable commit, or mutates without scheduling any write | On migrated paths await the scoped commit before returning; add tests that re-read through a fresh Prisma client after the response. Section 3 shows two live instances of this |
 | DB commit succeeds but the Redis enqueue fails | Keep a durable pending FollowUpJob and add bounded reconciliation as separately reviewed work; do not claim DB and Redis are atomic |
@@ -210,11 +239,11 @@ Permitted production files and the permitted changes within them:
 | --- | --- |
 | `app.module.ts` | Register the new narrowly scoped persistence provider alongside existing providers |
 | `prisma-runtime.service.ts` | Expose/use the existing client for repository operations; adjust `loadRuntimeState` only to stop hydrating DB-owned batch-1 models. **Do not change connection or transaction timeouts** |
-| `relational-runtime.mapper.ts` | Registry-controlled omission of the eight models' upserts and sweeps; correct FK existence handling for legacy rows; adapt boot loading for those models. Preserve unmigrated-model behaviour |
+| `relational-runtime.mapper.ts` | Registry-controlled omission of the eight models' upserts and sweeps; adapt boot loading for those models. **The id sets used by the legacy FK guards must be populated from the database, not from the store, whenever the referenced model is DB-owned** — `journeyIds` (`:160`), `jobIds` (`:159`) and `commitmentIds` (`:158`) currently come from `state.lifeJourneys` / `state.aiJobs` / `state.actionCommitments`, and an empty set silently nulls the column in every legacy upsert that reads it (`:195-229`). This is stated explicitly because "correct FK existence handling" alone did not tell an implementer that these sets must be re-sourced. Preserve unmigrated-model behaviour |
 | `store.service.ts` | Only the batch-1 writers/readers named in section 7, the queue/job lifecycle and completion callbacks, batch-1 cross-domain archive/cleanup safety, and narrowly necessary shared persistence/boot behaviour. No general domain rewrite |
 | `controllers.ts` | Batch-1 Journey/Action/Safety/Notification/AIJob endpoints and their DB-backed reads, including `patchJourney`; only the identified cross-domain AIJob/Notification consumers elsewhere. Preserve route shapes and authorization |
 | `monthly-report.service.ts` | DB-backed Journey/Action/Checkin statistics and AIJob lookup/creation dependencies. Not a monthly-report redesign |
-| `follow-up-worker.service.ts` | Scoped idempotent notification/delivery transaction and removal of the whole-store reload, preserving job kinds and message copy |
+| `follow-up-worker.service.ts` | Scoped idempotent notification/delivery transaction and removal of the whole-store reload, preserving job kinds and message copy. **The reload removal is a required part of the batch-1 gate for UserNotification and FollowUpJob, not optional cleanup**: as long as it runs it adds a full flush per delivery against unhydrated arrays, which is both the FK-nulling path and a ~15 s transaction on every delivery |
 | one new file under `apps/api/src/` | The batch-1 repository/persistence service containing only the scoped operations and the registry. No other new production module is authorised |
 
 Batch-1 tests may be added or changed only to exercise batch-1 routes, async callbacks, worker delivery,
