@@ -13,6 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:import-json": "tsx scripts/import-json-store-to-db.ts",
     "db:migrate-runtime-state": "tsx scripts/migrate-runtime-state-to-relational.ts",
+    "benchmark:persistence": "tsx --tsconfig apps/api/tsconfig.json scripts/persistence-benchmark.ts",
     "test": "pnpm qa:all",
     "test:unit": "vitest run tests/unit",
     "test:api": "vitest run tests/api",
