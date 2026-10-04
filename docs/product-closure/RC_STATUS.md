@@ -168,6 +168,7 @@ unavailable — is verified and must be kept working after the account is funded
 | `RC_QA_MATRIX.md` | every suite and its result |
 | `PRODUCT_DECISIONS.md` | the three P3 verdicts with reasons and risks |
 | `verification/` | the runnable verification scripts and their captured output |
+| `RESUME.md` | how to restart the local stack, the Android build, and the environment traps worth knowing |
 
 ## Residual items (recorded, not hidden)
 
