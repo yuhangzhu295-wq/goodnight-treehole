@@ -1,5 +1,31 @@
 # ISSUE REGISTER
 
+> ## SUPERSEDED STATUS NOTICE — historical discovery snapshot
+>
+> This file is the **frozen record of the discovery round** at HEAD `158c298`. Its per-issue
+> `Status:` lines are what was true *then*, and they have deliberately **not** been rewritten, so the
+> audit trail survives. Several are now wrong: issues recorded here as `OPEN` were fixed in later
+> rounds and their `Status:` lines were not updated to say so.
+>
+> Do not read this file for current status. Current status lives in, in order of recency:
+>
+> | Document | Scope |
+> | --- | --- |
+> | [`docs/product-closure/RC_STATUS.md`](../product-closure/RC_STATUS.md) | current gate values and open items |
+> | [`docs/product-closure/RC_QA_MATRIX.md`](../product-closure/RC_QA_MATRIX.md) | every suite and its result |
+> | [`docs/product-closure/CURRENT_CLOSURE_STATUS.md`](../product-closure/CURRENT_CLOSURE_STATUS.md) | the full issue ledger with evidence |
+> | [`docs/product-closure/CLOSURE_REGISTER.md`](../product-closure/CLOSURE_REGISTER.md) | the first closure round's register |
+>
+> Known-stale entries as of the release-candidate round: ISSUE-020 (report counter), ISSUE-021,
+> ISSUE-022, ISSUE-023, ISSUE-024, ISSUE-025, ISSUE-026, ISSUE-027 and ISSUE-028 are marked `OPEN`
+> here and are all fixed and verified. ISSUE-014, ISSUE-015 and ISSUE-016 remain open by decision,
+> recorded in [`PRODUCT_DECISIONS.md`](../product-closure/PRODUCT_DECISIONS.md).
+>
+> A prior round also recorded `20261001000000_action_plan_mode` as a missing migration. That is
+> resolved: the schema it described is already produced by the tracked migrations, and the orphan
+> ledger row was removed. See
+> [`docs/architecture/MIGRATION_FORENSICS.md`](../architecture/MIGRATION_FORENSICS.md).
+
 Consolidated findings for the COMPLETE PRODUCT GRAPH AUDIT run at HEAD `158c298`.
 Every issue below is either verified against the running stack (API `127.0.0.1:3000`,
 PostgreSQL `127.0.0.1:15432`, Android `emulator-5554` with the real debug APK) or is
