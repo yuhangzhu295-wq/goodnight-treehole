@@ -66,6 +66,11 @@ handler is not `async`, so it cannot await the queue. The client receives `{ok:t
 a crash in between loses the diary. It also builds the id as `diary_${Date.now()}` rather than through
 the shared id helper.
 
+**Residual found while fixing these, not fixed:** `controllers.ts:1262` (`saveToDiary`) still builds its
+diary id as `diary_${Date.now()}` — the same collision-prone pattern as defect 2's original id. It is
+not a durability defect (that path does persist), so it was left out of the minimal fix and is recorded
+here.
+
 ## 4. Flush entry points
 
 Every `persistAndFlush()` is `persist()` + `flush()`; `persist()` queues

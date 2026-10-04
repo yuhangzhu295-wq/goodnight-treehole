@@ -22,6 +22,7 @@ import { CanActivate, ExecutionContext, Injectable, UseGuards } from '@nestjs/co
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import type {
   AIProvider,
   AIStyle,
@@ -42,6 +43,8 @@ import {
 } from './remote-ai-provider.service.js';
 import { assertNoLegacyLocalModelEndpoint, visualFixtureIdentity } from './runtime-environment.js';
 import { loginRetryAfterSeconds, recordLoginFailure, recordLoginSuccess } from './login-throttle.js';
+
+const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
 
 function tokenFrom(header?: string) {
   return header?.replace(/^Bearer\s+/i, '');
@@ -397,7 +400,7 @@ export class PublicController {
     if (typeof body.title === 'string' && body.title.trim()) item.title = body.title.trim().slice(0, 120);
     if (typeof body.summary === 'string') item.summary = body.summary.trim().slice(0, 500);
     item.updatedAt = new Date().toISOString();
-    await this.store.flush();
+    await this.store.persistAndFlush();
     return { item };
   }
 
@@ -1391,14 +1394,14 @@ export class PublicController {
   }
 
   @Post('tools/emotion-decompose/:taskId/save')
-  saveDecompose(@Param('taskId') taskId: string) {
+  async saveDecompose(@Param('taskId') taskId: string) {
     const job = this.store.aiJobs.find((item) => item.id === taskId);
     const structured = (
       job?.traceJson.find((item) => typeof item === 'object' && item && 'structured' in item) as
         { structured?: unknown } | undefined
     )?.structured;
     this.store.diaries.unshift({
-      id: `diary_${Date.now()}`,
+      id: id('diary'),
       userId: this.store.getDemoUserId(),
       emotion: '焦虑',
       content: job?.result ?? `情绪拆解结果 ${taskId}`,
@@ -1407,7 +1410,7 @@ export class PublicController {
       toolResult: structured,
       createdAt: new Date().toISOString(),
     });
-    this.store.persist();
+    await this.store.persistAndFlush();
     return { ok: true };
   }
 
