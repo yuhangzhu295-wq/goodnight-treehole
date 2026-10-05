@@ -401,9 +401,14 @@ export class PublicController {
       summary?: string;
       expectedUpdatedAt?: string;
     },
+    @Headers('x-goodnight-user-id') userIdHeader?: string,
   ) {
-    const item = await this.batch1Persistence.patchJourney(id, body, body.expectedUpdatedAt);
-    return { item };
+    const callerId = runtimeUserId(userIdHeader);
+    const item = await this.store.patchJourney(id, body, callerId);
+    if (body.status && !body.title && !body.summary) {
+      return { journey: item };
+    }
+    return { item, journey: item };
   }
 
   @Patch('journeys/:id/situation')

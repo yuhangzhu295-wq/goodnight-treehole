@@ -1021,4 +1021,118 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       await freshPrisma.$disconnect();
     }
   });
+
+  it('P0-4 discriminating test: deleteJourneyArchive locks LifeJourney with FOR UPDATE, serializing concurrent action creation', async () => {
+    const store = app.get(StoreService);
+    const persistence = app.get(Batch1PersistenceService);
+    const userId = store.getDemoUserId();
+    const journeyId = `del_lock_j_${Date.now()}`;
+    const initialActionId = `del_lock_act_${Date.now()}`;
+    const initialAiJobId = `del_lock_job_${Date.now()}`;
+    const concurrentActionTitle = `CONCURRENT_INSERTED_ACTION_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: '锁定归档删除测试旅程',
+          domain: '生活',
+          status: 'archived',
+          stage: 'graduated',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: initialActionId,
+          journeyId,
+          userId,
+          title: '初始行动',
+          status: 'completed',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.aIProvider.upsert({
+        where: { id: 'provider_template' },
+        create: {
+          id: 'provider_template',
+          name: 'Template Provider',
+          type: 'template',
+          baseUrl: 'local://template',
+          modelName: 'safe-template',
+          providerKind: 'template',
+          usageTags: [],
+        },
+        update: {},
+      });
+
+      await freshPrisma.aIJob.create({
+        data: {
+          id: initialAiJobId,
+          userId,
+          contentId: initialActionId,
+          contentType: 'ActionCommitment',
+          jobType: '自适应行动',
+          taskType: 'adaptive_action',
+          style: 'rational',
+          providerId: 'provider_template',
+          modelName: 'safe-template',
+          status: 'succeeded',
+          promptSummary: '行动规划',
+          retryCount: 0,
+          fallbackUsed: false,
+          routeVersion: 1,
+          durationMs: 50,
+          traceJson: [],
+          createdAt: new Date(),
+        },
+      });
+
+      let concurrentActionCompleted = false;
+
+      // When deleteJourneyArchive holds the FOR UPDATE lock on LifeJourney,
+      // dispatch a concurrent createActionCommitment attempt on that same journey
+      const deletePromise = persistence.deleteJourneyArchive({
+        journeyId,
+        userId,
+        archiveRoute: `/pages/journey/detail?id=${journeyId}`,
+        _onLockedJourney: async () => {
+          // Attempt concurrent action insert in background: must block because LifeJourney is locked!
+          store.createActionCommitment(journeyId, { title: concurrentActionTitle })
+            .then(() => { concurrentActionCompleted = true; })
+            .catch(() => { concurrentActionCompleted = true; });
+
+          // Wait a short time slice: verify concurrentAction has NOT completed because it is blocked on the row lock!
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          expect(concurrentActionCompleted).toBe(false);
+        },
+      });
+
+      await deletePromise;
+
+      // Verify that LifeJourney and initial action + AIJob are deleted
+      const checkJourney = await freshPrisma.lifeJourney.findUnique({ where: { id: journeyId } });
+      expect(checkJourney).toBeNull();
+
+      const checkAction = await freshPrisma.actionCommitment.findUnique({ where: { id: initialActionId } });
+      expect(checkAction).toBeNull();
+
+      const checkAiJob = await freshPrisma.aIJob.findUnique({ where: { id: initialAiJobId } });
+      expect(checkAiJob).toBeNull();
+
+      // Ensure concurrent action did not escape deletion
+      const orphanedAction = await freshPrisma.actionCommitment.findFirst({
+        where: { journeyId, title: concurrentActionTitle },
+      });
+      expect(orphanedAction).toBeNull();
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });

@@ -5331,12 +5331,35 @@ export class StoreService implements OnModuleInit {
       .slice(0, 8);
   }
 
-  async updateJourneyStatus(journeyId: string, status: 'active' | 'paused' | 'archived') {
-    const journey = await this.requireJourney(journeyId);
+  async updateJourneyStatus(journeyId: string, status: 'active' | 'paused' | 'archived', requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     if (status === 'archived')
       this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
     const updated = await this.batch1Persistence.updateJourneyStatus(journeyId, status, journey.userId);
     return { journey: updated };
+  }
+
+  async patchJourney(
+    journeyId: string,
+    body: {
+      status?: 'active' | 'paused' | 'archived';
+      title?: string;
+      summary?: string;
+      expectedUpdatedAt?: string;
+    },
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    if (body.status === 'archived') {
+      this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
+    }
+    const item = await this.batch1Persistence.patchJourney(
+      journeyId,
+      body,
+      body.expectedUpdatedAt,
+      journey.userId,
+    );
+    return item;
   }
 
   async publicPosts(emotion?: string) {

@@ -1537,19 +1537,27 @@ export class Batch1PersistenceService {
     journeyId: string,
     body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string; expectedUpdatedAt?: Date | string },
     expectedUpdatedAt?: Date | string,
+    userId?: string,
   ): Promise<LifeJourneyRecord> {
     return await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
-      if (!existing) throw new NotFoundException('旅程不存在');
-
-      if (body.status === 'active' && existing.status !== 'active') {
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${existing.userId} FOR UPDATE`);
+      // P0-3: If requested status is 'active', lock the parent User row FIRST before any read or decision
+      if (body.status === 'active') {
+        const preCheck = await tx.lifeJourney.findUnique({ where: { id: journeyId }, select: { userId: true } });
+        if (!preCheck) throw new NotFoundException('旅程不存在或无权访问');
+        const targetUserId = userId ?? preCheck.userId;
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${targetUserId} FOR UPDATE`);
         const activeCount = await tx.lifeJourney.count({
-          where: { userId: existing.userId, status: 'active', id: { not: journeyId } },
+          where: { userId: targetUserId, status: 'active', id: { not: journeyId } },
         });
         if (activeCount > 0) {
           throw new BadRequestException('请先结束或暂停当前旅程，再恢复这段归档');
         }
+      }
+
+      const existing = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+      if (!existing) throw new NotFoundException('旅程不存在或无权访问');
+      if (userId && existing.userId !== userId) {
+        throw new NotFoundException('旅程不存在或无权访问');
       }
 
       const data: Prisma.LifeJourneyUpdateInput = {};
@@ -2014,12 +2022,19 @@ export class Batch1PersistenceService {
     actionIds?: string[];
     archiveRoute: string;
     _failDuringTransaction?: boolean;
+    _onLockedJourney?: () => Promise<void>;
   }): Promise<{ deletedJourneyId: string; deletedActionIds: string[] }> {
     return await this.prisma.$transaction(async (tx) => {
+      // P0-4: Lock the LifeJourney row with FOR UPDATE before resolving the action set
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${params.journeyId} FOR UPDATE`);
       const journey = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
       if (!journey || journey.userId !== params.userId) throw new NotFoundException('旅程不存在或无权访问');
       if (!['archived', 'completed'].includes(journey.status)) {
         throw new BadRequestException('只能删除已归档或已完成的旅程');
+      }
+
+      if (params._onLockedJourney) {
+        await params._onLockedJourney();
       }
 
       const { journeyId } = params;
@@ -2082,6 +2097,7 @@ export class Batch1PersistenceService {
     if (params.journeyIds.length === 0) return { count: 0 };
     return await this.prisma.$transaction(async (tx) => {
       for (const journeyId of params.journeyIds) {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
         await tx.diary.updateMany({ where: { journeyId }, data: { journeyId: null } });
         await tx.mood.updateMany({ where: { journeyId }, data: { journeyId: null } });
         await tx.post.updateMany({ where: { journeyId }, data: { journeyId: null } });

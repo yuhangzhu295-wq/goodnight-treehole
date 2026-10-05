@@ -478,6 +478,173 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     }
   });
 
+  it('P0-1 discriminating test: PATCH /journeys/:id enforces caller ownership and archive retention consent', async () => {
+    const server = app.getHttpServer();
+    const store = app.get(StoreService);
+    const userA = store.getDemoUserId();
+    const userB = `user_b_${Date.now()}`;
+    const journeyBId = `journey_b_${Date.now()}`;
+    const journeyAId = `journey_a_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // 1. Create user B in DB
+      await freshPrisma.user.create({
+        data: {
+          id: userB,
+          openid: `openid_${userB}`,
+          nickname: 'User B',
+          anonymousCode: `code_${userB}`,
+          createdAt: new Date(),
+        },
+      });
+
+      // Create User B's journey
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyBId,
+          userId: userB,
+          title: 'User B的私有旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // User A attempts to PATCH User B's journey -> must be rejected with 404
+      const foreignPatchRes = await request(server)
+        .patch(`/api/v1/journeys/${journeyBId}`)
+        .set('x-goodnight-user-id', userA)
+        .send({ title: '非法修改他人的标题' });
+      expect(foreignPatchRes.status).toBe(404);
+      expect(foreignPatchRes.body.message).toContain('旅程不存在或无权访问');
+
+      // 2. Archive retention consent check:
+      // Create User A's journey
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyAId,
+          userId: userA,
+          title: 'User A的归档测试旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Ensure User A's allowJourneyArchiveRetention is false
+      store.privacySettings[userA] = {
+        ...store.privacySettings[userA],
+        allowJourneyArchiveRetention: false,
+      } as any;
+
+      // User A attempts to archive via PATCH without consent -> must be rejected with 403
+      const archiveWithoutConsentRes = await request(server)
+        .patch(`/api/v1/journeys/${journeyAId}`)
+        .set('x-goodnight-user-id', userA)
+        .send({ status: 'archived' });
+      expect(archiveWithoutConsentRes.status).toBe(403);
+      expect(archiveWithoutConsentRes.body.message).toContain('请先在隐私设置中允许保留旅程归档');
+
+      // User A enables consent -> archive succeeds
+      store.privacySettings[userA].allowJourneyArchiveRetention = true;
+      const archiveWithConsentRes = await request(server)
+        .patch(`/api/v1/journeys/${journeyAId}`)
+        .set('x-goodnight-user-id', userA)
+        .send({ status: 'archived' })
+        .expect(200);
+      expect(archiveWithConsentRes.body.journey.status).toBe('archived');
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
+  it('P0-2 discriminating test: status-only PATCH returns { journey } to preserve established client response shape', async () => {
+    const server = app.getHttpServer();
+    const created = await request(server)
+      .post('/api/v1/journeys')
+      .send({ title: `J_SHAPE_${Date.now()}`, domain: '生活', content: '测试返回形状' })
+      .expect(201);
+    const journeyId = created.body.journey.id as string;
+
+    // Status-only PATCH must return { journey }
+    const statusOnlyRes = await request(server)
+      .patch(`/api/v1/journeys/${journeyId}`)
+      .send({ status: 'paused' })
+      .expect(200);
+
+    expect(statusOnlyRes.body.journey).toBeDefined();
+    expect(statusOnlyRes.body.journey.status).toBe('paused');
+    expect(statusOnlyRes.body.item).toBeUndefined(); // Preserves established shape for status-only
+
+    // Content-bearing PATCH must return { item } (and { journey } for hybrid)
+    const contentRes = await request(server)
+      .patch(`/api/v1/journeys/${journeyId}`)
+      .send({ title: '新标题' })
+      .expect(200);
+
+    expect(contentRes.body.item).toBeDefined();
+    expect(contentRes.body.item.title).toBe('新标题');
+  });
+
+  it('P0-3 discriminating test: activation under parent-User lock prevents unversioned reactivations from creating multiple active journeys', async () => {
+    const server = app.getHttpServer();
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // Pause any active journeys from earlier tests in this file
+      await freshPrisma.lifeJourney.updateMany({
+        where: { status: 'active' },
+        data: { status: 'paused' },
+      });
+
+      const j1Res = await request(server)
+        .post('/api/v1/journeys')
+        .send({ title: `J1_P03_${Date.now()}`, domain: '生活', content: '旅程1' })
+        .expect(201);
+      const j2Res = await request(server)
+        .post('/api/v1/journeys')
+        .send({ title: `J2_P03_${Date.now()}`, domain: '生活', content: '旅程2' })
+        .expect(201);
+
+      const j1Id = j1Res.body.journey.id as string;
+      const j2Id = j2Res.body.journey.id as string;
+
+      // Pause J2 in DB so J1 is the only active journey
+      await freshPrisma.lifeJourney.update({
+        where: { id: j2Id },
+        data: { status: 'paused' },
+      });
+
+      // Attempt to activate J2 via PATCH while J1 is active -> must fail with 400
+      const activateRes = await request(server)
+        .patch(`/api/v1/journeys/${j2Id}`)
+        .send({ status: 'active' });
+
+      expect(activateRes.status).toBe(400);
+      expect(activateRes.body.message).toContain('请先结束或暂停当前旅程，再恢复这段归档');
+
+      // Now pause J1
+      await request(server)
+        .patch(`/api/v1/journeys/${j1Id}`)
+        .send({ status: 'paused' })
+        .expect(200);
+
+      // Now activating J2 succeeds
+      const activateSuccessRes = await request(server)
+        .patch(`/api/v1/journeys/${j2Id}`)
+        .send({ status: 'active' })
+        .expect(200);
+
+      expect(activateSuccessRes.body.journey.status).toBe('active');
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
   it('P0-B discriminating test: HIGH_DISTRESS intent transition and SafetyEvent creation are atomic in one transaction', async () => {
     const persistence = app.get(Batch1PersistenceService);
     const store = app.get(StoreService);
