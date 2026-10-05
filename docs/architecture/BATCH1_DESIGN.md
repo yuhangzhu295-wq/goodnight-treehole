@@ -128,9 +128,8 @@ apply two narrow protections in the mapper, plus one required change in the work
    forward, never nulled.
 3. **Required worker change — this does not exist in the current code.** `worker:38–51`
    currently awaits `userNotification.create` (`:38`) and `followUpJob.update` (`:51`) as two
-   separate statements with no enclosing transaction. Wrap both in one
-   `this.prisma.$transaction`, and replace the unconditional `update` with the guarded claim
-   `updateMany({ where: { id, status: { in: ['pending','scheduled'] } }, data: { status: 'delivered', completedAt } })`.
+   separate statements with no enclosing transaction. The required shape is given under
+   "Delivery ordering" below.
 
 **Status lattice, verified against every write site.** The only statuses any code writes to a
 `FollowUpJob` are `pending` (creation: `store:3617, 3627, 3675, 4868, 5004`), `delivered`
@@ -151,15 +150,43 @@ statuses the code can produce as terminal, no legitimate write is blocked. So a 
 never be unset. (3) is a compare-and-swap on a `String` status column (`schema:780`); two
 workers cannot both observe `pending`.
 
-**Concurrent-create handling.** Wrapping (3) in one transaction makes the notification
-`create` and the job claim commit or roll back together, so a crash between them cannot leave
-a notification without a delivered job. Two workers racing the same job are serialized by the
-claim: the loser's `updateMany` matches 0 rows. The loser must then **not** create a
-notification — the current `findUnique`-then-`create` (`worker:33–38`) is a check-then-act and
-is not sufficient on its own. The implementation must create inside the same transaction after
-the claim succeeds (or re-check the claim's affected count first), and must treat a
-unique-constraint violation on `notification_${id}` as "already delivered" — an idempotency
-signal — rather than an unhandled worker error.
+**Delivery ordering — AMENDED after implementation review.** An earlier draft of this section
+required the notification create and the job claim to commit together in one transaction. That
+is **wrong** once `UserNotification` is database-authoritative, and it was falsified in
+sub-batch A: with the create inside the claim's transaction the notification becomes visible at
+commit — before `reloadRuntimeState()` refreshes the legacy store — so a reader can see a
+`COOLDOWN_RELEASED` notification while `/api/v1/decisions`, which still reads the store, says
+`cooling`. `third-stage-decision-vault` failed intermittently (1 of 3 isolated runs, measured by
+the orchestrator) on exactly that. The correct order is:
+
+1. **transaction A** — the guarded FollowUpJob claim
+   (`updateMany({ where: { id, status: { in: ['pending','scheduled'] } }, data: { status: 'delivered', completedAt } })`)
+   **together with** the legacy-model updates (`messageToFutureSelf`, `cooldownItem`,
+   `decisionRecord`), applied only when the claim matched a row. They commit atomically, so
+   *legacy state visible ⇒ job already delivered*.
+2. **`reloadRuntimeState()`** — the store now reflects the delivery, so *notification visible ⇒
+   the state it refers to is already consistent*.
+3. **the notification, last and idempotently** — `createMany({ skipDuplicates: true })`, gated on
+   `futureNotificationsAllowed` and on the job's current status being `delivered`.
+
+The asymmetry is deliberate. The harmful ordering is *tell the user to act while the state is
+not ready*, because the notification deep-links to state that contradicts it. The benign
+ordering is *the state is ready and the notification follows*, which is the natural order for
+any asynchronous notification. The remaining window — state consistent, notification not yet
+created — is therefore correct, not a defect.
+
+**Retry and races.** Do **not** early-return when the claim matched 0 rows. A crash between
+step 1 and step 3 leaves the job `delivered` with no notification; BullMQ retries, the claim
+then matches 0 rows, and an early return would lose the notification permanently. The step-3
+status gate is what makes that retry self-healing. Two workers racing the same job are
+serialized by the claim, and `skipDuplicates` makes the loser's duplicate attempt a no-op
+rather than a failed statement — the loser does not need to detect that it lost.
+
+This ordering applies to every remaining sub-batch that couples a migrated model's visibility
+to legacy store state. The general rule: **the direct-database write that makes a migrated row
+visible must happen after the coupled legacy state has committed and the store has been
+reloaded; and any legacy state a reader uses to infer the migrated row's state must commit in
+the same transaction as that row's authoritative transition.**
 
 **Note on registry semantics.** `DIRECT_DB_MODELS` governs **flush ownership**, not which
 tables a transaction may write. The worker's transactional claim therefore does not, and must
