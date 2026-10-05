@@ -385,7 +385,7 @@ export class MonthlyReportService {
     if (!report) throw new BadRequestException('无法创建月报快照');
 
     const persistedJob = analysisAllowed && metadata.summaryJobId ? await this.prisma.aIJob.findUnique({ where: { id: metadata.summaryJobId } }) : undefined;
-    const job = persistedJob ?? this.store.aiJobs.find((item) => item.id === metadata.summaryJobId);
+    const job = persistedJob;
     if (analysisAllowed && job && terminal(job.status)) {
       const nextSummary = ['succeeded', 'fallback'].includes(job.status) ? safeSummary(job.result) : '';
       metadata = { ...metadata, summaryStatus: job.status };
@@ -430,7 +430,6 @@ export class MonthlyReportService {
     const sourceSignature = metadata.sourceSignature ?? signatureFor(monthly.item);
     const contentId = `monthly_advice_${userId}_${report.id}_${sourceSignature}`;
     let job: any = await this.prisma.aIJob.findFirst({ where: { contentId }, orderBy: { createdAt: 'desc' } });
-    job ??= this.store.aiJobs.find((item) => item.contentId === contentId);
     let advice = await this.prisma.reportAdvice.findFirst({ where: { reportId: report.id }, orderBy: { createdAt: 'desc' } });
     if (!job && !advice) {
       const queued = this.store.queueAI({
@@ -441,9 +440,9 @@ export class MonthlyReportService {
         sourceId: contentId,
       });
       await this.store.flush();
-      job = await this.prisma.aIJob.findUnique({ where: { id: queued.id } }) ?? this.store.aiJobs.find((item) => item.id === queued.id);
+      job = await this.prisma.aIJob.findUnique({ where: { id: queued.id } });
     }
-    if (job?.id) job = (await this.prisma.aIJob.findUnique({ where: { id: job.id } })) ?? this.store.aiJobs.find((item) => item.id === job.id) ?? job;
+    if (job?.id) job = (await this.prisma.aIJob.findUnique({ where: { id: job.id } })) ?? job;
     if (job && terminal(job.status) && ['succeeded', 'fallback'].includes(job.status) && !advice) {
       advice = await this.prisma.reportAdvice.create({ data: { reportId: report.id, content: safeSummary(job.result) } });
     }

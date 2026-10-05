@@ -1231,11 +1231,18 @@ export class StoreService implements OnModuleInit {
   private ollamaOnline = false;
   private ollamaLastCheckedAt?: string;
   private ollamaLastError?: string;
+  private readonly pendingJobCommits = new Map<string, Promise<any>>();
+
+  async awaitJobCommit(jobId: string): Promise<void> {
+    const pending = this.pendingJobCommits.get(jobId);
+    if (pending) await pending;
+  }
 
   constructor(
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
     @Inject(RemoteAiProviderService) private readonly remoteAi: RemoteAiProviderService = new RemoteAiProviderService(),
-    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+    @Inject(Batch1PersistenceService)
+    private readonly batch1Persistence: Batch1PersistenceService = new Batch1PersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1269,14 +1276,27 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.AIJob) {
+      delete data.aiJobs;
+      Object.defineProperty(data, 'aiJobs', {
+        get() {
+          throw new Error('StoreData.aiJobs is disabled: AIJob is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.aiJobs is disabled: AIJob is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     this.data = persisted ?? this.loadLegacyStore();
     this.isolateDirectDbModels(this.data);
-    this.migrateAiJobs();
-    this.recoverInterruptedAiJobs();
+    await this.migrateAiJobs();
+    await this.recoverInterruptedAiJobs();
     this.reconcileFavoriteCounts();
     this.reconcileLetterFavorites();
     this.pruneAuditLogsByRetention();
@@ -2091,7 +2111,10 @@ export class StoreService implements OnModuleInit {
     return seedData();
   }
 
-  private migrateAiJobs() {
+  private async migrateAiJobs() {
+    if (DIRECT_DB_MODELS.AIJob) {
+      return;
+    }
     let changed = false;
     for (const job of this.data.aiJobs) {
       const legacyStatus = job.status as string;
@@ -2107,7 +2130,11 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private recoverInterruptedAiJobs() {
+  private async recoverInterruptedAiJobs() {
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.batch1Persistence.recoverInterruptedAiJobs();
+      return;
+    }
     let changed = false;
     for (const job of this.data.aiJobs) {
       if (!['queued', 'running'].includes(job.status)) continue;
@@ -2806,14 +2833,22 @@ export class StoreService implements OnModuleInit {
     });
     void this.waitForAiJob(job.id)
       .then(async (completed) => {
+        if (!['succeeded', 'fallback'].includes(completed.status)) return;
+        if (DIRECT_DB_MODELS.AIJob) {
+          await this.batch1Persistence.applySituationAnalysisAiCompletion({
+            journeyId: journey.id,
+            userId,
+            completedJob: completed as any,
+            isGeneratedTitle: (t) => this.isGeneratedJourneyTitle(t),
+          });
+        }
         const target = this.lifeJourneys.find((item) => item.id === journey.id);
         const current = this.situationSnapshots.find((item) => item.journeyId === journey.id);
-        if (!target || !current || !['succeeded', 'fallback'].includes(completed.status)) return;
-        const structured = completed.structuredResult ?? {};
-        // A user confirmation is authoritative. The asynchronous AI completion
-        // may still be audited, but it must never overwrite confirmed facts or
-        // downgrade the snapshot back to an agent draft.
-        if (current.confidence !== 'user_confirmed') {
+        if (target && current && current.confidence !== 'user_confirmed') {
+          const structured = completed.structuredResult ?? {};
+          // A user confirmation is authoritative. The asynchronous AI completion
+          // may still be audited, but it must never overwrite confirmed facts or
+          // downgrade the snapshot back to an agent draft.
           if (Array.isArray(structured.facts)) current.facts = structured.facts.map(String).filter(Boolean).slice(0, 8);
           if (Array.isArray(structured.feelings))
             current.feelings = structured.feelings.map(String).filter(Boolean).slice(0, 8);
@@ -2867,15 +2902,18 @@ export class StoreService implements OnModuleInit {
             target.title = structured.title.trim().slice(0, 80);
           target.updatedAt = now();
         }
-        this.agentDecisionLogs.unshift({
-          id: id('agent_decision'),
-          userId,
-          journeyId: journey.id,
-          aiJobId: completed.id,
-          taskType: 'situation_analysis',
-          decision: structured,
-          createdAt: now(),
-        });
+        if (!DIRECT_DB_MODELS.AIJob) {
+          const structured = completed.structuredResult ?? {};
+          this.agentDecisionLogs.unshift({
+            id: id('agent_decision'),
+            userId,
+            journeyId: journey.id,
+            aiJobId: completed.id,
+            taskType: 'situation_analysis',
+            decision: structured,
+            createdAt: now(),
+          });
+        }
         await this.persistAndFlush();
       })
       .catch(() => undefined);
@@ -2961,7 +2999,7 @@ export class StoreService implements OnModuleInit {
     const before = {
       journeys: this.lifeJourneys.length,
       actions: this.actionCommitments.length,
-      jobs: this.aiJobs.length,
+      jobs: DIRECT_DB_MODELS.AIJob ? 0 : this.aiJobs.length,
       handoffs: this.realityHandoffs.length,
       decisions: this.decisionRecords.length,
       cooldowns: this.cooldownItems.length,
@@ -3011,19 +3049,33 @@ export class StoreService implements OnModuleInit {
       explicitIds: Array.from(explicitNotificationIds),
       journeyIds: Array.from(journeyIds),
     });
-    this.data.aiJobs = this.data.aiJobs.filter(
-      (item) =>
-        !journeyIds.has(item.contentId) &&
-        !actionIds.has(item.contentId) &&
-        !(legacy && item.userId === demoUserId && fixtureText.test(`${item.contentId}\n${item.promptSummary}`)),
-    );
+    let deletedJobsCount = 0;
+    if (DIRECT_DB_MODELS.AIJob) {
+      const deletedAiJobs = await this.batch1Persistence.deleteAiJobsForTestCleanup({
+        demoUserId,
+        journeyIds: Array.from(journeyIds),
+        actionIds: Array.from(actionIds),
+        legacy,
+        fixturePattern: fixtureText,
+      });
+      deletedJobsCount = deletedAiJobs.count;
+    } else {
+      const jobsBefore = this.aiJobs.length;
+      this.data.aiJobs = this.data.aiJobs.filter(
+        (item) =>
+          !journeyIds.has(item.contentId) &&
+          !actionIds.has(item.contentId) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(`${item.contentId}\n${item.promptSummary}`)),
+      );
+      deletedJobsCount = jobsBefore - this.aiJobs.length;
+    }
 
     await this.persistAndFlush();
     return {
       journeys: before.journeys - this.lifeJourneys.length,
       actions: before.actions - this.actionCommitments.length,
       notifications: deletedNotifications.count,
-      jobs: before.jobs - this.aiJobs.length,
+      jobs: deletedJobsCount,
       handoffs: before.handoffs - this.realityHandoffs.length,
       decisions: before.decisions - this.decisionRecords.length,
       cooldowns: before.cooldowns - this.cooldownItems.length,
@@ -3238,7 +3290,11 @@ export class StoreService implements OnModuleInit {
     this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
       (item) => item.journeyId !== journeyId && !actionIds.has(item.commitmentId ?? ''),
     );
-    this.data.aiJobs = this.data.aiJobs.filter((item) => item.contentId !== journeyId && !actionIds.has(item.contentId));
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.batch1Persistence.deleteAiJobsForArchive({ journeyId, actionIds: Array.from(actionIds) });
+    } else {
+      this.data.aiJobs = this.data.aiJobs.filter((item) => item.contentId !== journeyId && !actionIds.has(item.contentId));
+    }
     await this.batch1Persistence.deleteNotificationsForArchive({ userId, archiveRoute });
     this.data.assets = this.data.assets.filter((item) => !exportAssets.some((asset) => asset.id === item.id));
 
@@ -3439,67 +3495,79 @@ export class StoreService implements OnModuleInit {
     void this.waitForAiJob(job.id)
       .then(async (completed) => {
         if (!['succeeded', 'fallback'].includes(completed.status)) return;
+        if (DIRECT_DB_MODELS.AIJob) {
+          await this.batch1Persistence.applySituationAnalysisAiCompletion({
+            journeyId,
+            userId: journey.userId,
+            completedJob: completed as any,
+            isGeneratedTitle: (t) => this.isGeneratedJourneyTitle(t),
+          });
+        }
         const current = this.situationSnapshots.find((item) => item.journeyId === journeyId);
-        if (!current || current.confidence === 'user_confirmed') return;
-        const structured = completed.structuredResult ?? {};
-        const list = (value: unknown, fallback: string[], max = 8) =>
-          Array.isArray(value)
-            ? value
-                .map(String)
-                .map((item) => item.trim())
-                .filter(Boolean)
-                .slice(0, max)
-            : fallback;
-        current.facts = list(structured.facts, current.facts);
-        current.feelings = list(structured.feelings, current.feelings);
-        current.needs = list(structured.needs, current.needs);
-        current.constraints = list(structured.constraints, current.constraints);
-        current.risks = list(structured.risks, current.risks);
-        current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
-        current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : current.subDomain;
-        current.eventType = typeof structured.eventType === 'string' ? structured.eventType : current.eventType;
-        current.stage = typeof structured.stage === 'string' ? structured.stage : current.stage;
-        current.contextTags = list(structured.contextTags, current.contextTags ?? [], 12);
-        current.peopleContext = list(structured.peopleContext, current.peopleContext ?? []);
-        current.decisionContext = list(structured.decisionContext, current.decisionContext ?? []);
-        current.behaviorSignals = list(structured.behaviorSignals, current.behaviorSignals ?? []);
-        current.recoverySignals = list(structured.recoverySignals, current.recoverySignals ?? []);
-        current.intensity = Number.isFinite(Number(structured.intensity))
-          ? Math.max(0, Math.min(10, Number(structured.intensity)))
-          : current.intensity;
-        current.urgency = Number.isFinite(Number(structured.urgency))
-          ? Math.max(0, Math.min(10, Number(structured.urgency)))
-          : current.urgency;
-        current.fingerprintJson = {
-          domain: current.domain,
-          subDomain: current.subDomain,
-          eventType: current.eventType,
-          stage: current.stage,
-          contextTags: current.contextTags,
-          peopleContext: current.peopleContext,
-          decisionContext: current.decisionContext,
-          behaviorSignals: current.behaviorSignals,
-          recoverySignals: current.recoverySignals,
-        };
-        current.updatedAt = now();
-        journey.summary = String(structured.summary ?? completed.result).slice(0, 500);
-        // The same rule as the creation flow: a re-analysis may refine a title the product
-        // generated, never one the user wrote. Re-analysis is a deliberate user action, but it is
-        // still the user asking for a better analysis of their situation, not for their name for
-        // it to be replaced.
-        if (this.isGeneratedJourneyTitle(journey.title) && typeof structured.title === 'string' && structured.title.trim())
-          journey.title = structured.title.trim().slice(0, 80);
-        if (current.intensity !== undefined) journey.intensity = current.intensity;
-        journey.updatedAt = now();
-        this.agentDecisionLogs.unshift({
-          id: id('agent_decision'),
-          userId: journey.userId,
-          journeyId,
-          aiJobId: completed.id,
-          taskType: 'situation_analysis',
-          decision: structured,
-          createdAt: now(),
-        });
+        if (current && current.confidence !== 'user_confirmed') {
+          const structured = completed.structuredResult ?? {};
+          const list = (value: unknown, fallback: string[], max = 8) =>
+            Array.isArray(value)
+              ? value
+                  .map(String)
+                  .map((item) => item.trim())
+                  .filter(Boolean)
+                  .slice(0, max)
+              : fallback;
+          current.facts = list(structured.facts, current.facts);
+          current.feelings = list(structured.feelings, current.feelings);
+          current.needs = list(structured.needs, current.needs);
+          current.constraints = list(structured.constraints, current.constraints);
+          current.risks = list(structured.risks, current.risks);
+          current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
+          current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : current.subDomain;
+          current.eventType = typeof structured.eventType === 'string' ? structured.eventType : current.eventType;
+          current.stage = typeof structured.stage === 'string' ? structured.stage : current.stage;
+          current.contextTags = list(structured.contextTags, current.contextTags ?? [], 12);
+          current.peopleContext = list(structured.peopleContext, current.peopleContext ?? []);
+          current.decisionContext = list(structured.decisionContext, current.decisionContext ?? []);
+          current.behaviorSignals = list(structured.behaviorSignals, current.behaviorSignals ?? []);
+          current.recoverySignals = list(structured.recoverySignals, current.recoverySignals ?? []);
+          current.intensity = Number.isFinite(Number(structured.intensity))
+            ? Math.max(0, Math.min(10, Number(structured.intensity)))
+            : current.intensity;
+          current.urgency = Number.isFinite(Number(structured.urgency))
+            ? Math.max(0, Math.min(10, Number(structured.urgency)))
+            : current.urgency;
+          current.fingerprintJson = {
+            domain: current.domain,
+            subDomain: current.subDomain,
+            eventType: current.eventType,
+            stage: current.stage,
+            contextTags: current.contextTags,
+            peopleContext: current.peopleContext,
+            decisionContext: current.decisionContext,
+            behaviorSignals: current.behaviorSignals,
+            recoverySignals: current.recoverySignals,
+          };
+          current.updatedAt = now();
+          journey.summary = String(structured.summary ?? completed.result).slice(0, 500);
+          // The same rule as the creation flow: a re-analysis may refine a title the product
+          // generated, never one the user wrote. Re-analysis is a deliberate user action, but it is
+          // still the user asking for a better analysis of their situation, not for their name for
+          // it to be replaced.
+          if (this.isGeneratedJourneyTitle(journey.title) && typeof structured.title === 'string' && structured.title.trim())
+            journey.title = structured.title.trim().slice(0, 80);
+          if (current.intensity !== undefined) journey.intensity = current.intensity;
+          journey.updatedAt = now();
+        }
+        if (!DIRECT_DB_MODELS.AIJob) {
+          const structured = completed.structuredResult ?? {};
+          this.agentDecisionLogs.unshift({
+            id: id('agent_decision'),
+            userId: journey.userId,
+            journeyId,
+            aiJobId: completed.id,
+            taskType: 'situation_analysis',
+            decision: structured,
+            createdAt: now(),
+          });
+        }
         await this.persistAndFlush();
       })
       .catch(() => undefined);
@@ -5497,10 +5565,16 @@ export class StoreService implements OnModuleInit {
     letter?: Letter;
   }) {
     if (input.letter?.aiJobId) {
-      const pending = this.aiJobs.find(
-        (job) => job.id === input.letter?.aiJobId && ['queued', 'running'].includes(job.status),
-      );
-      if (pending) return { letter: input.letter, job: pending };
+      if (DIRECT_DB_MODELS.AIJob) {
+        if (input.letter.generationStatus && ['queued', 'running'].includes(input.letter.generationStatus)) {
+          return { letter: input.letter, job: { id: input.letter.aiJobId, status: input.letter.generationStatus } as any };
+        }
+      } else {
+        const pending = this.aiJobs.find(
+          (job) => job.id === input.letter?.aiJobId && ['queued', 'running'].includes(job.status),
+        );
+        if (pending) return { letter: input.letter, job: pending };
+      }
     }
     const letter = input.letter ?? {
       id: id('letter'),
@@ -5600,7 +5674,7 @@ export class StoreService implements OnModuleInit {
     const peerDraftProvider = isPeerResponseAssist
       ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
       : undefined;
-    const queuedPrimaryProviderId = peerDraftProvider?.id ?? route?.primaryProviderId;
+    const queuedPrimaryProviderId = peerDraftProvider?.id ?? (route?.primaryProviderId || 'provider_template');
     const job: AIJob = {
       id: id('job'),
       userId: input.userId,
@@ -5609,7 +5683,7 @@ export class StoreService implements OnModuleInit {
       taskType: this.jobTypeLabel(taskType),
       jobType: this.jobTypeLabel(taskType),
       style: input.style,
-      providerId: peerDraftProvider?.id ?? '',
+      providerId: peerDraftProvider?.id ?? (route?.primaryProviderId || 'provider_template'),
       modelName: peerDraftProvider?.modelName ?? '',
       status: 'queued',
       promptSummary: input.promptSummary.slice(0, 160),
@@ -5633,6 +5707,55 @@ export class StoreService implements OnModuleInit {
       routeVersion: route?.routeVersion ?? 0,
       createdAt: now(),
     };
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      const commitPromise = this.batch1Persistence.createAiJob({
+        id: job.id,
+        userId: job.userId,
+        contentId: job.contentId,
+        contentType: job.contentType,
+        jobType: job.jobType,
+        taskType: job.taskType,
+        style: job.style,
+        providerId: job.providerId,
+        modelName: job.modelName,
+        status: 'queued',
+        promptSummary: job.promptSummary,
+        promptVersion: job.promptVersion,
+        traceJson: job.traceJson,
+        createdAt: job.createdAt,
+      });
+      this.pendingJobCommits.set(job.id, commitPromise);
+      commitPromise.finally(() => this.pendingJobCommits.delete(job.id));
+
+      void commitPromise.then(async () => {
+        try {
+          await this.runAiJob({ ...input, jobId: job.id });
+        } catch (error) {
+          const errorMessage = sanitizeProviderError(error);
+          const durationMs = Math.max(1, Date.now() - Date.parse(job.createdAt));
+          const completedAt = now();
+          const traceEntry = {
+            at: now(),
+            event: 'terminal',
+            status: 'failed',
+            reason: errorMessage,
+            durationMs,
+          };
+          const traces = [...(job.traceJson ?? []), traceEntry];
+          await this.batch1Persistence.updateJobTerminal({
+            id: job.id,
+            status: 'failed',
+            errorMessage,
+            durationMs,
+            completedAt,
+            traceJson: traces,
+          });
+        }
+      });
+      return job;
+    }
+
     this.aiJobs.unshift(job);
     this.persist();
     void Promise.resolve().then(async () => {
@@ -5658,19 +5781,33 @@ export class StoreService implements OnModuleInit {
   async waitForAiJob(jobId: string, timeoutMs = 120_000) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-      const job = this.aiJobs.find((item) => item.id === jobId);
-      if (!job) throw new NotFoundException('AI 任务不存在');
-      if (!['queued', 'running'].includes(job.status)) {
-        await this.flush();
-        return job;
+      if (DIRECT_DB_MODELS.AIJob) {
+        await this.awaitJobCommit(jobId);
+        const job = await this.batch1Persistence.getAiJob(jobId);
+        if (!job && Date.now() - startedAt > 2000) {
+          throw new NotFoundException('AI 任务不存在');
+        }
+        if (job && !['queued', 'running'].includes(job.status)) {
+          return job as any;
+        }
+      } else {
+        const job = this.aiJobs.find((item) => item.id === jobId);
+        if (!job) throw new NotFoundException('AI 任务不存在');
+        if (!['queued', 'running'].includes(job.status)) {
+          await this.flush();
+          return job;
+        }
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     throw new Error(`AI task ${jobId} did not finish within ${timeoutMs}ms`);
   }
 
-  latestSuccessfulAiJob(userId: string, taskType: string) {
+  async latestSuccessfulAiJob(userId: string, taskType: string) {
     const normalizedTaskType = this.jobTypeLabel(this.normalizeTaskType(taskType));
+    if (DIRECT_DB_MODELS.AIJob) {
+      return (await this.batch1Persistence.getLatestSuccessfulAiJob(userId, normalizedTaskType)) as any;
+    }
     return this.aiJobs.find(
       (job) =>
         job.userId === userId &&
@@ -5710,9 +5847,17 @@ export class StoreService implements OnModuleInit {
     }
     const primary = peerDraftProvider ?? this.aiProviders.find((item) => item.id === route.primaryProviderId);
     const backup = this.aiProviders.find((item) => item.id === route.backupProviderId);
-    const job: AIJob = input.jobId
-      ? this.aiJobs.find((item) => item.id === input.jobId)!
-      : {
+
+    let job: AIJob;
+    if (DIRECT_DB_MODELS.AIJob) {
+      if (input.jobId) {
+        await this.awaitJobCommit(input.jobId);
+        const existingJob = await this.batch1Persistence.getAiJob(input.jobId);
+        if (!existingJob) throw new NotFoundException('AI 任务不存在');
+        job = existingJob as any;
+      } else {
+        const primaryProvId = primary?.id ?? (route.primaryProviderId || 'provider_template');
+        job = (await this.batch1Persistence.createAiJob({
           id: id('job'),
           userId: input.userId,
           contentId: input.contentId,
@@ -5720,37 +5865,71 @@ export class StoreService implements OnModuleInit {
           taskType: this.jobTypeLabel(taskType),
           jobType: this.jobTypeLabel(taskType),
           style: input.style,
-          providerId: '',
-          modelName: '',
+          providerId: primaryProvId,
+          modelName: primary?.modelName ?? '',
           status: 'queued',
           promptSummary: input.promptSummary.slice(0, 160),
           promptVersion: route.promptVersion,
-          result: '',
-          durationMs: 0,
-          retryCount: 0,
-          traceJson: [],
+          traceJson: [
+            {
+              at: now(),
+              event: 'queued',
+              status: 'queued',
+              taskType,
+              style: input.style,
+              routeVersion: route.routeVersion,
+              primaryProviderId: primaryProvId,
+              backupProviderId: route.backupProviderId,
+              fallbackTemplateId: route.fallbackTemplateId,
+            },
+          ],
           routeVersion: route.routeVersion,
           createdAt: now(),
-        };
-    if (!job) throw new NotFoundException('AI 任务不存在');
-    if (!input.jobId) {
-      this.aiJobs.unshift(job);
-      this.appendAiTrace(job, {
-        event: 'queued',
-        status: 'queued',
-        taskType,
-        style: input.style,
-        routeVersion: route.routeVersion,
-        primaryProviderId: primary?.id ?? route.primaryProviderId,
-        backupProviderId: route.backupProviderId,
-        fallbackTemplateId: route.fallbackTemplateId,
-      });
-      this.persist();
+        })) as any;
+      }
+    } else {
+      job = input.jobId
+        ? this.aiJobs.find((item) => item.id === input.jobId)!
+        : {
+            id: id('job'),
+            userId: input.userId,
+            contentId: input.contentId,
+            contentType: input.contentType,
+            taskType: this.jobTypeLabel(taskType),
+            jobType: this.jobTypeLabel(taskType),
+            style: input.style,
+            providerId: '',
+            modelName: '',
+            status: 'queued',
+            promptSummary: input.promptSummary.slice(0, 160),
+            promptVersion: route.promptVersion,
+            result: '',
+            durationMs: 0,
+            retryCount: 0,
+            traceJson: [],
+            routeVersion: route.routeVersion,
+            createdAt: now(),
+          };
+      if (!job) throw new NotFoundException('AI 任务不存在');
+      if (!input.jobId) {
+        this.aiJobs.unshift(job);
+        this.appendAiTrace(job, {
+          event: 'queued',
+          status: 'queued',
+          taskType,
+          style: input.style,
+          routeVersion: route.routeVersion,
+          primaryProviderId: primary?.id ?? route.primaryProviderId,
+          backupProviderId: route.backupProviderId,
+          fallbackTemplateId: route.fallbackTemplateId,
+        });
+        this.persist();
+      }
     }
 
     const jobStartedAt = Date.now();
-    job.status = 'running';
-    this.appendAiTrace(job, {
+    const runningTrace = {
+      at: now(),
       event: 'running',
       status: 'running',
       taskType,
@@ -5759,47 +5938,98 @@ export class StoreService implements OnModuleInit {
       primaryProviderId: primary?.id ?? route.primaryProviderId,
       backupProviderId: route.backupProviderId,
       fallbackTemplateId: route.fallbackTemplateId,
-    });
-    this.persist();
+    };
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      const { claimed, job: runningJob } = await this.batch1Persistence.updateJobRunning({
+        id: job.id,
+        traceEntry: runningTrace,
+      });
+      if (!claimed) {
+        return runningJob ?? job;
+      }
+      job = runningJob as any;
+    } else {
+      job.status = 'running';
+      this.appendAiTrace(job, runningTrace);
+      this.persist();
+    }
+
     if (visualFixtureMode) {
-      job.status = 'failed';
-      job.errorMessage = 'VISUAL_FIXTURE_REMOTE_AI_DISABLED';
-      job.durationMs = Math.max(1, Date.now() - jobStartedAt);
-      job.completedAt = now();
-      this.appendAiTrace(job, {
+      const errorMessage = 'VISUAL_FIXTURE_REMOTE_AI_DISABLED';
+      const durationMs = Math.max(1, Date.now() - jobStartedAt);
+      const completedAt = now();
+      const terminalTrace = {
+        at: now(),
         event: 'terminal',
         status: 'failed',
-        reason: job.errorMessage,
-        durationMs: job.durationMs,
-      });
+        reason: errorMessage,
+        durationMs,
+      };
+      if (DIRECT_DB_MODELS.AIJob) {
+        const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+          id: job.id,
+          status: 'failed',
+          errorMessage,
+          durationMs,
+          completedAt,
+          traceJson: [...(job.traceJson ?? []), terminalTrace],
+        });
+        return finalJob as any;
+      }
+      job.status = 'failed';
+      job.errorMessage = errorMessage;
+      job.durationMs = durationMs;
+      job.completedAt = completedAt;
+      this.appendAiTrace(job, terminalTrace);
       this.persist();
       return job;
     }
 
     const risk = this.detectRisk(input.promptSummary);
     if (risk.level === 'high') {
-      job.providerId = 'risk-escalation';
-      job.modelName = 'safety-policy';
-      job.result =
-        '我很在意你现在的安全。请先联系身边可信任的人，或尽快联系当地紧急服务、心理危机干预热线；如果你正处在即时危险中，请优先拨打当地紧急电话。你不需要一个人扛着。';
-      job.structuredResult = {
-        riskLevel: 'high',
-        escalation: true,
-        nextSmallStep: '现在就联系一位可信任的人，并离开可能伤害自己的环境。',
-      };
-      job.status = 'succeeded';
-      job.durationMs = 1;
-      job.completedAt = now();
-      this.appendAiTrace(job, {
+      const durationMs = 1;
+      const completedAt = now();
+      const terminalTrace = {
+        at: now(),
         event: 'terminal',
         taskType,
         riskLevel: 'high',
         status: 'succeeded',
-        providerId: job.providerId,
-        modelName: job.modelName,
-        durationMs: job.durationMs,
+        providerId: 'risk-escalation',
+        modelName: 'safety-policy',
+        durationMs,
         safetyEscalation: true,
-      });
+      };
+      const resultText =
+        '我很在意你现在的安全。请先联系身边可信任的人，或尽快联系当地紧急服务、心理危机干预热线；如果你正处在即时危险中，请优先拨打当地紧急电话。你不需要一个人扛着。';
+      const structuredResult = {
+        riskLevel: 'high',
+        escalation: true,
+        nextSmallStep: '现在就联系一位可信任的人，并离开可能伤害自己的环境。',
+      };
+      if (DIRECT_DB_MODELS.AIJob) {
+        const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+          id: job.id,
+          status: 'succeeded',
+          providerId: 'risk-escalation',
+          modelName: 'safety-policy',
+          result: resultText,
+          structuredResult,
+          durationMs,
+          completedAt,
+          traceJson: [...(job.traceJson ?? []), terminalTrace],
+        });
+        return finalJob as any;
+      }
+      job.providerId = 'risk-escalation';
+      job.modelName = 'safety-policy';
+      job.result = resultText;
+      job.structuredResult = structuredResult;
+      job.status = 'succeeded';
+      job.durationMs = durationMs;
+      job.completedAt = completedAt;
+      this.appendAiTrace(job, terminalTrace);
       this.persist();
       return job;
     }
@@ -5909,6 +6139,49 @@ export class StoreService implements OnModuleInit {
         const structured = needsStructuredResult
           ? this.parseStructuredTaskResult(userFacingResult, taskType)
           : undefined;
+
+        if (DIRECT_DB_MODELS.AIJob) {
+          const finalDurationMs = Math.max(response.durationMs, Date.now() - jobStartedAt);
+          this.appendAiTrace(job, {
+            event: 'provider-attempt',
+            providerId: provider.id,
+            modelName: response.model,
+            role: candidate.role,
+            status: 'succeeded',
+            durationMs: response.durationMs,
+            jobDurationMs: finalDurationMs,
+            structured: Boolean(structured),
+            fallbackUsed: candidate.role === 'backup',
+          });
+          this.appendAiTrace(job, {
+            event: 'terminal',
+            providerId: provider.id,
+            modelName: response.model,
+            status: 'succeeded',
+            durationMs: finalDurationMs,
+            fallbackUsed: candidate.role === 'backup',
+          });
+          provider.modelName = response.model;
+          provider.todayCalls += 1;
+          provider.avgLatencyMs = provider.avgLatencyMs
+            ? Math.round((provider.avgLatencyMs + response.durationMs) / 2)
+            : response.durationMs;
+          const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+            id: job.id,
+            status: 'succeeded',
+            providerId: provider.id,
+            modelName: response.model,
+            result: this.safetyFilter(structured ? structured.summary : userFacingResult),
+            structuredResult: structured,
+            fallbackUsed: candidate.role === 'backup',
+            retryCount: candidates.indexOf(candidate),
+            durationMs: finalDurationMs,
+            completedAt: now(),
+            traceJson: job.traceJson,
+          });
+          return finalJob as any;
+        }
+
         job.providerId = provider.id;
         job.modelName = response.model;
         job.result = this.safetyFilter(structured ? structured.summary : userFacingResult);
@@ -5961,14 +6234,43 @@ export class StoreService implements OnModuleInit {
     }
 
     if (isPeerResponseAssist) {
-      job.providerId = primary?.id ?? DAPI_PROVIDER_ID;
-      job.modelName = primary?.modelName ?? '';
+      const providerId = primary?.id ?? DAPI_PROVIDER_ID;
+      const modelName = primary?.modelName ?? '';
+      const durationMs = Math.max(1, Date.now() - jobStartedAt);
+      const errorMessage = errors.join(' | ') || 'DAPI_PEER_ASSIST_FAILED';
+      const completedAt = now();
+      if (DIRECT_DB_MODELS.AIJob) {
+        this.appendAiTrace(job, {
+          event: 'terminal',
+          status: 'failed',
+          reason: errorMessage,
+          providerId,
+          modelName,
+          durationMs,
+          fallbackUsed: false,
+        });
+        const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+          id: job.id,
+          status: 'failed',
+          providerId,
+          modelName,
+          errorMessage,
+          durationMs,
+          fallbackUsed: false,
+          retryCount: Math.max(0, candidates.length - 1),
+          completedAt,
+          traceJson: job.traceJson,
+        });
+        return finalJob as any;
+      }
+      job.providerId = providerId;
+      job.modelName = modelName;
       job.status = 'failed';
       job.fallbackUsed = false;
       job.retryCount = Math.max(0, candidates.length - 1);
-      job.errorMessage = errors.join(' | ') || 'DAPI_PEER_ASSIST_FAILED';
-      job.durationMs = Math.max(1, Date.now() - jobStartedAt);
-      job.completedAt = now();
+      job.errorMessage = errorMessage;
+      job.durationMs = durationMs;
+      job.completedAt = completedAt;
       this.appendAiTrace(job, {
         event: 'terminal',
         status: 'failed',
@@ -5989,16 +6291,52 @@ export class StoreService implements OnModuleInit {
       style: input.style,
       routeLabel: route.label,
     });
-    job.providerId = route.fallbackTemplateId || this.templateProvider().id;
-    job.modelName = this.aiProviders.find((provider) => provider.id === job.providerId)?.modelName ?? 'safe-template';
-    job.result = this.safetyFilter(template.result);
-    job.structuredResult = needsStructuredResult ? template.structured : undefined;
+    const fallbackProviderId = route.fallbackTemplateId || this.templateProvider().id;
+    const fallbackModelName = this.aiProviders.find((provider) => provider.id === fallbackProviderId)?.modelName ?? 'safe-template';
+    const fallbackResult = this.safetyFilter(template.result);
+    const fallbackStructured = needsStructuredResult ? template.structured : undefined;
+    const fallbackErrorMessage = errors.join(' | ') || 'AI_PROVIDER_FAILED';
+    const fallbackDurationMs = Math.max(1, Date.now() - jobStartedAt);
+    const fallbackCompletedAt = now();
+    const fallbackRetryCount = Math.max(1, candidates.length - 1);
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      this.appendAiTrace(job, {
+        event: 'terminal',
+        status: 'fallback',
+        reason: fallbackErrorMessage,
+        providerId: fallbackProviderId,
+        modelName: fallbackModelName,
+        durationMs: fallbackDurationMs,
+        fallbackUsed: true,
+      });
+      const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+        id: job.id,
+        status: 'fallback',
+        providerId: fallbackProviderId,
+        modelName: fallbackModelName,
+        result: fallbackResult,
+        structuredResult: fallbackStructured,
+        errorMessage: fallbackErrorMessage,
+        durationMs: fallbackDurationMs,
+        fallbackUsed: true,
+        retryCount: fallbackRetryCount,
+        completedAt: fallbackCompletedAt,
+        traceJson: job.traceJson,
+      });
+      return finalJob as any;
+    }
+
+    job.providerId = fallbackProviderId;
+    job.modelName = fallbackModelName;
+    job.result = fallbackResult;
+    job.structuredResult = fallbackStructured;
     job.status = 'fallback';
     job.fallbackUsed = true;
-    job.retryCount = Math.max(1, candidates.length - 1);
-    job.errorMessage = errors.join(' | ') || 'AI_PROVIDER_FAILED';
-    job.durationMs = Math.max(1, Date.now() - jobStartedAt);
-    job.completedAt = now();
+    job.retryCount = fallbackRetryCount;
+    job.errorMessage = fallbackErrorMessage;
+    job.durationMs = fallbackDurationMs;
+    job.completedAt = fallbackCompletedAt;
     this.appendAiTrace(job, {
       event: 'terminal',
       status: 'fallback',

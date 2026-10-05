@@ -35,6 +35,8 @@ import type {
 } from '@goodnight/shared-types';
 import { normalizeStoreEmotion, StoreService, type AIGenerateInput } from './store.service.js';
 import { MonthlyReportService } from './monthly-report.service.js';
+import { Batch1PersistenceService } from './batch1-persistence.service.js';
+import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
   DAPI_PROVIDER_ID,
@@ -272,6 +274,7 @@ export class PublicController {
   constructor(
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(MonthlyReportService) private readonly reports: MonthlyReportService,
+    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
   ) {}
 
   @Get('posts')
@@ -833,9 +836,13 @@ export class PublicController {
   }
 
   @Get('me/memories')
-  memoriesAlias(@Headers('x-goodnight-user-id') userId?: string) {
-    const items = this.store.memoryList(true, runtimeUserId(userId)).map((item) => {
-      const usages = this.store.aiJobs.flatMap((job) =>
+  async memoriesAlias(@Headers('x-goodnight-user-id') userId?: string) {
+    const targetUserId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const userJobs = DIRECT_DB_MODELS.AIJob
+      ? await this.batch1Persistence.listAiJobsForUser(targetUserId)
+      : this.store.aiJobs.filter((job) => job.userId === targetUserId);
+    const items = this.store.memoryList(true, targetUserId).map((item) => {
+      const usages = userJobs.flatMap((job) =>
         (job.traceJson ?? [])
           .filter(
             (trace: any) =>
@@ -1067,29 +1074,35 @@ export class PublicController {
   }
 
   @Post('ai/generate')
-  aiGenerate(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
+  async aiGenerate(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
     const job = this.store.queueAI({
       ...body,
       userId: this.store.resolveRuntimeUserId(runtimeUserId(userId)),
     });
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(job.id);
+    }
     return { jobId: job.id, status: job.status, job };
   }
 
   @Post('ai/tasks')
-  aiTask(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
+  async aiTask(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
     const job = this.store.queueAI({
       ...body,
       userId: this.store.resolveRuntimeUserId(runtimeUserId(userId)),
     });
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(job.id);
+    }
     return { jobId: job.id, status: job.status, job };
   }
 
   @Get('ai/tasks/latest')
-  latestAiTask(
+  async latestAiTask(
     @Query('taskType') taskType = 'negative_rewrite',
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    const job = this.store.latestSuccessfulAiJob(
+    const job = await this.store.latestSuccessfulAiJob(
       this.store.resolveRuntimeUserId(runtimeUserId(userId)),
       taskType,
     );
@@ -1103,8 +1116,17 @@ export class PublicController {
 
   @Get('ai/tasks/:id')
   async aiTaskStatus(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const expectedUserId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(id);
+      const job = await this.batch1Persistence.getAiJob(id);
+      if (!job || job.userId !== expectedUserId) {
+        throw new NotFoundException('AI 任务不存在');
+      }
+      return { jobId: job.id, status: job.status, job, result: job.result, structured: job.structuredResult ?? {} };
+    }
     const job = this.store.aiJobs.find((item) => item.id === id);
-    if (!job || job.userId !== this.store.resolveRuntimeUserId(runtimeUserId(userId))) {
+    if (!job || job.userId !== expectedUserId) {
       throw new NotFoundException('AI 任务不存在');
     }
     if (!['queued', 'running'].includes(job.status)) await this.store.flush();
@@ -1395,7 +1417,9 @@ export class PublicController {
 
   @Post('tools/emotion-decompose/:taskId/save')
   async saveDecompose(@Param('taskId') taskId: string) {
-    const job = this.store.aiJobs.find((item) => item.id === taskId);
+    const job = DIRECT_DB_MODELS.AIJob
+      ? await this.batch1Persistence.getAiJob(taskId)
+      : this.store.aiJobs.find((item) => item.id === taskId);
     const structured = (
       job?.traceJson.find((item) => typeof item === 'object' && item && 'structured' in item) as
         { structured?: unknown } | undefined
@@ -1846,7 +1870,10 @@ export class PublicController {
 @Controller('api/admin/v1')
 @UseGuards(AdminAuthGuard)
 export class AdminController {
-  constructor(@Inject(StoreService) private readonly store: StoreService) {}
+  constructor(
+    @Inject(StoreService) private readonly store: StoreService,
+    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+  ) {}
 
   private admin(auth?: string) {
     return this.store.verifyToken(tokenFrom(auth));
@@ -1885,22 +1912,63 @@ export class AdminController {
       day.setDate(day.getDate() - (6 - index));
       return day.toISOString().slice(0, 10);
     });
+    let aiMetrics: {
+      trendByDay: Record<string, number>;
+      successfulJobs: number;
+      todayJobsCount: number;
+      completedJobsCount: number;
+      failedJobsCount: number;
+      fallbackJobsCount: number;
+      averageDurationMs: number;
+      aiSuccessRate: number;
+      latestJobs: any[];
+      summary: { total: number; succeeded: number; fallback: number; failed: number };
+    };
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      aiMetrics = await this.batch1Persistence.getAiJobDashboardMetrics(dayKeys, today);
+    } else {
+      const successfulJobs = this.store.aiJobs.filter((job) => ['succeeded', 'fallback'].includes(job.status)).length;
+      const todayJobs = this.store.aiJobs.filter((job) => job.createdAt?.startsWith(today));
+      const completedJobs = this.store.aiJobs.filter((job) => ['succeeded', 'failed', 'fallback'].includes(job.status));
+      const failedJobs = completedJobs.filter((job) => job.status === 'failed');
+      const fallbackJobs = completedJobs.filter((job) => job.status === 'fallback');
+      aiMetrics = {
+        trendByDay: Object.fromEntries(
+          dayKeys.map((day) => [day, this.store.aiJobs.filter((item) => item.createdAt?.startsWith(day)).length]),
+        ),
+        successfulJobs,
+        todayJobsCount: todayJobs.length,
+        completedJobsCount: completedJobs.length,
+        failedJobsCount: failedJobs.length,
+        fallbackJobsCount: fallbackJobs.length,
+        averageDurationMs: completedJobs.length
+          ? Math.round(completedJobs.reduce((sum, job) => sum + job.durationMs, 0) / completedJobs.length)
+          : 0,
+        aiSuccessRate: this.store.aiJobs.length
+          ? Math.round((successfulJobs / this.store.aiJobs.length) * 1000) / 10
+          : 100,
+        latestJobs: this.store.aiJobs.slice(0, 8),
+        summary: {
+          total: this.store.aiJobs.length,
+          succeeded: this.store.aiJobs.filter((job) => job.status === 'succeeded').length,
+          fallback: fallbackJobs.length,
+          failed: failedJobs.length,
+        },
+      };
+    }
+
     const activeTrend = dayKeys.map((day) => ({
       date: day,
       users: this.store.users.filter((item) => item.createdAt?.startsWith(day)).length,
       posts: this.store.posts.filter((item) => item.createdAt?.startsWith(day)).length,
       replies: this.store.replies.filter((item) => item.createdAt?.startsWith(day)).length,
-      aiJobs: this.store.aiJobs.filter((item) => item.createdAt?.startsWith(day)).length,
+      aiJobs: aiMetrics.trendByDay[day] ?? 0,
     }));
     const emotionDistribution = this.store.posts.reduce<Record<string, number>>((acc, post) => {
       acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
       return acc;
     }, {});
-    const successfulJobs = this.store.aiJobs.filter((job) => ['succeeded', 'fallback'].includes(job.status)).length;
-    const todayJobs = this.store.aiJobs.filter((job) => job.createdAt?.startsWith(today));
-    const completedJobs = this.store.aiJobs.filter((job) => ['succeeded', 'failed', 'fallback'].includes(job.status));
-    const failedJobs = completedJobs.filter((job) => job.status === 'failed');
-    const fallbackJobs = completedJobs.filter((job) => job.status === 'fallback');
     const ollama = this.store.ollamaStatus();
     return {
       todayUsers: this.store.users.filter((u) => u.createdAt?.startsWith(today)).length,
@@ -1930,31 +1998,22 @@ export class AdminController {
         if (item.currentIntent) acc[item.currentIntent] = (acc[item.currentIntent] ?? 0) + 1;
         return acc;
       }, {}),
-      aiSuccessRate: this.store.aiJobs.length
-        ? Math.round((successfulJobs / this.store.aiJobs.length) * 1000) / 10
-        : 100,
+      aiSuccessRate: aiMetrics.aiSuccessRate,
       activeTrend,
       emotionDistribution,
       latestPosts: this.store.posts.slice(0, 8),
-      aiJobs: this.store.aiJobs.slice(0, 8),
-      aiSummary: {
-        total: this.store.aiJobs.length,
-        succeeded: this.store.aiJobs.filter((job) => job.status === 'succeeded').length,
-        fallback: this.store.aiJobs.filter((job) => job.status === 'fallback').length,
-        failed: this.store.aiJobs.filter((job) => job.status === 'failed').length,
-      },
+      aiJobs: aiMetrics.latestJobs,
+      aiSummary: aiMetrics.summary,
       aiMonitor: {
         ollamaOnline: ollama.online,
         localModelCount: ollama.modelCount,
-        todayCalls: todayJobs.length,
-        successRate: completedJobs.length
-          ? Math.round(((completedJobs.length - failedJobs.length) / completedJobs.length) * 1000) / 10
+        todayCalls: aiMetrics.todayJobsCount,
+        successRate: aiMetrics.completedJobsCount
+          ? Math.round(((aiMetrics.completedJobsCount - aiMetrics.failedJobsCount) / aiMetrics.completedJobsCount) * 1000) / 10
           : 100,
-        failureRate: completedJobs.length ? Math.round((failedJobs.length / completedJobs.length) * 1000) / 10 : 0,
-        averageDurationMs: completedJobs.length
-          ? Math.round(completedJobs.reduce((sum, job) => sum + job.durationMs, 0) / completedJobs.length)
-          : 0,
-        fallbackCount: fallbackJobs.length,
+        failureRate: aiMetrics.completedJobsCount ? Math.round((aiMetrics.failedJobsCount / aiMetrics.completedJobsCount) * 1000) / 10 : 0,
+        averageDurationMs: aiMetrics.averageDurationMs,
+        fallbackCount: aiMetrics.fallbackJobsCount,
         lastCheckedAt: ollama.lastCheckedAt,
       },
     };
@@ -2880,17 +2939,26 @@ export class AdminController {
   }
 
   @Get('ai/jobs')
-  jobs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async jobs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    if (DIRECT_DB_MODELS.AIJob) {
+      return await this.batch1Persistence.listAdminAiJobs(page, pageSize);
+    }
     return this.list(this.store.aiJobs, page, pageSize);
   }
   @Get('ai/jobs/:id')
-  job(@Param('id') id: string) {
+  async job(@Param('id') id: string) {
+    if (DIRECT_DB_MODELS.AIJob) {
+      return { item: await this.batch1Persistence.getAiJob(id) };
+    }
     return { item: this.store.aiJobs.find((j) => j.id === id) };
   }
   @Post('ai/jobs/:id/retry')
   async retryJob(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const job = this.store.aiJobs.find((j) => j.id === id)!;
+    const job = DIRECT_DB_MODELS.AIJob
+      ? await this.batch1Persistence.getAiJob(id)
+      : this.store.aiJobs.find((j) => j.id === id);
+    if (!job) throw new NotFoundException('AI 任务不存在');
     const retry = this.store.queueAiJob({
       userId: job.userId,
       contentId: job.contentId,
@@ -2901,6 +2969,9 @@ export class AdminController {
       promptSummary: job.promptSummary,
     });
     retry.retryCount = job.retryCount + 1;
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.batch1Persistence.updateJobRetryCount(retry.id, retry.retryCount);
+    }
     this.store.audit(admin.id, 'AI_JOB_RETRY', 'AIJob', retry.id, { retryOf: job.id }, retry);
     this.store.persist();
     await this.store.flush();

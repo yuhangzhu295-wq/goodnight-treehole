@@ -39,7 +39,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.systemSetting.findMany({ orderBy: { key: 'asc' } }),
     db.aIProvider.findMany({ orderBy: { priority: 'asc' } }),
     db.aIStyleRoute.findMany({ orderBy: { style: 'asc' } }),
-    db.aIJob.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.AIJob ? Promise.resolve([]) : db.aIJob.findMany({ orderBy: { createdAt: 'desc' } }),
     db.mediaAsset.findMany({ orderBy: { createdAt: 'desc' } }),
     db.auditLog.findMany({ orderBy: { createdAt: 'desc' } }),
     db.lifeJourney.findMany({ orderBy: { updatedAt: 'desc' } }),
@@ -103,7 +103,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     systemSettings: Object.fromEntries(settings.map((item: any) => [item.key, { value: item.value, description: item.description, updatedBy: item.updatedBy ?? 'system', updatedAt: iso(item.updatedAt) }])),
     aiProviders: providers.map((item: any) => ({ id: item.id, name: item.name, type: item.type, baseUrl: item.baseUrl, modelName: item.modelName, apiKeyStatus: item.apiKeyStatus, enabled: item.enabled, priority: item.priority, dailyLimit: item.dailyLimit, timeoutSeconds: item.timeoutSeconds, failoverEnabled: item.failoverEnabled, usageTags: asArray(item.usageTags), failureRate: item.failureRate, avgLatencyMs: item.avgLatencyMs, todayCalls: item.todayCalls, providerKind: item.providerKind, modelMeta: item.modelMeta ?? undefined })),
     aiRoutes: routes.map((item: any) => ({ id: item.id, style: item.style, label: item.label, taskTypes: asArray(item.taskTypes), primaryProviderId: item.primaryProviderId, backupProviderId: item.backupProviderId, fallbackTemplateId: item.fallbackTemplateId, promptVersion: item.promptVersion, promptTemplate: item.promptTemplate, enabled: item.enabled, routeVersion: item.routeVersion })),
-    aiJobs: jobs.map((item: any) => ({ id: item.id, userId: item.userId, contentId: item.contentId, contentType: item.contentType, taskType: item.taskType ?? undefined, jobType: item.jobType, style: item.style, providerId: item.providerId, modelName: item.modelName, status: item.status, promptSummary: item.promptSummary, promptVersion: item.promptVersion ?? undefined, result: item.result ?? '', structuredResult: item.structuredResult ?? undefined, errorMessage: item.errorMessage ?? undefined, durationMs: item.durationMs ?? 0, retryCount: item.retryCount, fallbackUsed: item.fallbackUsed, traceJson: asArray(item.traceJson), routeVersion: item.routeVersion, createdAt: iso(item.createdAt), completedAt: item.completedAt ? iso(item.completedAt) : undefined })),
+    ...(DIRECT_DB_MODELS.AIJob ? {} : {
+      aiJobs: jobs.map((item: any) => ({ id: item.id, userId: item.userId, contentId: item.contentId, contentType: item.contentType, taskType: item.taskType ?? undefined, jobType: item.jobType, style: item.style, providerId: item.providerId, modelName: item.modelName, status: item.status, promptSummary: item.promptSummary, promptVersion: item.promptVersion ?? undefined, result: item.result ?? '', structuredResult: item.structuredResult ?? undefined, errorMessage: item.errorMessage ?? undefined, durationMs: item.durationMs ?? 0, retryCount: item.retryCount, fallbackUsed: item.fallbackUsed, traceJson: asArray(item.traceJson), routeVersion: item.routeVersion, createdAt: iso(item.createdAt), completedAt: item.completedAt ? iso(item.completedAt) : undefined })),
+    }),
     assets: assets.map((item: any) => ({ id: item.id, userId: item.userId, storageKey: item.storageKey, url: item.url, mimeType: item.mimeType, size: item.size, width: item.width, height: item.height, usageType: item.usageType, status: item.status, createdAt: iso(item.createdAt) })),
     auditLogs: audits.map((item: any) => ({ id: item.id, adminUserId: item.adminUserId, action: item.action, resourceType: item.resourceType, resourceId: item.resourceId, beforeJson: item.beforeJson ?? null, afterJson: item.afterJson ?? null, ip: item.ip ?? '', userAgent: item.userAgent ?? '', createdAt: iso(item.createdAt) })),
     lifeJourneys: journeys.map((item: any) => ({ id: item.id, userId: item.userId, title: item.title, domain: item.domain, status: item.status, stage: item.stage, currentIntent: item.currentIntent ?? undefined, intentUpdatedAt: item.intentUpdatedAt ? iso(item.intentUpdatedAt) : undefined, initialIntensity: item.initialIntensity ?? undefined, visibility: item.visibility, intensity: item.intensity ?? undefined, summary: item.summary ?? undefined, nextReviewAt: item.nextReviewAt ? iso(item.nextReviewAt) : undefined, completedAt: item.completedAt ? iso(item.completedAt) : undefined, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
@@ -157,11 +159,11 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     route.backupProviderId = fallbackProvider(route.backupProviderId);
     route.fallbackTemplateId = fallbackProvider(route.fallbackTemplateId);
   }
-  const jobs = asArray(state.aiJobs);
+  const jobs = DIRECT_DB_MODELS.AIJob ? [] : asArray(state.aiJobs);
   for (const job of jobs) job.providerId = fallbackProvider(job.providerId);
   const moodIds = new Set(asArray(state.moods).map((item: any) => item.id));
   const letterIds = new Set(asArray(state.letters).map((item: any) => item.id));
-  const jobIds = new Set(jobs.map((item: any) => item.id));
+  const fallbackJobIds = new Set(jobs.map((item: any) => item.id));
   const journeyIds = new Set(asArray(state.lifeJourneys).map((item: any) => item.id));
   const commitmentIds = new Set(asArray(state.actionCommitments).map((item: any) => item.id));
   const decisionIds = new Set(asArray(state.decisionRecords).map((item: any) => item.id));
@@ -173,6 +175,23 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
   const peerExperienceIdSet = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
 
   await db.$transaction(async (tx: DbClient) => {
+    let jobIds: Set<string>;
+    if (DIRECT_DB_MODELS.AIJob) {
+      const candidateJobIds = [
+        ...asArray(state.letters).map((item: any) => item.aiJobId),
+        ...asArray(state.replies).map((item: any) => item.aiJobId ?? (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null)),
+        ...asArray(state.agentDecisionLogs).map((item: any) => item.aiJobId),
+      ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+      const existingDbJobs = candidateJobIds.length
+        ? await tx.aIJob.findMany({
+            where: { id: { in: candidateJobIds } },
+            select: { id: true },
+          })
+        : [];
+      jobIds = new Set(existingDbJobs.map((j: any) => j.id));
+    } else {
+      jobIds = fallbackJobIds;
+    }
     const adminUsers = asArray(state.adminUsers);
     const roles = [...new Set(adminUsers.map((item: any) => String(item.role || 'super_admin')))];
     for (const role of roles) {
@@ -204,11 +223,27 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     for (const item of asArray(state.posts)) await tx.post.upsert({ where: { id: item.id }, create: { id: item.id, moodId: item.moodId, userId: item.userId, emotion: item.emotion, content: item.content, visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'), status: item.status ?? 'active', reviewStatus: valid(item.reviewStatus, ['pending_review', 'published', 'hidden', 'rejected'] as const, 'pending_review'), hugCount: Number(item.hugCount ?? 0), replyCount: Number(item.replyCount ?? 0), favoriteCount: Number(item.favoriteCount ?? 0), reportCount: Number(item.reportCount ?? 0), journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, createdAt: date(item.createdAt), publishedAt: item.publishedAt ? date(item.publishedAt) : null }, update: { moodId: item.moodId, userId: item.userId, emotion: item.emotion, content: item.content, visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'), status: item.status ?? 'active', reviewStatus: valid(item.reviewStatus, ['pending_review', 'published', 'hidden', 'rejected'] as const, 'pending_review'), hugCount: Number(item.hugCount ?? 0), replyCount: Number(item.replyCount ?? 0), favoriteCount: Number(item.favoriteCount ?? 0), reportCount: Number(item.reportCount ?? 0), journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, publishedAt: item.publishedAt ? date(item.publishedAt) : null } });
     for (const item of providerMap.values()) await tx.aIProvider.upsert({ where: { id: item.id }, create: { id: item.id, name: item.name, type: valid(item.type, ['local', 'cloud', 'template'] as const, 'template'), baseUrl: item.baseUrl, modelName: item.modelName, enabled: item.enabled !== false, priority: Number(item.priority ?? 0), dailyLimit: Number(item.dailyLimit ?? 1000), timeoutSeconds: Number(item.timeoutSeconds ?? 10), failoverEnabled: item.failoverEnabled !== false, usageTags: json(item.usageTags ?? []), providerKind: item.providerKind ?? 'other', apiKeyStatus: item.apiKeyStatus ?? 'missing', failureRate: Number(item.failureRate ?? 0), avgLatencyMs: Number(item.avgLatencyMs ?? 0), todayCalls: Number(item.todayCalls ?? 0), modelMeta: json(item.modelMeta) }, update: { name: item.name, type: valid(item.type, ['local', 'cloud', 'template'] as const, 'template'), baseUrl: item.baseUrl, modelName: item.modelName, enabled: item.enabled !== false, priority: Number(item.priority ?? 0), dailyLimit: Number(item.dailyLimit ?? 1000), timeoutSeconds: Number(item.timeoutSeconds ?? 10), failoverEnabled: item.failoverEnabled !== false, usageTags: json(item.usageTags ?? []), providerKind: item.providerKind ?? 'other', apiKeyStatus: item.apiKeyStatus ?? 'missing', failureRate: Number(item.failureRate ?? 0), avgLatencyMs: Number(item.avgLatencyMs ?? 0), todayCalls: Number(item.todayCalls ?? 0), modelMeta: json(item.modelMeta) } });
     for (const item of routes) await tx.aIStyleRoute.upsert({ where: { style: item.style }, create: { id: item.id ?? `route_${item.style}`, style: item.style, primaryProviderId: item.primaryProviderId, backupProviderId: item.backupProviderId, fallbackTemplateId: item.fallbackTemplateId, promptVersion: item.promptVersion ?? 'v1', promptTemplate: item.promptTemplate ?? '', label: item.label ?? item.style, taskTypes: json(item.taskTypes ?? []), routeVersion: Number(item.routeVersion ?? 1), enabled: item.enabled !== false }, update: { primaryProviderId: item.primaryProviderId, backupProviderId: item.backupProviderId, fallbackTemplateId: item.fallbackTemplateId, promptVersion: item.promptVersion ?? 'v1', promptTemplate: item.promptTemplate ?? '', label: item.label ?? item.style, taskTypes: json(item.taskTypes ?? []), routeVersion: Number(item.routeVersion ?? 1), enabled: item.enabled !== false } });
-    for (const item of jobs) await tx.aIJob.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, contentId: item.contentId, contentType: item.contentType, jobType: item.jobType, taskType: item.taskType ?? null, style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'), providerId: item.providerId, modelName: item.modelName ?? '', status: jobStatus(item.status), promptSummary: item.promptSummary ?? '', promptVersion: item.promptVersion ?? null, result: item.result ?? null, structuredResult: json(item.structuredResult), errorMessage: item.errorMessage ?? null, durationMs: Number(item.durationMs ?? 0), retryCount: Number(item.retryCount ?? 0), fallbackUsed: Boolean(item.fallbackUsed), routeVersion: Number(item.routeVersion ?? 0), traceJson: json(item.traceJson ?? []), createdAt: date(item.createdAt), completedAt: item.completedAt ? date(item.completedAt) : null }, update: { userId: item.userId, contentId: item.contentId, contentType: item.contentType, jobType: item.jobType, taskType: item.taskType ?? null, style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'), providerId: item.providerId, modelName: item.modelName ?? '', status: jobStatus(item.status), promptSummary: item.promptSummary ?? '', promptVersion: item.promptVersion ?? null, result: item.result ?? null, structuredResult: json(item.structuredResult), errorMessage: item.errorMessage ?? null, durationMs: Number(item.durationMs ?? 0), retryCount: Number(item.retryCount ?? 0), fallbackUsed: Boolean(item.fallbackUsed), routeVersion: Number(item.routeVersion ?? 0), traceJson: json(item.traceJson ?? []), completedAt: item.completedAt ? date(item.completedAt) : null } });
+    if (!DIRECT_DB_MODELS.AIJob) {
+      for (const item of jobs) await tx.aIJob.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, contentId: item.contentId, contentType: item.contentType, jobType: item.jobType, taskType: item.taskType ?? null, style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'), providerId: item.providerId, modelName: item.modelName ?? '', status: jobStatus(item.status), promptSummary: item.promptSummary ?? '', promptVersion: item.promptVersion ?? null, result: item.result ?? null, structuredResult: json(item.structuredResult), errorMessage: item.errorMessage ?? null, durationMs: Number(item.durationMs ?? 0), retryCount: Number(item.retryCount ?? 0), fallbackUsed: Boolean(item.fallbackUsed), routeVersion: Number(item.routeVersion ?? 0), traceJson: json(item.traceJson ?? []), createdAt: date(item.createdAt), completedAt: item.completedAt ? date(item.completedAt) : null }, update: { userId: item.userId, contentId: item.contentId, contentType: item.contentType, jobType: item.jobType, taskType: item.taskType ?? null, style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'), providerId: item.providerId, modelName: item.modelName ?? '', status: jobStatus(item.status), promptSummary: item.promptSummary ?? '', promptVersion: item.promptVersion ?? null, result: item.result ?? null, structuredResult: json(item.structuredResult), errorMessage: item.errorMessage ?? null, durationMs: Number(item.durationMs ?? 0), retryCount: Number(item.retryCount ?? 0), fallbackUsed: Boolean(item.fallbackUsed), routeVersion: Number(item.routeVersion ?? 0), traceJson: json(item.traceJson ?? []), completedAt: item.completedAt ? date(item.completedAt) : null } });
+    }
     for (const item of asArray(state.letters)) {
       const sourceMoodId = moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null;
       const legacySourceMoodId = item.sourceMoodId && !sourceMoodId ? item.sourceMoodId : null;
-      const aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
+      let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
+      if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
+        const existingLetter = await tx.letter.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
+        if (existingLetter?.aiJobId) {
+          if (jobIds.has(existingLetter.aiJobId)) {
+            aiJobId = existingLetter.aiJobId;
+          } else {
+            const dbJob = await tx.aIJob.findUnique({ where: { id: existingLetter.aiJobId }, select: { id: true } });
+            if (dbJob) {
+              aiJobId = dbJob.id;
+              jobIds.add(dbJob.id);
+            }
+          }
+        }
+      }
       await tx.letter.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, sourceMoodId, legacySourceMoodId, style: item.style, title: item.title, content: item.content, status: item.status ?? 'unread', savedToDiary: Boolean(item.savedToDiary), aiJobId, generationStatus: item.generationStatus ?? null, favorite: Boolean(item.favorite), likeCount: Number(item.likeCount ?? 0), createdAt: date(item.createdAt) }, update: { userId: item.userId, sourceMoodId, legacySourceMoodId, style: item.style, title: item.title, content: item.content, status: item.status ?? 'unread', savedToDiary: Boolean(item.savedToDiary), aiJobId, generationStatus: item.generationStatus ?? null, favorite: Boolean(item.favorite), likeCount: Number(item.likeCount ?? 0) } });
     }
     for (const item of asArray(state.diaries)) {
@@ -218,7 +253,21 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     }
     for (const item of asArray(state.replies)) {
       const candidateJobId = item.aiJobId ?? (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null);
-      const aiJobId = jobIds.has(candidateJobId) ? candidateJobId : null;
+      let aiJobId = jobIds.has(candidateJobId) ? candidateJobId : null;
+      if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
+        const existingReply = await tx.reply.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
+        if (existingReply?.aiJobId) {
+          if (jobIds.has(existingReply.aiJobId)) {
+            aiJobId = existingReply.aiJobId;
+          } else {
+            const dbJob = await tx.aIJob.findUnique({ where: { id: existingReply.aiJobId }, select: { id: true } });
+            if (dbJob) {
+              aiJobId = dbJob.id;
+              jobIds.add(dbJob.id);
+            }
+          }
+        }
+      }
       await tx.reply.upsert({ where: { id: item.id }, create: { id: item.id, postId: item.postId, userId: item.userId ?? null, type: valid(item.type, ['USER', 'AI'] as const, 'AI'), style: item.style ?? 'warm', content: item.content, status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'), riskLevel: item.riskLevel ?? 'low', likeCount: Number(item.likeCount ?? 0), aiJobId, createdAt: date(item.createdAt) }, update: { postId: item.postId, userId: item.userId ?? null, type: valid(item.type, ['USER', 'AI'] as const, 'AI'), style: item.style ?? 'warm', content: item.content, status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'), riskLevel: item.riskLevel ?? 'low', likeCount: Number(item.likeCount ?? 0), aiJobId } });
     }
     for (const item of asArray(state.decisionRecords)) await tx.decisionRecord.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, question: item.question, options: json(item.options ?? []), criteria: json(item.criteria ?? []), decision: item.decision ?? null, status: item.status ?? 'draft', cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null, outcome: item.outcome ?? null, reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, question: item.question, options: json(item.options ?? []), criteria: json(item.criteria ?? []), decision: item.decision ?? null, status: item.status ?? 'draft', cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null, outcome: item.outcome ?? null, reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null } });
@@ -233,7 +282,24 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     if (!DIRECT_DB_MODELS.SafetyEvent) {
       for (const item of asArray(state.safetyEvents)) await tx.safetyEvent.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
     }
-    for (const item of asArray(state.agentDecisionLogs)) await tx.agentDecisionLog.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId: jobIds.has(item.aiJobId) ? item.aiJobId : null, taskType: item.taskType, decision: json(item.decision ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId: jobIds.has(item.aiJobId) ? item.aiJobId : null, taskType: item.taskType, decision: json(item.decision ?? {}) } });
+    for (const item of asArray(state.agentDecisionLogs)) {
+      let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
+      if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
+        const existingLog = await tx.agentDecisionLog.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
+        if (existingLog?.aiJobId) {
+          if (jobIds.has(existingLog.aiJobId)) {
+            aiJobId = existingLog.aiJobId;
+          } else {
+            const dbJob = await tx.aIJob.findUnique({ where: { id: existingLog.aiJobId }, select: { id: true } });
+            if (dbJob) {
+              aiJobId = dbJob.id;
+              jobIds.add(dbJob.id);
+            }
+          }
+        }
+      }
+      await tx.agentDecisionLog.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId, taskType: item.taskType, decision: json(item.decision ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId, taskType: item.taskType, decision: json(item.decision ?? {}) } });
+    }
     const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed'] as const;
     for (const item of asArray(state.followUpJobs)) {
       const existing = await tx.followUpJob.findUnique({ where: { id: item.id } });
@@ -359,9 +425,18 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     await deleteAbsent(tx.letter, asArray(state.letters).map((item: any) => item.id));
     await deleteAbsent(tx.post, asArray(state.posts).map((item: any) => item.id));
     await deleteAbsent(tx.mood, asArray(state.moods).map((item: any) => item.id));
-    await deleteAbsent(tx.aIJob, jobs.map((item: any) => item.id));
+    if (!DIRECT_DB_MODELS.AIJob) await deleteAbsent(tx.aIJob, jobs.map((item: any) => item.id));
     await deleteAbsent(tx.aIStyleRoute, routes.map((item: any) => item.id ?? `route_${item.style}`));
-    await deleteAbsent(tx.aIProvider, [...providerMap.keys()]);
+    if (DIRECT_DB_MODELS.AIJob) {
+      const dbUsedProviders = await tx.aIJob.findMany({
+        select: { providerId: true },
+        distinct: ['providerId'],
+      });
+      const keepProviderIds = new Set([...providerMap.keys(), ...dbUsedProviders.map((j: any) => j.providerId)]);
+      await deleteAbsent(tx.aIProvider, [...keepProviderIds]);
+    } else {
+      await deleteAbsent(tx.aIProvider, [...providerMap.keys()]);
+    }
     await deleteAbsent(tx.feedbackTicket, asArray(state.feedbackTickets).map((item: any) => item.id));
     await deleteAbsent(tx.feedbackCategory, asArray(state.feedbackCategories).map((item: any) => item.id));
     await deleteAbsent(tx.faqItem, asArray(state.faqs).map((item: any) => item.id));
