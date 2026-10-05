@@ -40,8 +40,8 @@ arrays cannot silently null a foreign key or delete a row that should survive.
 | A | `UserNotification` | **Done, reviewed APPROVE** | `81308e7` |
 | B | `SafetyEvent` (+ D1 AuditLog) | **Done, reviewed APPROVE** | `3234ef0` |
 | C | `AIJob` | **Done; review fixes applied; deadlock regression found and fixed** | `cd919fd` |
-| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; reviewed — 3 blocking defects found and fixed** | `501d115`, `e927716` |
-| E | `ActionCommitment` + `OutcomeCheckin` | **Done; same review round** — completes the eight models | `6a64701`, `e927716` |
+| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; reviewed — 11 blocking defects found across five review rounds, all fixed** | `501d115`, `e927716`–`27aba38` |
+| E | `ActionCommitment` + `OutcomeCheckin` | **Done; same review rounds** — completes the eight models | `6a64701`, `e927716`–`27aba38` |
 
 ### A — UserNotification
 
@@ -171,6 +171,52 @@ check-ins, and the monthly report. `checkinAction` serializes on the parent `Act
 row (`FOR UPDATE`) and transitions out of `pending` by status CAS, which is what makes the
 one-pending-check-in-per-action invariant hold without a schema change.
 
+## The D+E review cycle: eleven blocking defects in five rounds
+
+D and E were reviewed five times, and each round after the first found further real defects. The
+sequence is recorded because it is the clearest demonstration in this batch of why the
+review-then-fix loop cannot be skipped:
+
+1. **Round 1** (`e927716`) — a completed check-in could be rewritten; archive deletion detached
+   SafetyEvents before its deletion transaction; **high-risk Journey creation was not atomic with
+   its SafetyEvent**, so a failure could leave a committed high-risk Journey with no safety
+   record.
+2. **Round 2** (`6480df4`) — a status-bearing PATCH bypassed the new `expectedUpdatedAt` CAS and
+   silently discarded content fields; the HIGH_DISTRESS intent path still split the Journey and
+   SafetyEvent commits; archive deletion resolved its action set outside the transaction; an
+   idempotent check-in returned client guidance derived from the *request* rather than the
+   *returned row*, so a completed action retried as "missed" directed the user to the barrier
+   flow.
+3. **Round 3** (`a992d60`) — the unified PATCH had dropped the **ownership check entirely**, so
+   `PATCH /journeys/:id` could edit another user's Journey, and archiving no longer checked
+   `allowJourneyArchiveRetention`; the status-only response shape had changed from `{ journey }`
+   to `{ item }`; the activation path took the parent-`User` lock only when its initial read said
+   the target was not already active; the archive action set was still exposed to concurrent
+   inserts.
+4. **Round 4** (`3e48bcc`) — archive deletion locked `LifeJourney` first while check-in locked
+   `ActionCommitment` first: opposing lock orders, the same cycle that produced sub-batch C's
+   deadlock.
+5. **Round 5** (`8ea7a2c`) — the deadlock's real root was **one level higher**: the legacy flush
+   writes `User` before the FK-referencing legacy rows, while action creation held `LifeJourney`
+   and inserted a row referencing `User`, forming a `User` ↔ `LifeJourney` cycle. This produced
+   the reproducible `40P01` in `first-batch-core-loop` on `POST /api/v1/journeys/:id/actions`.
+6. **Round 6** (`27aba38`) — multi-journey cleanup locked `LifeJourney` without the parent `User`
+   lock, and with no deterministic order among journey ids, giving a second, flush-independent
+   deadlock path. **APPROVED.**
+
+The result is a documented lock-root hierarchy — **`User` → `LifeJourney` → `ActionCommitment` →
+child rows, with deterministic id ordering for multi-row locks** — that is stated in
+`BATCH1_DESIGN.md` as a precondition for every present and future transaction touching the
+journey domain, together with the mechanism (an FK insert takes a key-share lock on the parent
+row) and the reason `User` comes first while the legacy flush exists. The rule is explicitly
+marked for re-derivation once the remaining legacy models migrate and the flush is retired.
+
+Two properties are proved rather than asserted: inverting the lock order **reproduces** `40P01`
+in a dedicated test using two independent Prisma clients, and the corrected order races real
+concurrent operations — action creation against the legacy flush itself — with zero deadlocks.
+`first-batch-core-loop` passes 5 consecutive isolated runs after having failed on this exact
+path.
+
 ## Test isolation (step 16)
 
 Delivered early rather than last, because the evidence made it a precondition for trustworthy
@@ -197,6 +243,7 @@ Independently reproduced by the orchestrator, not taken from implementer summari
 | Same, after sub-batch C (`cd919fd`) | 9 failed / 17 passed files, 10 failed / 54 passed tests; failing set within baseline; **0** `40P01` deadlocks |
 | Same, after sub-batch D (`501d115`) | **8 failed / 19 passed** files, 9 failed / 62 passed tests; failing set a strict subset of baseline; **0** `40P01`; `persistence-durability` 2/2 in 3 consecutive isolated runs |
 | Same, after sub-batch E and its review fixes (`e927716`) | **8 failed / 20 passed** files, 9 failed / 70 passed tests; failing set a strict subset of baseline; **0** `40P01`; tree clean |
+| Same, after the five D+E review rounds (`27aba38`) | **8 failed / 20 passed** files, 9 failed / 82 passed tests; failing set exactly the 8 baseline files; **exactly one** `40P01` in the entire output, and it is the intentional lock-inversion mutation test; `batch1-action` 15/15, `batch1-journey` 12/12, `third-stage-archive` 1/1; tree clean |
 | `batch1-usernotification.spec.ts` | 6/6 |
 | `batch1-safetyevent.spec.ts` | 5/5 |
 | `batch1-aijob.spec.ts` | 8/8 |
@@ -224,9 +271,22 @@ Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is n
   `recoverInterruptedAiJobs` still marks every `queued`/`running` job failed on boot without
   instance scoping (inherited behaviour, deliberately deferred to the multi-instance phase), and
   the `followUpJobs` mirror limitation noted under D is the same class of issue.
-- **D/E were reviewed by a different model than A/B/C.** The `code-reviewer` model was
-  quota-exhausted, so `architecture-reviewer` did that pass. It found three blocking defects, so
-  it was clearly worth running — but if you want uniformity, re-run it on the usual reviewer.
+- **D/E were reviewed by a different model than A/B/C, and then re-reviewed on request.** The
+  `code-reviewer` model was quota-exhausted, so `architecture-reviewer` did the first pass and
+  `final-gate` did the four follow-ups. That mix found eleven blocking defects — including an
+  ownership bypass on `PATCH /journeys/:id` that no test exercised — so the coverage was real.
+  The reviewer model for D/E still differs from the one that reviewed A/B/C, which is recorded
+  here rather than hidden.
+- **The lock-hierarchy rule is a live architectural constraint.** Every future transaction that
+  writes `LifeJourney`, or inserts a row whose foreign key references `User` or `LifeJourney`,
+  must acquire `User` → `LifeJourney` locks first, and multi-row locks must be taken in
+  deterministic id order. This is stated in `BATCH1_DESIGN.md` under D3 with its mechanism and
+  lifetime, and it should be re-derived when the legacy flush is retired.
+- **The cleanup-lock concurrency test is not a controlled race.** It dispatches two conflicting
+  cleanups with `Promise.allSettled` but has no barrier proving both held competing locks
+  simultaneously, so it could pass with sequential execution. The mutation evidence (removing
+  the sort or the parent lock reproduces a deadlock) is stronger than the test alone; tightening
+  the test with a barrier is follow-up work.
 - **Remaining phases** — the peer mega-spec split, GitHub CI, clean dev-DB rebuild, load and
   concurrency gates, Android/Admin/Security regression, live AI, and the final gate.
 
