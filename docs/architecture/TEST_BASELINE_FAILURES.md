@@ -91,6 +91,64 @@ This is the concrete justification for the test-isolation work (`TEST_ISOLATION_
 per-run database created by `prisma migrate deploy` and dropped afterwards, never a
 `db push`-built schema inside the development database.
 
+## After test isolation (`9150f45`)
+
+The suite now runs through `scripts/test-runner.ts`, which leases **one freshly migrated database
+per spec file** (`goodnight_treehole_test_<runId>`, built by `prisma migrate deploy`, dropped
+afterwards) and runs files serially.
+
+| | Baseline `5de2d0e` | After isolation `9150f45` |
+| --- | --- | --- |
+| Test files | 10 failed / 13 passed (23) | 9 failed / 16 passed (25) |
+| Tests | 12 failed / 33 passed (45) | 10 failed / 46 passed (56) |
+
+The failing set is a strict subset of the baseline. Three things changed, and each is explained:
+
+**1. The connection-pool exhaustion class is gone.** `persistence-durability` Defect 1 and
+`third-stage-persistence-independent` previously failed intermittently with
+`FATAL: sorry, too many clients already`; serial execution against a per-file database removed
+it. Note this also means the earlier "runs pass in isolation" observations were measured against
+the old environment and are not directly comparable.
+
+**2. A first attempt at one database *per run* was rejected.** Sharing one database across the
+whole suite broke file-to-file isolation — the old design gave each file its own schema — and
+four specs that previously passed began failing from cross-file contamination
+(`front-letter`, `third-stage-archive`, `third-stage-security-independent`,
+`third-stage-privacy-2`, each passing in isolation). `TEST_ISOLATION_DESIGN.md` §4 prescribes
+one database **per file** as the fallback, which is what shipped. The four are green again.
+
+**3. `persistence-durability` Defect 1 now fails for a different, real reason — a product
+defect the old environment was masking.** Its cause changed from pool exhaustion to an assertion:
+
+```
+AssertionError: expected '这次的重点不是立刻解决全部问题，而是先承认"测试旅程持久化写入耐久性"确实…'
+                to be '持久化验证总结内容'
+```
+
+The test PATCHes `summary`, and the database then holds an AI-generated fallback summary — an AI
+completion is overwriting user-confirmed content. This was bisected rather than assumed:
+
+| Code | Environment | Result |
+| --- | --- | --- |
+| `5de2d0e` (pre-batch) | old per-schema | PASS 2/2 |
+| `3234ef0` (sub-batches A+B) | old per-schema | PASS 2/2 |
+| `9150f45` (sub-batches A+B) | new per-file database | **FAIL (assertion)** |
+
+Sub-batches A and B are therefore **not** the cause; the new environment surfaced it. This is the
+exact interleaving `BATCH1_DESIGN.md` assigns to **sub-batch D**: "`user_confirmed` and AI
+completion interleaved: the confirmed content must never be reverted to draft by the AI". It is
+recorded here as an open product defect to be closed by D, not as a test-environment artifact —
+the isolation change did not create it, it stopped hiding it.
+
+**Leaked schemas.** The count had grown from 429 to **672** during this round's verification runs.
+They were dropped (only the `goodnight_treehole_test_*` prefix; `public` untouched at 54 tables,
+12 migrations, 1304 rows) and the runner no longer creates any, because it leases databases
+instead of schemas. Both counts now measure zero.
+
+**Cost.** Serial per-file leasing costs ~7.0 s per file of which ~2.2 s is create + 12 migrations
++ drop, so the business suite runs in ~175 s instead of ~40 s. That is the accepted price of
+file-level isolation, per the design's fallback.
+
 ## How this is used
 
 A sub-batch's regression evidence is a diff against this list, not a pass count:
