@@ -29,6 +29,38 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     const futureNotificationsAllowed = input.kind !== 'FUTURE_SELF' || privacy?.allowFutureSelfNotifications === true;
     const completedAt = new Date();
 
+    const messageId = typeof input.payload?.messageId === 'string' ? input.payload.messageId : undefined;
+    const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
+    const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
+
+    // 1. Transaction A: Idempotent legacy-model updates only
+    if (messageId || cooldownId || decisionId) {
+      await this.prisma.$transaction(async (tx) => {
+        if (messageId) {
+          await tx.messageToFutureSelf.updateMany({
+            where: { id: messageId, userId: input.userId },
+            data: { deliveredAt: completedAt },
+          });
+        }
+        if (cooldownId) {
+          await tx.cooldownItem.updateMany({
+            where: { id: cooldownId, userId: input.userId },
+            data: { status: 'released' },
+          });
+        }
+        if (decisionId) {
+          await tx.decisionRecord.updateMany({
+            where: { id: decisionId, userId: input.userId, status: 'cooling' },
+            data: { status: 'ready', reviewedAt: completedAt },
+          });
+        }
+      });
+    }
+
+    // 2. Reload the store so legacy in-memory state is consistent before the notification is observable
+    await this.store.reloadRuntimeState();
+
+    // 3. Transaction B: Guarded FollowUpJob claim plus idempotent UserNotification creation
     const result = await this.prisma.$transaction(async (tx) => {
       const claimResult = await tx.followUpJob.updateMany({
         where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
@@ -63,32 +95,9 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      const messageId = typeof input.payload?.messageId === 'string' ? input.payload.messageId : undefined;
-      if (messageId) {
-        await tx.messageToFutureSelf.updateMany({
-          where: { id: messageId, userId: input.userId },
-          data: { deliveredAt: completedAt },
-        });
-      }
-      const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
-      if (cooldownId) {
-        await tx.cooldownItem.updateMany({
-          where: { id: cooldownId, userId: input.userId },
-          data: { status: 'released' },
-        });
-      }
-      const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
-      if (decisionId) {
-        await tx.decisionRecord.updateMany({
-          where: { id: decisionId, userId: input.userId, status: 'cooling' },
-          data: { status: 'ready', reviewedAt: completedAt },
-        });
-      }
-
       return { notificationId: futureNotificationsAllowed ? notificationId : undefined, status: 'delivered' };
     });
 
-    await this.store.reloadRuntimeState();
     return result;
   }
 
