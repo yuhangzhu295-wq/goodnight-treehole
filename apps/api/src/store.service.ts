@@ -2752,6 +2752,172 @@ export class StoreService implements OnModuleInit {
     };
   }
 
+  /**
+   * AI completion callback for situation analysis.
+   *
+   * Note on concurrency and dual-write prevention (Batch 1 Sub-batch C):
+   * LifeJourney, SituationSnapshot, and JourneyUpdate are still legacy-owned
+   * in-memory models (migrating in Sub-batch D). Therefore, this callback MUST NOT
+   * execute direct Prisma writes to LifeJourney or SituationSnapshot, which caused
+   * 40P01 deadlocks when racing saveRelationalRuntimeState.
+   *
+   * Instead, we:
+   * 1. Query PostgreSQL for Journey and SituationSnapshot.
+   * 2. If missing from this instance's memory store (the silent-loss path), hydrate them into the arrays.
+   * 3. Re-check confidence !== 'user_confirmed' against the database row as a commit-time condition.
+   * 4. Update the in-memory objects and agentDecisionLogs, then persist through the serialized persistAndFlush().
+   *
+   * This is a temporary state by design: once sub-batch D migrates Journey, SituationSnapshot and
+   * JourneyUpdate, this callback legitimately becomes a direct writer and this hydration step goes away.
+   */
+  async applySituationAnalysisCompletion(
+    journeyId: string,
+    userId: string,
+    completed: { id: string; status: string; result?: string | null; structuredResult?: any },
+  ) {
+    if (!['succeeded', 'fallback'].includes(completed.status)) return;
+
+    // 1. Look up LifeJourney and SituationSnapshot in the database
+    let dbJourney: any;
+    let dbSnapshot: any;
+    if (this.prisma?.lifeJourney?.findUnique) {
+      dbJourney = await this.prisma.lifeJourney.findUnique({ where: { id: journeyId } });
+    }
+    if (this.prisma?.situationSnapshot?.findFirst) {
+      dbSnapshot = await this.prisma.situationSnapshot.findFirst({ where: { journeyId } });
+    }
+
+    // 2. Hydrate into in-memory store if missing (closing the silent-loss gap)
+    let target = this.lifeJourneys.find((item) => item.id === journeyId);
+    if (!target && dbJourney) {
+      target = {
+        id: dbJourney.id,
+        userId: dbJourney.userId,
+        title: dbJourney.title,
+        domain: dbJourney.domain,
+        status: dbJourney.status,
+        stage: dbJourney.stage,
+        currentIntent: dbJourney.currentIntent ?? undefined,
+        intentUpdatedAt: dbJourney.intentUpdatedAt ? new Date(dbJourney.intentUpdatedAt).toISOString() : undefined,
+        initialIntensity: dbJourney.initialIntensity ?? undefined,
+        visibility: dbJourney.visibility,
+        intensity: dbJourney.intensity ?? undefined,
+        summary: dbJourney.summary ?? undefined,
+        nextReviewAt: dbJourney.nextReviewAt ? new Date(dbJourney.nextReviewAt).toISOString() : undefined,
+        completedAt: dbJourney.completedAt ? new Date(dbJourney.completedAt).toISOString() : undefined,
+        createdAt: new Date(dbJourney.createdAt).toISOString(),
+        updatedAt: new Date(dbJourney.updatedAt).toISOString(),
+      };
+      this.lifeJourneys.push(target);
+    }
+
+    let current = this.situationSnapshots.find((item) => item.journeyId === journeyId);
+    if (!current && dbSnapshot) {
+      current = {
+        id: dbSnapshot.id,
+        journeyId: dbSnapshot.journeyId,
+        facts: Array.isArray(dbSnapshot.facts) ? dbSnapshot.facts.map(String) : [],
+        feelings: Array.isArray(dbSnapshot.feelings) ? dbSnapshot.feelings.map(String) : [],
+        needs: Array.isArray(dbSnapshot.needs) ? dbSnapshot.needs.map(String) : [],
+        constraints: Array.isArray(dbSnapshot.constraints) ? dbSnapshot.constraints.map(String) : [],
+        risks: Array.isArray(dbSnapshot.risks) ? dbSnapshot.risks.map(String) : [],
+        domain: dbSnapshot.domain ?? undefined,
+        subDomain: dbSnapshot.subDomain ?? undefined,
+        eventType: dbSnapshot.eventType ?? undefined,
+        eventStartedAt: dbSnapshot.eventStartedAt ? new Date(dbSnapshot.eventStartedAt).toISOString() : undefined,
+        daysSinceEvent: dbSnapshot.daysSinceEvent ?? undefined,
+        stage: dbSnapshot.stage ?? undefined,
+        contextTags: Array.isArray(dbSnapshot.contextTags) ? dbSnapshot.contextTags.map(String) : [],
+        peopleContext: Array.isArray(dbSnapshot.peopleContext) ? dbSnapshot.peopleContext.map(String) : undefined,
+        decisionContext: Array.isArray(dbSnapshot.decisionContext) ? dbSnapshot.decisionContext.map(String) : undefined,
+        behaviorSignals: Array.isArray(dbSnapshot.behaviorSignals) ? dbSnapshot.behaviorSignals.map(String) : undefined,
+        recoverySignals: Array.isArray(dbSnapshot.recoverySignals) ? dbSnapshot.recoverySignals.map(String) : undefined,
+        intensity: dbSnapshot.intensity ?? undefined,
+        urgency: dbSnapshot.urgency ?? undefined,
+        fingerprintJson: dbSnapshot.fingerprintJson ?? undefined,
+        confidence: dbSnapshot.confidence ?? 'agent_draft',
+        createdAt: new Date(dbSnapshot.createdAt).toISOString(),
+        updatedAt: new Date(dbSnapshot.updatedAt).toISOString(),
+      };
+      this.situationSnapshots.push(current);
+    }
+
+    if (!target || !current) return;
+
+    // 3. Commit-time condition: user confirmation is authoritative
+    if (dbSnapshot && dbSnapshot.confidence === 'user_confirmed') {
+      current.confidence = 'user_confirmed';
+    }
+    const structured = (completed.structuredResult && typeof completed.structuredResult === 'object'
+      ? completed.structuredResult
+      : {}) as Record<string, any>;
+
+    if (current.confidence !== 'user_confirmed') {
+      const list = (value: unknown, fallback: string[], max = 8) =>
+        Array.isArray(value)
+          ? value
+              .map(String)
+              .map((item) => item.trim())
+              .filter(Boolean)
+              .slice(0, max)
+          : fallback;
+
+      current.facts = list(structured.facts, current.facts);
+      current.feelings = list(structured.feelings, current.feelings);
+      current.needs = list(structured.needs, current.needs);
+      current.constraints = list(structured.constraints, current.constraints);
+      current.risks = list(structured.risks, current.risks);
+      current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
+      current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : current.subDomain;
+      current.eventType = typeof structured.eventType === 'string' ? structured.eventType : current.eventType;
+      current.stage = typeof structured.stage === 'string' ? structured.stage : (current.stage ?? 'clarifying');
+      current.contextTags = list(structured.contextTags, current.contextTags ?? [], 12);
+      current.peopleContext = list(structured.peopleContext, current.peopleContext ?? []);
+      current.decisionContext = list(structured.decisionContext, current.decisionContext ?? []);
+      current.behaviorSignals = list(structured.behaviorSignals, current.behaviorSignals ?? []);
+      current.recoverySignals = list(structured.recoverySignals, current.recoverySignals ?? []);
+      current.intensity = Number.isFinite(Number(structured.intensity))
+        ? Math.max(0, Math.min(10, Number(structured.intensity)))
+        : current.intensity;
+      current.urgency = Number.isFinite(Number(structured.urgency))
+        ? Math.max(0, Math.min(10, Number(structured.urgency)))
+        : current.urgency;
+      current.fingerprintJson = {
+        domain: current.domain,
+        subDomain: current.subDomain,
+        eventType: current.eventType,
+        stage: current.stage,
+        contextTags: current.contextTags,
+        peopleContext: current.peopleContext,
+        decisionContext: current.decisionContext,
+        behaviorSignals: current.behaviorSignals,
+        recoverySignals: current.recoverySignals,
+      };
+      current.confidence = 'agent_draft';
+      current.updatedAt = now();
+
+      target.summary = String(structured.summary ?? completed.result).slice(0, 500);
+      if (this.isGeneratedJourneyTitle(target.title) && typeof structured.title === 'string' && structured.title.trim()) {
+        target.title = structured.title.trim().slice(0, 80);
+      }
+      if (current.intensity !== undefined) target.intensity = current.intensity;
+      target.updatedAt = now();
+    }
+
+    this.agentDecisionLogs.unshift({
+      id: id('agent_decision'),
+      userId,
+      journeyId,
+      aiJobId: completed.id,
+      taskType: 'situation_analysis',
+      decision: structured,
+      createdAt: now(),
+    });
+
+    // 4. Persist through the serialized single-writer path
+    await this.persistAndFlush();
+  }
+
   async createJourney(
     input: {
       title?: unknown;
@@ -2833,88 +2999,7 @@ export class StoreService implements OnModuleInit {
     });
     void this.waitForAiJob(job.id)
       .then(async (completed) => {
-        if (!['succeeded', 'fallback'].includes(completed.status)) return;
-        if (DIRECT_DB_MODELS.AIJob) {
-          await this.batch1Persistence.applySituationAnalysisAiCompletion({
-            journeyId: journey.id,
-            userId,
-            completedJob: completed as any,
-            isGeneratedTitle: (t) => this.isGeneratedJourneyTitle(t),
-          });
-        }
-        const target = this.lifeJourneys.find((item) => item.id === journey.id);
-        const current = this.situationSnapshots.find((item) => item.journeyId === journey.id);
-        if (target && current && current.confidence !== 'user_confirmed') {
-          const structured = completed.structuredResult ?? {};
-          // A user confirmation is authoritative. The asynchronous AI completion
-          // may still be audited, but it must never overwrite confirmed facts or
-          // downgrade the snapshot back to an agent draft.
-          if (Array.isArray(structured.facts)) current.facts = structured.facts.map(String).filter(Boolean).slice(0, 8);
-          if (Array.isArray(structured.feelings))
-            current.feelings = structured.feelings.map(String).filter(Boolean).slice(0, 8);
-          if (Array.isArray(structured.needs)) current.needs = structured.needs.map(String).filter(Boolean).slice(0, 8);
-          if (Array.isArray(structured.constraints))
-            current.constraints = structured.constraints.map(String).filter(Boolean).slice(0, 8);
-          if (Array.isArray(structured.risks)) current.risks = structured.risks.map(String).filter(Boolean).slice(0, 8);
-          current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
-          current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : undefined;
-          current.eventType = typeof structured.eventType === 'string' ? structured.eventType : undefined;
-          current.stage = typeof structured.stage === 'string' ? structured.stage : 'clarifying';
-          current.contextTags = Array.isArray(structured.contextTags)
-            ? structured.contextTags.map(String).filter(Boolean).slice(0, 12)
-            : current.contextTags;
-          current.peopleContext = Array.isArray(structured.peopleContext)
-            ? structured.peopleContext.map(String).filter(Boolean).slice(0, 8)
-            : [];
-          current.decisionContext = Array.isArray(structured.decisionContext)
-            ? structured.decisionContext.map(String).filter(Boolean).slice(0, 8)
-            : [];
-          current.behaviorSignals = Array.isArray(structured.behaviorSignals)
-            ? structured.behaviorSignals.map(String).filter(Boolean).slice(0, 8)
-            : [];
-          current.recoverySignals = Array.isArray(structured.recoverySignals)
-            ? structured.recoverySignals.map(String).filter(Boolean).slice(0, 8)
-            : [];
-          current.intensity = Number.isFinite(Number(structured.intensity))
-            ? Math.max(0, Math.min(10, Number(structured.intensity)))
-            : current.intensity;
-          current.urgency = Number.isFinite(Number(structured.urgency))
-            ? Math.max(0, Math.min(10, Number(structured.urgency)))
-            : current.urgency;
-          current.fingerprintJson = {
-            domain: current.domain,
-            subDomain: current.subDomain,
-            eventType: current.eventType,
-            stage: current.stage,
-            contextTags: current.contextTags,
-            peopleContext: current.peopleContext,
-            decisionContext: current.decisionContext,
-            behaviorSignals: current.behaviorSignals,
-            recoverySignals: current.recoverySignals,
-          };
-          current.confidence = 'agent_draft';
-          current.updatedAt = now();
-          target.summary = String(structured.summary ?? completed.result).slice(0, 500);
-          // Same rule as the facts above: what the user supplied is authoritative. A title the
-          // user wrote was being replaced by the generated one ("<domain>里正在整理的一件事"),
-          // so a journey named by its owner silently lost that name a moment after creation.
-          if (this.isGeneratedJourneyTitle(target.title) && typeof structured.title === 'string' && structured.title.trim())
-            target.title = structured.title.trim().slice(0, 80);
-          target.updatedAt = now();
-        }
-        if (!DIRECT_DB_MODELS.AIJob) {
-          const structured = completed.structuredResult ?? {};
-          this.agentDecisionLogs.unshift({
-            id: id('agent_decision'),
-            userId,
-            journeyId: journey.id,
-            aiJobId: completed.id,
-            taskType: 'situation_analysis',
-            decision: structured,
-            createdAt: now(),
-          });
-        }
-        await this.persistAndFlush();
+        await this.applySituationAnalysisCompletion(journey.id, userId, completed);
       })
       .catch(() => undefined);
     await this.persistAndFlush();
@@ -3494,81 +3579,7 @@ export class StoreService implements OnModuleInit {
     });
     void this.waitForAiJob(job.id)
       .then(async (completed) => {
-        if (!['succeeded', 'fallback'].includes(completed.status)) return;
-        if (DIRECT_DB_MODELS.AIJob) {
-          await this.batch1Persistence.applySituationAnalysisAiCompletion({
-            journeyId,
-            userId: journey.userId,
-            completedJob: completed as any,
-            isGeneratedTitle: (t) => this.isGeneratedJourneyTitle(t),
-          });
-        }
-        const current = this.situationSnapshots.find((item) => item.journeyId === journeyId);
-        if (current && current.confidence !== 'user_confirmed') {
-          const structured = completed.structuredResult ?? {};
-          const list = (value: unknown, fallback: string[], max = 8) =>
-            Array.isArray(value)
-              ? value
-                  .map(String)
-                  .map((item) => item.trim())
-                  .filter(Boolean)
-                  .slice(0, max)
-              : fallback;
-          current.facts = list(structured.facts, current.facts);
-          current.feelings = list(structured.feelings, current.feelings);
-          current.needs = list(structured.needs, current.needs);
-          current.constraints = list(structured.constraints, current.constraints);
-          current.risks = list(structured.risks, current.risks);
-          current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
-          current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : current.subDomain;
-          current.eventType = typeof structured.eventType === 'string' ? structured.eventType : current.eventType;
-          current.stage = typeof structured.stage === 'string' ? structured.stage : current.stage;
-          current.contextTags = list(structured.contextTags, current.contextTags ?? [], 12);
-          current.peopleContext = list(structured.peopleContext, current.peopleContext ?? []);
-          current.decisionContext = list(structured.decisionContext, current.decisionContext ?? []);
-          current.behaviorSignals = list(structured.behaviorSignals, current.behaviorSignals ?? []);
-          current.recoverySignals = list(structured.recoverySignals, current.recoverySignals ?? []);
-          current.intensity = Number.isFinite(Number(structured.intensity))
-            ? Math.max(0, Math.min(10, Number(structured.intensity)))
-            : current.intensity;
-          current.urgency = Number.isFinite(Number(structured.urgency))
-            ? Math.max(0, Math.min(10, Number(structured.urgency)))
-            : current.urgency;
-          current.fingerprintJson = {
-            domain: current.domain,
-            subDomain: current.subDomain,
-            eventType: current.eventType,
-            stage: current.stage,
-            contextTags: current.contextTags,
-            peopleContext: current.peopleContext,
-            decisionContext: current.decisionContext,
-            behaviorSignals: current.behaviorSignals,
-            recoverySignals: current.recoverySignals,
-          };
-          current.updatedAt = now();
-          journey.summary = String(structured.summary ?? completed.result).slice(0, 500);
-          // The same rule as the creation flow: a re-analysis may refine a title the product
-          // generated, never one the user wrote. Re-analysis is a deliberate user action, but it is
-          // still the user asking for a better analysis of their situation, not for their name for
-          // it to be replaced.
-          if (this.isGeneratedJourneyTitle(journey.title) && typeof structured.title === 'string' && structured.title.trim())
-            journey.title = structured.title.trim().slice(0, 80);
-          if (current.intensity !== undefined) journey.intensity = current.intensity;
-          journey.updatedAt = now();
-        }
-        if (!DIRECT_DB_MODELS.AIJob) {
-          const structured = completed.structuredResult ?? {};
-          this.agentDecisionLogs.unshift({
-            id: id('agent_decision'),
-            userId: journey.userId,
-            journeyId,
-            aiJobId: completed.id,
-            taskType: 'situation_analysis',
-            decision: structured,
-            createdAt: now(),
-          });
-        }
-        await this.persistAndFlush();
+        await this.applySituationAnalysisCompletion(journeyId, journey.userId, completed);
       })
       .catch(() => undefined);
     await this.persistAndFlush();

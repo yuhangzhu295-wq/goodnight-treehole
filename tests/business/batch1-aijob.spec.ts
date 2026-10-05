@@ -619,7 +619,6 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
   });
 
   it('6. Completion callback: after an AI job completes, Journey/Snapshot write lands in DB even when in-memory arrays do not contain object', async () => {
-    const persistence = app.get(Batch1PersistenceService);
     const store = app.get(StoreService);
     const testUserId = store.getDemoUserId();
     const journeyId = `journey_callback_${Date.now()}`;
@@ -629,6 +628,39 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     // 1. Create Journey and Snapshot directly in database
     const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
+      await freshPrisma.aIProvider.upsert({
+        where: { id: 'provider_template' },
+        create: {
+          id: 'provider_template',
+          name: '模板提供方',
+          type: 'template',
+          baseUrl: 'local://template',
+          modelName: 'safe-template',
+          providerKind: 'template',
+          usageTags: [],
+        },
+        update: {},
+      });
+
+      await freshPrisma.aIJob.create({
+        data: {
+          id: jobId,
+          userId: testUserId,
+          contentId: journeyId,
+          contentType: 'Situation',
+          jobType: '处境分析',
+          taskType: 'situation_analysis',
+          style: 'rational',
+          providerId: 'provider_template',
+          modelName: 'safe-template',
+          status: 'succeeded',
+          promptSummary: '异步回调测试',
+          result: '整理后的新总结',
+          durationMs: 50,
+          traceJson: [],
+        },
+      });
+
       await freshPrisma.lifeJourney.create({
         data: {
           id: journeyId,
@@ -664,6 +696,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     (store as any).data.situationSnapshots = (store as any).data.situationSnapshots.filter((item: any) => item.journeyId !== journeyId);
 
     // 3. Execute the completion callback for this journey with a structured result
+    // Single-writer pattern: callback hydrates missing object from DB into store and persists through persistAndFlush()
     const completedJob = {
       id: jobId,
       userId: testUserId,
@@ -696,13 +729,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       },
     };
 
-    const callbackResult = await persistence.applySituationAnalysisAiCompletion({
-      journeyId,
-      userId: testUserId,
-      completedJob,
-    });
-
-    expect(callbackResult.applied).toBe(true);
+    await store.applySituationAnalysisCompletion(journeyId, testUserId, completedJob);
 
     // 4. Verify from a fresh PrismaClient that the Journey, SituationSnapshot and AgentDecisionLog writes landed in PostgreSQL!
     const freshPrismaVerify = new PrismaClient({ datasources: { db: { url: dbUrl } } });
@@ -731,7 +758,6 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
   });
 
   it('7. P0-1 coverage: AgentDecisionLog created by AI completion survives immediate legacy flush before state reload', async () => {
-    const persistence = app.get(Batch1PersistenceService);
     const store = app.get(StoreService);
     const testUserId = store.getDemoUserId();
     const journeyId = `journey_p01_${Date.now()}`;
@@ -799,33 +825,13 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       await freshPrisma.$disconnect();
     }
 
-    // 2. Run applySituationAnalysisAiCompletion which creates AgentDecisionLog with aiJobId in DB
-    const callbackResult = await persistence.applySituationAnalysisAiCompletion({
-      journeyId,
-      userId: testUserId,
-      completedJob: {
-        id: jobId,
-        userId: testUserId,
-        contentId: journeyId,
-        contentType: 'Situation',
-        jobType: '处境分析',
-        taskType: 'situation_analysis',
-        style: 'rational',
-        providerId: 'provider_template',
-        modelName: 'safe-template',
-        status: 'succeeded',
-        promptSummary: 'P0-1测试',
-        result: '分析结果',
-        durationMs: 20,
-        retryCount: 0,
-        fallbackUsed: false,
-        routeVersion: 1,
-        traceJson: [],
-        createdAt: new Date().toISOString(),
-        structuredResult: { summary: '分析结果', facts: ['事实1'] },
-      },
+    // 2. Run applySituationAnalysisCompletion which updates state and creates AgentDecisionLog with aiJobId
+    await store.applySituationAnalysisCompletion(journeyId, testUserId, {
+      id: jobId,
+      status: 'succeeded',
+      result: '分析结果',
+      structuredResult: { summary: '分析结果', facts: ['事实1'] },
     });
-    expect(callbackResult.applied).toBe(true);
 
     // Verify AgentDecisionLog was created in DB
     const freshPrismaMid = new PrismaClient({ datasources: { db: { url: dbUrl } } });
