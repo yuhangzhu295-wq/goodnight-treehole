@@ -273,8 +273,10 @@ Key empirical findings:
   is strictly flat ($O(1)$) across both scales: `createJourney` (6 statements vs 6 statements,
   15.4–18.7 ms p50), `createJourneyHighRisk` (7 vs 7 statements, 14.7–17.2 ms p50), `checkinAction`
   (15 vs 15 statements, 18.4–26.2 ms p50), `readNotification` (5 vs 5 statements, 7.8–8.8 ms p50),
-  `writeAction` (11 vs 11 statements, 16.7–19.9 ms p50), `deliverFollowUp` (48 vs 48 statements,
-  31.7–77.4 ms p50), `readNotifications` (1 vs 1 statement), and `readJourneyDetail` (5 vs 5 statements).
+  `writeAction` (11 vs 11 statements, 16.7–19.9 ms p50), `deliverFollowUp` (48 vs 48 steady-state
+  statements, 53 published avg at 12.6k with warm-up outlier; 31.7–77.4 ms p50; note statement count
+  is flat but read I/O volume scales with unmigrated tables), `readNotifications` (1 vs 1 statement),
+  and `readJourneyDetail` (5 vs 5 statements).
   This eliminates the BEFORE baseline's $N + 93$ ($1,093 \to 12,694$) statement scaling.
 - **`BATCH1_FULL_FLUSH_ON_WRITE = false` (PROVEN)**: Confirmed in code and by query event capture
   during a full legacy store flush — exactly 0 upserts run for any of the eight migrated models.
