@@ -142,6 +142,14 @@ interleaved: the confirmed content must never be reverted to draft by the AI". I
 here as an open product defect to be closed by D — the isolation change did not create it, it
 stopped hiding it — and D must fix the behaviour, not the ordering.
 
+**Resolved by sub-batch D (`501d115`).** The AI completion write now carries a commit-time
+condition (`confidence: { not: 'user_confirmed' }`) plus an `updatedAt` CAS on the Journey, so a
+user PATCH or confirmation that lands during the AI call makes the AI write affect 0 rows.
+`persistence-durability` passes 2/2 in three consecutive isolated runs, and it was failing 4/4
+before. With it, the suite's failing set is 8 files / 9 tests against this baseline's 10 files /
+12 tests — every remaining failure is `AI_LIVE_BLOCKED_EXTERNAL` or a pre-existing
+non-AI expectation.
+
 **Leaked schemas.** The count had grown from 429 to **672** during this round's verification runs.
 They were dropped (only the `goodnight_treehole_test_*` prefix; `public` untouched at 54 tables,
 12 migrations, 1304 rows) and the runner no longer creates any, because it leases databases

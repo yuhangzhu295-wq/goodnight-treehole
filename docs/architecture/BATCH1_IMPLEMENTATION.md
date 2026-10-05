@@ -40,7 +40,7 @@ arrays cannot silently null a foreign key or delete a row that should survive.
 | A | `UserNotification` | **Done, reviewed APPROVE** | `81308e7` |
 | B | `SafetyEvent` (+ D1 AuditLog) | **Done, reviewed APPROVE** | `3234ef0` |
 | C | `AIJob` | **Done; review fixes applied; deadlock regression found and fixed** | `cd919fd` |
-| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | Not started | — |
+| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; core safety properties verified directly; independent code review outstanding (reviewer model quota-exhausted)** | `501d115` |
 | E | `ActionCommitment` + `OutcomeCheckin` | Not started | — |
 
 ### A — UserNotification
@@ -113,6 +113,18 @@ is removed, which the implementer demonstrated by temporarily removing it.
 
 **Lesson worth carrying into D and E:** during the transition, a model may be written directly **or** by the legacy flush, never both. "Convert the callback to a direct write" is only correct once the table it writes has actually migrated. The design's dual-write prohibition is not a formality — violating it produced a reproducible deadlock, not a subtle slowdown.
 
+### D — Journey + SituationSnapshot + JourneyUpdate
+
+The FK anchor of the whole batch. Full triple exit for all three models (hydration `mapper:95/96/99`, state mapping `399/421/451`, upsert `991/1030/1085`, sweep `2386/2332/2240`).
+
+**The FK guard is the property everything else depends on.** `journeyIds` was the guard protecting nullable `journeyId` foreign keys on fifteen dependent models; with `lifeJourneys` no longer hydrated, the in-memory set would be empty and every one of those FKs would be written `NULL` — the silent-corruption path `BATCH1_REFERENCE_SAFETY.md` §1.1 documents. The mapper now collects candidate ids from all fifteen models (`mapper:843–859`) and resolves them **inside the transaction** against the database (`tx.lifeJourney.findMany`, `:860–866`), so a valid reference is preserved and only a genuinely absent Journey yields `NULL`. Verified by the orchestrator by reading the code, not inferred from tests.
+
+**The Defect 1 fix is behavioural, not timing-based.** The AI completion write carries a commit-time condition — `confidence: { not: 'user_confirmed' }` in the CAS update (`batch1-persistence.service.ts:1997`) — plus an `updatedAt` CAS on the Journey, so a user PATCH or confirmation landing during the AI call makes the AI write affect 0 rows. `persistence-durability` passes 2/2 in three consecutive isolated runs; it failed 4/4 before this sub-batch.
+
+**D3 concurrency**: the parent `User` row is locked with `SELECT … FOR UPDATE` inside the restore/graduate/activate transactions (`:1738, :1773, :1792`) before the check-then-act, because locking the user's Journey rows cannot block a concurrent insert under `READ COMMITTED`. `patchJourney` uses an `updatedAt` CAS and writes only changed fields. Archive deletion detaches the dependent models explicitly (`updateMany({ journeyId: null })`, `:1826–1834`) rather than relying on the cascade.
+
+**Independent code review is outstanding.** The reviewer's model returned `429 RESOURCE_EXHAUSTED` when this sub-batch was submitted, so D has not had the adversarial review that A, B and C each received — and every one of those reviews found real defects. The orchestrator verified the three highest-risk properties directly (FK guard, commit-time guard, parent-row locking) and the full-suite evidence is green, but **D should be treated as reviewed-pending until that pass is completed**. This is the single most important outstanding item, because D's changes protect fifteen models' foreign keys.
+
 ## Test isolation (step 16)
 
 Delivered early rather than last, because the evidence made it a precondition for trustworthy
@@ -137,9 +149,11 @@ Independently reproduced by the orchestrator, not taken from implementer summari
 | `npx vitest run tests/business/` before isolation | 10 failed / 46 passed; newly-failing set vs baseline **empty** |
 | Same, after isolation (`9150f45`) | 9 failed / 16 passed files; failing set a **strict subset** of baseline |
 | Same, after sub-batch C (`cd919fd`) | 9 failed / 17 passed files, 10 failed / 54 passed tests; failing set within baseline; **0** `40P01` deadlocks |
+| Same, after sub-batch D (`501d115`) | **8 failed / 19 passed** files, 9 failed / 62 passed tests; failing set a strict subset of baseline; **0** `40P01`; `persistence-durability` 2/2 in 3 consecutive isolated runs |
 | `batch1-usernotification.spec.ts` | 6/6 |
 | `batch1-safetyevent.spec.ts` | 5/5 |
 | `batch1-aijob.spec.ts` | 8/8 |
+| `batch1-journey.spec.ts` | 7/7 |
 | `first-batch-core-loop.spec.ts` | 5/5 isolated after the deadlock fix |
 | `third-stage-decision-vault` / `third-stage-privacy-2` | 5/5 and 5/5 isolated |
 | Dev DB `public` rows | 1304 before and after runs |
@@ -151,25 +165,20 @@ Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is n
 
 ## Open items this report does not close
 
-- **Sub-batches D and E** — six models still memory-authoritative: `Journey`,
-  `SituationSnapshot`, `JourneyUpdate`, `ActionCommitment`, `OutcomeCheckin`, and the
-  `Journey`-coupled completion callback which becomes a legitimate direct writer only once D
-  lands.
-- **A real, reproducible product defect that D must fix** — `persistence-durability` Defect 1
-  fails **4 of 4 isolated runs**: the test PATCHes a journey `summary` and the database then
-  holds an AI-generated fallback summary, so an AI completion is overwriting user-confirmed
-  content. It was bisected to confirm sub-batches A and B are not the cause (it passes with
-  A+B code under the old test environment), and it is the interleaving
-  `BATCH1_DESIGN.md` assigns to D: "`user_confirmed` and AI completion interleaved: the
-  confirmed content must never be reverted to draft by the AI". It is deterministic in
-  isolation and only *appears* intermittent in a full-suite run because run ordering sometimes
-  masks it — so D must fix the behaviour, not the timing.
+- **Sub-batch E** — `ActionCommitment` and `OutcomeCheckin` still memory-authoritative. Until E
+  lands, the archive path keeps an in-memory filter for them, so they must not be treated as
+  transactionally persisted.
+- **Sub-batch D's independent code review** — outstanding because the reviewer's model was
+  quota-exhausted. The orchestrator verified the FK guard, the commit-time `user_confirmed`
+  guard and the parent-`User`-row locking directly, and the suite is green, but D has not had
+  the adversarial review A/B/C received.
 - **§60 success conditions** — `BATCH1_FULL_FLUSH_ON_WRITE`, `BATCH1_DELETE_ABSENT`,
-  `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE` and the rest are still **false** for the six unmigrated
-  models. The before/after benchmark, concurrency and multi-instance reports are not yet
-  produced.
+  `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE` and the rest are still **false** for the two unmigrated
+  models (`ActionCommitment`, `OutcomeCheckin`). The before/after benchmark, concurrency and
+  multi-instance reports are not yet produced.
 - **Remaining phases** — the peer mega-spec split, GitHub CI, clean dev-DB rebuild, load and
   concurrency gates, Android/Admin/Security regression, live AI, and the final gate.
 
 `PERSISTENCE_BATCH1_STABLE` is **not** claimed. `BATCH1_REFERENCE_SAFETY.md`'s safety properties
-are proven of the design and observed for three models; they are not yet verified for the batch.
+are proven of the design and verified for six of the eight models; `ActionCommitment` and
+`OutcomeCheckin` remain.
