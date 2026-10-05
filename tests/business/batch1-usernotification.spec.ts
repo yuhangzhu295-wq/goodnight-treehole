@@ -6,6 +6,7 @@ import { createApiTestApp, loginAdmin, auth } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { FollowUpWorkerService } from '../../apps/api/src/follow-up-worker.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
+import { DIRECT_DB_MODELS } from '../../apps/api/src/direct-db-models';
 
 describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections', () => {
   let app: INestApplication;
@@ -249,18 +250,20 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
       await freshPrisma.$disconnect();
     }
 
-    // Keep the life journey in the unmigrated store so LifeJourney absence sweep does not cascade
-    store.lifeJourneys.push({
-      id: journeyId,
-      userId: testUserId,
-      title: '外键保护旅程',
-      domain: '生活',
-      status: 'active',
-      stage: 'clarifying',
-      visibility: 'PRIVATE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    // Keep the life journey in the unmigrated store so LifeJourney absence sweep does not cascade (prior to Sub-batch D)
+    if (!DIRECT_DB_MODELS.LifeJourney) {
+      store.lifeJourneys.push({
+        id: journeyId,
+        userId: testUserId,
+        title: '外键保护旅程',
+        domain: '生活',
+        status: 'active',
+        stage: 'clarifying',
+        visibility: 'PRIVATE',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     // Simulate in-memory store holding a stale pending FollowUpJob without the journeyId
     store.followUpJobs.push({
@@ -330,15 +333,26 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
     const freshPrismaInstance2 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
       const staleInstance2State = {
-        users: [{ id: testUserId, openid: 'test_openid', nickname: 'Demo', anonymousCode: 'demo_code', status: 'normal', createdAt: new Date().toISOString() }],
-        followUpJobs: [{
-          id: jobId,
-          userId: testUserId,
-          kind: 'FOLLOW_UP',
-          status: 'pending',
-          dueAt: new Date().toISOString(),
-          completedAt: undefined,
-        }],
+        users: [
+          {
+            id: testUserId,
+            openid: 'test_openid',
+            nickname: 'Demo',
+            anonymousCode: 'demo_code',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        followUpJobs: [
+          {
+            id: jobId,
+            userId: testUserId,
+            kind: 'FOLLOW_UP',
+            status: 'pending',
+            dueAt: new Date().toISOString(),
+            completedAt: undefined,
+          },
+        ],
         notifications: [], // Stale second instance has no knowledge of the notification
       };
 

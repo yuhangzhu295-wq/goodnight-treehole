@@ -6,6 +6,7 @@ import { createApiTestApp, loginAdmin, auth } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
+import { DIRECT_DB_MODELS } from '../../apps/api/src/direct-db-models';
 
 describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
   let app: INestApplication;
@@ -64,18 +65,20 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
       await freshPrisma.$disconnect();
     }
 
-    // Keep store legacy array aware of journey for requireJourney / journey reads
-    store.lifeJourneys.push({
-      id: journeyId,
-      userId: testUserId,
-      title: '安全门禁测试旅程',
-      domain: '情绪',
-      status: 'active',
-      stage: 'safety_first',
-      visibility: 'PRIVATE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    // Keep store legacy array aware of journey for requireJourney / journey reads (prior to Sub-batch D)
+    if (!DIRECT_DB_MODELS.LifeJourney) {
+      store.lifeJourneys.push({
+        id: journeyId,
+        userId: testUserId,
+        title: '安全门禁测试旅程',
+        domain: '情绪',
+        status: 'active',
+        stage: 'safety_first',
+        visibility: 'PRIVATE',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     // Path A: Admin safety events list (GET /api/admin/v1/safety/events)
     const adminListRes = await request(server)
@@ -254,7 +257,16 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
     const freshPrismaInstance2 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
       const staleState = {
-        users: [{ id: testUserId, openid: 'test_openid_d1', nickname: 'Demo', anonymousCode: 'demo_d1', status: 'normal', createdAt: new Date().toISOString() }],
+        users: [
+          {
+            id: testUserId,
+            openid: 'test_openid_d1',
+            nickname: 'Demo',
+            anonymousCode: 'demo_d1',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
+        ],
         auditLogs: [], // Stale second instance holds an empty auditLogs array
       };
       await saveRelationalRuntimeState(freshPrismaInstance2, staleState);
@@ -307,18 +319,20 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
       await freshPrisma.$disconnect();
     }
 
-    // Keep store aware of the journey in archived status
-    store.lifeJourneys.push({
-      id: journeyId,
-      userId: testUserId,
-      title: '归档解除关联测试旅程',
-      domain: '生活',
-      status: 'archived',
-      stage: 'clarifying',
-      visibility: 'PRIVATE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    // Keep store aware of the journey in archived status (prior to Sub-batch D)
+    if (!DIRECT_DB_MODELS.LifeJourney) {
+      store.lifeJourneys.push({
+        id: journeyId,
+        userId: testUserId,
+        title: '归档解除关联测试旅程',
+        domain: '生活',
+        status: 'archived',
+        stage: 'clarifying',
+        visibility: 'PRIVATE',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     // This test explicitly asserts the ordering: detachSafetyEventsForJourney must execute and commit
     // SafetyEvent.journeyId = NULL before the Journey row is deleted by persistAndFlush().
@@ -327,23 +341,25 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
     const persistence = app.get(Batch1PersistenceService);
     let explicitDetachObservedBeforeJourneyDeletion = false;
     const originalDetach = persistence.detachSafetyEventsForJourney.bind(persistence);
-    const detachSpy = vi.spyOn(persistence, 'detachSafetyEventsForJourney').mockImplementation(async (targetJourneyId: string) => {
-      const res = await originalDetach(targetJourneyId);
-      // Immediately after the explicit detach commits, but BEFORE the Journey row is deleted by persistAndFlush:
-      // Verify from an independent Prisma client that the SafetyEvent already has journeyId = null,
-      // while the LifeJourney row STILL exists in PostgreSQL.
-      const separateClient = new PrismaClient({ datasources: { db: { url: dbUrl } } });
-      try {
-        const journeyStillExists = await separateClient.lifeJourney.findUnique({ where: { id: targetJourneyId } });
-        const eventAlreadyDetached = await separateClient.safetyEvent.findUnique({ where: { id: eventId } });
-        if (journeyStillExists !== null && eventAlreadyDetached?.journeyId === null) {
-          explicitDetachObservedBeforeJourneyDeletion = true;
+    const detachSpy = vi
+      .spyOn(persistence, 'detachSafetyEventsForJourney')
+      .mockImplementation(async (targetJourneyId: string) => {
+        const res = await originalDetach(targetJourneyId);
+        // Immediately after the explicit detach commits, but BEFORE the Journey row is deleted by persistAndFlush:
+        // Verify from an independent Prisma client that the SafetyEvent already has journeyId = null,
+        // while the LifeJourney row STILL exists in PostgreSQL.
+        const separateClient = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+        try {
+          const journeyStillExists = await separateClient.lifeJourney.findUnique({ where: { id: targetJourneyId } });
+          const eventAlreadyDetached = await separateClient.safetyEvent.findUnique({ where: { id: eventId } });
+          if (journeyStillExists !== null && eventAlreadyDetached?.journeyId === null) {
+            explicitDetachObservedBeforeJourneyDeletion = true;
+          }
+        } finally {
+          await separateClient.$disconnect();
         }
-      } finally {
-        await separateClient.$disconnect();
-      }
-      return res;
-    });
+        return res;
+      });
 
     try {
       // Delete the archive via API
@@ -408,18 +424,20 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
       await freshPrisma.$disconnect();
     }
 
-    // Keep the journey in memory store so it is upserted during flush
-    store.lifeJourneys.push({
-      id: journeyId,
-      userId: testUserId,
-      title: '外键保持测试旅程',
-      domain: '工作',
-      status: 'active',
-      stage: 'clarifying',
-      visibility: 'PRIVATE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    // Keep the journey in memory store so it is upserted during flush (prior to Sub-batch D)
+    if (!DIRECT_DB_MODELS.LifeJourney) {
+      store.lifeJourneys.push({
+        id: journeyId,
+        userId: testUserId,
+        title: '外键保持测试旅程',
+        domain: '工作',
+        status: 'active',
+        stage: 'clarifying',
+        visibility: 'PRIVATE',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     // Trigger a legacy flush from the store
     await store.persistAndFlush();
@@ -428,18 +446,29 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
     const freshPrismaInstance2 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
       const staleState = {
-        users: [{ id: testUserId, openid: 'test_openid_fk', nickname: 'Demo', anonymousCode: 'demo_fk', status: 'normal', createdAt: new Date().toISOString() }],
-        lifeJourneys: [{
-          id: journeyId,
-          userId: testUserId,
-          title: '外键保持测试旅程',
-          domain: '工作',
-          status: 'active',
-          stage: 'clarifying',
-          visibility: 'PRIVATE',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }],
+        users: [
+          {
+            id: testUserId,
+            openid: 'test_openid_fk',
+            nickname: 'Demo',
+            anonymousCode: 'demo_fk',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        lifeJourneys: [
+          {
+            id: journeyId,
+            userId: testUserId,
+            title: '外键保持测试旅程',
+            domain: '工作',
+            status: 'active',
+            stage: 'clarifying',
+            visibility: 'PRIVATE',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
         safetyEvents: [], // Stale instance has empty safetyEvents array
       };
       await saveRelationalRuntimeState(freshPrismaInstance2, staleState);

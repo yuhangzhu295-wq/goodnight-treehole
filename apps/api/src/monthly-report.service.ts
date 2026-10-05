@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable } from '@ne
 import crypto from 'node:crypto';
 import { normalizeStoreEmotion, StoreService } from './store.service.js';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
+import { Batch1PersistenceService } from './batch1-persistence.service.js';
 
 type MonthlyRecord = {
   emotion: string;
@@ -134,20 +135,32 @@ export class MonthlyReportService {
   constructor(
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
+    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
   ) {}
 
   private recordsFor(userId: string, month: string): MonthlyRecord[] {
     const diaries = this.store.diaries
       .filter((item) => item.userId === userId && item.createdAt.startsWith(month))
-      .map((item) => ({ emotion: item.emotion, content: item.content, createdAt: item.createdAt, moodId: item.moodId }));
+      .map((item) => ({
+        emotion: item.emotion,
+        content: item.content,
+        createdAt: item.createdAt,
+        moodId: item.moodId,
+      }));
     const diaryMoodIds = new Set(diaries.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
     const unlinkedMoods = this.store.moods
-      .filter((item) => item.userId === userId && item.status === 'active' && item.createdAt.startsWith(month) && !diaryMoodIds.has(item.id))
+      .filter(
+        (item) =>
+          item.userId === userId &&
+          item.status === 'active' &&
+          item.createdAt.startsWith(month) &&
+          !diaryMoodIds.has(item.id),
+      )
       .map((item) => ({ emotion: item.emotion, content: item.content, createdAt: item.createdAt, moodId: item.id }));
     return [...diaries, ...unlinkedMoods];
   }
 
-  private recoveryFactsFor(userId: string, month: string): MonthlyRecoveryFacts {
+  private async recoveryFactsFor(userId: string, month: string): Promise<MonthlyRecoveryFacts> {
     // Recovery snapshots, decisions and check-ins are only allowed into the report when the
     // user has switched on `allowRecoveryData`. Every other recovery read in the product is
     // gated the same way, and this one was not (product audit ISSUE-021).
@@ -169,10 +182,9 @@ export class MonthlyReportService {
         lifeFunctions: [],
       };
     }
-    const journeys = this.store.lifeJourneys.filter(
-      (item) =>
-        item.userId === userId &&
-        belongsToMonth(month, item.createdAt, item.updatedAt, item.completedAt),
+    const dbJourneys = await this.batch1Persistence.getJourneysForMonth(userId);
+    const journeys = dbJourneys.filter(
+      (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.completedAt),
     );
     const actions = this.store.actionCommitments.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt),
@@ -245,7 +257,7 @@ export class MonthlyReportService {
     };
   }
 
-  private statisticsFor(userId: string, month: string): MonthlyStatistics {
+  private async statisticsFor(userId: string, month: string): Promise<MonthlyStatistics> {
     const records = this.recordsFor(userId, month);
     const distribution = records.reduce<Record<string, number>>((accumulator, item) => {
       const label = labelForEmotion(item.emotion);
@@ -275,7 +287,9 @@ export class MonthlyReportService {
     const relatedPostIds = this.store.posts
       .filter((post) => post.userId === userId && linkedMoodIds.has(post.moodId))
       .map((post) => post.id);
-    const replyCount = this.store.replies.filter((reply) => relatedPostIds.includes(reply.postId) && reply.status === 'published').length;
+    const replyCount = this.store.replies.filter(
+      (reply) => relatedPostIds.includes(reply.postId) && reply.status === 'published',
+    ).length;
     const joinedContent = records.map((item) => item.content).join('\n');
     const keywordCounts = keywordCandidates
       .map((keyword) => ({ keyword, count: joinedContent.split(keyword).length - 1 }))
@@ -296,7 +310,7 @@ export class MonthlyReportService {
       emotionDistribution: distribution,
       keywords,
       keywordCounts,
-      recovery: this.recoveryFactsFor(userId, month),
+      recovery: await this.recoveryFactsFor(userId, month),
     };
   }
 
@@ -308,8 +322,8 @@ export class MonthlyReportService {
     };
     for (const item of this.store.diaries) if (item.userId === userId) addMonths(item.createdAt);
     for (const item of this.store.moods) if (item.userId === userId) addMonths(item.createdAt);
-    for (const item of this.store.lifeJourneys)
-      if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.completedAt, item.intentUpdatedAt);
+    const journeyMonths = await this.batch1Persistence.getAvailableMonthsForJourneys(userId);
+    for (const m of journeyMonths) months.add(m);
     for (const item of this.store.actionCommitments)
       if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.dueAt, item.reminderAt);
     for (const item of this.store.outcomeCheckins)
@@ -331,7 +345,7 @@ export class MonthlyReportService {
   async monthly(value?: string, requestedUserId?: string) {
     const month = assertMonth(value);
     const userId = this.store.resolveRuntimeUserId(requestedUserId);
-    const statistics = this.statisticsFor(userId, month);
+    const statistics = await this.statisticsFor(userId, month);
     const analysisAllowed = this.store.privacySettings[userId]?.allowJourneyLongTermAnalysis === true;
     const sourceSignature = signatureFor({ userId, ...statistics });
     let report = await this.prisma.monthlyReport.findUnique({ where: { userId_month: { userId, month } } });
@@ -380,29 +394,36 @@ export class MonthlyReportService {
           trendJson: { values: statistics.trend, daily: statistics.dailyTrend },
           distributionJson: statistics.emotionDistribution,
           keywordsJson: metadata,
-          summary: analysisAllowed ? '' : report?.summary ?? '',
+          summary: analysisAllowed ? '' : (report?.summary ?? ''),
         },
       });
     }
 
     if (!report) throw new BadRequestException('无法创建月报快照');
 
-    const persistedJob = analysisAllowed && metadata.summaryJobId ? await this.prisma.aIJob.findUnique({ where: { id: metadata.summaryJobId } }) : undefined;
+    const persistedJob =
+      analysisAllowed && metadata.summaryJobId
+        ? await this.prisma.aIJob.findUnique({ where: { id: metadata.summaryJobId } })
+        : undefined;
     const job = persistedJob;
     if (analysisAllowed && job && terminal(job.status)) {
       const nextSummary = ['succeeded', 'fallback'].includes(job.status) ? safeSummary(job.result) : '';
       metadata = { ...metadata, summaryStatus: job.status };
       if (report.summary !== nextSummary || readMetadata(report.keywordsJson).summaryStatus !== job.status) {
-        report = await this.prisma.monthlyReport.update({ where: { id: report.id }, data: { summary: nextSummary, keywordsJson: metadata } });
+        report = await this.prisma.monthlyReport.update({
+          where: { id: report.id },
+          data: { summary: nextSummary, keywordsJson: metadata },
+        });
       }
     }
 
     const trendJson = report.trendJson as { values?: unknown; daily?: unknown } | null;
     const storedTrend = Array.isArray(trendJson?.values) ? trendJson.values.map(Number) : statistics.trend;
-    const storedDaily = Array.isArray(trendJson?.daily) ? trendJson.daily as DailyPoint[] : statistics.dailyTrend;
-    const storedDistribution = report.distributionJson && typeof report.distributionJson === 'object' && !Array.isArray(report.distributionJson)
-      ? report.distributionJson as unknown as Record<string, number>
-      : statistics.emotionDistribution;
+    const storedDaily = Array.isArray(trendJson?.daily) ? (trendJson.daily as DailyPoint[]) : statistics.dailyTrend;
+    const storedDistribution =
+      report.distributionJson && typeof report.distributionJson === 'object' && !Array.isArray(report.distributionJson)
+        ? (report.distributionJson as unknown as Record<string, number>)
+        : statistics.emotionDistribution;
     return {
       item: {
         ...statistics,
@@ -417,7 +438,7 @@ export class MonthlyReportService {
         keywords: metadata.items ?? statistics.keywords,
         summary: analysisAllowed ? safeSummary(report.summary) : '',
         aiJobId: metadata.summaryJobId,
-        aiJobStatus: analysisAllowed ? job?.status ?? metadata.summaryStatus ?? 'queued' : 'disabled',
+        aiJobStatus: analysisAllowed ? (job?.status ?? metadata.summaryStatus ?? 'queued') : 'disabled',
         analysisAllowed,
       },
     };
@@ -428,12 +449,17 @@ export class MonthlyReportService {
     const userId = this.store.resolveRuntimeUserId(requestedUserId);
     if (!monthly.item.analysisAllowed)
       return { item: { month: monthly.item.month, content: '', aiJobStatus: 'disabled', analysisAllowed: false } };
-    const report = await this.prisma.monthlyReport.findUniqueOrThrow({ where: { userId_month: { userId, month: monthly.item.month } } });
+    const report = await this.prisma.monthlyReport.findUniqueOrThrow({
+      where: { userId_month: { userId, month: monthly.item.month } },
+    });
     const metadata = readMetadata(report.keywordsJson);
     const sourceSignature = metadata.sourceSignature ?? signatureFor(monthly.item);
     const contentId = `monthly_advice_${userId}_${report.id}_${sourceSignature}`;
     let job: any = await this.prisma.aIJob.findFirst({ where: { contentId }, orderBy: { createdAt: 'desc' } });
-    let advice = await this.prisma.reportAdvice.findFirst({ where: { reportId: report.id }, orderBy: { createdAt: 'desc' } });
+    let advice = await this.prisma.reportAdvice.findFirst({
+      where: { reportId: report.id },
+      orderBy: { createdAt: 'desc' },
+    });
     if (!job && !advice) {
       const queued = this.store.queueAI({
         taskType: 'monthly_recovery_summary',
@@ -448,7 +474,9 @@ export class MonthlyReportService {
     }
     if (job?.id) job = (await this.prisma.aIJob.findUnique({ where: { id: job.id } })) ?? job;
     if (job && terminal(job.status) && ['succeeded', 'fallback'].includes(job.status) && !advice) {
-      advice = await this.prisma.reportAdvice.create({ data: { reportId: report.id, content: safeSummary(job.result) } });
+      advice = await this.prisma.reportAdvice.create({
+        data: { reportId: report.id, content: safeSummary(job.result) },
+      });
     }
     return {
       item: {
@@ -462,7 +490,8 @@ export class MonthlyReportService {
 
   async poster(value: string, requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requestedUserId);
-    if (!this.store.privacySettings[userId]?.allowMonthlyReportShare) throw new ForbiddenException('当前隐私设置未允许生成月报分享图');
+    if (!this.store.privacySettings[userId]?.allowMonthlyReportShare)
+      throw new ForbiddenException('当前隐私设置未允许生成月报分享图');
     const monthly = await this.monthly(value);
     if (!monthly.item.summary || !['succeeded', 'fallback'].includes(String(monthly.item.aiJobStatus))) {
       throw new BadRequestException('月报总结仍在生成，请完成后再生成分享图');

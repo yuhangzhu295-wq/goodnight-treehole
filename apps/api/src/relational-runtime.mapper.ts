@@ -4,18 +4,24 @@ import { DIRECT_DB_MODELS } from './direct-db-models.js';
 type DbClient = any;
 type RuntimeData = Record<string, any>;
 
-const asArray = <T = any>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
-const iso = (value: Date | string | null | undefined) => value ? new Date(value).toISOString() : new Date(0).toISOString();
+const asArray = <T = any>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+const iso = (value: Date | string | null | undefined) =>
+  value ? new Date(value).toISOString() : new Date(0).toISOString();
 const date = (value: Date | string | null | undefined) => {
   const parsed = value ? new Date(value) : new Date();
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 };
-const json = (value: unknown) => value === undefined ? Prisma.JsonNull : value as Prisma.InputJsonValue;
-const valid = <T extends string>(value: unknown, values: readonly T[], fallback: T): T => values.includes(String(value) as T) ? String(value) as T : fallback;
-const jobStatus = (value: unknown) => ({ success: 'succeeded', fallback_completed: 'fallback' }[String(value)] ?? valid(value, ['queued', 'running', 'succeeded', 'failed', 'fallback', 'cancelled'] as const, 'failed'));
+const json = (value: unknown) => (value === undefined ? Prisma.JsonNull : (value as Prisma.InputJsonValue));
+const valid = <T extends string>(value: unknown, values: readonly T[], fallback: T): T =>
+  values.includes(String(value) as T) ? (String(value) as T) : fallback;
+const jobStatus = (value: unknown) =>
+  ({ success: 'succeeded', fallback_completed: 'fallback' })[String(value)] ??
+  valid(value, ['queued', 'running', 'succeeded', 'failed', 'fallback', 'cancelled'] as const, 'failed');
 
 export function isRelationalPrimary(payload: unknown) {
-  return Boolean(payload && typeof payload === 'object' && (payload as Record<string, unknown>).persistence === 'relational-primary');
+  return Boolean(
+    payload && typeof payload === 'object' && (payload as Record<string, unknown>).persistence === 'relational-primary',
+  );
 }
 
 function attachmentIds(items: Array<{ mediaAssetId: string; sortOrder: number }> = []) {
@@ -23,7 +29,51 @@ function attachmentIds(items: Array<{ mediaAssetId: string; sortOrder: number }>
 }
 
 export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeData | undefined> {
-  const [users, adminUsers, moods, posts, replies, letters, diaries, favorites, categories, faqs, presets, tickets, settings, providers, routes, jobs, assets, audits, journeys, snapshots, journeyUpdates, commitments, checkins, peerExperiences, peerMatches, peerReputations, decisions, cooldowns, handoffs, contacts, futureMessages, supportPlans, stableSelfProfiles, memories, recoverySnapshots, safetyEvents, agentDecisionLogs, followUpJobs, notifications, peerConversations, peerMessages, peerReports, adminUserNotes] = await Promise.all([
+  const [
+    users,
+    adminUsers,
+    moods,
+    posts,
+    replies,
+    letters,
+    diaries,
+    favorites,
+    categories,
+    faqs,
+    presets,
+    tickets,
+    settings,
+    providers,
+    routes,
+    jobs,
+    assets,
+    audits,
+    journeys,
+    snapshots,
+    journeyUpdates,
+    commitments,
+    checkins,
+    peerExperiences,
+    peerMatches,
+    peerReputations,
+    decisions,
+    cooldowns,
+    handoffs,
+    contacts,
+    futureMessages,
+    supportPlans,
+    stableSelfProfiles,
+    memories,
+    recoverySnapshots,
+    safetyEvents,
+    agentDecisionLogs,
+    followUpJobs,
+    notifications,
+    peerConversations,
+    peerMessages,
+    peerReports,
+    adminUserNotes,
+  ] = await Promise.all([
     db.user.findMany({ include: { privacySetting: true }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
     db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
@@ -42,9 +92,13 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.AIJob ? Promise.resolve([]) : db.aIJob.findMany({ orderBy: { createdAt: 'desc' } }),
     db.mediaAsset.findMany({ orderBy: { createdAt: 'desc' } }),
     db.auditLog.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.lifeJourney.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.situationSnapshot.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.journeyUpdate.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.LifeJourney ? Promise.resolve([]) : db.lifeJourney.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.SituationSnapshot
+      ? Promise.resolve([])
+      : db.situationSnapshot.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.JourneyUpdate
+      ? Promise.resolve([])
+      : db.journeyUpdate.findMany({ orderBy: { createdAt: 'desc' } }),
     db.actionCommitment.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.outcomeCheckin.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerExperience.findMany({ orderBy: { updatedAt: 'desc' } }),
@@ -62,7 +116,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.SafetyEvent ? Promise.resolve([]) : db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
     db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
     db.followUpJob.findMany({ orderBy: { dueAt: 'asc' } }),
-    DIRECT_DB_MODELS.UserNotification ? Promise.resolve([]) : db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.UserNotification
+      ? Promise.resolve([])
+      : db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerConversation.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerMessage.findMany({ orderBy: { createdAt: 'asc' } }),
     db.peerReport.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -72,71 +128,632 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
 
   const moodAttachmentMap = new Map(moods.map((item: any) => [item.id, attachmentIds(item.attachments)]));
   return {
-    users: users.map((item: any) => ({ id: item.id, openid: item.openid, nickname: item.nickname, anonymousCode: item.anonymousCode, avatarUrl: item.avatarUrl ?? '', status: item.status, createdAt: iso(item.createdAt) })),
-    adminUsers: adminUsers.map((item: any) => ({ id: item.id, username: item.username, passwordHash: item.passwordHash, displayName: item.displayName, role: item.role?.code ?? 'super_admin', status: item.status, lastLoginAt: item.lastLoginAt ? iso(item.lastLoginAt) : undefined })),
-    privacySettings: Object.fromEntries(users.map((item: any) => [item.id, item.privacySetting ? {
-      defaultVisibility: item.privacySetting.defaultVisibility,
-      allowAnonymousPublic: item.privacySetting.allowAnonymousPublic,
-      allowHumanReplies: item.privacySetting.allowHumanReplies,
-      allowMonthlyReportShare: item.privacySetting.allowMonthlyReportShare,
-      allowPeerMatching: item.privacySetting.allowPeerMatching,
-      allowAnonymousExperienceStats: item.privacySetting.allowAnonymousExperienceStats,
-      allowRecoveryData: item.privacySetting.allowRecoveryData,
-      allowJourneyLongTermAnalysis: item.privacySetting.allowJourneyLongTermAnalysis,
-      allowLongTermMemory: item.privacySetting.allowLongTermMemory,
-      allowAiMemoryUse: item.privacySetting.allowAiMemoryUse,
-      allowAnonymousExperienceShare: item.privacySetting.allowAnonymousExperienceShare,
-      allowJourneyArchiveRetention: item.privacySetting.allowJourneyArchiveRetention,
-      allowFutureSelfNotifications: item.privacySetting.allowFutureSelfNotifications,
-      allowDataExport: item.privacySetting.allowDataExport,
-    } : { defaultVisibility: 'PRIVATE', allowAnonymousPublic: true, allowHumanReplies: true, allowMonthlyReportShare: true, allowPeerMatching: false, allowAnonymousExperienceStats: false, allowRecoveryData: false, allowJourneyLongTermAnalysis: false, allowLongTermMemory: false, allowAiMemoryUse: false, allowAnonymousExperienceShare: false, allowJourneyArchiveRetention: false, allowFutureSelfNotifications: false, allowDataExport: false }])),
-    moods: moods.map((item: any) => ({ id: item.id, userId: item.userId, emotion: item.emotion, content: item.content, visibility: item.visibility, riskLevel: item.riskLevel, riskScore: item.riskScore, status: item.status, journeyId: item.journeyId ?? undefined, attachmentIds: moodAttachmentMap.get(item.id) ?? [], createdAt: iso(item.createdAt) })),
-    posts: posts.map((item: any) => ({ id: item.id, moodId: item.moodId, userId: item.userId, emotion: item.emotion, content: item.content, visibility: item.visibility, status: item.status, reviewStatus: item.reviewStatus, hugCount: item.hugCount, replyCount: item.replyCount, favoriteCount: item.favoriteCount, reportCount: item.reportCount, journeyId: item.journeyId ?? undefined, attachmentIds: moodAttachmentMap.get(item.moodId) ?? [], createdAt: iso(item.createdAt), publishedAt: item.publishedAt ? iso(item.publishedAt) : undefined })),
-    replies: replies.map((item: any) => ({ id: item.id, postId: item.postId, userId: item.userId ?? undefined, type: item.type, style: item.style, content: item.content, status: item.status, riskLevel: item.riskLevel, likeCount: item.likeCount, aiJobId: item.aiJobId ?? undefined, createdAt: iso(item.createdAt) })),
-    letters: letters.map((item: any) => ({ id: item.id, userId: item.userId, sourceMoodId: item.sourceMoodId ?? item.legacySourceMoodId ?? undefined, style: item.style, title: item.title, content: item.content, status: item.status, savedToDiary: item.savedToDiary, aiJobId: item.aiJobId ?? undefined, generationStatus: item.generationStatus ?? undefined, favorite: item.favorite, likeCount: item.likeCount, createdAt: iso(item.createdAt) })),
-    diaries: diaries.map((item: any) => ({ id: item.id, userId: item.userId, moodId: item.moodId ?? undefined, letterId: item.letterId ?? undefined, emotion: item.emotion, content: item.content, hasLetter: item.hasLetter, source: item.source ?? undefined, journeyId: item.journeyId ?? undefined, toolResult: item.toolResult ?? undefined, attachmentIds: attachmentIds(item.attachments), createdAt: iso(item.createdAt) })),
-    favorites: favorites.map((item: any) => ({ id: item.id, userId: item.userId, targetType: item.targetType, targetId: item.targetId, createdAt: iso(item.createdAt) })),
-    feedbackCategories: categories.map((item: any) => ({ id: item.id, name: item.name, sortOrder: item.sortOrder, enabled: item.enabled })),
-    faqs: faqs.map((item: any) => ({ id: item.id, question: item.question, answer: item.answer, sortOrder: item.sortOrder, enabled: item.enabled, createdAt: iso(item.createdAt) })),
-    replyPresets: presets.map((item: any) => ({ id: item.id, text: item.text, scene: item.scene, sortOrder: item.sortOrder, enabled: item.enabled, createdAt: iso(item.createdAt) })),
-    feedbackTickets: tickets.map((item: any) => ({ id: item.id, userId: item.userId, categoryId: item.categoryId, sourcePage: item.sourcePage, content: item.content, status: item.status, priority: item.priority, screenshots: asArray(item.screenshots), reply: item.reply ?? '', repliedBy: item.repliedBy ?? undefined, createdAt: iso(item.createdAt), repliedAt: item.repliedAt ? iso(item.repliedAt) : undefined })),
-    systemSettings: Object.fromEntries(settings.map((item: any) => [item.key, { value: item.value, description: item.description, updatedBy: item.updatedBy ?? 'system', updatedAt: iso(item.updatedAt) }])),
-    aiProviders: providers.map((item: any) => ({ id: item.id, name: item.name, type: item.type, baseUrl: item.baseUrl, modelName: item.modelName, apiKeyStatus: item.apiKeyStatus, enabled: item.enabled, priority: item.priority, dailyLimit: item.dailyLimit, timeoutSeconds: item.timeoutSeconds, failoverEnabled: item.failoverEnabled, usageTags: asArray(item.usageTags), failureRate: item.failureRate, avgLatencyMs: item.avgLatencyMs, todayCalls: item.todayCalls, providerKind: item.providerKind, modelMeta: item.modelMeta ?? undefined })),
-    aiRoutes: routes.map((item: any) => ({ id: item.id, style: item.style, label: item.label, taskTypes: asArray(item.taskTypes), primaryProviderId: item.primaryProviderId, backupProviderId: item.backupProviderId, fallbackTemplateId: item.fallbackTemplateId, promptVersion: item.promptVersion, promptTemplate: item.promptTemplate, enabled: item.enabled, routeVersion: item.routeVersion })),
-    ...(DIRECT_DB_MODELS.AIJob ? {} : {
-      aiJobs: jobs.map((item: any) => ({ id: item.id, userId: item.userId, contentId: item.contentId, contentType: item.contentType, taskType: item.taskType ?? undefined, jobType: item.jobType, style: item.style, providerId: item.providerId, modelName: item.modelName, status: item.status, promptSummary: item.promptSummary, promptVersion: item.promptVersion ?? undefined, result: item.result ?? '', structuredResult: item.structuredResult ?? undefined, errorMessage: item.errorMessage ?? undefined, durationMs: item.durationMs ?? 0, retryCount: item.retryCount, fallbackUsed: item.fallbackUsed, traceJson: asArray(item.traceJson), routeVersion: item.routeVersion, createdAt: iso(item.createdAt), completedAt: item.completedAt ? iso(item.completedAt) : undefined })),
-    }),
-    assets: assets.map((item: any) => ({ id: item.id, userId: item.userId, storageKey: item.storageKey, url: item.url, mimeType: item.mimeType, size: item.size, width: item.width, height: item.height, usageType: item.usageType, status: item.status, createdAt: iso(item.createdAt) })),
-    auditLogs: audits.map((item: any) => ({ id: item.id, adminUserId: item.adminUserId, action: item.action, resourceType: item.resourceType, resourceId: item.resourceId, beforeJson: item.beforeJson ?? null, afterJson: item.afterJson ?? null, ip: item.ip ?? '', userAgent: item.userAgent ?? '', createdAt: iso(item.createdAt) })),
-    lifeJourneys: journeys.map((item: any) => ({ id: item.id, userId: item.userId, title: item.title, domain: item.domain, status: item.status, stage: item.stage, currentIntent: item.currentIntent ?? undefined, intentUpdatedAt: item.intentUpdatedAt ? iso(item.intentUpdatedAt) : undefined, initialIntensity: item.initialIntensity ?? undefined, visibility: item.visibility, intensity: item.intensity ?? undefined, summary: item.summary ?? undefined, nextReviewAt: item.nextReviewAt ? iso(item.nextReviewAt) : undefined, completedAt: item.completedAt ? iso(item.completedAt) : undefined, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    situationSnapshots: snapshots.map((item: any) => ({ id: item.id, journeyId: item.journeyId, facts: asArray(item.facts).map(String), feelings: asArray(item.feelings).map(String), needs: asArray(item.needs).map(String), constraints: asArray(item.constraints).map(String), risks: asArray(item.risks).map(String), domain: item.domain ?? undefined, subDomain: item.subDomain ?? undefined, eventType: item.eventType ?? undefined, eventStartedAt: item.eventStartedAt ? iso(item.eventStartedAt) : undefined, daysSinceEvent: item.daysSinceEvent ?? undefined, stage: item.stage ?? undefined, contextTags: asArray(item.contextTags).map(String), peopleContext: item.peopleContext ?? undefined, decisionContext: item.decisionContext ?? undefined, behaviorSignals: item.behaviorSignals ?? undefined, recoverySignals: item.recoverySignals ?? undefined, intensity: item.intensity ?? undefined, urgency: item.urgency ?? undefined, fingerprintJson: item.fingerprintJson ?? undefined, confidence: item.confidence, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    journeyUpdates: journeyUpdates.map((item: any) => ({ id: item.id, journeyId: item.journeyId, userId: item.userId, kind: item.kind, content: item.content, payload: item.payload ?? undefined, stage: item.stage ?? undefined, intensity: item.intensity ?? undefined, lifeFunction: item.lifeFunction ?? undefined, actionResult: item.actionResult ?? undefined, decisionChange: item.decisionChange ?? undefined, contactState: item.contactState ?? undefined, sleepState: item.sleepState ?? undefined, socialState: item.socialState ?? undefined, selfReportedHelpfulness: item.selfReportedHelpfulness ?? undefined, eventDate: item.eventDate ? iso(item.eventDate) : undefined, createdAt: iso(item.createdAt) })),
-    actionCommitments: commitments.map((item: any) => ({ id: item.id, journeyId: item.journeyId, userId: item.userId, title: item.title, description: item.description ?? undefined, status: item.status, dueAt: item.dueAt ? iso(item.dueAt) : undefined, reminderAt: item.reminderAt ? iso(item.reminderAt) : undefined, evidence: item.evidence ?? undefined, parentActionId: item.parentActionId ?? undefined, adaptationReason: item.adaptationReason ?? undefined, attemptNumber: item.attemptNumber ?? 1, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    outcomeCheckins: checkins.map((item: any) => ({ id: item.id, journeyId: item.journeyId, commitmentId: item.commitmentId ?? undefined, userId: item.userId, status: item.status, reflection: item.reflection ?? undefined, result: item.result ?? undefined, intensity: item.intensity ?? undefined, checkedAt: item.checkedAt ? iso(item.checkedAt) : undefined, dueAt: item.dueAt ? iso(item.dueAt) : undefined, barrier: item.barrier ?? undefined, createdAt: iso(item.createdAt) })),
-    peerExperiences: peerExperiences.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, title: item.title, domain: item.domain, subDomain: item.subDomain ?? undefined, stage: item.stage, content: item.content, tags: asArray(item.tags).map(String), fingerprintJson: item.fingerprintJson ?? undefined, laterSummary: item.laterSummary ?? undefined, helpfulActions: item.helpfulActions ?? undefined, notHelpfulActions: item.notHelpfulActions ?? undefined, retrospective: item.retrospective ?? undefined, consentedAt: iso(item.consentedAt), status: item.status, reportCount: item.reportCount, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    peerMatches: peerMatches.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, peerExperienceId: item.peerExperienceId, score: item.score, reasons: asArray(item.reasons).map(String), stageDistance: item.stageDistance ?? undefined, recoveryLead: item.recoveryLead ?? undefined, trustScore: item.trustScore ?? undefined, fingerprintSimilarity: item.fingerprintSimilarity ?? undefined, scoreBreakdown: item.scoreBreakdown ?? undefined, explanation: item.explanation ?? undefined, requestReason: item.requestReason ?? undefined, requestQuestion: item.requestQuestion ?? undefined, acceptedAt: item.acceptedAt ? iso(item.acceptedAt) : undefined, status: item.status, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    peerReputations: peerReputations.map((item: any) => ({ id: item.id, userId: item.userId, helpfulCount: item.helpfulCount, reportCount: item.reportCount, restrictedUntil: item.restrictedUntil ? iso(item.restrictedUntil) : undefined, updatedAt: iso(item.updatedAt) })),
-    decisionRecords: decisions.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, question: item.question, options: asArray(item.options).map(String), criteria: asArray(item.criteria).map(String), decision: item.decision ?? undefined, status: item.status, cooldownUntil: item.cooldownUntil ? iso(item.cooldownUntil) : undefined, outcome: item.outcome ?? undefined, reviewedAt: item.reviewedAt ? iso(item.reviewedAt) : undefined, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    cooldownItems: cooldowns.map((item: any) => ({ id: item.id, userId: item.userId, decisionId: item.decisionId ?? undefined, title: item.title, reason: item.reason ?? undefined, releaseAt: iso(item.releaseAt), status: item.status, createdAt: iso(item.createdAt) })),
-    realityHandoffs: handoffs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, recipient: item.recipient, channel: item.channel, summary: item.summary, status: item.status, sharedAt: item.sharedAt ? iso(item.sharedAt) : undefined, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    trustedContacts: contacts.map((item: any) => ({ id: item.id, userId: item.userId, nickname: item.nickname, relation: item.relation, contactHint: item.contactHint, enabled: item.enabled, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    messagesToFutureSelf: futureMessages.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, contextType: item.contextType ?? undefined, contextRefId: item.contextRefId ?? undefined, contextLabel: item.contextLabel ?? undefined, content: item.content, deliverAt: iso(item.deliverAt), deliveredAt: item.deliveredAt ? iso(item.deliveredAt) : undefined, createdAt: iso(item.createdAt) })),
-    personalSupportPlans: supportPlans.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, title: item.title, plan: item.plan ?? {}, active: item.active, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    stableSelfProfiles: stableSelfProfiles.map((item: any) => ({ id: item.id, userId: item.userId, profile: item.profile ?? {}, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    memoryItems: memories.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, category: item.category, title: item.title, content: item.content, source: item.source, scope: item.scope, status: item.status, consentedAt: iso(item.consentedAt), expiresAt: iso(item.expiresAt), deletedAt: item.deletedAt ? iso(item.deletedAt) : undefined, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
-    recoverySnapshots: recoverySnapshots.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, summary: item.summary, signals: item.signals ?? {}, createdAt: iso(item.createdAt) })),
-    ...(DIRECT_DB_MODELS.SafetyEvent ? {} : {
-      safetyEvents: safetyEvents.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, level: item.level, source: item.source, action: item.action, payload: item.payload ?? undefined, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
-    }),
-    agentDecisionLogs: agentDecisionLogs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, aiJobId: item.aiJobId ?? undefined, taskType: item.taskType, decision: item.decision ?? {}, createdAt: iso(item.createdAt) })),
-    followUpJobs: followUpJobs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, kind: item.kind, dueAt: iso(item.dueAt), status: item.status, payload: item.payload ?? undefined, completedAt: item.completedAt ? iso(item.completedAt) : undefined, createdAt: iso(item.createdAt) })),
-    ...(DIRECT_DB_MODELS.UserNotification ? {} : {
-      notifications: notifications.map((item: any) => ({ id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? undefined, status: item.status, createdAt: iso(item.createdAt), readAt: item.readAt ? iso(item.readAt) : undefined })),
-    }),
-    peerConversations: peerConversations.map((item: any) => ({ id: item.id, matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status, startsAt: item.startsAt ? iso(item.startsAt) : iso(item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? iso(item.consentAcceptedAt) : undefined, expiresAt: iso(item.expiresAt), createdAt: iso(item.createdAt), closedAt: item.closedAt ? iso(item.closedAt) : undefined, closedReason: item.closedReason ?? undefined, feedback: item.feedback ?? undefined, feedbackNote: item.feedbackNote ?? undefined, reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined, reporterUserId: item.reporterUserId ?? undefined, reportReason: item.reportReason ?? undefined })),
-    peerMessages: peerMessages.map((item: any) => ({ id: item.id, conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType, createdAt: iso(item.createdAt), reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined, blockedAt: item.blockedAt ? iso(item.blockedAt) : undefined, piiFlags: asArray(item.piiFlags).map(String) })),
-    peerReports: peerReports.map((item: any) => ({ id: item.id, conversationId: item.conversationId, experienceId: item.experienceId ?? undefined, matchId: item.matchId ?? undefined, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
-    adminUserNotes: adminUserNotes.map((item: any) => ({ id: item.id, userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt), deletedAt: item.deletedAt ? iso(item.deletedAt) : undefined })),
+    users: users.map((item: any) => ({
+      id: item.id,
+      openid: item.openid,
+      nickname: item.nickname,
+      anonymousCode: item.anonymousCode,
+      avatarUrl: item.avatarUrl ?? '',
+      status: item.status,
+      createdAt: iso(item.createdAt),
+    })),
+    adminUsers: adminUsers.map((item: any) => ({
+      id: item.id,
+      username: item.username,
+      passwordHash: item.passwordHash,
+      displayName: item.displayName,
+      role: item.role?.code ?? 'super_admin',
+      status: item.status,
+      lastLoginAt: item.lastLoginAt ? iso(item.lastLoginAt) : undefined,
+    })),
+    privacySettings: Object.fromEntries(
+      users.map((item: any) => [
+        item.id,
+        item.privacySetting
+          ? {
+              defaultVisibility: item.privacySetting.defaultVisibility,
+              allowAnonymousPublic: item.privacySetting.allowAnonymousPublic,
+              allowHumanReplies: item.privacySetting.allowHumanReplies,
+              allowMonthlyReportShare: item.privacySetting.allowMonthlyReportShare,
+              allowPeerMatching: item.privacySetting.allowPeerMatching,
+              allowAnonymousExperienceStats: item.privacySetting.allowAnonymousExperienceStats,
+              allowRecoveryData: item.privacySetting.allowRecoveryData,
+              allowJourneyLongTermAnalysis: item.privacySetting.allowJourneyLongTermAnalysis,
+              allowLongTermMemory: item.privacySetting.allowLongTermMemory,
+              allowAiMemoryUse: item.privacySetting.allowAiMemoryUse,
+              allowAnonymousExperienceShare: item.privacySetting.allowAnonymousExperienceShare,
+              allowJourneyArchiveRetention: item.privacySetting.allowJourneyArchiveRetention,
+              allowFutureSelfNotifications: item.privacySetting.allowFutureSelfNotifications,
+              allowDataExport: item.privacySetting.allowDataExport,
+            }
+          : {
+              defaultVisibility: 'PRIVATE',
+              allowAnonymousPublic: true,
+              allowHumanReplies: true,
+              allowMonthlyReportShare: true,
+              allowPeerMatching: false,
+              allowAnonymousExperienceStats: false,
+              allowRecoveryData: false,
+              allowJourneyLongTermAnalysis: false,
+              allowLongTermMemory: false,
+              allowAiMemoryUse: false,
+              allowAnonymousExperienceShare: false,
+              allowJourneyArchiveRetention: false,
+              allowFutureSelfNotifications: false,
+              allowDataExport: false,
+            },
+      ]),
+    ),
+    moods: moods.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      emotion: item.emotion,
+      content: item.content,
+      visibility: item.visibility,
+      riskLevel: item.riskLevel,
+      riskScore: item.riskScore,
+      status: item.status,
+      journeyId: item.journeyId ?? undefined,
+      attachmentIds: moodAttachmentMap.get(item.id) ?? [],
+      createdAt: iso(item.createdAt),
+    })),
+    posts: posts.map((item: any) => ({
+      id: item.id,
+      moodId: item.moodId,
+      userId: item.userId,
+      emotion: item.emotion,
+      content: item.content,
+      visibility: item.visibility,
+      status: item.status,
+      reviewStatus: item.reviewStatus,
+      hugCount: item.hugCount,
+      replyCount: item.replyCount,
+      favoriteCount: item.favoriteCount,
+      reportCount: item.reportCount,
+      journeyId: item.journeyId ?? undefined,
+      attachmentIds: moodAttachmentMap.get(item.moodId) ?? [],
+      createdAt: iso(item.createdAt),
+      publishedAt: item.publishedAt ? iso(item.publishedAt) : undefined,
+    })),
+    replies: replies.map((item: any) => ({
+      id: item.id,
+      postId: item.postId,
+      userId: item.userId ?? undefined,
+      type: item.type,
+      style: item.style,
+      content: item.content,
+      status: item.status,
+      riskLevel: item.riskLevel,
+      likeCount: item.likeCount,
+      aiJobId: item.aiJobId ?? undefined,
+      createdAt: iso(item.createdAt),
+    })),
+    letters: letters.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      sourceMoodId: item.sourceMoodId ?? item.legacySourceMoodId ?? undefined,
+      style: item.style,
+      title: item.title,
+      content: item.content,
+      status: item.status,
+      savedToDiary: item.savedToDiary,
+      aiJobId: item.aiJobId ?? undefined,
+      generationStatus: item.generationStatus ?? undefined,
+      favorite: item.favorite,
+      likeCount: item.likeCount,
+      createdAt: iso(item.createdAt),
+    })),
+    diaries: diaries.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      moodId: item.moodId ?? undefined,
+      letterId: item.letterId ?? undefined,
+      emotion: item.emotion,
+      content: item.content,
+      hasLetter: item.hasLetter,
+      source: item.source ?? undefined,
+      journeyId: item.journeyId ?? undefined,
+      toolResult: item.toolResult ?? undefined,
+      attachmentIds: attachmentIds(item.attachments),
+      createdAt: iso(item.createdAt),
+    })),
+    favorites: favorites.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      targetType: item.targetType,
+      targetId: item.targetId,
+      createdAt: iso(item.createdAt),
+    })),
+    feedbackCategories: categories.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      sortOrder: item.sortOrder,
+      enabled: item.enabled,
+    })),
+    faqs: faqs.map((item: any) => ({
+      id: item.id,
+      question: item.question,
+      answer: item.answer,
+      sortOrder: item.sortOrder,
+      enabled: item.enabled,
+      createdAt: iso(item.createdAt),
+    })),
+    replyPresets: presets.map((item: any) => ({
+      id: item.id,
+      text: item.text,
+      scene: item.scene,
+      sortOrder: item.sortOrder,
+      enabled: item.enabled,
+      createdAt: iso(item.createdAt),
+    })),
+    feedbackTickets: tickets.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      categoryId: item.categoryId,
+      sourcePage: item.sourcePage,
+      content: item.content,
+      status: item.status,
+      priority: item.priority,
+      screenshots: asArray(item.screenshots),
+      reply: item.reply ?? '',
+      repliedBy: item.repliedBy ?? undefined,
+      createdAt: iso(item.createdAt),
+      repliedAt: item.repliedAt ? iso(item.repliedAt) : undefined,
+    })),
+    systemSettings: Object.fromEntries(
+      settings.map((item: any) => [
+        item.key,
+        {
+          value: item.value,
+          description: item.description,
+          updatedBy: item.updatedBy ?? 'system',
+          updatedAt: iso(item.updatedAt),
+        },
+      ]),
+    ),
+    aiProviders: providers.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      type: item.type,
+      baseUrl: item.baseUrl,
+      modelName: item.modelName,
+      apiKeyStatus: item.apiKeyStatus,
+      enabled: item.enabled,
+      priority: item.priority,
+      dailyLimit: item.dailyLimit,
+      timeoutSeconds: item.timeoutSeconds,
+      failoverEnabled: item.failoverEnabled,
+      usageTags: asArray(item.usageTags),
+      failureRate: item.failureRate,
+      avgLatencyMs: item.avgLatencyMs,
+      todayCalls: item.todayCalls,
+      providerKind: item.providerKind,
+      modelMeta: item.modelMeta ?? undefined,
+    })),
+    aiRoutes: routes.map((item: any) => ({
+      id: item.id,
+      style: item.style,
+      label: item.label,
+      taskTypes: asArray(item.taskTypes),
+      primaryProviderId: item.primaryProviderId,
+      backupProviderId: item.backupProviderId,
+      fallbackTemplateId: item.fallbackTemplateId,
+      promptVersion: item.promptVersion,
+      promptTemplate: item.promptTemplate,
+      enabled: item.enabled,
+      routeVersion: item.routeVersion,
+    })),
+    ...(DIRECT_DB_MODELS.AIJob
+      ? {}
+      : {
+          aiJobs: jobs.map((item: any) => ({
+            id: item.id,
+            userId: item.userId,
+            contentId: item.contentId,
+            contentType: item.contentType,
+            taskType: item.taskType ?? undefined,
+            jobType: item.jobType,
+            style: item.style,
+            providerId: item.providerId,
+            modelName: item.modelName,
+            status: item.status,
+            promptSummary: item.promptSummary,
+            promptVersion: item.promptVersion ?? undefined,
+            result: item.result ?? '',
+            structuredResult: item.structuredResult ?? undefined,
+            errorMessage: item.errorMessage ?? undefined,
+            durationMs: item.durationMs ?? 0,
+            retryCount: item.retryCount,
+            fallbackUsed: item.fallbackUsed,
+            traceJson: asArray(item.traceJson),
+            routeVersion: item.routeVersion,
+            createdAt: iso(item.createdAt),
+            completedAt: item.completedAt ? iso(item.completedAt) : undefined,
+          })),
+        }),
+    assets: assets.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      storageKey: item.storageKey,
+      url: item.url,
+      mimeType: item.mimeType,
+      size: item.size,
+      width: item.width,
+      height: item.height,
+      usageType: item.usageType,
+      status: item.status,
+      createdAt: iso(item.createdAt),
+    })),
+    auditLogs: audits.map((item: any) => ({
+      id: item.id,
+      adminUserId: item.adminUserId,
+      action: item.action,
+      resourceType: item.resourceType,
+      resourceId: item.resourceId,
+      beforeJson: item.beforeJson ?? null,
+      afterJson: item.afterJson ?? null,
+      ip: item.ip ?? '',
+      userAgent: item.userAgent ?? '',
+      createdAt: iso(item.createdAt),
+    })),
+    ...(DIRECT_DB_MODELS.LifeJourney
+      ? {}
+      : {
+          lifeJourneys: journeys.map((item: any) => ({
+            id: item.id,
+            userId: item.userId,
+            title: item.title,
+            domain: item.domain,
+            status: item.status,
+            stage: item.stage,
+            currentIntent: item.currentIntent ?? undefined,
+            intentUpdatedAt: item.intentUpdatedAt ? iso(item.intentUpdatedAt) : undefined,
+            initialIntensity: item.initialIntensity ?? undefined,
+            visibility: item.visibility,
+            intensity: item.intensity ?? undefined,
+            summary: item.summary ?? undefined,
+            nextReviewAt: item.nextReviewAt ? iso(item.nextReviewAt) : undefined,
+            completedAt: item.completedAt ? iso(item.completedAt) : undefined,
+            createdAt: iso(item.createdAt),
+            updatedAt: iso(item.updatedAt),
+          })),
+        }),
+    ...(DIRECT_DB_MODELS.SituationSnapshot
+      ? {}
+      : {
+          situationSnapshots: snapshots.map((item: any) => ({
+            id: item.id,
+            journeyId: item.journeyId,
+            facts: asArray(item.facts).map(String),
+            feelings: asArray(item.feelings).map(String),
+            needs: asArray(item.needs).map(String),
+            constraints: asArray(item.constraints).map(String),
+            risks: asArray(item.risks).map(String),
+            domain: item.domain ?? undefined,
+            subDomain: item.subDomain ?? undefined,
+            eventType: item.eventType ?? undefined,
+            eventStartedAt: item.eventStartedAt ? iso(item.eventStartedAt) : undefined,
+            daysSinceEvent: item.daysSinceEvent ?? undefined,
+            stage: item.stage ?? undefined,
+            contextTags: asArray(item.contextTags).map(String),
+            peopleContext: item.peopleContext ?? undefined,
+            decisionContext: item.decisionContext ?? undefined,
+            behaviorSignals: item.behaviorSignals ?? undefined,
+            recoverySignals: item.recoverySignals ?? undefined,
+            intensity: item.intensity ?? undefined,
+            urgency: item.urgency ?? undefined,
+            fingerprintJson: item.fingerprintJson ?? undefined,
+            confidence: item.confidence,
+            createdAt: iso(item.createdAt),
+            updatedAt: iso(item.updatedAt),
+          })),
+        }),
+    ...(DIRECT_DB_MODELS.JourneyUpdate
+      ? {}
+      : {
+          journeyUpdates: journeyUpdates.map((item: any) => ({
+            id: item.id,
+            journeyId: item.journeyId,
+            userId: item.userId,
+            kind: item.kind,
+            content: item.content,
+            payload: item.payload ?? undefined,
+            stage: item.stage ?? undefined,
+            intensity: item.intensity ?? undefined,
+            lifeFunction: item.lifeFunction ?? undefined,
+            actionResult: item.actionResult ?? undefined,
+            decisionChange: item.decisionChange ?? undefined,
+            contactState: item.contactState ?? undefined,
+            sleepState: item.sleepState ?? undefined,
+            socialState: item.socialState ?? undefined,
+            selfReportedHelpfulness: item.selfReportedHelpfulness ?? undefined,
+            eventDate: item.eventDate ? iso(item.eventDate) : undefined,
+            createdAt: iso(item.createdAt),
+          })),
+        }),
+    actionCommitments: commitments.map((item: any) => ({
+      id: item.id,
+      journeyId: item.journeyId,
+      userId: item.userId,
+      title: item.title,
+      description: item.description ?? undefined,
+      status: item.status,
+      dueAt: item.dueAt ? iso(item.dueAt) : undefined,
+      reminderAt: item.reminderAt ? iso(item.reminderAt) : undefined,
+      evidence: item.evidence ?? undefined,
+      parentActionId: item.parentActionId ?? undefined,
+      adaptationReason: item.adaptationReason ?? undefined,
+      attemptNumber: item.attemptNumber ?? 1,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    outcomeCheckins: checkins.map((item: any) => ({
+      id: item.id,
+      journeyId: item.journeyId,
+      commitmentId: item.commitmentId ?? undefined,
+      userId: item.userId,
+      status: item.status,
+      reflection: item.reflection ?? undefined,
+      result: item.result ?? undefined,
+      intensity: item.intensity ?? undefined,
+      checkedAt: item.checkedAt ? iso(item.checkedAt) : undefined,
+      dueAt: item.dueAt ? iso(item.dueAt) : undefined,
+      barrier: item.barrier ?? undefined,
+      createdAt: iso(item.createdAt),
+    })),
+    peerExperiences: peerExperiences.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      title: item.title,
+      domain: item.domain,
+      subDomain: item.subDomain ?? undefined,
+      stage: item.stage,
+      content: item.content,
+      tags: asArray(item.tags).map(String),
+      fingerprintJson: item.fingerprintJson ?? undefined,
+      laterSummary: item.laterSummary ?? undefined,
+      helpfulActions: item.helpfulActions ?? undefined,
+      notHelpfulActions: item.notHelpfulActions ?? undefined,
+      retrospective: item.retrospective ?? undefined,
+      consentedAt: iso(item.consentedAt),
+      status: item.status,
+      reportCount: item.reportCount,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    peerMatches: peerMatches.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      peerExperienceId: item.peerExperienceId,
+      score: item.score,
+      reasons: asArray(item.reasons).map(String),
+      stageDistance: item.stageDistance ?? undefined,
+      recoveryLead: item.recoveryLead ?? undefined,
+      trustScore: item.trustScore ?? undefined,
+      fingerprintSimilarity: item.fingerprintSimilarity ?? undefined,
+      scoreBreakdown: item.scoreBreakdown ?? undefined,
+      explanation: item.explanation ?? undefined,
+      requestReason: item.requestReason ?? undefined,
+      requestQuestion: item.requestQuestion ?? undefined,
+      acceptedAt: item.acceptedAt ? iso(item.acceptedAt) : undefined,
+      status: item.status,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    peerReputations: peerReputations.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      helpfulCount: item.helpfulCount,
+      reportCount: item.reportCount,
+      restrictedUntil: item.restrictedUntil ? iso(item.restrictedUntil) : undefined,
+      updatedAt: iso(item.updatedAt),
+    })),
+    decisionRecords: decisions.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      question: item.question,
+      options: asArray(item.options).map(String),
+      criteria: asArray(item.criteria).map(String),
+      decision: item.decision ?? undefined,
+      status: item.status,
+      cooldownUntil: item.cooldownUntil ? iso(item.cooldownUntil) : undefined,
+      outcome: item.outcome ?? undefined,
+      reviewedAt: item.reviewedAt ? iso(item.reviewedAt) : undefined,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    cooldownItems: cooldowns.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      decisionId: item.decisionId ?? undefined,
+      title: item.title,
+      reason: item.reason ?? undefined,
+      releaseAt: iso(item.releaseAt),
+      status: item.status,
+      createdAt: iso(item.createdAt),
+    })),
+    realityHandoffs: handoffs.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      recipient: item.recipient,
+      channel: item.channel,
+      summary: item.summary,
+      status: item.status,
+      sharedAt: item.sharedAt ? iso(item.sharedAt) : undefined,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    trustedContacts: contacts.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      nickname: item.nickname,
+      relation: item.relation,
+      contactHint: item.contactHint,
+      enabled: item.enabled,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    messagesToFutureSelf: futureMessages.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      contextType: item.contextType ?? undefined,
+      contextRefId: item.contextRefId ?? undefined,
+      contextLabel: item.contextLabel ?? undefined,
+      content: item.content,
+      deliverAt: iso(item.deliverAt),
+      deliveredAt: item.deliveredAt ? iso(item.deliveredAt) : undefined,
+      createdAt: iso(item.createdAt),
+    })),
+    personalSupportPlans: supportPlans.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      title: item.title,
+      plan: item.plan ?? {},
+      active: item.active,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    stableSelfProfiles: stableSelfProfiles.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      profile: item.profile ?? {},
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    memoryItems: memories.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      category: item.category,
+      title: item.title,
+      content: item.content,
+      source: item.source,
+      scope: item.scope,
+      status: item.status,
+      consentedAt: iso(item.consentedAt),
+      expiresAt: iso(item.expiresAt),
+      deletedAt: item.deletedAt ? iso(item.deletedAt) : undefined,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
+    recoverySnapshots: recoverySnapshots.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      summary: item.summary,
+      signals: item.signals ?? {},
+      createdAt: iso(item.createdAt),
+    })),
+    ...(DIRECT_DB_MODELS.SafetyEvent
+      ? {}
+      : {
+          safetyEvents: safetyEvents.map((item: any) => ({
+            id: item.id,
+            userId: item.userId,
+            journeyId: item.journeyId ?? undefined,
+            level: item.level,
+            source: item.source,
+            action: item.action,
+            payload: item.payload ?? undefined,
+            status: item.status ?? 'open',
+            handledAt: item.handledAt ? iso(item.handledAt) : undefined,
+            handledBy: item.handledBy ?? undefined,
+            note: item.note ?? undefined,
+            createdAt: iso(item.createdAt),
+          })),
+        }),
+    agentDecisionLogs: agentDecisionLogs.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      aiJobId: item.aiJobId ?? undefined,
+      taskType: item.taskType,
+      decision: item.decision ?? {},
+      createdAt: iso(item.createdAt),
+    })),
+    followUpJobs: followUpJobs.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      journeyId: item.journeyId ?? undefined,
+      kind: item.kind,
+      dueAt: iso(item.dueAt),
+      status: item.status,
+      payload: item.payload ?? undefined,
+      completedAt: item.completedAt ? iso(item.completedAt) : undefined,
+      createdAt: iso(item.createdAt),
+    })),
+    ...(DIRECT_DB_MODELS.UserNotification
+      ? {}
+      : {
+          notifications: notifications.map((item: any) => ({
+            id: item.id,
+            userId: item.userId,
+            type: item.type,
+            title: item.title,
+            body: item.body,
+            targetRoute: item.targetRoute ?? undefined,
+            status: item.status,
+            createdAt: iso(item.createdAt),
+            readAt: item.readAt ? iso(item.readAt) : undefined,
+          })),
+        }),
+    peerConversations: peerConversations.map((item: any) => ({
+      id: item.id,
+      matchId: item.matchId,
+      starterUserId: item.starterUserId,
+      receiverUserId: item.receiverUserId,
+      status: item.status,
+      startsAt: item.startsAt ? iso(item.startsAt) : iso(item.createdAt),
+      consentAcceptedAt: item.consentAcceptedAt ? iso(item.consentAcceptedAt) : undefined,
+      expiresAt: iso(item.expiresAt),
+      createdAt: iso(item.createdAt),
+      closedAt: item.closedAt ? iso(item.closedAt) : undefined,
+      closedReason: item.closedReason ?? undefined,
+      feedback: item.feedback ?? undefined,
+      feedbackNote: item.feedbackNote ?? undefined,
+      reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined,
+      reporterUserId: item.reporterUserId ?? undefined,
+      reportReason: item.reportReason ?? undefined,
+    })),
+    peerMessages: peerMessages.map((item: any) => ({
+      id: item.id,
+      conversationId: item.conversationId,
+      senderUserId: item.senderUserId,
+      content: item.content,
+      authorType: item.authorType,
+      createdAt: iso(item.createdAt),
+      reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined,
+      blockedAt: item.blockedAt ? iso(item.blockedAt) : undefined,
+      piiFlags: asArray(item.piiFlags).map(String),
+    })),
+    peerReports: peerReports.map((item: any) => ({
+      id: item.id,
+      conversationId: item.conversationId,
+      experienceId: item.experienceId ?? undefined,
+      matchId: item.matchId ?? undefined,
+      reporterUserId: item.reporterUserId,
+      reason: item.reason,
+      status: item.status ?? 'open',
+      handledAt: item.handledAt ? iso(item.handledAt) : undefined,
+      handledBy: item.handledBy ?? undefined,
+      note: item.note ?? undefined,
+      createdAt: iso(item.createdAt),
+    })),
+    adminUserNotes: adminUserNotes.map((item: any) => ({
+      id: item.id,
+      userId: item.userId,
+      authorAdminId: item.authorAdminId,
+      content: item.content,
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+      deletedAt: item.deletedAt ? iso(item.deletedAt) : undefined,
+    })),
   };
 }
 
@@ -147,13 +764,37 @@ async function deleteAbsent(model: any, ids: string[]) {
 export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeData): Promise<void> {
   const users = asArray(state.users);
   if (!users.length) throw new Error('Relational persistence requires at least one user');
-  const providerMap = new Map(asArray(state.aiProviders).filter((item: any) => item?.id).map((item: any) => [item.id, { ...item }]));
+  const providerMap = new Map(
+    asArray(state.aiProviders)
+      .filter((item: any) => item?.id)
+      .map((item: any) => [item.id, { ...item }]),
+  );
   const fallbackProvider = (providerId: string) => {
     const key = providerId || 'provider_legacy_template';
-    if (!providerMap.has(key)) providerMap.set(key, { id: key, name: `迁移兼容 ${key}`, type: 'template', baseUrl: 'local://template', modelName: 'legacy-template', apiKeyStatus: 'configured', enabled: true, priority: 999, dailyLimit: 99999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['compatibility'], failureRate: 0, avgLatencyMs: 0, todayCalls: 0, providerKind: 'template' });
+    if (!providerMap.has(key))
+      providerMap.set(key, {
+        id: key,
+        name: `迁移兼容 ${key}`,
+        type: 'template',
+        baseUrl: 'local://template',
+        modelName: 'legacy-template',
+        apiKeyStatus: 'configured',
+        enabled: true,
+        priority: 999,
+        dailyLimit: 99999,
+        timeoutSeconds: 1,
+        failoverEnabled: false,
+        usageTags: ['compatibility'],
+        failureRate: 0,
+        avgLatencyMs: 0,
+        todayCalls: 0,
+        providerKind: 'template',
+      });
     return key;
   };
-  const routes = asArray(state.aiRoutes).filter((item: any) => ['warm', 'rational', 'light', 'clear', 'poetic'].includes(item?.style));
+  const routes = asArray(state.aiRoutes).filter((item: any) =>
+    ['warm', 'rational', 'light', 'clear', 'poetic'].includes(item?.style),
+  );
   for (const route of routes) {
     route.primaryProviderId = fallbackProvider(route.primaryProviderId);
     route.backupProviderId = fallbackProvider(route.backupProviderId);
@@ -164,7 +805,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
   const moodIds = new Set(asArray(state.moods).map((item: any) => item.id));
   const letterIds = new Set(asArray(state.letters).map((item: any) => item.id));
   const fallbackJobIds = new Set(jobs.map((item: any) => item.id));
-  const journeyIds = new Set(asArray(state.lifeJourneys).map((item: any) => item.id));
+  const fallbackJourneyIds = new Set(asArray(state.lifeJourneys).map((item: any) => item.id));
   const commitmentIds = new Set(asArray(state.actionCommitments).map((item: any) => item.id));
   const decisionIds = new Set(asArray(state.decisionRecords).map((item: any) => item.id));
   const peerExperienceIds = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
@@ -174,283 +815,1679 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
   const peerConversationIds = new Set(asArray(state.peerConversations).map((item: any) => item.id));
   const peerExperienceIdSet = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
 
-  await db.$transaction(async (tx: DbClient) => {
-    let jobIds: Set<string>;
-    if (DIRECT_DB_MODELS.AIJob) {
-      const candidateJobIds = [
-        ...asArray(state.letters).map((item: any) => item.aiJobId),
-        ...asArray(state.replies).map((item: any) => item.aiJobId ?? (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null)),
-        ...asArray(state.agentDecisionLogs).map((item: any) => item.aiJobId),
-      ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
-      const existingDbJobs = candidateJobIds.length
-        ? await tx.aIJob.findMany({
-            where: { id: { in: candidateJobIds } },
-            select: { id: true },
-          })
-        : [];
-      jobIds = new Set(existingDbJobs.map((j: any) => j.id));
-    } else {
-      jobIds = fallbackJobIds;
-    }
-    const adminUsers = asArray(state.adminUsers);
-    const roles = [...new Set(adminUsers.map((item: any) => String(item.role || 'super_admin')))];
-    for (const role of roles) {
-      const roleId = `role_${role}`;
-      await tx.adminRole.upsert({ where: { id: roleId }, create: { id: roleId, code: role, name: role, permissions: [] }, update: { code: role, name: role } });
-    }
-    for (const item of adminUsers) {
-      const role = String(item.role || 'super_admin');
-      await tx.adminUser.upsert({ where: { id: item.id }, create: { id: item.id, username: item.username, passwordHash: item.passwordHash, displayName: item.displayName, roleId: `role_${role}`, status: valid(item.status, ['active', 'disabled'] as const, 'active'), lastLoginAt: item.lastLoginAt ? date(item.lastLoginAt) : null }, update: { username: item.username, passwordHash: item.passwordHash, displayName: item.displayName, roleId: `role_${role}`, status: valid(item.status, ['active', 'disabled'] as const, 'active'), lastLoginAt: item.lastLoginAt ? date(item.lastLoginAt) : null } });
-    }
-    for (const item of users) {
-      await tx.user.upsert({ where: { id: item.id }, create: { id: item.id, openid: item.openid, nickname: item.nickname, anonymousCode: item.anonymousCode, avatarUrl: item.avatarUrl || null, status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal'), createdAt: date(item.createdAt) }, update: { openid: item.openid, nickname: item.nickname, anonymousCode: item.anonymousCode, avatarUrl: item.avatarUrl || null, status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal') } });
-      const privacy = state.privacySettings?.[item.id] ?? {};
-      await tx.privacySetting.upsert({ where: { userId: item.id }, create: { userId: item.id, defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'), allowAnonymousPublic: privacy.allowAnonymousPublic ?? true, allowHumanReplies: privacy.allowHumanReplies ?? true, allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true, allowPeerMatching: privacy.allowPeerMatching ?? false, allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false, allowRecoveryData: privacy.allowRecoveryData ?? false, allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false, allowLongTermMemory: privacy.allowLongTermMemory ?? false, allowAiMemoryUse: privacy.allowAiMemoryUse ?? false, allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false, allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false, allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false, allowDataExport: privacy.allowDataExport ?? false }, update: { defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'), allowAnonymousPublic: privacy.allowAnonymousPublic ?? true, allowHumanReplies: privacy.allowHumanReplies ?? true, allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true, allowPeerMatching: privacy.allowPeerMatching ?? false, allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false, allowRecoveryData: privacy.allowRecoveryData ?? false, allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false, allowLongTermMemory: privacy.allowLongTermMemory ?? false, allowAiMemoryUse: privacy.allowAiMemoryUse ?? false, allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false, allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false, allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false, allowDataExport: privacy.allowDataExport ?? false } });
-    }
-    for (const item of asArray(state.assets)) {
-      const storageKey = item.storageKey ?? item.objectKey ?? `legacy/${item.id}`;
-      await tx.mediaAsset.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, storageKey, url: item.url, mimeType: item.mimeType, size: item.size, width: item.width ?? 0, height: item.height ?? 0, usageType: item.usageType, status: item.status, createdAt: date(item.createdAt) }, update: { userId: item.userId, storageKey, url: item.url, mimeType: item.mimeType, size: item.size, width: item.width ?? 0, height: item.height ?? 0, usageType: item.usageType, status: item.status } });
-    }
-    for (const item of asArray(state.lifeJourneys)) await tx.lifeJourney.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, title: item.title, domain: item.domain, status: valid(item.status, ['active', 'paused', 'completed', 'archived'] as const, 'active'), stage: item.stage ?? 'clarifying', currentIntent: item.currentIntent ?? null, intentUpdatedAt: item.intentUpdatedAt ? date(item.intentUpdatedAt) : null, initialIntensity: item.initialIntensity == null ? null : Number(item.initialIntensity), visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'), intensity: item.intensity == null ? null : Number(item.intensity), summary: item.summary ?? null, nextReviewAt: item.nextReviewAt ? date(item.nextReviewAt) : null, completedAt: item.completedAt ? date(item.completedAt) : null, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, title: item.title, domain: item.domain, status: valid(item.status, ['active', 'paused', 'completed', 'archived'] as const, 'active'), stage: item.stage ?? 'clarifying', currentIntent: item.currentIntent ?? null, intentUpdatedAt: item.intentUpdatedAt ? date(item.intentUpdatedAt) : null, initialIntensity: item.initialIntensity == null ? null : Number(item.initialIntensity), visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'), intensity: item.intensity == null ? null : Number(item.intensity), summary: item.summary ?? null, nextReviewAt: item.nextReviewAt ? date(item.nextReviewAt) : null, completedAt: item.completedAt ? date(item.completedAt) : null } });
-    for (const item of asArray(state.situationSnapshots).filter((item: any) => journeyIds.has(item.journeyId))) await tx.situationSnapshot.upsert({ where: { id: item.id }, create: { id: item.id, journeyId: item.journeyId, facts: json(item.facts ?? []), feelings: json(item.feelings ?? []), needs: json(item.needs ?? []), constraints: json(item.constraints ?? []), risks: json(item.risks ?? []), domain: item.domain ?? null, subDomain: item.subDomain ?? null, eventType: item.eventType ?? null, eventStartedAt: item.eventStartedAt ? date(item.eventStartedAt) : null, daysSinceEvent: item.daysSinceEvent == null ? null : Number(item.daysSinceEvent), stage: item.stage ?? null, contextTags: json(item.contextTags ?? []), peopleContext: json(item.peopleContext), decisionContext: json(item.decisionContext), behaviorSignals: json(item.behaviorSignals), recoverySignals: json(item.recoverySignals), intensity: item.intensity == null ? null : Number(item.intensity), urgency: item.urgency == null ? null : Number(item.urgency), fingerprintJson: json(item.fingerprintJson), confidence: item.confidence ?? 'agent_draft', createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { journeyId: item.journeyId, facts: json(item.facts ?? []), feelings: json(item.feelings ?? []), needs: json(item.needs ?? []), constraints: json(item.constraints ?? []), risks: json(item.risks ?? []), domain: item.domain ?? null, subDomain: item.subDomain ?? null, eventType: item.eventType ?? null, eventStartedAt: item.eventStartedAt ? date(item.eventStartedAt) : null, daysSinceEvent: item.daysSinceEvent == null ? null : Number(item.daysSinceEvent), stage: item.stage ?? null, contextTags: json(item.contextTags ?? []), peopleContext: json(item.peopleContext), decisionContext: json(item.decisionContext), behaviorSignals: json(item.behaviorSignals), recoverySignals: json(item.recoverySignals), intensity: item.intensity == null ? null : Number(item.intensity), urgency: item.urgency == null ? null : Number(item.urgency), fingerprintJson: json(item.fingerprintJson), confidence: item.confidence ?? 'agent_draft' } });
-    for (const item of asArray(state.journeyUpdates).filter((item: any) => journeyIds.has(item.journeyId))) await tx.journeyUpdate.upsert({ where: { id: item.id }, create: { id: item.id, journeyId: item.journeyId, userId: item.userId, kind: item.kind, content: item.content, payload: json(item.payload), stage: item.stage ?? null, intensity: item.intensity == null ? null : Number(item.intensity), lifeFunction: item.lifeFunction ?? null, actionResult: item.actionResult ?? null, decisionChange: item.decisionChange ?? null, contactState: item.contactState ?? null, sleepState: item.sleepState ?? null, socialState: item.socialState ?? null, selfReportedHelpfulness: item.selfReportedHelpfulness == null ? null : Number(item.selfReportedHelpfulness), eventDate: item.eventDate ? date(item.eventDate) : null, createdAt: date(item.createdAt) }, update: { journeyId: item.journeyId, userId: item.userId, kind: item.kind, content: item.content, payload: json(item.payload), stage: item.stage ?? null, intensity: item.intensity == null ? null : Number(item.intensity), lifeFunction: item.lifeFunction ?? null, actionResult: item.actionResult ?? null, decisionChange: item.decisionChange ?? null, contactState: item.contactState ?? null, sleepState: item.sleepState ?? null, socialState: item.socialState ?? null, selfReportedHelpfulness: item.selfReportedHelpfulness == null ? null : Number(item.selfReportedHelpfulness), eventDate: item.eventDate ? date(item.eventDate) : null } });
-    for (const item of asArray(state.actionCommitments).filter((item: any) => journeyIds.has(item.journeyId))) await tx.actionCommitment.upsert({ where: { id: item.id }, create: { id: item.id, journeyId: item.journeyId, userId: item.userId, title: item.title, description: item.description ?? null, status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'), dueAt: item.dueAt ? date(item.dueAt) : null, reminderAt: item.reminderAt ? date(item.reminderAt) : null, evidence: json(item.evidence), parentActionId: item.parentActionId ? item.parentActionId : null, adaptationReason: item.adaptationReason ?? null, attemptNumber: Number(item.attemptNumber ?? 1), createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { journeyId: item.journeyId, userId: item.userId, title: item.title, description: item.description ?? null, status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'), dueAt: item.dueAt ? date(item.dueAt) : null, reminderAt: item.reminderAt ? date(item.reminderAt) : null, evidence: json(item.evidence), parentActionId: item.parentActionId ? item.parentActionId : null, adaptationReason: item.adaptationReason ?? null, attemptNumber: Number(item.attemptNumber ?? 1) } });
-    for (const item of asArray(state.outcomeCheckins).filter((item: any) => journeyIds.has(item.journeyId))) await tx.outcomeCheckin.upsert({ where: { id: item.id }, create: { id: item.id, journeyId: item.journeyId, commitmentId: commitmentIds.has(item.commitmentId) ? item.commitmentId : null, userId: item.userId, status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'), reflection: item.reflection ?? null, result: item.result ?? null, intensity: item.intensity == null ? null : Number(item.intensity), checkedAt: item.checkedAt ? date(item.checkedAt) : null, dueAt: item.dueAt ? date(item.dueAt) : null, barrier: item.barrier ?? null, createdAt: date(item.createdAt) }, update: { journeyId: item.journeyId, commitmentId: commitmentIds.has(item.commitmentId) ? item.commitmentId : null, userId: item.userId, status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'), reflection: item.reflection ?? null, result: item.result ?? null, intensity: item.intensity == null ? null : Number(item.intensity), checkedAt: item.checkedAt ? date(item.checkedAt) : null, dueAt: item.dueAt ? date(item.dueAt) : null, barrier: item.barrier ?? null } });
-    for (const item of asArray(state.peerExperiences)) await tx.peerExperience.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, title: item.title, domain: item.domain, stage: item.stage, subDomain: item.subDomain ?? null, content: item.content, tags: json(item.tags ?? []), fingerprintJson: json(item.fingerprintJson), laterSummary: json(item.laterSummary), helpfulActions: json(item.helpfulActions), notHelpfulActions: json(item.notHelpfulActions), retrospective: item.retrospective ?? null, consentedAt: date(item.consentedAt), status: valid(item.status, ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const, 'draft'), reportCount: Number(item.reportCount ?? 0), createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, title: item.title, domain: item.domain, stage: item.stage, subDomain: item.subDomain ?? null, content: item.content, tags: json(item.tags ?? []), fingerprintJson: json(item.fingerprintJson), laterSummary: json(item.laterSummary), helpfulActions: json(item.helpfulActions), notHelpfulActions: json(item.notHelpfulActions), retrospective: item.retrospective ?? null, consentedAt: date(item.consentedAt), status: valid(item.status, ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const, 'draft'), reportCount: Number(item.reportCount ?? 0) } });
-    for (const item of asArray(state.peerMatches).filter((item: any) => peerExperienceIds.has(item.peerExperienceId))) await tx.peerMatch.upsert({ where: { userId_peerExperienceId: { userId: item.userId, peerExperienceId: item.peerExperienceId } }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, peerExperienceId: item.peerExperienceId, score: Number(item.score ?? 0), reasons: json(item.reasons ?? []), stageDistance: item.stageDistance == null ? null : Number(item.stageDistance), recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead), trustScore: item.trustScore == null ? null : Number(item.trustScore), fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity), scoreBreakdown: json(item.scoreBreakdown), explanation: item.explanation ?? null, requestReason: item.requestReason ?? null, requestQuestion: item.requestQuestion ?? null, acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null, status: valid(item.status, ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const, 'suggested'), createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, score: Number(item.score ?? 0), reasons: json(item.reasons ?? []), stageDistance: item.stageDistance == null ? null : Number(item.stageDistance), recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead), trustScore: item.trustScore == null ? null : Number(item.trustScore), fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity), scoreBreakdown: json(item.scoreBreakdown), explanation: item.explanation ?? null, requestReason: item.requestReason ?? null, requestQuestion: item.requestQuestion ?? null, acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null, status: valid(item.status, ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const, 'suggested') } });
-    for (const item of asArray(state.peerReputations)) await tx.peerReputation.upsert({ where: { userId: item.userId }, create: { id: item.id, userId: item.userId, helpfulCount: Number(item.helpfulCount ?? 0), reportCount: Number(item.reportCount ?? 0), restrictedUntil: item.restrictedUntil ? date(item.restrictedUntil) : null, updatedAt: date(item.updatedAt) }, update: { helpfulCount: Number(item.helpfulCount ?? 0), reportCount: Number(item.reportCount ?? 0), restrictedUntil: item.restrictedUntil ? date(item.restrictedUntil) : null } });
-    for (const item of asArray(state.moods)) await tx.mood.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, emotion: item.emotion, content: item.content, visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'), riskLevel: item.riskLevel ?? 'low', riskScore: Number(item.riskScore ?? 0), status: item.status ?? 'active', journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, createdAt: date(item.createdAt) }, update: { userId: item.userId, emotion: item.emotion, content: item.content, visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'), riskLevel: item.riskLevel ?? 'low', riskScore: Number(item.riskScore ?? 0), status: item.status ?? 'active', journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null } });
-    for (const item of asArray(state.posts)) await tx.post.upsert({ where: { id: item.id }, create: { id: item.id, moodId: item.moodId, userId: item.userId, emotion: item.emotion, content: item.content, visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'), status: item.status ?? 'active', reviewStatus: valid(item.reviewStatus, ['pending_review', 'published', 'hidden', 'rejected'] as const, 'pending_review'), hugCount: Number(item.hugCount ?? 0), replyCount: Number(item.replyCount ?? 0), favoriteCount: Number(item.favoriteCount ?? 0), reportCount: Number(item.reportCount ?? 0), journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, createdAt: date(item.createdAt), publishedAt: item.publishedAt ? date(item.publishedAt) : null }, update: { moodId: item.moodId, userId: item.userId, emotion: item.emotion, content: item.content, visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'), status: item.status ?? 'active', reviewStatus: valid(item.reviewStatus, ['pending_review', 'published', 'hidden', 'rejected'] as const, 'pending_review'), hugCount: Number(item.hugCount ?? 0), replyCount: Number(item.replyCount ?? 0), favoriteCount: Number(item.favoriteCount ?? 0), reportCount: Number(item.reportCount ?? 0), journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, publishedAt: item.publishedAt ? date(item.publishedAt) : null } });
-    for (const item of providerMap.values()) await tx.aIProvider.upsert({ where: { id: item.id }, create: { id: item.id, name: item.name, type: valid(item.type, ['local', 'cloud', 'template'] as const, 'template'), baseUrl: item.baseUrl, modelName: item.modelName, enabled: item.enabled !== false, priority: Number(item.priority ?? 0), dailyLimit: Number(item.dailyLimit ?? 1000), timeoutSeconds: Number(item.timeoutSeconds ?? 10), failoverEnabled: item.failoverEnabled !== false, usageTags: json(item.usageTags ?? []), providerKind: item.providerKind ?? 'other', apiKeyStatus: item.apiKeyStatus ?? 'missing', failureRate: Number(item.failureRate ?? 0), avgLatencyMs: Number(item.avgLatencyMs ?? 0), todayCalls: Number(item.todayCalls ?? 0), modelMeta: json(item.modelMeta) }, update: { name: item.name, type: valid(item.type, ['local', 'cloud', 'template'] as const, 'template'), baseUrl: item.baseUrl, modelName: item.modelName, enabled: item.enabled !== false, priority: Number(item.priority ?? 0), dailyLimit: Number(item.dailyLimit ?? 1000), timeoutSeconds: Number(item.timeoutSeconds ?? 10), failoverEnabled: item.failoverEnabled !== false, usageTags: json(item.usageTags ?? []), providerKind: item.providerKind ?? 'other', apiKeyStatus: item.apiKeyStatus ?? 'missing', failureRate: Number(item.failureRate ?? 0), avgLatencyMs: Number(item.avgLatencyMs ?? 0), todayCalls: Number(item.todayCalls ?? 0), modelMeta: json(item.modelMeta) } });
-    for (const item of routes) await tx.aIStyleRoute.upsert({ where: { style: item.style }, create: { id: item.id ?? `route_${item.style}`, style: item.style, primaryProviderId: item.primaryProviderId, backupProviderId: item.backupProviderId, fallbackTemplateId: item.fallbackTemplateId, promptVersion: item.promptVersion ?? 'v1', promptTemplate: item.promptTemplate ?? '', label: item.label ?? item.style, taskTypes: json(item.taskTypes ?? []), routeVersion: Number(item.routeVersion ?? 1), enabled: item.enabled !== false }, update: { primaryProviderId: item.primaryProviderId, backupProviderId: item.backupProviderId, fallbackTemplateId: item.fallbackTemplateId, promptVersion: item.promptVersion ?? 'v1', promptTemplate: item.promptTemplate ?? '', label: item.label ?? item.style, taskTypes: json(item.taskTypes ?? []), routeVersion: Number(item.routeVersion ?? 1), enabled: item.enabled !== false } });
-    if (!DIRECT_DB_MODELS.AIJob) {
-      for (const item of jobs) await tx.aIJob.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, contentId: item.contentId, contentType: item.contentType, jobType: item.jobType, taskType: item.taskType ?? null, style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'), providerId: item.providerId, modelName: item.modelName ?? '', status: jobStatus(item.status), promptSummary: item.promptSummary ?? '', promptVersion: item.promptVersion ?? null, result: item.result ?? null, structuredResult: json(item.structuredResult), errorMessage: item.errorMessage ?? null, durationMs: Number(item.durationMs ?? 0), retryCount: Number(item.retryCount ?? 0), fallbackUsed: Boolean(item.fallbackUsed), routeVersion: Number(item.routeVersion ?? 0), traceJson: json(item.traceJson ?? []), createdAt: date(item.createdAt), completedAt: item.completedAt ? date(item.completedAt) : null }, update: { userId: item.userId, contentId: item.contentId, contentType: item.contentType, jobType: item.jobType, taskType: item.taskType ?? null, style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'), providerId: item.providerId, modelName: item.modelName ?? '', status: jobStatus(item.status), promptSummary: item.promptSummary ?? '', promptVersion: item.promptVersion ?? null, result: item.result ?? null, structuredResult: json(item.structuredResult), errorMessage: item.errorMessage ?? null, durationMs: Number(item.durationMs ?? 0), retryCount: Number(item.retryCount ?? 0), fallbackUsed: Boolean(item.fallbackUsed), routeVersion: Number(item.routeVersion ?? 0), traceJson: json(item.traceJson ?? []), completedAt: item.completedAt ? date(item.completedAt) : null } });
-    }
-    for (const item of asArray(state.letters)) {
-      const sourceMoodId = moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null;
-      const legacySourceMoodId = item.sourceMoodId && !sourceMoodId ? item.sourceMoodId : null;
-      let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
-      if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
-        const existingLetter = await tx.letter.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
-        if (existingLetter?.aiJobId) {
-          if (jobIds.has(existingLetter.aiJobId)) {
-            aiJobId = existingLetter.aiJobId;
-          } else {
-            const dbJob = await tx.aIJob.findUnique({ where: { id: existingLetter.aiJobId }, select: { id: true } });
-            if (dbJob) {
-              aiJobId = dbJob.id;
-              jobIds.add(dbJob.id);
-            }
-          }
-        }
+  await db.$transaction(
+    async (tx: DbClient) => {
+      let jobIds: Set<string>;
+      if (DIRECT_DB_MODELS.AIJob) {
+        const candidateJobIds = [
+          ...asArray(state.letters).map((item: any) => item.aiJobId),
+          ...asArray(state.replies).map(
+            (item: any) =>
+              item.aiJobId ??
+              (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null),
+          ),
+          ...asArray(state.agentDecisionLogs).map((item: any) => item.aiJobId),
+        ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+        const existingDbJobs = candidateJobIds.length
+          ? await tx.aIJob.findMany({
+              where: { id: { in: candidateJobIds } },
+              select: { id: true },
+            })
+          : [];
+        jobIds = new Set(existingDbJobs.map((j: any) => j.id));
+      } else {
+        jobIds = fallbackJobIds;
       }
-      await tx.letter.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, sourceMoodId, legacySourceMoodId, style: item.style, title: item.title, content: item.content, status: item.status ?? 'unread', savedToDiary: Boolean(item.savedToDiary), aiJobId, generationStatus: item.generationStatus ?? null, favorite: Boolean(item.favorite), likeCount: Number(item.likeCount ?? 0), createdAt: date(item.createdAt) }, update: { userId: item.userId, sourceMoodId, legacySourceMoodId, style: item.style, title: item.title, content: item.content, status: item.status ?? 'unread', savedToDiary: Boolean(item.savedToDiary), aiJobId, generationStatus: item.generationStatus ?? null, favorite: Boolean(item.favorite), likeCount: Number(item.likeCount ?? 0) } });
-    }
-    for (const item of asArray(state.diaries)) {
-      const moodId = moodIds.has(item.moodId) ? item.moodId : null;
-      const letterId = letterIds.has(item.letterId) ? item.letterId : null;
-      await tx.diary.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, moodId, letterId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, emotion: item.emotion, content: item.content, hasLetter: Boolean(item.hasLetter), source: item.source ?? null, toolResult: json(item.toolResult), createdAt: date(item.createdAt) }, update: { userId: item.userId, moodId, letterId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, emotion: item.emotion, content: item.content, hasLetter: Boolean(item.hasLetter), source: item.source ?? null, toolResult: json(item.toolResult) } });
-    }
-    for (const item of asArray(state.replies)) {
-      const candidateJobId = item.aiJobId ?? (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null);
-      let aiJobId = jobIds.has(candidateJobId) ? candidateJobId : null;
-      if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
-        const existingReply = await tx.reply.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
-        if (existingReply?.aiJobId) {
-          if (jobIds.has(existingReply.aiJobId)) {
-            aiJobId = existingReply.aiJobId;
-          } else {
-            const dbJob = await tx.aIJob.findUnique({ where: { id: existingReply.aiJobId }, select: { id: true } });
-            if (dbJob) {
-              aiJobId = dbJob.id;
-              jobIds.add(dbJob.id);
-            }
-          }
-        }
+      let journeyIds: Set<string>;
+      if (DIRECT_DB_MODELS.LifeJourney) {
+        const candidateJourneyIds = [
+          ...asArray(state.actionCommitments).map((item: any) => item.journeyId),
+          ...asArray(state.outcomeCheckins).map((item: any) => item.journeyId),
+          ...asArray(state.peerExperiences).map((item: any) => item.journeyId),
+          ...asArray(state.peerMatches).map((item: any) => item.journeyId),
+          ...asArray(state.moods).map((item: any) => item.journeyId),
+          ...asArray(state.posts).map((item: any) => item.journeyId),
+          ...asArray(state.diaries).map((item: any) => item.journeyId),
+          ...asArray(state.decisionRecords).map((item: any) => item.journeyId),
+          ...asArray(state.realityHandoffs).map((item: any) => item.journeyId),
+          ...asArray(state.messagesToFutureSelf).map((item: any) => item.journeyId),
+          ...asArray(state.personalSupportPlans).map((item: any) => item.journeyId),
+          ...asArray(state.memoryItems).map((item: any) => item.journeyId),
+          ...asArray(state.recoverySnapshots).map((item: any) => item.journeyId),
+          ...asArray(state.agentDecisionLogs).map((item: any) => item.journeyId),
+          ...asArray(state.followUpJobs).map((item: any) => item.journeyId),
+        ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+        const existingDbJourneys = candidateJourneyIds.length
+          ? await tx.lifeJourney.findMany({
+              where: { id: { in: candidateJourneyIds } },
+              select: { id: true },
+            })
+          : [];
+        journeyIds = new Set(existingDbJourneys.map((j: any) => j.id));
+      } else {
+        journeyIds = fallbackJourneyIds;
       }
-      await tx.reply.upsert({ where: { id: item.id }, create: { id: item.id, postId: item.postId, userId: item.userId ?? null, type: valid(item.type, ['USER', 'AI'] as const, 'AI'), style: item.style ?? 'warm', content: item.content, status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'), riskLevel: item.riskLevel ?? 'low', likeCount: Number(item.likeCount ?? 0), aiJobId, createdAt: date(item.createdAt) }, update: { postId: item.postId, userId: item.userId ?? null, type: valid(item.type, ['USER', 'AI'] as const, 'AI'), style: item.style ?? 'warm', content: item.content, status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'), riskLevel: item.riskLevel ?? 'low', likeCount: Number(item.likeCount ?? 0), aiJobId } });
-    }
-    for (const item of asArray(state.decisionRecords)) await tx.decisionRecord.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, question: item.question, options: json(item.options ?? []), criteria: json(item.criteria ?? []), decision: item.decision ?? null, status: item.status ?? 'draft', cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null, outcome: item.outcome ?? null, reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, question: item.question, options: json(item.options ?? []), criteria: json(item.criteria ?? []), decision: item.decision ?? null, status: item.status ?? 'draft', cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null, outcome: item.outcome ?? null, reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null } });
-    for (const item of asArray(state.cooldownItems).filter((item: any) => !item.decisionId || decisionIds.has(item.decisionId))) await tx.cooldownItem.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null, title: item.title, reason: item.reason ?? null, releaseAt: date(item.releaseAt), status: item.status ?? 'active', createdAt: date(item.createdAt) }, update: { userId: item.userId, decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null, title: item.title, reason: item.reason ?? null, releaseAt: date(item.releaseAt), status: item.status ?? 'active' } });
-    for (const item of asArray(state.realityHandoffs)) await tx.realityHandoff.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, recipient: item.recipient, channel: item.channel, summary: item.summary, status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'), sharedAt: item.sharedAt ? date(item.sharedAt) : null, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, recipient: item.recipient, channel: item.channel, summary: item.summary, status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'), sharedAt: item.sharedAt ? date(item.sharedAt) : null } });
-    for (const item of asArray(state.trustedContacts)) await tx.trustedContact.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, nickname: item.nickname, relation: item.relation, contactHint: item.contactHint, enabled: item.enabled !== false, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, nickname: item.nickname, relation: item.relation, contactHint: item.contactHint, enabled: item.enabled !== false } });
-    for (const item of asArray(state.messagesToFutureSelf)) await tx.messageToFutureSelf.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, contextType: item.contextType ?? null, contextRefId: item.contextRefId ?? null, contextLabel: item.contextLabel ?? null, content: item.content, deliverAt: date(item.deliverAt), deliveredAt: item.deliveredAt ? date(item.deliveredAt) : null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, contextType: item.contextType ?? null, contextRefId: item.contextRefId ?? null, contextLabel: item.contextLabel ?? null, content: item.content, deliverAt: date(item.deliverAt), deliveredAt: item.deliveredAt ? date(item.deliveredAt) : null } });
-    for (const item of asArray(state.personalSupportPlans)) await tx.personalSupportPlan.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, title: item.title, plan: json(item.plan ?? {}), active: item.active !== false, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, title: item.title, plan: json(item.plan ?? {}), active: item.active !== false } });
-    for (const item of asArray(state.stableSelfProfiles)) await tx.stableSelfProfile.upsert({ where: { userId: item.userId }, create: { id: item.id, userId: item.userId, profile: json(item.profile ?? {}), createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { profile: json(item.profile ?? {}) } });
-    for (const item of asArray(state.memoryItems)) await tx.memoryItem.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, category: item.category, title: item.title ?? item.category ?? '有限记忆', content: item.content, source: item.source ?? 'user_saved', scope: item.scope ?? 'all_ai', status: item.status ?? 'active', consentedAt: date(item.consentedAt), expiresAt: date(item.expiresAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt ?? item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, category: item.category, title: item.title ?? item.category ?? '有限记忆', content: item.content, source: item.source ?? 'user_saved', scope: item.scope ?? 'all_ai', status: item.status ?? 'active', consentedAt: date(item.consentedAt), expiresAt: date(item.expiresAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null } });
-    for (const item of asArray(state.recoverySnapshots)) await tx.recoverySnapshot.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, summary: item.summary, signals: json(item.signals ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, summary: item.summary, signals: json(item.signals ?? {}) } });
-    if (!DIRECT_DB_MODELS.SafetyEvent) {
-      for (const item of asArray(state.safetyEvents)) await tx.safetyEvent.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
-    }
-    for (const item of asArray(state.agentDecisionLogs)) {
-      let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
-      if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
-        const existingLog = await tx.agentDecisionLog.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
-        if (existingLog?.aiJobId) {
-          if (jobIds.has(existingLog.aiJobId)) {
-            aiJobId = existingLog.aiJobId;
-          } else {
-            const dbJob = await tx.aIJob.findUnique({ where: { id: existingLog.aiJobId }, select: { id: true } });
-            if (dbJob) {
-              aiJobId = dbJob.id;
-              jobIds.add(dbJob.id);
-            }
-          }
-        }
+      const adminUsers = asArray(state.adminUsers);
+      const roles = [...new Set(adminUsers.map((item: any) => String(item.role || 'super_admin')))];
+      for (const role of roles) {
+        const roleId = `role_${role}`;
+        await tx.adminRole.upsert({
+          where: { id: roleId },
+          create: { id: roleId, code: role, name: role, permissions: [] },
+          update: { code: role, name: role },
+        });
       }
-      await tx.agentDecisionLog.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId, taskType: item.taskType, decision: json(item.decision ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId, taskType: item.taskType, decision: json(item.decision ?? {}) } });
-    }
-    const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed'] as const;
-    for (const item of asArray(state.followUpJobs)) {
-      const existing = await tx.followUpJob.findUnique({ where: { id: item.id } });
-      if (!existing) {
-        let initialJourneyId: string | null = null;
-        if (item.journeyId) {
-          if (journeyIds.has(item.journeyId)) {
-            initialJourneyId = item.journeyId;
-          } else {
-            const dbJourney = await tx.lifeJourney.findUnique({ where: { id: item.journeyId }, select: { id: true } });
-            if (dbJourney) initialJourneyId = item.journeyId;
-          }
-        }
-        await tx.followUpJob.create({
-          data: {
+      for (const item of adminUsers) {
+        const role = String(item.role || 'super_admin');
+        await tx.adminUser.upsert({
+          where: { id: item.id },
+          create: {
             id: item.id,
-            userId: item.userId,
-            journeyId: initialJourneyId,
-            kind: item.kind,
-            dueAt: date(item.dueAt),
-            status: item.status ?? 'pending',
-            payload: json(item.payload),
-            completedAt: item.completedAt ? date(item.completedAt) : null,
-            createdAt: date(item.createdAt),
+            username: item.username,
+            passwordHash: item.passwordHash,
+            displayName: item.displayName,
+            roleId: `role_${role}`,
+            status: valid(item.status, ['active', 'disabled'] as const, 'active'),
+            lastLoginAt: item.lastLoginAt ? date(item.lastLoginAt) : null,
+          },
+          update: {
+            username: item.username,
+            passwordHash: item.passwordHash,
+            displayName: item.displayName,
+            roleId: `role_${role}`,
+            status: valid(item.status, ['active', 'disabled'] as const, 'active'),
+            lastLoginAt: item.lastLoginAt ? date(item.lastLoginAt) : null,
           },
         });
-      } else {
-        const arrayStatusIsTerminal = TERMINAL_FOLLOW_UP_STATUSES.includes(item.status);
-        let targetCompletedAt: Date | null = existing.completedAt;
-        if (item.completedAt) {
-          const itemDate = date(item.completedAt);
-          if (!targetCompletedAt || itemDate.getTime() > targetCompletedAt.getTime()) {
-            targetCompletedAt = itemDate;
-          }
-        }
-        let targetJourneyId: string | null = existing.journeyId;
-        if (item.journeyId && item.journeyId !== existing.journeyId) {
-          if (journeyIds.has(item.journeyId)) {
-            targetJourneyId = item.journeyId;
-          } else {
-            const dbJourney = await tx.lifeJourney.findUnique({ where: { id: item.journeyId }, select: { id: true } });
-            if (dbJourney) targetJourneyId = item.journeyId;
-          }
-        }
-        if (arrayStatusIsTerminal) {
-          await tx.followUpJob.updateMany({
+      }
+      for (const item of users) {
+        await tx.user.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            openid: item.openid,
+            nickname: item.nickname,
+            anonymousCode: item.anonymousCode,
+            avatarUrl: item.avatarUrl || null,
+            status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal'),
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            openid: item.openid,
+            nickname: item.nickname,
+            anonymousCode: item.anonymousCode,
+            avatarUrl: item.avatarUrl || null,
+            status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal'),
+          },
+        });
+        const privacy = state.privacySettings?.[item.id] ?? {};
+        await tx.privacySetting.upsert({
+          where: { userId: item.id },
+          create: {
+            userId: item.id,
+            defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+            allowAnonymousPublic: privacy.allowAnonymousPublic ?? true,
+            allowHumanReplies: privacy.allowHumanReplies ?? true,
+            allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true,
+            allowPeerMatching: privacy.allowPeerMatching ?? false,
+            allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false,
+            allowRecoveryData: privacy.allowRecoveryData ?? false,
+            allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false,
+            allowLongTermMemory: privacy.allowLongTermMemory ?? false,
+            allowAiMemoryUse: privacy.allowAiMemoryUse ?? false,
+            allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false,
+            allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false,
+            allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false,
+            allowDataExport: privacy.allowDataExport ?? false,
+          },
+          update: {
+            defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+            allowAnonymousPublic: privacy.allowAnonymousPublic ?? true,
+            allowHumanReplies: privacy.allowHumanReplies ?? true,
+            allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true,
+            allowPeerMatching: privacy.allowPeerMatching ?? false,
+            allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false,
+            allowRecoveryData: privacy.allowRecoveryData ?? false,
+            allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false,
+            allowLongTermMemory: privacy.allowLongTermMemory ?? false,
+            allowAiMemoryUse: privacy.allowAiMemoryUse ?? false,
+            allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false,
+            allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false,
+            allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false,
+            allowDataExport: privacy.allowDataExport ?? false,
+          },
+        });
+      }
+      for (const item of asArray(state.assets)) {
+        const storageKey = item.storageKey ?? item.objectKey ?? `legacy/${item.id}`;
+        await tx.mediaAsset.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            storageKey,
+            url: item.url,
+            mimeType: item.mimeType,
+            size: item.size,
+            width: item.width ?? 0,
+            height: item.height ?? 0,
+            usageType: item.usageType,
+            status: item.status,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            storageKey,
+            url: item.url,
+            mimeType: item.mimeType,
+            size: item.size,
+            width: item.width ?? 0,
+            height: item.height ?? 0,
+            usageType: item.usageType,
+            status: item.status,
+          },
+        });
+      }
+      if (!DIRECT_DB_MODELS.LifeJourney) {
+        for (const item of asArray(state.lifeJourneys))
+          await tx.lifeJourney.upsert({
             where: { id: item.id },
-            data: {
-              status: item.status,
-              completedAt: targetCompletedAt,
+            create: {
+              id: item.id,
+              userId: item.userId,
+              title: item.title,
+              domain: item.domain,
+              status: valid(item.status, ['active', 'paused', 'completed', 'archived'] as const, 'active'),
+              stage: item.stage ?? 'clarifying',
+              currentIntent: item.currentIntent ?? null,
+              intentUpdatedAt: item.intentUpdatedAt ? date(item.intentUpdatedAt) : null,
+              initialIntensity: item.initialIntensity == null ? null : Number(item.initialIntensity),
+              visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              summary: item.summary ?? null,
+              nextReviewAt: item.nextReviewAt ? date(item.nextReviewAt) : null,
+              completedAt: item.completedAt ? date(item.completedAt) : null,
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              userId: item.userId,
+              title: item.title,
+              domain: item.domain,
+              status: valid(item.status, ['active', 'paused', 'completed', 'archived'] as const, 'active'),
+              stage: item.stage ?? 'clarifying',
+              currentIntent: item.currentIntent ?? null,
+              intentUpdatedAt: item.intentUpdatedAt ? date(item.intentUpdatedAt) : null,
+              initialIntensity: item.initialIntensity == null ? null : Number(item.initialIntensity),
+              visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              summary: item.summary ?? null,
+              nextReviewAt: item.nextReviewAt ? date(item.nextReviewAt) : null,
+              completedAt: item.completedAt ? date(item.completedAt) : null,
             },
           });
-        } else {
-          await tx.followUpJob.updateMany({
-            where: {
+      }
+      if (!DIRECT_DB_MODELS.SituationSnapshot) {
+        for (const item of asArray(state.situationSnapshots).filter((item: any) => journeyIds.has(item.journeyId)))
+          await tx.situationSnapshot.upsert({
+            where: { id: item.id },
+            create: {
               id: item.id,
-              status: { notIn: ['delivered', 'completed'] },
+              journeyId: item.journeyId,
+              facts: json(item.facts ?? []),
+              feelings: json(item.feelings ?? []),
+              needs: json(item.needs ?? []),
+              constraints: json(item.constraints ?? []),
+              risks: json(item.risks ?? []),
+              domain: item.domain ?? null,
+              subDomain: item.subDomain ?? null,
+              eventType: item.eventType ?? null,
+              eventStartedAt: item.eventStartedAt ? date(item.eventStartedAt) : null,
+              daysSinceEvent: item.daysSinceEvent == null ? null : Number(item.daysSinceEvent),
+              stage: item.stage ?? null,
+              contextTags: json(item.contextTags ?? []),
+              peopleContext: json(item.peopleContext),
+              decisionContext: json(item.decisionContext),
+              behaviorSignals: json(item.behaviorSignals),
+              recoverySignals: json(item.recoverySignals),
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              urgency: item.urgency == null ? null : Number(item.urgency),
+              fingerprintJson: json(item.fingerprintJson),
+              confidence: item.confidence ?? 'agent_draft',
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
             },
-            data: {
+            update: {
+              journeyId: item.journeyId,
+              facts: json(item.facts ?? []),
+              feelings: json(item.feelings ?? []),
+              needs: json(item.needs ?? []),
+              constraints: json(item.constraints ?? []),
+              risks: json(item.risks ?? []),
+              domain: item.domain ?? null,
+              subDomain: item.subDomain ?? null,
+              eventType: item.eventType ?? null,
+              eventStartedAt: item.eventStartedAt ? date(item.eventStartedAt) : null,
+              daysSinceEvent: item.daysSinceEvent == null ? null : Number(item.daysSinceEvent),
+              stage: item.stage ?? null,
+              contextTags: json(item.contextTags ?? []),
+              peopleContext: json(item.peopleContext),
+              decisionContext: json(item.decisionContext),
+              behaviorSignals: json(item.behaviorSignals),
+              recoverySignals: json(item.recoverySignals),
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              urgency: item.urgency == null ? null : Number(item.urgency),
+              fingerprintJson: json(item.fingerprintJson),
+              confidence: item.confidence ?? 'agent_draft',
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.JourneyUpdate) {
+        for (const item of asArray(state.journeyUpdates).filter((item: any) => journeyIds.has(item.journeyId)))
+          await tx.journeyUpdate.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              journeyId: item.journeyId,
               userId: item.userId,
-              journeyId: targetJourneyId,
+              kind: item.kind,
+              content: item.content,
+              payload: json(item.payload),
+              stage: item.stage ?? null,
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              lifeFunction: item.lifeFunction ?? null,
+              actionResult: item.actionResult ?? null,
+              decisionChange: item.decisionChange ?? null,
+              contactState: item.contactState ?? null,
+              sleepState: item.sleepState ?? null,
+              socialState: item.socialState ?? null,
+              selfReportedHelpfulness:
+                item.selfReportedHelpfulness == null ? null : Number(item.selfReportedHelpfulness),
+              eventDate: item.eventDate ? date(item.eventDate) : null,
+              createdAt: date(item.createdAt),
+            },
+            update: {
+              journeyId: item.journeyId,
+              userId: item.userId,
+              kind: item.kind,
+              content: item.content,
+              payload: json(item.payload),
+              stage: item.stage ?? null,
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              lifeFunction: item.lifeFunction ?? null,
+              actionResult: item.actionResult ?? null,
+              decisionChange: item.decisionChange ?? null,
+              contactState: item.contactState ?? null,
+              sleepState: item.sleepState ?? null,
+              socialState: item.socialState ?? null,
+              selfReportedHelpfulness:
+                item.selfReportedHelpfulness == null ? null : Number(item.selfReportedHelpfulness),
+              eventDate: item.eventDate ? date(item.eventDate) : null,
+            },
+          });
+      }
+      for (const item of asArray(state.actionCommitments).filter((item: any) => journeyIds.has(item.journeyId)))
+        await tx.actionCommitment.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            journeyId: item.journeyId,
+            userId: item.userId,
+            title: item.title,
+            description: item.description ?? null,
+            status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'),
+            dueAt: item.dueAt ? date(item.dueAt) : null,
+            reminderAt: item.reminderAt ? date(item.reminderAt) : null,
+            evidence: json(item.evidence),
+            parentActionId: item.parentActionId ? item.parentActionId : null,
+            adaptationReason: item.adaptationReason ?? null,
+            attemptNumber: Number(item.attemptNumber ?? 1),
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            journeyId: item.journeyId,
+            userId: item.userId,
+            title: item.title,
+            description: item.description ?? null,
+            status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'),
+            dueAt: item.dueAt ? date(item.dueAt) : null,
+            reminderAt: item.reminderAt ? date(item.reminderAt) : null,
+            evidence: json(item.evidence),
+            parentActionId: item.parentActionId ? item.parentActionId : null,
+            adaptationReason: item.adaptationReason ?? null,
+            attemptNumber: Number(item.attemptNumber ?? 1),
+          },
+        });
+      for (const item of asArray(state.outcomeCheckins).filter((item: any) => journeyIds.has(item.journeyId)))
+        await tx.outcomeCheckin.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            journeyId: item.journeyId,
+            commitmentId: commitmentIds.has(item.commitmentId) ? item.commitmentId : null,
+            userId: item.userId,
+            status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
+            reflection: item.reflection ?? null,
+            result: item.result ?? null,
+            intensity: item.intensity == null ? null : Number(item.intensity),
+            checkedAt: item.checkedAt ? date(item.checkedAt) : null,
+            dueAt: item.dueAt ? date(item.dueAt) : null,
+            barrier: item.barrier ?? null,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            journeyId: item.journeyId,
+            commitmentId: commitmentIds.has(item.commitmentId) ? item.commitmentId : null,
+            userId: item.userId,
+            status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
+            reflection: item.reflection ?? null,
+            result: item.result ?? null,
+            intensity: item.intensity == null ? null : Number(item.intensity),
+            checkedAt: item.checkedAt ? date(item.checkedAt) : null,
+            dueAt: item.dueAt ? date(item.dueAt) : null,
+            barrier: item.barrier ?? null,
+          },
+        });
+      for (const item of asArray(state.peerExperiences))
+        await tx.peerExperience.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            title: item.title,
+            domain: item.domain,
+            stage: item.stage,
+            subDomain: item.subDomain ?? null,
+            content: item.content,
+            tags: json(item.tags ?? []),
+            fingerprintJson: json(item.fingerprintJson),
+            laterSummary: json(item.laterSummary),
+            helpfulActions: json(item.helpfulActions),
+            notHelpfulActions: json(item.notHelpfulActions),
+            retrospective: item.retrospective ?? null,
+            consentedAt: date(item.consentedAt),
+            status: valid(
+              item.status,
+              ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const,
+              'draft',
+            ),
+            reportCount: Number(item.reportCount ?? 0),
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            title: item.title,
+            domain: item.domain,
+            stage: item.stage,
+            subDomain: item.subDomain ?? null,
+            content: item.content,
+            tags: json(item.tags ?? []),
+            fingerprintJson: json(item.fingerprintJson),
+            laterSummary: json(item.laterSummary),
+            helpfulActions: json(item.helpfulActions),
+            notHelpfulActions: json(item.notHelpfulActions),
+            retrospective: item.retrospective ?? null,
+            consentedAt: date(item.consentedAt),
+            status: valid(
+              item.status,
+              ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const,
+              'draft',
+            ),
+            reportCount: Number(item.reportCount ?? 0),
+          },
+        });
+      for (const item of asArray(state.peerMatches).filter((item: any) => peerExperienceIds.has(item.peerExperienceId)))
+        await tx.peerMatch.upsert({
+          where: { userId_peerExperienceId: { userId: item.userId, peerExperienceId: item.peerExperienceId } },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            peerExperienceId: item.peerExperienceId,
+            score: Number(item.score ?? 0),
+            reasons: json(item.reasons ?? []),
+            stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
+            recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead),
+            trustScore: item.trustScore == null ? null : Number(item.trustScore),
+            fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity),
+            scoreBreakdown: json(item.scoreBreakdown),
+            explanation: item.explanation ?? null,
+            requestReason: item.requestReason ?? null,
+            requestQuestion: item.requestQuestion ?? null,
+            acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null,
+            status: valid(
+              item.status,
+              ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const,
+              'suggested',
+            ),
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            score: Number(item.score ?? 0),
+            reasons: json(item.reasons ?? []),
+            stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
+            recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead),
+            trustScore: item.trustScore == null ? null : Number(item.trustScore),
+            fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity),
+            scoreBreakdown: json(item.scoreBreakdown),
+            explanation: item.explanation ?? null,
+            requestReason: item.requestReason ?? null,
+            requestQuestion: item.requestQuestion ?? null,
+            acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null,
+            status: valid(
+              item.status,
+              ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const,
+              'suggested',
+            ),
+          },
+        });
+      for (const item of asArray(state.peerReputations))
+        await tx.peerReputation.upsert({
+          where: { userId: item.userId },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            helpfulCount: Number(item.helpfulCount ?? 0),
+            reportCount: Number(item.reportCount ?? 0),
+            restrictedUntil: item.restrictedUntil ? date(item.restrictedUntil) : null,
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            helpfulCount: Number(item.helpfulCount ?? 0),
+            reportCount: Number(item.reportCount ?? 0),
+            restrictedUntil: item.restrictedUntil ? date(item.restrictedUntil) : null,
+          },
+        });
+      for (const item of asArray(state.moods))
+        await tx.mood.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            emotion: item.emotion,
+            content: item.content,
+            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+            riskLevel: item.riskLevel ?? 'low',
+            riskScore: Number(item.riskScore ?? 0),
+            status: item.status ?? 'active',
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            emotion: item.emotion,
+            content: item.content,
+            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+            riskLevel: item.riskLevel ?? 'low',
+            riskScore: Number(item.riskScore ?? 0),
+            status: item.status ?? 'active',
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+          },
+        });
+      for (const item of asArray(state.posts))
+        await tx.post.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            moodId: item.moodId,
+            userId: item.userId,
+            emotion: item.emotion,
+            content: item.content,
+            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'),
+            status: item.status ?? 'active',
+            reviewStatus: valid(
+              item.reviewStatus,
+              ['pending_review', 'published', 'hidden', 'rejected'] as const,
+              'pending_review',
+            ),
+            hugCount: Number(item.hugCount ?? 0),
+            replyCount: Number(item.replyCount ?? 0),
+            favoriteCount: Number(item.favoriteCount ?? 0),
+            reportCount: Number(item.reportCount ?? 0),
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            createdAt: date(item.createdAt),
+            publishedAt: item.publishedAt ? date(item.publishedAt) : null,
+          },
+          update: {
+            moodId: item.moodId,
+            userId: item.userId,
+            emotion: item.emotion,
+            content: item.content,
+            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'),
+            status: item.status ?? 'active',
+            reviewStatus: valid(
+              item.reviewStatus,
+              ['pending_review', 'published', 'hidden', 'rejected'] as const,
+              'pending_review',
+            ),
+            hugCount: Number(item.hugCount ?? 0),
+            replyCount: Number(item.replyCount ?? 0),
+            favoriteCount: Number(item.favoriteCount ?? 0),
+            reportCount: Number(item.reportCount ?? 0),
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            publishedAt: item.publishedAt ? date(item.publishedAt) : null,
+          },
+        });
+      for (const item of providerMap.values())
+        await tx.aIProvider.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            name: item.name,
+            type: valid(item.type, ['local', 'cloud', 'template'] as const, 'template'),
+            baseUrl: item.baseUrl,
+            modelName: item.modelName,
+            enabled: item.enabled !== false,
+            priority: Number(item.priority ?? 0),
+            dailyLimit: Number(item.dailyLimit ?? 1000),
+            timeoutSeconds: Number(item.timeoutSeconds ?? 10),
+            failoverEnabled: item.failoverEnabled !== false,
+            usageTags: json(item.usageTags ?? []),
+            providerKind: item.providerKind ?? 'other',
+            apiKeyStatus: item.apiKeyStatus ?? 'missing',
+            failureRate: Number(item.failureRate ?? 0),
+            avgLatencyMs: Number(item.avgLatencyMs ?? 0),
+            todayCalls: Number(item.todayCalls ?? 0),
+            modelMeta: json(item.modelMeta),
+          },
+          update: {
+            name: item.name,
+            type: valid(item.type, ['local', 'cloud', 'template'] as const, 'template'),
+            baseUrl: item.baseUrl,
+            modelName: item.modelName,
+            enabled: item.enabled !== false,
+            priority: Number(item.priority ?? 0),
+            dailyLimit: Number(item.dailyLimit ?? 1000),
+            timeoutSeconds: Number(item.timeoutSeconds ?? 10),
+            failoverEnabled: item.failoverEnabled !== false,
+            usageTags: json(item.usageTags ?? []),
+            providerKind: item.providerKind ?? 'other',
+            apiKeyStatus: item.apiKeyStatus ?? 'missing',
+            failureRate: Number(item.failureRate ?? 0),
+            avgLatencyMs: Number(item.avgLatencyMs ?? 0),
+            todayCalls: Number(item.todayCalls ?? 0),
+            modelMeta: json(item.modelMeta),
+          },
+        });
+      for (const item of routes)
+        await tx.aIStyleRoute.upsert({
+          where: { style: item.style },
+          create: {
+            id: item.id ?? `route_${item.style}`,
+            style: item.style,
+            primaryProviderId: item.primaryProviderId,
+            backupProviderId: item.backupProviderId,
+            fallbackTemplateId: item.fallbackTemplateId,
+            promptVersion: item.promptVersion ?? 'v1',
+            promptTemplate: item.promptTemplate ?? '',
+            label: item.label ?? item.style,
+            taskTypes: json(item.taskTypes ?? []),
+            routeVersion: Number(item.routeVersion ?? 1),
+            enabled: item.enabled !== false,
+          },
+          update: {
+            primaryProviderId: item.primaryProviderId,
+            backupProviderId: item.backupProviderId,
+            fallbackTemplateId: item.fallbackTemplateId,
+            promptVersion: item.promptVersion ?? 'v1',
+            promptTemplate: item.promptTemplate ?? '',
+            label: item.label ?? item.style,
+            taskTypes: json(item.taskTypes ?? []),
+            routeVersion: Number(item.routeVersion ?? 1),
+            enabled: item.enabled !== false,
+          },
+        });
+      if (!DIRECT_DB_MODELS.AIJob) {
+        for (const item of jobs)
+          await tx.aIJob.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              contentId: item.contentId,
+              contentType: item.contentType,
+              jobType: item.jobType,
+              taskType: item.taskType ?? null,
+              style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'),
+              providerId: item.providerId,
+              modelName: item.modelName ?? '',
+              status: jobStatus(item.status),
+              promptSummary: item.promptSummary ?? '',
+              promptVersion: item.promptVersion ?? null,
+              result: item.result ?? null,
+              structuredResult: json(item.structuredResult),
+              errorMessage: item.errorMessage ?? null,
+              durationMs: Number(item.durationMs ?? 0),
+              retryCount: Number(item.retryCount ?? 0),
+              fallbackUsed: Boolean(item.fallbackUsed),
+              routeVersion: Number(item.routeVersion ?? 0),
+              traceJson: json(item.traceJson ?? []),
+              createdAt: date(item.createdAt),
+              completedAt: item.completedAt ? date(item.completedAt) : null,
+            },
+            update: {
+              userId: item.userId,
+              contentId: item.contentId,
+              contentType: item.contentType,
+              jobType: item.jobType,
+              taskType: item.taskType ?? null,
+              style: valid(item.style, ['warm', 'rational', 'light', 'clear', 'poetic'] as const, 'warm'),
+              providerId: item.providerId,
+              modelName: item.modelName ?? '',
+              status: jobStatus(item.status),
+              promptSummary: item.promptSummary ?? '',
+              promptVersion: item.promptVersion ?? null,
+              result: item.result ?? null,
+              structuredResult: json(item.structuredResult),
+              errorMessage: item.errorMessage ?? null,
+              durationMs: Number(item.durationMs ?? 0),
+              retryCount: Number(item.retryCount ?? 0),
+              fallbackUsed: Boolean(item.fallbackUsed),
+              routeVersion: Number(item.routeVersion ?? 0),
+              traceJson: json(item.traceJson ?? []),
+              completedAt: item.completedAt ? date(item.completedAt) : null,
+            },
+          });
+      }
+      for (const item of asArray(state.letters)) {
+        const sourceMoodId = moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null;
+        const legacySourceMoodId = item.sourceMoodId && !sourceMoodId ? item.sourceMoodId : null;
+        let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
+        if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
+          const existingLetter = await tx.letter.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
+          if (existingLetter?.aiJobId) {
+            if (jobIds.has(existingLetter.aiJobId)) {
+              aiJobId = existingLetter.aiJobId;
+            } else {
+              const dbJob = await tx.aIJob.findUnique({ where: { id: existingLetter.aiJobId }, select: { id: true } });
+              if (dbJob) {
+                aiJobId = dbJob.id;
+                jobIds.add(dbJob.id);
+              }
+            }
+          }
+        }
+        await tx.letter.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            sourceMoodId,
+            legacySourceMoodId,
+            style: item.style,
+            title: item.title,
+            content: item.content,
+            status: item.status ?? 'unread',
+            savedToDiary: Boolean(item.savedToDiary),
+            aiJobId,
+            generationStatus: item.generationStatus ?? null,
+            favorite: Boolean(item.favorite),
+            likeCount: Number(item.likeCount ?? 0),
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            sourceMoodId,
+            legacySourceMoodId,
+            style: item.style,
+            title: item.title,
+            content: item.content,
+            status: item.status ?? 'unread',
+            savedToDiary: Boolean(item.savedToDiary),
+            aiJobId,
+            generationStatus: item.generationStatus ?? null,
+            favorite: Boolean(item.favorite),
+            likeCount: Number(item.likeCount ?? 0),
+          },
+        });
+      }
+      for (const item of asArray(state.diaries)) {
+        const moodId = moodIds.has(item.moodId) ? item.moodId : null;
+        const letterId = letterIds.has(item.letterId) ? item.letterId : null;
+        await tx.diary.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            moodId,
+            letterId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            emotion: item.emotion,
+            content: item.content,
+            hasLetter: Boolean(item.hasLetter),
+            source: item.source ?? null,
+            toolResult: json(item.toolResult),
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            moodId,
+            letterId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            emotion: item.emotion,
+            content: item.content,
+            hasLetter: Boolean(item.hasLetter),
+            source: item.source ?? null,
+            toolResult: json(item.toolResult),
+          },
+        });
+      }
+      for (const item of asArray(state.replies)) {
+        const candidateJobId =
+          item.aiJobId ?? (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null);
+        let aiJobId = jobIds.has(candidateJobId) ? candidateJobId : null;
+        if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
+          const existingReply = await tx.reply.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
+          if (existingReply?.aiJobId) {
+            if (jobIds.has(existingReply.aiJobId)) {
+              aiJobId = existingReply.aiJobId;
+            } else {
+              const dbJob = await tx.aIJob.findUnique({ where: { id: existingReply.aiJobId }, select: { id: true } });
+              if (dbJob) {
+                aiJobId = dbJob.id;
+                jobIds.add(dbJob.id);
+              }
+            }
+          }
+        }
+        await tx.reply.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            postId: item.postId,
+            userId: item.userId ?? null,
+            type: valid(item.type, ['USER', 'AI'] as const, 'AI'),
+            style: item.style ?? 'warm',
+            content: item.content,
+            status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'),
+            riskLevel: item.riskLevel ?? 'low',
+            likeCount: Number(item.likeCount ?? 0),
+            aiJobId,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            postId: item.postId,
+            userId: item.userId ?? null,
+            type: valid(item.type, ['USER', 'AI'] as const, 'AI'),
+            style: item.style ?? 'warm',
+            content: item.content,
+            status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'),
+            riskLevel: item.riskLevel ?? 'low',
+            likeCount: Number(item.likeCount ?? 0),
+            aiJobId,
+          },
+        });
+      }
+      for (const item of asArray(state.decisionRecords))
+        await tx.decisionRecord.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            question: item.question,
+            options: json(item.options ?? []),
+            criteria: json(item.criteria ?? []),
+            decision: item.decision ?? null,
+            status: item.status ?? 'draft',
+            cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null,
+            outcome: item.outcome ?? null,
+            reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null,
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            question: item.question,
+            options: json(item.options ?? []),
+            criteria: json(item.criteria ?? []),
+            decision: item.decision ?? null,
+            status: item.status ?? 'draft',
+            cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null,
+            outcome: item.outcome ?? null,
+            reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null,
+          },
+        });
+      for (const item of asArray(state.cooldownItems).filter(
+        (item: any) => !item.decisionId || decisionIds.has(item.decisionId),
+      ))
+        await tx.cooldownItem.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null,
+            title: item.title,
+            reason: item.reason ?? null,
+            releaseAt: date(item.releaseAt),
+            status: item.status ?? 'active',
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null,
+            title: item.title,
+            reason: item.reason ?? null,
+            releaseAt: date(item.releaseAt),
+            status: item.status ?? 'active',
+          },
+        });
+      for (const item of asArray(state.realityHandoffs))
+        await tx.realityHandoff.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            recipient: item.recipient,
+            channel: item.channel,
+            summary: item.summary,
+            status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'),
+            sharedAt: item.sharedAt ? date(item.sharedAt) : null,
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            recipient: item.recipient,
+            channel: item.channel,
+            summary: item.summary,
+            status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'),
+            sharedAt: item.sharedAt ? date(item.sharedAt) : null,
+          },
+        });
+      for (const item of asArray(state.trustedContacts))
+        await tx.trustedContact.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            nickname: item.nickname,
+            relation: item.relation,
+            contactHint: item.contactHint,
+            enabled: item.enabled !== false,
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            userId: item.userId,
+            nickname: item.nickname,
+            relation: item.relation,
+            contactHint: item.contactHint,
+            enabled: item.enabled !== false,
+          },
+        });
+      for (const item of asArray(state.messagesToFutureSelf))
+        await tx.messageToFutureSelf.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            contextType: item.contextType ?? null,
+            contextRefId: item.contextRefId ?? null,
+            contextLabel: item.contextLabel ?? null,
+            content: item.content,
+            deliverAt: date(item.deliverAt),
+            deliveredAt: item.deliveredAt ? date(item.deliveredAt) : null,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            contextType: item.contextType ?? null,
+            contextRefId: item.contextRefId ?? null,
+            contextLabel: item.contextLabel ?? null,
+            content: item.content,
+            deliverAt: date(item.deliverAt),
+            deliveredAt: item.deliveredAt ? date(item.deliveredAt) : null,
+          },
+        });
+      for (const item of asArray(state.personalSupportPlans))
+        await tx.personalSupportPlan.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            title: item.title,
+            plan: json(item.plan ?? {}),
+            active: item.active !== false,
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            title: item.title,
+            plan: json(item.plan ?? {}),
+            active: item.active !== false,
+          },
+        });
+      for (const item of asArray(state.stableSelfProfiles))
+        await tx.stableSelfProfile.upsert({
+          where: { userId: item.userId },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            profile: json(item.profile ?? {}),
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+          },
+          update: { profile: json(item.profile ?? {}) },
+        });
+      for (const item of asArray(state.memoryItems))
+        await tx.memoryItem.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            category: item.category,
+            title: item.title ?? item.category ?? '有限记忆',
+            content: item.content,
+            source: item.source ?? 'user_saved',
+            scope: item.scope ?? 'all_ai',
+            status: item.status ?? 'active',
+            consentedAt: date(item.consentedAt),
+            expiresAt: date(item.expiresAt),
+            deletedAt: item.deletedAt ? date(item.deletedAt) : null,
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt ?? item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            category: item.category,
+            title: item.title ?? item.category ?? '有限记忆',
+            content: item.content,
+            source: item.source ?? 'user_saved',
+            scope: item.scope ?? 'all_ai',
+            status: item.status ?? 'active',
+            consentedAt: date(item.consentedAt),
+            expiresAt: date(item.expiresAt),
+            deletedAt: item.deletedAt ? date(item.deletedAt) : null,
+          },
+        });
+      for (const item of asArray(state.recoverySnapshots))
+        await tx.recoverySnapshot.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            summary: item.summary,
+            signals: json(item.signals ?? {}),
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            summary: item.summary,
+            signals: json(item.signals ?? {}),
+          },
+        });
+      if (!DIRECT_DB_MODELS.SafetyEvent) {
+        for (const item of asArray(state.safetyEvents))
+          await tx.safetyEvent.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              level: item.level,
+              source: item.source,
+              action: item.action,
+              payload: json(item.payload),
+              status: item.status ?? 'open',
+              handledAt: item.handledAt ? date(item.handledAt) : null,
+              handledBy: item.handledBy ?? null,
+              note: item.note ?? null,
+              createdAt: date(item.createdAt),
+            },
+            update: {
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              level: item.level,
+              source: item.source,
+              action: item.action,
+              payload: json(item.payload),
+              status: item.status ?? 'open',
+              handledAt: item.handledAt ? date(item.handledAt) : null,
+              handledBy: item.handledBy ?? null,
+              note: item.note ?? null,
+            },
+          });
+      }
+      for (const item of asArray(state.agentDecisionLogs)) {
+        let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
+        if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
+          const existingLog = await tx.agentDecisionLog.findUnique({
+            where: { id: item.id },
+            select: { aiJobId: true },
+          });
+          if (existingLog?.aiJobId) {
+            if (jobIds.has(existingLog.aiJobId)) {
+              aiJobId = existingLog.aiJobId;
+            } else {
+              const dbJob = await tx.aIJob.findUnique({ where: { id: existingLog.aiJobId }, select: { id: true } });
+              if (dbJob) {
+                aiJobId = dbJob.id;
+                jobIds.add(dbJob.id);
+              }
+            }
+          }
+        }
+        await tx.agentDecisionLog.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            aiJobId,
+            taskType: item.taskType,
+            decision: json(item.decision ?? {}),
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            aiJobId,
+            taskType: item.taskType,
+            decision: json(item.decision ?? {}),
+          },
+        });
+      }
+      const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed'] as const;
+      for (const item of asArray(state.followUpJobs)) {
+        const existing = await tx.followUpJob.findUnique({ where: { id: item.id } });
+        if (!existing) {
+          let initialJourneyId: string | null = null;
+          if (item.journeyId) {
+            if (journeyIds.has(item.journeyId)) {
+              initialJourneyId = item.journeyId;
+            } else {
+              const dbJourney = await tx.lifeJourney.findUnique({
+                where: { id: item.journeyId },
+                select: { id: true },
+              });
+              if (dbJourney) initialJourneyId = item.journeyId;
+            }
+          }
+          await tx.followUpJob.create({
+            data: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: initialJourneyId,
               kind: item.kind,
               dueAt: date(item.dueAt),
               status: item.status ?? 'pending',
               payload: json(item.payload),
-              completedAt: targetCompletedAt,
+              completedAt: item.completedAt ? date(item.completedAt) : null,
+              createdAt: date(item.createdAt),
             },
           });
+        } else {
+          const arrayStatusIsTerminal = TERMINAL_FOLLOW_UP_STATUSES.includes(item.status);
+          let targetCompletedAt: Date | null = existing.completedAt;
+          if (item.completedAt) {
+            const itemDate = date(item.completedAt);
+            if (!targetCompletedAt || itemDate.getTime() > targetCompletedAt.getTime()) {
+              targetCompletedAt = itemDate;
+            }
+          }
+          let targetJourneyId: string | null = existing.journeyId;
+          if (item.journeyId && item.journeyId !== existing.journeyId) {
+            if (journeyIds.has(item.journeyId)) {
+              targetJourneyId = item.journeyId;
+            } else {
+              const dbJourney = await tx.lifeJourney.findUnique({
+                where: { id: item.journeyId },
+                select: { id: true },
+              });
+              if (dbJourney) targetJourneyId = item.journeyId;
+            }
+          }
+          if (arrayStatusIsTerminal) {
+            await tx.followUpJob.updateMany({
+              where: { id: item.id },
+              data: {
+                status: item.status,
+                completedAt: targetCompletedAt,
+              },
+            });
+          } else {
+            await tx.followUpJob.updateMany({
+              where: {
+                id: item.id,
+                status: { notIn: ['delivered', 'completed'] },
+              },
+              data: {
+                userId: item.userId,
+                journeyId: targetJourneyId,
+                kind: item.kind,
+                dueAt: date(item.dueAt),
+                status: item.status ?? 'pending',
+                payload: json(item.payload),
+                completedAt: targetCompletedAt,
+              },
+            });
+          }
         }
       }
-    }
-    if (!DIRECT_DB_MODELS.UserNotification) {
-      for (const item of asArray(state.notifications).filter((item: any) => userIds.has(item.userId))) await tx.userNotification.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? null, status: item.status ?? 'unread', createdAt: date(item.createdAt), readAt: item.readAt ? date(item.readAt) : null }, update: { userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? null, status: item.status ?? 'unread', readAt: item.readAt ? date(item.readAt) : null } });
-    }
-    for (const item of asArray(state.peerConversations).filter((item: any) => peerMatchIds.has(item.matchId) && userIds.has(item.starterUserId) && userIds.has(item.receiverUserId))) await tx.peerConversation.upsert({ where: { id: item.id }, create: { id: item.id, matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status ?? 'active', startsAt: date(item.startsAt ?? item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null, expiresAt: date(item.expiresAt), createdAt: date(item.createdAt), closedAt: item.closedAt ? date(item.closedAt) : null, closedReason: item.closedReason ?? null, feedback: item.feedback ?? null, feedbackNote: item.feedbackNote ?? null, reportedAt: item.reportedAt ? date(item.reportedAt) : null, reporterUserId: item.reporterUserId ?? null, reportReason: item.reportReason ?? null }, update: { matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status ?? 'active', startsAt: date(item.startsAt ?? item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null, expiresAt: date(item.expiresAt), closedAt: item.closedAt ? date(item.closedAt) : null, closedReason: item.closedReason ?? null, feedback: item.feedback ?? null, feedbackNote: item.feedbackNote ?? null, reportedAt: item.reportedAt ? date(item.reportedAt) : null, reporterUserId: item.reporterUserId ?? null, reportReason: item.reportReason ?? null } });
-    for (const item of asArray(state.peerMessages).filter((item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.senderUserId))) await tx.peerMessage.upsert({ where: { id: item.id }, create: { id: item.id, conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType ?? 'HUMAN', createdAt: date(item.createdAt), reportedAt: item.reportedAt ? date(item.reportedAt) : null, blockedAt: item.blockedAt ? date(item.blockedAt) : null, piiFlags: json(item.piiFlags ?? []) }, update: { conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType ?? 'HUMAN', reportedAt: item.reportedAt ? date(item.reportedAt) : null, blockedAt: item.blockedAt ? date(item.blockedAt) : null, piiFlags: json(item.piiFlags ?? []) } });
-    for (const item of asArray(state.favorites)) await tx.favorite.upsert({ where: { userId_targetType_targetId: { userId: item.userId, targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'), targetId: item.targetId } }, create: { id: item.id, userId: item.userId, targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'), targetId: item.targetId, createdAt: date(item.createdAt) }, update: {} });
-    for (const item of asArray(state.feedbackCategories)) await tx.feedbackCategory.upsert({ where: { id: item.id }, create: { id: item.id, name: item.name, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false }, update: { name: item.name, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false } });
-    for (const item of asArray(state.faqs)) await tx.faqItem.upsert({ where: { id: item.id }, create: { id: item.id, question: item.question, answer: item.answer, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false, createdAt: date(item.createdAt) }, update: { question: item.question, answer: item.answer, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false } });
-    for (const item of asArray(state.replyPresets)) await tx.replyPreset.upsert({ where: { id: item.id }, create: { id: item.id, text: item.text, scene: item.scene, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false, createdAt: date(item.createdAt) }, update: { text: item.text, scene: item.scene, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false } });
-    for (const item of asArray(state.feedbackTickets)) await tx.feedbackTicket.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, categoryId: item.categoryId, sourcePage: item.sourcePage, content: item.content, status: valid(item.status, ['open', 'processing', 'resolved', 'closed'] as const, 'open'), priority: item.priority ?? 'medium', screenshots: json(item.screenshots ?? []), reply: item.reply || null, repliedBy: item.repliedBy || null, repliedAt: item.repliedAt ? date(item.repliedAt) : null, createdAt: date(item.createdAt) }, update: { userId: item.userId, categoryId: item.categoryId, sourcePage: item.sourcePage, content: item.content, status: valid(item.status, ['open', 'processing', 'resolved', 'closed'] as const, 'open'), priority: item.priority ?? 'medium', screenshots: json(item.screenshots ?? []), reply: item.reply || null, repliedBy: item.repliedBy || null, repliedAt: item.repliedAt ? date(item.repliedAt) : null } });
-    for (const [key, item] of Object.entries(state.systemSettings ?? {})) await tx.systemSetting.upsert({ where: { key }, create: { key, value: json((item as any).value), description: (item as any).description ?? key, updatedBy: (item as any).updatedBy ?? null }, update: { value: json((item as any).value), description: (item as any).description ?? key, updatedBy: (item as any).updatedBy ?? null } });
-    for (const item of asArray(state.auditLogs)) await tx.auditLog.upsert({ where: { id: item.id }, create: { id: item.id, adminUserId: item.adminUserId, action: item.action, resourceType: item.resourceType, resourceId: item.resourceId, beforeJson: json(item.beforeJson), afterJson: json(item.afterJson), ip: item.ip || null, userAgent: item.userAgent || null, createdAt: date(item.createdAt) }, update: { adminUserId: item.adminUserId, action: item.action, resourceType: item.resourceType, resourceId: item.resourceId, beforeJson: json(item.beforeJson), afterJson: json(item.afterJson), ip: item.ip || null, userAgent: item.userAgent || null } });
+      if (!DIRECT_DB_MODELS.UserNotification) {
+        for (const item of asArray(state.notifications).filter((item: any) => userIds.has(item.userId)))
+          await tx.userNotification.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              type: item.type,
+              title: item.title,
+              body: item.body,
+              targetRoute: item.targetRoute ?? null,
+              status: item.status ?? 'unread',
+              createdAt: date(item.createdAt),
+              readAt: item.readAt ? date(item.readAt) : null,
+            },
+            update: {
+              userId: item.userId,
+              type: item.type,
+              title: item.title,
+              body: item.body,
+              targetRoute: item.targetRoute ?? null,
+              status: item.status ?? 'unread',
+              readAt: item.readAt ? date(item.readAt) : null,
+            },
+          });
+      }
+      for (const item of asArray(state.peerConversations).filter(
+        (item: any) =>
+          peerMatchIds.has(item.matchId) && userIds.has(item.starterUserId) && userIds.has(item.receiverUserId),
+      ))
+        await tx.peerConversation.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            matchId: item.matchId,
+            starterUserId: item.starterUserId,
+            receiverUserId: item.receiverUserId,
+            status: item.status ?? 'active',
+            startsAt: date(item.startsAt ?? item.createdAt),
+            consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null,
+            expiresAt: date(item.expiresAt),
+            createdAt: date(item.createdAt),
+            closedAt: item.closedAt ? date(item.closedAt) : null,
+            closedReason: item.closedReason ?? null,
+            feedback: item.feedback ?? null,
+            feedbackNote: item.feedbackNote ?? null,
+            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+            reporterUserId: item.reporterUserId ?? null,
+            reportReason: item.reportReason ?? null,
+          },
+          update: {
+            matchId: item.matchId,
+            starterUserId: item.starterUserId,
+            receiverUserId: item.receiverUserId,
+            status: item.status ?? 'active',
+            startsAt: date(item.startsAt ?? item.createdAt),
+            consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null,
+            expiresAt: date(item.expiresAt),
+            closedAt: item.closedAt ? date(item.closedAt) : null,
+            closedReason: item.closedReason ?? null,
+            feedback: item.feedback ?? null,
+            feedbackNote: item.feedbackNote ?? null,
+            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+            reporterUserId: item.reporterUserId ?? null,
+            reportReason: item.reportReason ?? null,
+          },
+        });
+      for (const item of asArray(state.peerMessages).filter(
+        (item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.senderUserId),
+      ))
+        await tx.peerMessage.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            conversationId: item.conversationId,
+            senderUserId: item.senderUserId,
+            content: item.content,
+            authorType: item.authorType ?? 'HUMAN',
+            createdAt: date(item.createdAt),
+            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+            blockedAt: item.blockedAt ? date(item.blockedAt) : null,
+            piiFlags: json(item.piiFlags ?? []),
+          },
+          update: {
+            conversationId: item.conversationId,
+            senderUserId: item.senderUserId,
+            content: item.content,
+            authorType: item.authorType ?? 'HUMAN',
+            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+            blockedAt: item.blockedAt ? date(item.blockedAt) : null,
+            piiFlags: json(item.piiFlags ?? []),
+          },
+        });
+      for (const item of asArray(state.favorites))
+        await tx.favorite.upsert({
+          where: {
+            userId_targetType_targetId: {
+              userId: item.userId,
+              targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'),
+              targetId: item.targetId,
+            },
+          },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'),
+            targetId: item.targetId,
+            createdAt: date(item.createdAt),
+          },
+          update: {},
+        });
+      for (const item of asArray(state.feedbackCategories))
+        await tx.feedbackCategory.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            name: item.name,
+            sortOrder: Number(item.sortOrder ?? 0),
+            enabled: item.enabled !== false,
+          },
+          update: { name: item.name, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false },
+        });
+      for (const item of asArray(state.faqs))
+        await tx.faqItem.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            question: item.question,
+            answer: item.answer,
+            sortOrder: Number(item.sortOrder ?? 0),
+            enabled: item.enabled !== false,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            question: item.question,
+            answer: item.answer,
+            sortOrder: Number(item.sortOrder ?? 0),
+            enabled: item.enabled !== false,
+          },
+        });
+      for (const item of asArray(state.replyPresets))
+        await tx.replyPreset.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            text: item.text,
+            scene: item.scene,
+            sortOrder: Number(item.sortOrder ?? 0),
+            enabled: item.enabled !== false,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            text: item.text,
+            scene: item.scene,
+            sortOrder: Number(item.sortOrder ?? 0),
+            enabled: item.enabled !== false,
+          },
+        });
+      for (const item of asArray(state.feedbackTickets))
+        await tx.feedbackTicket.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            categoryId: item.categoryId,
+            sourcePage: item.sourcePage,
+            content: item.content,
+            status: valid(item.status, ['open', 'processing', 'resolved', 'closed'] as const, 'open'),
+            priority: item.priority ?? 'medium',
+            screenshots: json(item.screenshots ?? []),
+            reply: item.reply || null,
+            repliedBy: item.repliedBy || null,
+            repliedAt: item.repliedAt ? date(item.repliedAt) : null,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            userId: item.userId,
+            categoryId: item.categoryId,
+            sourcePage: item.sourcePage,
+            content: item.content,
+            status: valid(item.status, ['open', 'processing', 'resolved', 'closed'] as const, 'open'),
+            priority: item.priority ?? 'medium',
+            screenshots: json(item.screenshots ?? []),
+            reply: item.reply || null,
+            repliedBy: item.repliedBy || null,
+            repliedAt: item.repliedAt ? date(item.repliedAt) : null,
+          },
+        });
+      for (const [key, item] of Object.entries(state.systemSettings ?? {}))
+        await tx.systemSetting.upsert({
+          where: { key },
+          create: {
+            key,
+            value: json((item as any).value),
+            description: (item as any).description ?? key,
+            updatedBy: (item as any).updatedBy ?? null,
+          },
+          update: {
+            value: json((item as any).value),
+            description: (item as any).description ?? key,
+            updatedBy: (item as any).updatedBy ?? null,
+          },
+        });
+      for (const item of asArray(state.auditLogs))
+        await tx.auditLog.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            adminUserId: item.adminUserId,
+            action: item.action,
+            resourceType: item.resourceType,
+            resourceId: item.resourceId,
+            beforeJson: json(item.beforeJson),
+            afterJson: json(item.afterJson),
+            ip: item.ip || null,
+            userAgent: item.userAgent || null,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            adminUserId: item.adminUserId,
+            action: item.action,
+            resourceType: item.resourceType,
+            resourceId: item.resourceId,
+            beforeJson: json(item.beforeJson),
+            afterJson: json(item.afterJson),
+            ip: item.ip || null,
+            userAgent: item.userAgent || null,
+          },
+        });
 
-    await tx.moodAttachment.deleteMany();
-    const moodAttachments = asArray(state.moods).flatMap((item: any) => asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({ moodId: item.id, mediaAssetId, sortOrder })));
-    if (moodAttachments.length) await tx.moodAttachment.createMany({ data: moodAttachments, skipDuplicates: true });
-    await tx.diaryAttachment.deleteMany();
-    const diaryAttachments = asArray(state.diaries).flatMap((item: any) => asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({ diaryId: item.id, mediaAssetId, sortOrder })));
-    if (diaryAttachments.length) await tx.diaryAttachment.createMany({ data: diaryAttachments, skipDuplicates: true });
+      await tx.moodAttachment.deleteMany();
+      const moodAttachments = asArray(state.moods).flatMap((item: any) =>
+        asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({
+          moodId: item.id,
+          mediaAssetId,
+          sortOrder,
+        })),
+      );
+      if (moodAttachments.length) await tx.moodAttachment.createMany({ data: moodAttachments, skipDuplicates: true });
+      await tx.diaryAttachment.deleteMany();
+      const diaryAttachments = asArray(state.diaries).flatMap((item: any) =>
+        asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({
+          diaryId: item.id,
+          mediaAssetId,
+          sortOrder,
+        })),
+      );
+      if (diaryAttachments.length)
+        await tx.diaryAttachment.createMany({ data: diaryAttachments, skipDuplicates: true });
 
-    await deleteAbsent(tx.outcomeCheckin, asArray(state.outcomeCheckins).map((item: any) => item.id));
-    await deleteAbsent(tx.journeyUpdate, asArray(state.journeyUpdates).map((item: any) => item.id));
-    await deleteAbsent(tx.actionCommitment, asArray(state.actionCommitments).map((item: any) => item.id));
-    await deleteAbsent(tx.peerMessage, asArray(state.peerMessages).map((item: any) => item.id));
-    // Reports are written before their conversations are pruned so the cascade never races the
-    // history: a report whose conversation is gone is filtered out here instead.
-    for (const item of asArray(state.peerReports).filter((item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.reporterUserId))) await tx.peerReport.upsert({ where: { id: item.id }, create: { id: item.id, conversationId: item.conversationId, experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null, matchId: item.matchId ?? null, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { conversationId: item.conversationId, experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null, matchId: item.matchId ?? null, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
-    await deleteAbsent(tx.peerReport, asArray(state.peerReports).map((item: any) => item.id));
-    for (const item of asArray(state.adminUserNotes).filter((item: any) => userIds.has(item.userId) && adminUserIds.has(item.authorAdminId))) await tx.adminUserNote.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null }, update: { userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, updatedAt: date(item.updatedAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null } });
-    await deleteAbsent(tx.adminUserNote, asArray(state.adminUserNotes).map((item: any) => item.id));
-    await deleteAbsent(tx.peerConversation, asArray(state.peerConversations).map((item: any) => item.id));
-    if (!DIRECT_DB_MODELS.UserNotification) await deleteAbsent(tx.userNotification, asArray(state.notifications).map((item: any) => item.id));
-    await deleteAbsent(tx.peerMatch, asArray(state.peerMatches).map((item: any) => item.id));
-    await deleteAbsent(tx.peerExperience, asArray(state.peerExperiences).map((item: any) => item.id));
-    await deleteAbsent(tx.situationSnapshot, asArray(state.situationSnapshots).map((item: any) => item.id));
-    await deleteAbsent(tx.cooldownItem, asArray(state.cooldownItems).map((item: any) => item.id));
-    await deleteAbsent(tx.decisionRecord, asArray(state.decisionRecords).map((item: any) => item.id));
-    await deleteAbsent(tx.realityHandoff, asArray(state.realityHandoffs).map((item: any) => item.id));
-    await deleteAbsent(tx.trustedContact, asArray(state.trustedContacts).map((item: any) => item.id));
-    await deleteAbsent(tx.messageToFutureSelf, asArray(state.messagesToFutureSelf).map((item: any) => item.id));
-    await deleteAbsent(tx.personalSupportPlan, asArray(state.personalSupportPlans).map((item: any) => item.id));
-    await deleteAbsent(tx.stableSelfProfile, asArray(state.stableSelfProfiles).map((item: any) => item.id));
-    await deleteAbsent(tx.memoryItem, asArray(state.memoryItems).map((item: any) => item.id));
-    await deleteAbsent(tx.recoverySnapshot, asArray(state.recoverySnapshots).map((item: any) => item.id));
-    if (!DIRECT_DB_MODELS.SafetyEvent) await deleteAbsent(tx.safetyEvent, asArray(state.safetyEvents).map((item: any) => item.id));
-    await deleteAbsent(tx.agentDecisionLog, asArray(state.agentDecisionLogs).map((item: any) => item.id));
-    await deleteAbsent(tx.peerReputation, asArray(state.peerReputations).map((item: any) => item.id));
-    await deleteAbsent(tx.lifeJourney, asArray(state.lifeJourneys).map((item: any) => item.id));
-    await deleteAbsent(tx.reply, asArray(state.replies).map((item: any) => item.id));
-    await deleteAbsent(tx.diary, asArray(state.diaries).map((item: any) => item.id));
-    await deleteAbsent(tx.favorite, asArray(state.favorites).map((item: any) => item.id));
-    await deleteAbsent(tx.letter, asArray(state.letters).map((item: any) => item.id));
-    await deleteAbsent(tx.post, asArray(state.posts).map((item: any) => item.id));
-    await deleteAbsent(tx.mood, asArray(state.moods).map((item: any) => item.id));
-    if (!DIRECT_DB_MODELS.AIJob) await deleteAbsent(tx.aIJob, jobs.map((item: any) => item.id));
-    await deleteAbsent(tx.aIStyleRoute, routes.map((item: any) => item.id ?? `route_${item.style}`));
-    if (DIRECT_DB_MODELS.AIJob) {
-      // P1-4 Semantic change (Batch 1 Sub-batch C):
-      // An admin removing an AIProvider that any historical or active AIJob in the database
-      // still references will no longer take effect through the snapshot path.
-      // The foreign key AIJob_providerId_fkey ON DELETE RESTRICT forbids deleting a referenced provider;
-      // attempting to sweep it would abort the transaction with a foreign key violation.
-      // We explicitly preserve any AIProvider currently referenced by a database AIJob.
-      const dbUsedProviders = await tx.aIJob.findMany({
-        select: { providerId: true },
-        distinct: ['providerId'],
+      await deleteAbsent(
+        tx.outcomeCheckin,
+        asArray(state.outcomeCheckins).map((item: any) => item.id),
+      );
+      if (!DIRECT_DB_MODELS.JourneyUpdate)
+        await deleteAbsent(
+          tx.journeyUpdate,
+          asArray(state.journeyUpdates).map((item: any) => item.id),
+        );
+      await deleteAbsent(
+        tx.actionCommitment,
+        asArray(state.actionCommitments).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.peerMessage,
+        asArray(state.peerMessages).map((item: any) => item.id),
+      );
+      // Reports are written before their conversations are pruned so the cascade never races the
+      // history: a report whose conversation is gone is filtered out here instead.
+      for (const item of asArray(state.peerReports).filter(
+        (item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.reporterUserId),
+      ))
+        await tx.peerReport.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            conversationId: item.conversationId,
+            experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null,
+            matchId: item.matchId ?? null,
+            reporterUserId: item.reporterUserId,
+            reason: item.reason,
+            status: item.status ?? 'open',
+            handledAt: item.handledAt ? date(item.handledAt) : null,
+            handledBy: item.handledBy ?? null,
+            note: item.note ?? null,
+            createdAt: date(item.createdAt),
+          },
+          update: {
+            conversationId: item.conversationId,
+            experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null,
+            matchId: item.matchId ?? null,
+            reporterUserId: item.reporterUserId,
+            reason: item.reason,
+            status: item.status ?? 'open',
+            handledAt: item.handledAt ? date(item.handledAt) : null,
+            handledBy: item.handledBy ?? null,
+            note: item.note ?? null,
+          },
+        });
+      await deleteAbsent(
+        tx.peerReport,
+        asArray(state.peerReports).map((item: any) => item.id),
+      );
+      for (const item of asArray(state.adminUserNotes).filter(
+        (item: any) => userIds.has(item.userId) && adminUserIds.has(item.authorAdminId),
+      ))
+        await tx.adminUserNote.upsert({
+          where: { id: item.id },
+          create: {
+            id: item.id,
+            userId: item.userId,
+            authorAdminId: item.authorAdminId,
+            content: item.content,
+            createdAt: date(item.createdAt),
+            updatedAt: date(item.updatedAt),
+            deletedAt: item.deletedAt ? date(item.deletedAt) : null,
+          },
+          update: {
+            userId: item.userId,
+            authorAdminId: item.authorAdminId,
+            content: item.content,
+            updatedAt: date(item.updatedAt),
+            deletedAt: item.deletedAt ? date(item.deletedAt) : null,
+          },
+        });
+      await deleteAbsent(
+        tx.adminUserNote,
+        asArray(state.adminUserNotes).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.peerConversation,
+        asArray(state.peerConversations).map((item: any) => item.id),
+      );
+      if (!DIRECT_DB_MODELS.UserNotification)
+        await deleteAbsent(
+          tx.userNotification,
+          asArray(state.notifications).map((item: any) => item.id),
+        );
+      await deleteAbsent(
+        tx.peerMatch,
+        asArray(state.peerMatches).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.peerExperience,
+        asArray(state.peerExperiences).map((item: any) => item.id),
+      );
+      if (!DIRECT_DB_MODELS.SituationSnapshot)
+        await deleteAbsent(
+          tx.situationSnapshot,
+          asArray(state.situationSnapshots).map((item: any) => item.id),
+        );
+      await deleteAbsent(
+        tx.cooldownItem,
+        asArray(state.cooldownItems).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.decisionRecord,
+        asArray(state.decisionRecords).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.realityHandoff,
+        asArray(state.realityHandoffs).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.trustedContact,
+        asArray(state.trustedContacts).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.messageToFutureSelf,
+        asArray(state.messagesToFutureSelf).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.personalSupportPlan,
+        asArray(state.personalSupportPlans).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.stableSelfProfile,
+        asArray(state.stableSelfProfiles).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.memoryItem,
+        asArray(state.memoryItems).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.recoverySnapshot,
+        asArray(state.recoverySnapshots).map((item: any) => item.id),
+      );
+      if (!DIRECT_DB_MODELS.SafetyEvent)
+        await deleteAbsent(
+          tx.safetyEvent,
+          asArray(state.safetyEvents).map((item: any) => item.id),
+        );
+      await deleteAbsent(
+        tx.agentDecisionLog,
+        asArray(state.agentDecisionLogs).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.peerReputation,
+        asArray(state.peerReputations).map((item: any) => item.id),
+      );
+      if (!DIRECT_DB_MODELS.LifeJourney)
+        await deleteAbsent(
+          tx.lifeJourney,
+          asArray(state.lifeJourneys).map((item: any) => item.id),
+        );
+      await deleteAbsent(
+        tx.reply,
+        asArray(state.replies).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.diary,
+        asArray(state.diaries).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.favorite,
+        asArray(state.favorites).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.letter,
+        asArray(state.letters).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.post,
+        asArray(state.posts).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.mood,
+        asArray(state.moods).map((item: any) => item.id),
+      );
+      if (!DIRECT_DB_MODELS.AIJob)
+        await deleteAbsent(
+          tx.aIJob,
+          jobs.map((item: any) => item.id),
+        );
+      await deleteAbsent(
+        tx.aIStyleRoute,
+        routes.map((item: any) => item.id ?? `route_${item.style}`),
+      );
+      if (DIRECT_DB_MODELS.AIJob) {
+        // P1-4 Semantic change (Batch 1 Sub-batch C):
+        // An admin removing an AIProvider that any historical or active AIJob in the database
+        // still references will no longer take effect through the snapshot path.
+        // The foreign key AIJob_providerId_fkey ON DELETE RESTRICT forbids deleting a referenced provider;
+        // attempting to sweep it would abort the transaction with a foreign key violation.
+        // We explicitly preserve any AIProvider currently referenced by a database AIJob.
+        const dbUsedProviders = await tx.aIJob.findMany({
+          select: { providerId: true },
+          distinct: ['providerId'],
+        });
+        const keepProviderIds = new Set([...providerMap.keys(), ...dbUsedProviders.map((j: any) => j.providerId)]);
+        await deleteAbsent(tx.aIProvider, [...keepProviderIds]);
+      } else {
+        await deleteAbsent(tx.aIProvider, [...providerMap.keys()]);
+      }
+      await deleteAbsent(
+        tx.feedbackTicket,
+        asArray(state.feedbackTickets).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.feedbackCategory,
+        asArray(state.feedbackCategories).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.faqItem,
+        asArray(state.faqs).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.replyPreset,
+        asArray(state.replyPresets).map((item: any) => item.id),
+      );
+      await deleteAbsent(
+        tx.mediaAsset,
+        asArray(state.assets).map((item: any) => item.id),
+      );
+      const fixtureMarker =
+        process.env.VISUAL_FIXTURE_MODE === '1'
+          ? {
+              fixture: {
+                id: 'visual-v1',
+                version: process.env.VISUAL_FIXTURE_VERSION ?? 'unknown',
+                runtimeInstanceId: process.env.RUNTIME_INSTANCE_ID ?? 'unknown',
+              },
+            }
+          : {};
+      await tx.runtimeState.upsert({
+        where: { id: 'default' },
+        create: {
+          id: 'default',
+          payload: {
+            schemaVersion: 2,
+            persistence: 'relational-primary',
+            compatibilitySnapshotAt: new Date().toISOString(),
+            ...fixtureMarker,
+          },
+        },
+        update: {
+          payload: {
+            schemaVersion: 2,
+            persistence: 'relational-primary',
+            compatibilitySnapshotAt: new Date().toISOString(),
+            ...fixtureMarker,
+          },
+        },
       });
-      const keepProviderIds = new Set([...providerMap.keys(), ...dbUsedProviders.map((j: any) => j.providerId)]);
-      await deleteAbsent(tx.aIProvider, [...keepProviderIds]);
-    } else {
-      await deleteAbsent(tx.aIProvider, [...providerMap.keys()]);
-    }
-    await deleteAbsent(tx.feedbackTicket, asArray(state.feedbackTickets).map((item: any) => item.id));
-    await deleteAbsent(tx.feedbackCategory, asArray(state.feedbackCategories).map((item: any) => item.id));
-    await deleteAbsent(tx.faqItem, asArray(state.faqs).map((item: any) => item.id));
-    await deleteAbsent(tx.replyPreset, asArray(state.replyPresets).map((item: any) => item.id));
-    await deleteAbsent(tx.mediaAsset, asArray(state.assets).map((item: any) => item.id));
-    const fixtureMarker = process.env.VISUAL_FIXTURE_MODE === '1'
-      ? { fixture: { id: 'visual-v1', version: process.env.VISUAL_FIXTURE_VERSION ?? 'unknown', runtimeInstanceId: process.env.RUNTIME_INSTANCE_ID ?? 'unknown' } }
-      : {};
-    await tx.runtimeState.upsert({ where: { id: 'default' }, create: { id: 'default', payload: { schemaVersion: 2, persistence: 'relational-primary', compatibilitySnapshotAt: new Date().toISOString(), ...fixtureMarker } }, update: { payload: { schemaVersion: 2, persistence: 'relational-primary', compatibilitySnapshotAt: new Date().toISOString(), ...fixtureMarker } } });
-  }, { maxWait: 10_000, timeout: 30_000 });
+    },
+    { maxWait: 10_000, timeout: 30_000 },
+  );
 }

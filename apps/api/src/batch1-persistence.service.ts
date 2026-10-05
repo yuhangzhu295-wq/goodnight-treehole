@@ -1,8 +1,236 @@
 import crypto from 'node:crypto';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { UserNotification, AIStyle, AIJobStatus } from '@goodnight/shared-types';
+import type { UserNotification, AIStyle, AIJobStatus, SupportIntent, Visibility } from '@goodnight/shared-types';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
+
+export type LifeJourneyRecord = {
+  id: string;
+  userId: string;
+  title: string;
+  domain: string;
+  status: 'active' | 'paused' | 'completed' | 'archived';
+  stage: string;
+  currentIntent?: SupportIntent;
+  intentUpdatedAt?: string;
+  initialIntensity?: number;
+  visibility: Visibility;
+  intensity?: number;
+  summary?: string;
+  nextReviewAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SituationSnapshotRecord = {
+  id: string;
+  journeyId: string;
+  facts: string[];
+  feelings: string[];
+  needs: string[];
+  constraints: string[];
+  risks: string[];
+  domain?: string;
+  subDomain?: string;
+  eventType?: string;
+  eventStartedAt?: string;
+  daysSinceEvent?: number;
+  stage?: string;
+  contextTags: string[];
+  peopleContext?: string[];
+  decisionContext?: string[];
+  behaviorSignals?: string[];
+  recoverySignals?: string[];
+  intensity?: number;
+  urgency?: number;
+  fingerprintJson?: Record<string, unknown>;
+  confidence: 'user_confirmed' | 'agent_draft';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type JourneyUpdateRecord = {
+  id: string;
+  journeyId: string;
+  userId: string;
+  kind: string;
+  content: string;
+  payload?: Record<string, unknown>;
+  stage?: string;
+  intensity?: number;
+  lifeFunction?: string;
+  actionResult?: string;
+  decisionChange?: string;
+  contactState?: string;
+  sleepState?: string;
+  socialState?: string;
+  selfReportedHelpfulness?: number;
+  eventDate?: string;
+  createdAt: string;
+};
+
+export function isGeneratedJourneyTitle(title: string): boolean {
+  const value = title.trim();
+  return value === '正在整理的一件事' || /^.{1,12}里正在整理的一件事$/.test(value);
+}
+
+export function mapLifeJourneyRow(row: {
+  id: string;
+  userId: string;
+  title: string;
+  domain: string;
+  status: string;
+  stage: string;
+  currentIntent?: string | null;
+  intentUpdatedAt?: Date | string | null;
+  initialIntensity?: number | null;
+  visibility: string;
+  intensity?: number | null;
+  summary?: string | null;
+  nextReviewAt?: Date | string | null;
+  completedAt?: Date | string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}): LifeJourneyRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    title: row.title,
+    domain: row.domain,
+    status: row.status as LifeJourneyRecord['status'],
+    stage: row.stage,
+    currentIntent: (row.currentIntent as SupportIntent) ?? undefined,
+    intentUpdatedAt: row.intentUpdatedAt
+      ? row.intentUpdatedAt instanceof Date
+        ? row.intentUpdatedAt.toISOString()
+        : new Date(row.intentUpdatedAt).toISOString()
+      : undefined,
+    initialIntensity: row.initialIntensity ?? undefined,
+    visibility: (row.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE') as Visibility,
+    intensity: row.intensity ?? undefined,
+    summary: row.summary ?? undefined,
+    nextReviewAt: row.nextReviewAt
+      ? row.nextReviewAt instanceof Date
+        ? row.nextReviewAt.toISOString()
+        : new Date(row.nextReviewAt).toISOString()
+      : undefined,
+    completedAt: row.completedAt
+      ? row.completedAt instanceof Date
+        ? row.completedAt.toISOString()
+        : new Date(row.completedAt).toISOString()
+      : undefined,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : new Date(row.updatedAt).toISOString(),
+  };
+}
+
+export function mapSituationSnapshotRow(row: {
+  id: string;
+  journeyId: string;
+  facts: any;
+  feelings: any;
+  needs: any;
+  constraints: any;
+  risks: any;
+  domain?: string | null;
+  subDomain?: string | null;
+  eventType?: string | null;
+  eventStartedAt?: Date | string | null;
+  daysSinceEvent?: number | null;
+  stage?: string | null;
+  contextTags?: any;
+  peopleContext?: any;
+  decisionContext?: any;
+  behaviorSignals?: any;
+  recoverySignals?: any;
+  intensity?: number | null;
+  urgency?: number | null;
+  fingerprintJson?: any;
+  confidence: string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}): SituationSnapshotRecord {
+  const toList = (val: any) => (Array.isArray(val) ? val.map(String) : []);
+  return {
+    id: row.id,
+    journeyId: row.journeyId,
+    facts: toList(row.facts),
+    feelings: toList(row.feelings),
+    needs: toList(row.needs),
+    constraints: toList(row.constraints),
+    risks: toList(row.risks),
+    domain: row.domain ?? undefined,
+    subDomain: row.subDomain ?? undefined,
+    eventType: row.eventType ?? undefined,
+    eventStartedAt: row.eventStartedAt
+      ? row.eventStartedAt instanceof Date
+        ? row.eventStartedAt.toISOString()
+        : new Date(row.eventStartedAt).toISOString()
+      : undefined,
+    daysSinceEvent: row.daysSinceEvent ?? undefined,
+    stage: row.stage ?? undefined,
+    contextTags: toList(row.contextTags),
+    peopleContext: Array.isArray(row.peopleContext) ? row.peopleContext.map(String) : undefined,
+    decisionContext: Array.isArray(row.decisionContext) ? row.decisionContext.map(String) : undefined,
+    behaviorSignals: Array.isArray(row.behaviorSignals) ? row.behaviorSignals.map(String) : undefined,
+    recoverySignals: Array.isArray(row.recoverySignals) ? row.recoverySignals.map(String) : undefined,
+    intensity: row.intensity ?? undefined,
+    urgency: row.urgency ?? undefined,
+    fingerprintJson:
+      row.fingerprintJson && typeof row.fingerprintJson === 'object'
+        ? (row.fingerprintJson as Record<string, unknown>)
+        : undefined,
+    confidence: (row.confidence === 'user_confirmed' ? 'user_confirmed' : 'agent_draft') as
+      'user_confirmed' | 'agent_draft',
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : new Date(row.updatedAt).toISOString(),
+  };
+}
+
+export function mapJourneyUpdateRow(row: {
+  id: string;
+  journeyId: string;
+  userId: string;
+  kind: string;
+  content: string;
+  payload?: any;
+  stage?: string | null;
+  intensity?: number | null;
+  lifeFunction?: string | null;
+  actionResult?: string | null;
+  decisionChange?: string | null;
+  contactState?: string | null;
+  sleepState?: string | null;
+  socialState?: string | null;
+  selfReportedHelpfulness?: number | null;
+  eventDate?: Date | string | null;
+  createdAt: Date | string;
+}): JourneyUpdateRecord {
+  return {
+    id: row.id,
+    journeyId: row.journeyId,
+    userId: row.userId,
+    kind: row.kind,
+    content: row.content,
+    payload: row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, unknown>) : undefined,
+    stage: row.stage ?? undefined,
+    intensity: row.intensity ?? undefined,
+    lifeFunction: row.lifeFunction ?? undefined,
+    actionResult: row.actionResult ?? undefined,
+    decisionChange: row.decisionChange ?? undefined,
+    contactState: row.contactState ?? undefined,
+    sleepState: row.sleepState ?? undefined,
+    socialState: row.socialState ?? undefined,
+    selfReportedHelpfulness: row.selfReportedHelpfulness ?? undefined,
+    eventDate: row.eventDate
+      ? row.eventDate instanceof Date
+        ? row.eventDate.toISOString()
+        : new Date(row.eventDate).toISOString()
+      : undefined,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+  };
+}
 
 export type AIJobRecord = {
   id: string;
@@ -106,7 +334,11 @@ export function mapUserNotificationRow(row: {
     targetRoute: row.targetRoute ?? undefined,
     status: row.status as 'unread' | 'read',
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
-    readAt: row.readAt ? (row.readAt instanceof Date ? row.readAt.toISOString() : new Date(row.readAt).toISOString()) : undefined,
+    readAt: row.readAt
+      ? row.readAt instanceof Date
+        ? row.readAt.toISOString()
+        : new Date(row.readAt).toISOString()
+      : undefined,
   };
 }
 
@@ -157,7 +389,9 @@ export function mapSafetyEventRow(row: {
     payload: row.payload ?? undefined,
     status: (row.status === 'handled' ? 'handled' : 'open') as 'open' | 'handled',
     handledAt: row.handledAt
-      ? (row.handledAt instanceof Date ? row.handledAt.toISOString() : new Date(row.handledAt).toISOString())
+      ? row.handledAt instanceof Date
+        ? row.handledAt.toISOString()
+        : new Date(row.handledAt).toISOString()
       : undefined,
     handledBy: row.handledBy ?? undefined,
     note: row.note ?? undefined,
@@ -287,10 +521,7 @@ export class Batch1PersistenceService {
     return { count: result.count };
   }
 
-  async deleteNotificationsForArchive(params: {
-    userId: string;
-    archiveRoute: string;
-  }): Promise<{ count: number }> {
+  async deleteNotificationsForArchive(params: { userId: string; archiveRoute: string }): Promise<{ count: number }> {
     const result = await this.prisma.userNotification.deleteMany({
       where: {
         userId: params.userId,
@@ -397,9 +628,7 @@ export class Batch1PersistenceService {
       if (status === 'handled') {
         handledAt = now;
         handledBy = adminUserId;
-        note = typeof input.note === 'string' && input.note.trim()
-          ? input.note.trim().slice(0, 500)
-          : null;
+        note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : null;
       }
 
       const updated = await tx.safetyEvent.update({
@@ -725,7 +954,10 @@ export class Batch1PersistenceService {
     return row ? mapAiJobRow(row) : null;
   }
 
-  async listAdminAiJobs(page?: string, pageSize?: string): Promise<{
+  async listAdminAiJobs(
+    page?: string,
+    pageSize?: string,
+  ): Promise<{
     items: AIJobRecord[];
     total: number;
     page: number;
@@ -875,10 +1107,7 @@ export class Batch1PersistenceService {
     return { count: result.count };
   }
 
-  async deleteAiJobsForArchive(params: {
-    journeyId: string;
-    actionIds: string[];
-  }): Promise<{ count: number }> {
+  async deleteAiJobsForArchive(params: { journeyId: string; actionIds: string[] }): Promise<{ count: number }> {
     const contentIds = [params.journeyId, ...params.actionIds];
     const result = await this.prisma.aIJob.deleteMany({
       where: { contentId: { in: contentIds } },
@@ -890,6 +1119,938 @@ export class Batch1PersistenceService {
     await this.prisma.aIJob.update({
       where: { id },
       data: { retryCount },
+    });
+  }
+
+  // ==========================================
+  // Batch 1 Sub-batch D: Journey, SituationSnapshot, JourneyUpdate
+  // ==========================================
+
+  async getJourneyById(id: string): Promise<LifeJourneyRecord | null> {
+    const row = await this.prisma.lifeJourney.findUnique({ where: { id } });
+    return row ? mapLifeJourneyRow(row) : null;
+  }
+
+  async getJourneyByIdAndUser(id: string, userId: string): Promise<LifeJourneyRecord | null> {
+    const row = await this.prisma.lifeJourney.findFirst({ where: { id, userId } });
+    return row ? mapLifeJourneyRow(row) : null;
+  }
+
+  async getActiveJourneyForUser(userId: string): Promise<LifeJourneyRecord | null> {
+    const row = await this.prisma.lifeJourney.findFirst({
+      where: { userId, status: 'active' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return row ? mapLifeJourneyRow(row) : null;
+  }
+
+  async listJourneysForUser(userId: string, filter?: { status?: string }): Promise<LifeJourneyRecord[]> {
+    const where: Prisma.LifeJourneyWhereInput = { userId };
+    if (filter?.status && filter.status !== 'all') {
+      where.status = filter.status as any;
+    }
+    const rows = await this.prisma.lifeJourney.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(mapLifeJourneyRow);
+  }
+
+  async listArchivedJourneysForUser(userId: string): Promise<LifeJourneyRecord[]> {
+    const rows = await this.prisma.lifeJourney.findMany({
+      where: { userId, status: { in: ['archived', 'completed'] } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(mapLifeJourneyRow);
+  }
+
+  async getSnapshotByJourneyId(journeyId: string): Promise<SituationSnapshotRecord | null> {
+    const row = await this.prisma.situationSnapshot.findUnique({ where: { journeyId } });
+    return row ? mapSituationSnapshotRow(row) : null;
+  }
+
+  async listUpdatesForJourney(journeyId: string, limit?: number): Promise<JourneyUpdateRecord[]> {
+    const rows = await this.prisma.journeyUpdate.findMany({
+      where: { journeyId },
+      orderBy: { createdAt: 'desc' },
+      ...(limit ? { take: limit } : {}),
+    });
+    return rows.map(mapJourneyUpdateRow);
+  }
+
+  async countUpdatesForJourney(journeyId: string): Promise<number> {
+    return await this.prisma.journeyUpdate.count({ where: { journeyId } });
+  }
+
+  async countUpdatesByJourneyIds(journeyIds: string[]): Promise<Map<string, number>> {
+    if (journeyIds.length === 0) return new Map();
+    const rows = await this.prisma.journeyUpdate.groupBy({
+      by: ['journeyId'],
+      where: { journeyId: { in: journeyIds } },
+      _count: { id: true },
+    });
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      map.set(r.journeyId, r._count.id);
+    }
+    return map;
+  }
+
+  async countActiveJourneys(userId?: string): Promise<number> {
+    return await this.prisma.lifeJourney.count({
+      where: {
+        status: 'active',
+        ...(userId ? { userId } : {}),
+      },
+    });
+  }
+
+  async countTotalJourneys(): Promise<number> {
+    return await this.prisma.lifeJourney.count();
+  }
+
+  async getSupportIntentDistribution(): Promise<Record<string, number>> {
+    const rows = await this.prisma.lifeJourney.groupBy({
+      by: ['currentIntent'],
+      where: { currentIntent: { not: null } },
+      _count: { currentIntent: true },
+    });
+    const dist: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.currentIntent) dist[r.currentIntent] = r._count.currentIntent;
+    }
+    return dist;
+  }
+
+  async getAvailableMonthsForJourneys(userId: string): Promise<string[]> {
+    const journeys = await this.prisma.lifeJourney.findMany({
+      where: { userId },
+      select: { createdAt: true, updatedAt: true, completedAt: true, intentUpdatedAt: true },
+    });
+    const months = new Set<string>();
+    const addDate = (d?: Date | null) => {
+      if (d) {
+        const isoStr = d.toISOString();
+        if (/^\d{4}-\d{2}/.test(isoStr)) months.add(isoStr.slice(0, 7));
+      }
+    };
+    for (const j of journeys) {
+      addDate(j.createdAt);
+      addDate(j.updatedAt);
+      addDate(j.completedAt);
+      addDate(j.intentUpdatedAt);
+    }
+    return Array.from(months);
+  }
+
+  async getJourneysForMonth(userId: string): Promise<LifeJourneyRecord[]> {
+    const rows = await this.prisma.lifeJourney.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(mapLifeJourneyRow);
+  }
+
+  async listAdminJourneys(): Promise<LifeJourneyRecord[]> {
+    const rows = await this.prisma.lifeJourney.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(mapLifeJourneyRow);
+  }
+
+  async getJourneysByIds(ids: string[]): Promise<LifeJourneyRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.prisma.lifeJourney.findMany({
+      where: { id: { in: ids } },
+    });
+    return rows.map(mapLifeJourneyRow);
+  }
+
+  async listUpdatesForLegacyCleanup(params: {
+    demoUserId: string;
+    fixturePattern: RegExp;
+  }): Promise<JourneyUpdateRecord[]> {
+    const rows = await this.prisma.journeyUpdate.findMany({
+      where: { userId: params.demoUserId },
+    });
+    return rows.filter((row) => params.fixturePattern.test(row.content)).map(mapJourneyUpdateRow);
+  }
+
+  async listJourneysForLegacyCleanup(params: {
+    demoUserId: string;
+    fixturePattern: RegExp;
+  }): Promise<LifeJourneyRecord[]> {
+    const rows = await this.prisma.lifeJourney.findMany({
+      where: { userId: params.demoUserId },
+    });
+    return rows
+      .filter((row) => params.fixturePattern.test(`${row.title}\n${row.summary ?? ''}`))
+      .map(mapLifeJourneyRow);
+  }
+
+  async createJourneyWithSnapshotAndUpdate(params: {
+    journey: {
+      id: string;
+      userId: string;
+      title: string;
+      domain: string;
+      status: 'active' | 'paused' | 'completed' | 'archived';
+      stage: string;
+      visibility: Visibility;
+      intensity?: number;
+      initialIntensity?: number;
+      summary?: string;
+      createdAt: string;
+      updatedAt: string;
+    };
+    snapshot: {
+      id: string;
+      journeyId: string;
+      facts: string[];
+      feelings: string[];
+      needs: string[];
+      constraints: string[];
+      risks: string[];
+      domain: string;
+      contextTags: string[];
+      confidence: 'user_confirmed' | 'agent_draft';
+      createdAt: string;
+      updatedAt: string;
+    };
+    update: {
+      id: string;
+      journeyId: string;
+      userId: string;
+      kind: string;
+      content: string;
+      createdAt: string;
+    };
+  }): Promise<{ journey: LifeJourneyRecord; snapshot: SituationSnapshotRecord; update: JourneyUpdateRecord }> {
+    return await this.prisma.$transaction(async (tx) => {
+      const createdJourney = await tx.lifeJourney.create({
+        data: {
+          id: params.journey.id,
+          userId: params.journey.userId,
+          title: params.journey.title,
+          domain: params.journey.domain,
+          status: params.journey.status,
+          stage: params.journey.stage,
+          visibility: params.journey.visibility,
+          intensity: params.journey.intensity ?? null,
+          initialIntensity: params.journey.initialIntensity ?? null,
+          summary: params.journey.summary ?? null,
+          createdAt: new Date(params.journey.createdAt),
+          updatedAt: new Date(params.journey.updatedAt),
+        },
+      });
+
+      const createdSnapshot = await tx.situationSnapshot.create({
+        data: {
+          id: params.snapshot.id,
+          journeyId: params.snapshot.journeyId,
+          facts: params.snapshot.facts as Prisma.InputJsonValue,
+          feelings: params.snapshot.feelings as Prisma.InputJsonValue,
+          needs: params.snapshot.needs as Prisma.InputJsonValue,
+          constraints: params.snapshot.constraints as Prisma.InputJsonValue,
+          risks: params.snapshot.risks as Prisma.InputJsonValue,
+          domain: params.snapshot.domain,
+          contextTags: params.snapshot.contextTags as Prisma.InputJsonValue,
+          confidence: params.snapshot.confidence,
+          createdAt: new Date(params.snapshot.createdAt),
+          updatedAt: new Date(params.snapshot.updatedAt),
+        },
+      });
+
+      const createdUpdate = await tx.journeyUpdate.create({
+        data: {
+          id: params.update.id,
+          journeyId: params.update.journeyId,
+          userId: params.update.userId,
+          kind: params.update.kind,
+          content: params.update.content,
+          createdAt: new Date(params.update.createdAt),
+        },
+      });
+
+      return {
+        journey: mapLifeJourneyRow(createdJourney),
+        snapshot: mapSituationSnapshotRow(createdSnapshot),
+        update: mapJourneyUpdateRow(createdUpdate),
+      };
+    });
+  }
+
+  async patchJourney(
+    journeyId: string,
+    body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string },
+    expectedUpdatedAt?: Date | string,
+  ): Promise<LifeJourneyRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+      if (!existing) throw new NotFoundException('旅程不存在');
+
+      const data: Prisma.LifeJourneyUpdateInput = {};
+      if (typeof body.title === 'string' && body.title.trim()) {
+        data.title = body.title.trim().slice(0, 120);
+      }
+      if (typeof body.summary === 'string') {
+        data.summary = body.summary.trim().slice(0, 500);
+      }
+      if (body.status) {
+        data.status = body.status;
+      }
+      data.updatedAt = new Date();
+
+      if (expectedUpdatedAt) {
+        const result = await tx.lifeJourney.updateMany({
+          where: { id: journeyId, updatedAt: new Date(expectedUpdatedAt) },
+          data,
+        });
+        if (result.count === 0) {
+          throw new BadRequestException('旅程已被并发更新，请刷新重试');
+        }
+      } else {
+        await tx.lifeJourney.update({
+          where: { id: journeyId },
+          data,
+        });
+      }
+
+      const updated = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+      return mapLifeJourneyRow(updated!);
+    });
+  }
+
+  async setJourneyIntent(params: {
+    journeyId: string;
+    intent: SupportIntent;
+    stage: string;
+    intentUpdatedAt: string;
+    updatedAt: string;
+  }): Promise<LifeJourneyRecord> {
+    const updated = await this.prisma.lifeJourney.update({
+      where: { id: params.journeyId },
+      data: {
+        currentIntent: params.intent,
+        stage: params.stage,
+        intentUpdatedAt: new Date(params.intentUpdatedAt),
+        updatedAt: new Date(params.updatedAt),
+      },
+    });
+    return mapLifeJourneyRow(updated);
+  }
+
+  async confirmSituation(params: {
+    journeyId: string;
+    snapshotInput: {
+      facts?: string[];
+      feelings?: string[];
+      needs?: string[];
+      constraints?: string[];
+      risks?: string[];
+      domain?: string;
+      subDomain?: string;
+      eventType?: string;
+      stage?: string;
+      contextTags?: string[];
+      peopleContext?: string[];
+      decisionContext?: string[];
+      behaviorSignals?: string[];
+      recoverySignals?: string[];
+      intensity?: number;
+      urgency?: number;
+    };
+    submittedIntensity?: number;
+    shouldRecordIntensity: boolean;
+    updateContent?: string;
+  }): Promise<{ snapshot: SituationSnapshotRecord; journey: LifeJourneyRecord }> {
+    return await this.prisma.$transaction(async (tx) => {
+      const dbSnapshot = await tx.situationSnapshot.findUnique({ where: { journeyId: params.journeyId } });
+      if (!dbSnapshot) throw new NotFoundException('情境快照不存在');
+      const dbJourney = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
+      if (!dbJourney) throw new NotFoundException('旅程不存在');
+
+      const nowTime = new Date();
+      const updatedSnapshot = await tx.situationSnapshot.update({
+        where: { journeyId: params.journeyId },
+        data: {
+          facts: (params.snapshotInput.facts ?? (dbSnapshot.facts as any)) as Prisma.InputJsonValue,
+          feelings: (params.snapshotInput.feelings ?? (dbSnapshot.feelings as any)) as Prisma.InputJsonValue,
+          needs: (params.snapshotInput.needs ?? (dbSnapshot.needs as any)) as Prisma.InputJsonValue,
+          constraints: (params.snapshotInput.constraints ?? (dbSnapshot.constraints as any)) as Prisma.InputJsonValue,
+          risks: (params.snapshotInput.risks ?? (dbSnapshot.risks as any)) as Prisma.InputJsonValue,
+          domain: params.snapshotInput.domain ?? dbSnapshot.domain,
+          subDomain: params.snapshotInput.subDomain ?? dbSnapshot.subDomain,
+          eventType: params.snapshotInput.eventType ?? dbSnapshot.eventType,
+          stage: params.snapshotInput.stage ?? dbSnapshot.stage,
+          contextTags: (params.snapshotInput.contextTags ?? (dbSnapshot.contextTags as any)) as Prisma.InputJsonValue,
+          peopleContext: (params.snapshotInput.peopleContext ??
+            (dbSnapshot.peopleContext as any)) as Prisma.InputJsonValue,
+          decisionContext: (params.snapshotInput.decisionContext ??
+            (dbSnapshot.decisionContext as any)) as Prisma.InputJsonValue,
+          behaviorSignals: (params.snapshotInput.behaviorSignals ??
+            (dbSnapshot.behaviorSignals as any)) as Prisma.InputJsonValue,
+          recoverySignals: (params.snapshotInput.recoverySignals ??
+            (dbSnapshot.recoverySignals as any)) as Prisma.InputJsonValue,
+          intensity: params.snapshotInput.intensity ?? dbSnapshot.intensity,
+          urgency: params.snapshotInput.urgency ?? dbSnapshot.urgency,
+          fingerprintJson: {
+            domain: params.snapshotInput.domain ?? dbSnapshot.domain,
+            subDomain: params.snapshotInput.subDomain ?? dbSnapshot.subDomain,
+            eventType: params.snapshotInput.eventType ?? dbSnapshot.eventType,
+            stage: params.snapshotInput.stage ?? dbSnapshot.stage,
+            contextTags: params.snapshotInput.contextTags ?? dbSnapshot.contextTags,
+            peopleContext: params.snapshotInput.peopleContext ?? dbSnapshot.peopleContext,
+            decisionContext: params.snapshotInput.decisionContext ?? dbSnapshot.decisionContext,
+            behaviorSignals: params.snapshotInput.behaviorSignals ?? dbSnapshot.behaviorSignals,
+            recoverySignals: params.snapshotInput.recoverySignals ?? dbSnapshot.recoverySignals,
+          } as Prisma.InputJsonValue,
+          confidence: 'user_confirmed',
+          updatedAt: nowTime,
+        },
+      });
+
+      const journeyData: Prisma.LifeJourneyUpdateInput = { updatedAt: nowTime };
+      if (params.submittedIntensity !== undefined) {
+        journeyData.intensity = params.submittedIntensity;
+        if (dbJourney.initialIntensity == null) {
+          journeyData.initialIntensity = params.submittedIntensity;
+        }
+      }
+      const updatedJourney = await tx.lifeJourney.update({
+        where: { id: params.journeyId },
+        data: journeyData,
+      });
+
+      if (params.shouldRecordIntensity && params.updateContent) {
+        await tx.journeyUpdate.create({
+          data: {
+            id: `journey_update_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            journeyId: params.journeyId,
+            userId: dbJourney.userId,
+            kind: 'intensity',
+            content: params.updateContent,
+            intensity: params.submittedIntensity,
+            createdAt: nowTime,
+          },
+        });
+      }
+
+      return {
+        snapshot: mapSituationSnapshotRow(updatedSnapshot),
+        journey: mapLifeJourneyRow(updatedJourney),
+      };
+    });
+  }
+
+  async reanalyzeSituation(params: {
+    journeyId: string;
+    userId: string;
+    updateId: string;
+  }): Promise<{ snapshot: SituationSnapshotRecord }> {
+    return await this.prisma.$transaction(async (tx) => {
+      const nowTime = new Date();
+      const updatedSnapshot = await tx.situationSnapshot.update({
+        where: { journeyId: params.journeyId },
+        data: {
+          confidence: 'agent_draft',
+          updatedAt: nowTime,
+        },
+      });
+      await tx.journeyUpdate.create({
+        data: {
+          id: params.updateId,
+          journeyId: params.journeyId,
+          userId: params.userId,
+          kind: 'fingerprint_reanalysis_requested',
+          content: '我请求系统根据原话重新整理了这段经历。',
+          createdAt: nowTime,
+        },
+      });
+      return { snapshot: mapSituationSnapshotRow(updatedSnapshot) };
+    });
+  }
+
+  async acknowledgeSafety(params: {
+    journeyId: string;
+    userId: string;
+    updateId: string;
+  }): Promise<{ journey: LifeJourneyRecord }> {
+    return await this.prisma.$transaction(async (tx) => {
+      const nowTime = new Date();
+      const updatedJourney = await tx.lifeJourney.update({
+        where: { id: params.journeyId },
+        data: {
+          stage: 'stabilizing',
+          currentIntent: 'JUST_LISTEN',
+          intentUpdatedAt: nowTime,
+          updatedAt: nowTime,
+        },
+      });
+      await tx.journeyUpdate.create({
+        data: {
+          id: params.updateId,
+          journeyId: params.journeyId,
+          userId: params.userId,
+          kind: 'safety_acknowledged',
+          content: '我暂时安全，决定继续留在这里，先让自己稳定下来。',
+          createdAt: nowTime,
+        },
+      });
+      return { journey: mapLifeJourneyRow(updatedJourney) };
+    });
+  }
+
+  async addJourneyUpdate(
+    journeyId: string,
+    userId: string,
+    update: {
+      id: string;
+      kind: string;
+      content: string;
+      stage?: string;
+      intensity?: number;
+      lifeFunction?: string;
+      actionResult?: string;
+      decisionChange?: string;
+      contactState?: string;
+      sleepState?: string;
+      socialState?: string;
+      selfReportedHelpfulness?: number;
+      eventDate?: string;
+      payload?: Record<string, unknown>;
+      createdAt: string;
+    },
+  ): Promise<JourneyUpdateRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      const created = await tx.journeyUpdate.create({
+        data: {
+          id: update.id,
+          journeyId,
+          userId,
+          kind: update.kind,
+          content: update.content,
+          stage: update.stage ?? null,
+          intensity: update.intensity ?? null,
+          lifeFunction: update.lifeFunction ?? null,
+          actionResult: update.actionResult ?? null,
+          decisionChange: update.decisionChange ?? null,
+          contactState: update.contactState ?? null,
+          sleepState: update.sleepState ?? null,
+          socialState: update.socialState ?? null,
+          selfReportedHelpfulness: update.selfReportedHelpfulness ?? null,
+          eventDate: update.eventDate ? new Date(update.eventDate) : null,
+          payload: update.payload ? (update.payload as Prisma.InputJsonValue) : Prisma.JsonNull,
+          createdAt: new Date(update.createdAt),
+        },
+      });
+      await tx.lifeJourney.update({
+        where: { id: journeyId },
+        data: { updatedAt: new Date() },
+      });
+      return mapJourneyUpdateRow(created);
+    });
+  }
+
+  async onActionCommitmentCreated(params: {
+    journeyId: string;
+    userId: string;
+    stage?: string;
+    update: {
+      id: string;
+      content: string;
+      payload?: Record<string, unknown>;
+      createdAt: string;
+    };
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.lifeJourney.update({
+        where: { id: params.journeyId },
+        data: {
+          stage: params.stage ?? 'acting',
+          updatedAt: new Date(params.update.createdAt),
+        },
+      });
+      await tx.journeyUpdate.create({
+        data: {
+          id: params.update.id,
+          journeyId: params.journeyId,
+          userId: params.userId,
+          kind: 'commitment_created',
+          content: params.update.content,
+          payload: params.update.payload ? (params.update.payload as Prisma.InputJsonValue) : Prisma.JsonNull,
+          createdAt: new Date(params.update.createdAt),
+        },
+      });
+    });
+  }
+
+  async onActionCheckin(params: {
+    journeyId: string;
+    userId: string;
+    update: {
+      id: string;
+      content: string;
+      payload?: Record<string, unknown>;
+      stage?: string;
+      intensity?: number;
+      lifeFunction?: string;
+      actionResult?: string;
+      decisionChange?: string;
+      contactState?: string;
+      sleepState?: string;
+      socialState?: string;
+      selfReportedHelpfulness?: number;
+      createdAt: string;
+    };
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journeyUpdate.create({
+        data: {
+          id: params.update.id,
+          journeyId: params.journeyId,
+          userId: params.userId,
+          kind: 'checkin',
+          content: params.update.content,
+          payload: params.update.payload ? (params.update.payload as Prisma.InputJsonValue) : Prisma.JsonNull,
+          stage: params.update.stage ?? null,
+          intensity: params.update.intensity ?? null,
+          lifeFunction: params.update.lifeFunction ?? null,
+          actionResult: params.update.actionResult ?? null,
+          decisionChange: params.update.decisionChange ?? null,
+          contactState: params.update.contactState ?? null,
+          sleepState: params.update.sleepState ?? null,
+          socialState: params.update.socialState ?? null,
+          selfReportedHelpfulness: params.update.selfReportedHelpfulness ?? null,
+          createdAt: new Date(params.update.createdAt),
+        },
+      });
+      await tx.lifeJourney.update({
+        where: { id: params.journeyId },
+        data: { updatedAt: new Date() },
+      });
+    });
+  }
+
+  async restoreArchivedJourney(journeyId: string, userId: string): Promise<LifeJourneyRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      // D3: Lock parent User row to serialize check-then-act against concurrent restores/inserts
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
+
+      const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+      if (!journey || journey.userId !== userId) throw new NotFoundException('旅程不存在或无权访问');
+      if (journey.status !== 'archived') {
+        throw new BadRequestException('只有手动归档的旅程可以恢复；已完成的旅程会保留在归档中');
+      }
+
+      const activeCount = await tx.lifeJourney.count({
+        where: { userId, status: 'active', id: { not: journeyId } },
+      });
+      if (activeCount > 0) {
+        throw new BadRequestException('请先结束或暂停当前旅程，再恢复这段归档');
+      }
+
+      const updated = await tx.lifeJourney.update({
+        where: { id: journeyId },
+        data: { status: 'active', updatedAt: new Date() },
+      });
+      return mapLifeJourneyRow(updated);
+    });
+  }
+
+  async updateJourneyStatus(
+    journeyId: string,
+    status: 'active' | 'paused' | 'archived',
+    userId?: string,
+  ): Promise<LifeJourneyRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+      if (!journey) throw new NotFoundException('旅程不存在');
+      const targetUserId = userId ?? journey.userId;
+
+      if (status === 'active') {
+        // D3: Lock parent User row when activating
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${targetUserId} FOR UPDATE`);
+        const activeCount = await tx.lifeJourney.count({
+          where: { userId: targetUserId, status: 'active', id: { not: journeyId } },
+        });
+        if (activeCount > 0) {
+          throw new BadRequestException('请先结束或暂停当前旅程，再恢复这段归档');
+        }
+      }
+
+      const updated = await tx.lifeJourney.update({
+        where: { id: journeyId },
+        data: { status, updatedAt: new Date() },
+      });
+      return mapLifeJourneyRow(updated);
+    });
+  }
+
+  async graduateJourney(journeyId: string, userId: string): Promise<LifeJourneyRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
+      const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+      if (!journey || journey.userId !== userId) throw new NotFoundException('旅程不存在或无权访问');
+
+      const nowTime = new Date();
+      const updated = await tx.lifeJourney.update({
+        where: { id: journeyId },
+        data: {
+          status: 'completed',
+          stage: 'graduated',
+          completedAt: nowTime,
+          updatedAt: nowTime,
+        },
+      });
+      return mapLifeJourneyRow(updated);
+    });
+  }
+
+  async deleteJourneyArchive(params: {
+    journeyId: string;
+    userId: string;
+    actionIds: string[];
+    archiveRoute: string;
+  }): Promise<{ deletedJourneyId: string }> {
+    return await this.prisma.$transaction(async (tx) => {
+      const journey = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
+      if (!journey || journey.userId !== params.userId) throw new NotFoundException('旅程不存在或无权访问');
+      if (!['archived', 'completed'].includes(journey.status)) {
+        throw new BadRequestException('只能删除已归档或已完成的旅程');
+      }
+
+      const { journeyId } = params;
+
+      // 1. Explicitly detach legacy relations
+      await tx.diary.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.mood.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.post.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.peerExperience.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.peerMatch.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.decisionRecord.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.realityHandoff.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.messageToFutureSelf.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.personalSupportPlan.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.memoryItem.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.recoverySnapshot.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.agentDecisionLog.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.followUpJob.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await tx.safetyEvent.updateMany({ where: { journeyId }, data: { journeyId: null } });
+
+      // 2. Delete child records
+      if (params.actionIds.length > 0) {
+        await tx.outcomeCheckin.deleteMany({
+          where: { OR: [{ journeyId }, { commitmentId: { in: params.actionIds } }] },
+        });
+        await tx.actionCommitment.deleteMany({ where: { id: { in: params.actionIds } } });
+      } else {
+        await tx.outcomeCheckin.deleteMany({ where: { journeyId } });
+        await tx.actionCommitment.deleteMany({ where: { journeyId } });
+      }
+      await tx.journeyUpdate.deleteMany({ where: { journeyId } });
+      await tx.situationSnapshot.deleteMany({ where: { journeyId } });
+
+      const contentIds = [journeyId, ...params.actionIds];
+      await tx.aIJob.deleteMany({ where: { contentId: { in: contentIds } } });
+      await tx.userNotification.deleteMany({ where: { userId: params.userId, targetRoute: params.archiveRoute } });
+
+      // 3. Delete LifeJourney row
+      await tx.lifeJourney.delete({ where: { id: journeyId } });
+
+      return { deletedJourneyId: journeyId };
+    });
+  }
+
+  async deleteJourneysForTestCleanup(params: {
+    journeyIds: string[];
+    actionIds: string[];
+  }): Promise<{ count: number }> {
+    if (params.journeyIds.length === 0) return { count: 0 };
+    return await this.prisma.$transaction(async (tx) => {
+      for (const journeyId of params.journeyIds) {
+        await tx.diary.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.mood.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.post.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.peerExperience.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.peerMatch.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.decisionRecord.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.realityHandoff.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.messageToFutureSelf.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.personalSupportPlan.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.memoryItem.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.recoverySnapshot.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.agentDecisionLog.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.followUpJob.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await tx.safetyEvent.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      }
+
+      await tx.outcomeCheckin.deleteMany({
+        where: {
+          OR: [
+            { journeyId: { in: params.journeyIds } },
+            ...(params.actionIds.length ? [{ commitmentId: { in: params.actionIds } }] : []),
+          ],
+        },
+      });
+      if (params.actionIds.length > 0) {
+        await tx.actionCommitment.deleteMany({ where: { id: { in: params.actionIds } } });
+      }
+      await tx.journeyUpdate.deleteMany({ where: { journeyId: { in: params.journeyIds } } });
+      await tx.situationSnapshot.deleteMany({ where: { journeyId: { in: params.journeyIds } } });
+      const delRes = await tx.lifeJourney.deleteMany({ where: { id: { in: params.journeyIds } } });
+      return { count: delRes.count };
+    });
+  }
+
+  async applySituationAnalysisAiCompletion(params: {
+    journeyId: string;
+    userId: string;
+    completedJob: AIJobRecord;
+    expectedJourneyUpdatedAt?: Date | string;
+    expectedSnapshotUpdatedAt?: Date | string;
+    isGeneratedTitle?: (title: string) => boolean;
+  }): Promise<{ applied: boolean }> {
+    const { journeyId, userId, completedJob } = params;
+    if (!['succeeded', 'fallback'].includes(completedJob.status)) return { applied: false };
+
+    return await this.prisma.$transaction(async (tx) => {
+      const dbSnapshot = await tx.situationSnapshot.findUnique({
+        where: { journeyId },
+      });
+      const dbJourney = await tx.lifeJourney.findUnique({
+        where: { id: journeyId },
+      });
+
+      if (!dbJourney || !dbSnapshot) return { applied: false };
+
+      // Commit-time condition: user_confirmed is NEVER overwritten or reverted by AI!
+      if (dbSnapshot.confidence === 'user_confirmed') {
+        return { applied: false };
+      }
+
+      const structured = (
+        completedJob.structuredResult && typeof completedJob.structuredResult === 'object'
+          ? completedJob.structuredResult
+          : {}
+      ) as Record<string, any>;
+
+      const toList = (value: unknown, fallback: string[] = [], max = 8): string[] => {
+        if (!Array.isArray(value)) return fallback;
+        return value
+          .map(String)
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .slice(0, max);
+      };
+
+      const existingFacts = Array.isArray(dbSnapshot.facts) ? (dbSnapshot.facts as any[]).map(String) : [];
+      const existingFeelings = Array.isArray(dbSnapshot.feelings) ? (dbSnapshot.feelings as any[]).map(String) : [];
+      const existingNeeds = Array.isArray(dbSnapshot.needs) ? (dbSnapshot.needs as any[]).map(String) : [];
+      const existingConstraints = Array.isArray(dbSnapshot.constraints)
+        ? (dbSnapshot.constraints as any[]).map(String)
+        : [];
+      const existingRisks = Array.isArray(dbSnapshot.risks) ? (dbSnapshot.risks as any[]).map(String) : [];
+      const existingContextTags = Array.isArray(dbSnapshot.contextTags)
+        ? (dbSnapshot.contextTags as any[]).map(String)
+        : [];
+
+      const facts = toList(structured.facts, existingFacts);
+      const feelings = toList(structured.feelings, existingFeelings);
+      const needs = toList(structured.needs, existingNeeds);
+      const constraints = toList(structured.constraints, existingConstraints);
+      const risks = toList(structured.risks, existingRisks);
+      const contextTags = toList(structured.contextTags, existingContextTags, 12);
+      const peopleContext = toList(structured.peopleContext, []);
+      const decisionContext = toList(structured.decisionContext, []);
+      const behaviorSignals = toList(structured.behaviorSignals, []);
+      const recoverySignals = toList(structured.recoverySignals, []);
+
+      const domain = typeof structured.domain === 'string' ? structured.domain : dbSnapshot.domain;
+      const subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : dbSnapshot.subDomain;
+      const eventType = typeof structured.eventType === 'string' ? structured.eventType : dbSnapshot.eventType;
+      const stage = typeof structured.stage === 'string' ? structured.stage : (dbSnapshot.stage ?? 'clarifying');
+      const intensity = Number.isFinite(Number(structured.intensity))
+        ? Math.max(0, Math.min(10, Number(structured.intensity)))
+        : (dbSnapshot.intensity ?? undefined);
+      const urgency = Number.isFinite(Number(structured.urgency))
+        ? Math.max(0, Math.min(10, Number(structured.urgency)))
+        : (dbSnapshot.urgency ?? undefined);
+
+      const fingerprintJson = {
+        domain,
+        subDomain,
+        eventType,
+        stage,
+        contextTags,
+        peopleContext,
+        decisionContext,
+        behaviorSignals,
+        recoverySignals,
+      };
+
+      const nowTime = new Date();
+
+      // Conditional CAS update on SituationSnapshot: confidence != user_confirmed at commit time
+      const snapshotWhere: Prisma.SituationSnapshotWhereInput = {
+        journeyId,
+        confidence: { not: 'user_confirmed' },
+      };
+      if (params.expectedSnapshotUpdatedAt) {
+        snapshotWhere.updatedAt = new Date(params.expectedSnapshotUpdatedAt);
+      }
+
+      const snapshotUpdate = await tx.situationSnapshot.updateMany({
+        where: snapshotWhere,
+        data: {
+          facts: facts as Prisma.InputJsonValue,
+          feelings: feelings as Prisma.InputJsonValue,
+          needs: needs as Prisma.InputJsonValue,
+          constraints: constraints as Prisma.InputJsonValue,
+          risks: risks as Prisma.InputJsonValue,
+          domain,
+          subDomain,
+          eventType,
+          stage,
+          contextTags: contextTags as Prisma.InputJsonValue,
+          peopleContext: peopleContext as Prisma.InputJsonValue,
+          decisionContext: decisionContext as Prisma.InputJsonValue,
+          behaviorSignals: behaviorSignals as Prisma.InputJsonValue,
+          recoverySignals: recoverySignals as Prisma.InputJsonValue,
+          intensity: intensity ?? null,
+          urgency: urgency ?? null,
+          fingerprintJson: fingerprintJson as Prisma.InputJsonValue,
+          confidence: 'agent_draft',
+          updatedAt: nowTime,
+        },
+      });
+
+      // CAS update on LifeJourney: only if not modified since queueing AI job
+      const journeyWhere: Prisma.LifeJourneyWhereInput = {
+        id: journeyId,
+      };
+      if (params.expectedJourneyUpdatedAt) {
+        journeyWhere.updatedAt = new Date(params.expectedJourneyUpdatedAt);
+      }
+
+      const journeyData: Prisma.LifeJourneyUpdateInput = {
+        summary: String(structured.summary ?? completedJob.result ?? '').slice(0, 500),
+        updatedAt: nowTime,
+      };
+      const checkTitle = params.isGeneratedTitle ?? isGeneratedJourneyTitle;
+      if (checkTitle(dbJourney.title) && typeof structured.title === 'string' && structured.title.trim()) {
+        journeyData.title = structured.title.trim().slice(0, 80);
+      }
+      if (intensity !== undefined) {
+        journeyData.intensity = intensity;
+      }
+
+      await tx.lifeJourney.updateMany({
+        where: journeyWhere,
+        data: journeyData,
+      });
+
+      return { applied: snapshotUpdate.count > 0 };
     });
   }
 }

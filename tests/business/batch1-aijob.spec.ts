@@ -6,8 +6,13 @@ import { createApiTestApp, loginAdmin, auth } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { MonthlyReportService } from '../../apps/api/src/monthly-report.service';
-import { RemoteAiProviderService, RemoteProviderError, DAPI_PROVIDER_ID } from '../../apps/api/src/remote-ai-provider.service';
+import {
+  RemoteAiProviderService,
+  RemoteProviderError,
+  DAPI_PROVIDER_ID,
+} from '../../apps/api/src/remote-ai-provider.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
+import { DIRECT_DB_MODELS } from '../../apps/api/src/direct-db-models';
 
 describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
   let app: INestApplication;
@@ -358,7 +363,11 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     if (primaryProv) primaryProv.enabled = true;
 
     // Inject remote provider error returning fixed HTTP 402 (Payment Required, non-failover)
-    const fixed402Error = new RemoteProviderError('HTTP 402 Payment Required: insufficient account balance', 402, false);
+    const fixed402Error = new RemoteProviderError(
+      'HTTP 402 Payment Required: insufficient account balance',
+      402,
+      false,
+    );
     const generateSpy = vi.spyOn(remoteAi, 'generate').mockRejectedValue(fixed402Error);
 
     try {
@@ -581,13 +590,81 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const freshPrismaInstance2 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
       const staleState = {
-        users: [{ id: testUserId, openid: `openid_${Date.now()}`, nickname: 'Demo', anonymousCode: 'demo_code', status: 'normal', createdAt: new Date().toISOString() }],
+        users: [
+          {
+            id: testUserId,
+            openid: `openid_${Date.now()}`,
+            nickname: 'Demo',
+            anonymousCode: 'demo_code',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
+        ],
         aiJobs: [], // Stale second instance holds an empty aiJobs array
-        letters: [{ id: letterId, userId: testUserId, style: 'warm', title: '外键测试信件', content: '信件内容', status: 'unread', aiJobId: jobId, createdAt: new Date().toISOString() }],
-        moods: [{ id: moodId, userId: testUserId, emotion: '焦虑', content: '心情内容', visibility: 'PUBLIC', createdAt: new Date().toISOString() }],
-        posts: [{ id: postId, moodId, userId: testUserId, emotion: '焦虑', content: '帖子内容', visibility: 'PUBLIC', status: 'active', reviewStatus: 'published', hugCount: 0, replyCount: 1, favoriteCount: 0, reportCount: 0, createdAt: new Date().toISOString() }],
-        replies: [{ id: replyId, postId, userId: testUserId, type: 'AI', style: 'warm', content: 'AI回复内容', status: 'published', riskLevel: 'low', likeCount: 0, aiJobId: jobId, createdAt: new Date().toISOString() }],
-        agentDecisionLogs: [{ id: logId, userId: testUserId, taskType: 'situation_analysis', decision: { test: true }, aiJobId: jobId, createdAt: new Date().toISOString() }],
+        letters: [
+          {
+            id: letterId,
+            userId: testUserId,
+            style: 'warm',
+            title: '外键测试信件',
+            content: '信件内容',
+            status: 'unread',
+            aiJobId: jobId,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        moods: [
+          {
+            id: moodId,
+            userId: testUserId,
+            emotion: '焦虑',
+            content: '心情内容',
+            visibility: 'PUBLIC',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        posts: [
+          {
+            id: postId,
+            moodId,
+            userId: testUserId,
+            emotion: '焦虑',
+            content: '帖子内容',
+            visibility: 'PUBLIC',
+            status: 'active',
+            reviewStatus: 'published',
+            hugCount: 0,
+            replyCount: 1,
+            favoriteCount: 0,
+            reportCount: 0,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        replies: [
+          {
+            id: replyId,
+            postId,
+            userId: testUserId,
+            type: 'AI',
+            style: 'warm',
+            content: 'AI回复内容',
+            status: 'published',
+            riskLevel: 'low',
+            likeCount: 0,
+            aiJobId: jobId,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        agentDecisionLogs: [
+          {
+            id: logId,
+            userId: testUserId,
+            taskType: 'situation_analysis',
+            decision: { test: true },
+            aiJobId: jobId,
+            createdAt: new Date().toISOString(),
+          },
+        ],
       };
       await saveRelationalRuntimeState(freshPrismaInstance2, staleState);
     } finally {
@@ -692,8 +769,12 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     }
 
     // 2. Deliberately ensure that in-memory arrays do NOT contain this journey or snapshot
-    (store as any).data.lifeJourneys = (store as any).data.lifeJourneys.filter((item: any) => item.id !== journeyId);
-    (store as any).data.situationSnapshots = (store as any).data.situationSnapshots.filter((item: any) => item.journeyId !== journeyId);
+    if (!DIRECT_DB_MODELS.LifeJourney) {
+      (store as any).data.lifeJourneys = (store as any).data.lifeJourneys.filter((item: any) => item.id !== journeyId);
+      (store as any).data.situationSnapshots = (store as any).data.situationSnapshots.filter(
+        (item: any) => item.journeyId !== journeyId,
+      );
+    }
 
     // 3. Execute the completion callback for this journey with a structured result
     // Single-writer pattern: callback hydrates missing object from DB into store and persists through persistAndFlush()
@@ -742,8 +823,8 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
 
       const snapshotRow = await freshPrismaVerify.situationSnapshot.findUnique({ where: { id: snapshotId } });
       expect(snapshotRow).not.toBeNull();
-      expect((snapshotRow?.facts as string[])).toEqual(['新事实A', '新事实B']);
-      expect((snapshotRow?.feelings as string[])).toEqual(['新感受A']);
+      expect(snapshotRow?.facts as string[]).toEqual(['新事实A', '新事实B']);
+      expect(snapshotRow?.feelings as string[]).toEqual(['新感受A']);
       expect(snapshotRow?.confidence).toBe('agent_draft');
 
       const decisionLog = await freshPrismaVerify.agentDecisionLog.findFirst({
@@ -848,9 +929,39 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const freshPrismaStale = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
       const staleState = {
-        users: [{ id: testUserId, openid: `openid_${Date.now()}`, nickname: 'Demo', anonymousCode: 'demo_code', status: 'normal', createdAt: new Date().toISOString() }],
-        lifeJourneys: [{ id: journeyId, userId: testUserId, title: '工作旅程', domain: '工作', status: 'active', stage: 'clarifying', visibility: 'PRIVATE', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
-        agentDecisionLogs: [{ id: createdLogId, userId: testUserId, journeyId, taskType: 'situation_analysis', decision: { summary: '分析结果' }, createdAt: new Date().toISOString() }], // snapshot where aiJobId was not yet populated
+        users: [
+          {
+            id: testUserId,
+            openid: `openid_${Date.now()}`,
+            nickname: 'Demo',
+            anonymousCode: 'demo_code',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        lifeJourneys: [
+          {
+            id: journeyId,
+            userId: testUserId,
+            title: '工作旅程',
+            domain: '工作',
+            status: 'active',
+            stage: 'clarifying',
+            visibility: 'PRIVATE',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+        agentDecisionLogs: [
+          {
+            id: createdLogId,
+            userId: testUserId,
+            journeyId,
+            taskType: 'situation_analysis',
+            decision: { summary: '分析结果' },
+            createdAt: new Date().toISOString(),
+          },
+        ], // snapshot where aiJobId was not yet populated
       };
       await saveRelationalRuntimeState(freshPrismaStale, staleState);
     } finally {

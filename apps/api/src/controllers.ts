@@ -297,27 +297,25 @@ export class PublicController {
   }
 
   @Get('tonight')
-  tonight() {
-    return { item: this.store.tonightHome() };
+  async tonight() {
+    return { item: await this.store.tonightHome() };
   }
 
   @Get('journeys')
-  journeys() {
+  async journeys() {
     return {
-      items: this.store.lifeJourneys
-        .filter((item) => item.userId === this.store.getDemoUserId())
-        .map((item) => this.store.journeyDetail(item.id)),
+      items: await this.store.listJourneyDetails(),
     };
   }
 
   @Get('archive/journeys')
-  archiveJourneys(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.archiveJourneys(runtimeUserId(userId)) };
+  async archiveJourneys(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.archiveJourneys(runtimeUserId(userId)) };
   }
 
   @Get('archive/journeys/:id')
-  archiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: this.store.journeyArchiveDetail(id, runtimeUserId(userId)) };
+  async archiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { item: await this.store.journeyArchiveDetail(id, runtimeUserId(userId)) };
   }
 
   @Post('archive/journeys/:id/export')
@@ -378,13 +376,13 @@ export class PublicController {
   }
 
   @Get('journeys/:id')
-  journey(@Param('id') id: string) {
-    return { item: this.store.journeyDetail(id) };
+  async journey(@Param('id') id: string) {
+    return { item: await this.store.journeyDetail(id) };
   }
 
   @Get('journeys/:id/fingerprint')
-  journeyFingerprint(@Param('id') id: string) {
-    return { item: this.store.fingerprint(id) };
+  async journeyFingerprint(@Param('id') id: string) {
+    return { item: await this.store.fingerprint(id) };
   }
 
   @Patch('journeys/:id/intent')
@@ -399,11 +397,7 @@ export class PublicController {
     @Body() body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string },
   ) {
     if (body.status) return await this.store.updateJourneyStatus(id, body.status);
-    const item = this.store.journeyDetail(id).journey;
-    if (typeof body.title === 'string' && body.title.trim()) item.title = body.title.trim().slice(0, 120);
-    if (typeof body.summary === 'string') item.summary = body.summary.trim().slice(0, 500);
-    item.updatedAt = new Date().toISOString();
-    await this.store.persistAndFlush();
+    const item = await this.batch1Persistence.patchJourney(id, body);
     return { item };
   }
 
@@ -492,13 +486,13 @@ export class PublicController {
   }
 
   @Get('journeys/:id/actions')
-  journeyActions(@Param('id') id: string) {
-    return { items: this.store.journeyActions(id) };
+  async journeyActions(@Param('id') id: string) {
+    return { items: await this.store.journeyActions(id) };
   }
 
   @Get('journeys/:id/timeline')
-  journeyTimeline(@Param('id') id: string) {
-    return { items: this.store.journeyTimeline(id) };
+  async journeyTimeline(@Param('id') id: string) {
+    return { items: await this.store.journeyTimeline(id) };
   }
 
   @Patch('journeys/:id/status')
@@ -551,8 +545,8 @@ export class PublicController {
   }
 
   @Get('peers')
-  peers(@Headers('x-goodnight-user-id') userId?: string) {
-    return { item: this.store.peerNetwork(runtimeUserId(userId)) };
+  async peers(@Headers('x-goodnight-user-id') userId?: string) {
+    return { item: await this.store.peerNetwork(runtimeUserId(userId)) };
   }
 
   @Post('peer-experiences')
@@ -578,8 +572,8 @@ export class PublicController {
   }
 
   @Get('journeys/:id/peers')
-  journeyPeers(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.journeyPeers(id, runtimeUserId(userId)) };
+  async journeyPeers(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.journeyPeers(id, runtimeUserId(userId)) };
   }
 
   @Patch('peer-matches/:id')
@@ -633,8 +627,8 @@ export class PublicController {
   }
 
   @Get('peer-experiences/:id')
-  peerExperience(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: this.store.peerExperienceDetail(id, this.store.resolveRuntimeUserId(runtimeUserId(userId))) };
+  async peerExperience(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { item: await this.store.peerExperienceDetail(id, this.store.resolveRuntimeUserId(runtimeUserId(userId))) };
   }
 
   @Post('actions/:id/adaptive-plan')
@@ -712,7 +706,16 @@ export class PublicController {
   }
 
   @Post('future-messages')
-  async futureMessage(@Body() body: { journeyId?: string; contextType?: string; contextRefId?: string; content?: string; deliverAt?: string }) {
+  async futureMessage(
+    @Body()
+    body: {
+      journeyId?: string;
+      contextType?: string;
+      contextRefId?: string;
+      content?: string;
+      deliverAt?: string;
+    },
+  ) {
     return await this.store.saveFutureMessage(body);
   }
 
@@ -765,7 +768,12 @@ export class PublicController {
     @Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveRecoveryCheckin(body.journeyId, body.signals ?? {}, body.summary, runtimeUserId(userId));
+    return await this.store.saveRecoveryCheckin(
+      body.journeyId,
+      body.signals ?? {},
+      body.summary,
+      runtimeUserId(userId),
+    );
   }
 
   @Get('notifications')
@@ -1894,7 +1902,11 @@ export class AdminController {
   }
 
   private matchesNeedle(values: unknown[], needle: string) {
-    return values.some((value) => String(value ?? '').toLowerCase().includes(needle));
+    return values.some((value) =>
+      String(value ?? '')
+        .toLowerCase()
+        .includes(needle),
+    );
   }
 
   private safetyTriggerText(payload: unknown) {
@@ -1977,8 +1989,8 @@ export class AdminController {
         this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length +
         this.store.replies.filter((r) => r.status === 'pending_review').length,
       journeySummary: {
-        total: this.store.lifeJourneys.length,
-        active: this.store.lifeJourneys.filter((item) => item.status === 'active').length,
+        total: await this.batch1Persistence.countTotalJourneys(),
+        active: await this.batch1Persistence.countActiveJourneys(),
         actions: this.store.actionCommitments.filter((item) => item.status === 'active').length,
         dueCheckins: this.store.outcomeCheckins.filter(
           (item) => item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now()),
@@ -1994,10 +2006,7 @@ export class AdminController {
         ).length,
         recoveryRecords: this.store.recoverySnapshots.length,
       },
-      supportIntentDistribution: this.store.lifeJourneys.reduce<Record<string, number>>((acc, item) => {
-        if (item.currentIntent) acc[item.currentIntent] = (acc[item.currentIntent] ?? 0) + 1;
-        return acc;
-      }, {}),
+      supportIntentDistribution: await this.batch1Persistence.getSupportIntentDistribution(),
       aiSuccessRate: aiMetrics.aiSuccessRate,
       activeTrend,
       emotionDistribution,
@@ -2009,9 +2018,13 @@ export class AdminController {
         localModelCount: ollama.modelCount,
         todayCalls: aiMetrics.todayJobsCount,
         successRate: aiMetrics.completedJobsCount
-          ? Math.round(((aiMetrics.completedJobsCount - aiMetrics.failedJobsCount) / aiMetrics.completedJobsCount) * 1000) / 10
+          ? Math.round(
+              ((aiMetrics.completedJobsCount - aiMetrics.failedJobsCount) / aiMetrics.completedJobsCount) * 1000,
+            ) / 10
           : 100,
-        failureRate: aiMetrics.completedJobsCount ? Math.round((aiMetrics.failedJobsCount / aiMetrics.completedJobsCount) * 1000) / 10 : 0,
+        failureRate: aiMetrics.completedJobsCount
+          ? Math.round((aiMetrics.failedJobsCount / aiMetrics.completedJobsCount) * 1000) / 10
+          : 0,
         averageDurationMs: aiMetrics.averageDurationMs,
         fallbackCount: aiMetrics.fallbackJobsCount,
         lastCheckedAt: ollama.lastCheckedAt,
@@ -2106,7 +2119,7 @@ export class AdminController {
   }
 
   @Get('journeys')
-  adminJourneys(
+  async adminJourneys(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2116,17 +2129,23 @@ export class AdminController {
     this.admin(auth);
     const needle = q?.trim().toLowerCase();
     const userNames = new Map(this.store.users.map((user) => [user.id, user.nickname]));
-    const items = this.store.lifeJourneys
+    const dbJourneys = await this.batch1Persistence.listAdminJourneys();
+    const journeyIds = dbJourneys.map((j) => j.id);
+    const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(journeyIds);
+    const items = dbJourneys
       .filter((item) => {
         const matchesQuery =
           !needle ||
-          this.matchesNeedle([item.id, item.userId, userNames.get(item.userId), item.title, item.domain, item.summary], needle);
+          this.matchesNeedle(
+            [item.id, item.userId, userNames.get(item.userId), item.title, item.domain, item.summary],
+            needle,
+          );
         const matchesStatus = !status || status === 'all' || item.status === status;
         return matchesQuery && matchesStatus;
       })
       .map((item) => ({
         ...item,
-        updates: this.store.journeyUpdates.filter((update) => update.journeyId === item.id).length,
+        updates: updateCounts.get(item.id) ?? 0,
         actions: this.store.actionCommitments.filter((action) => action.journeyId === item.id).length,
       }));
     return this.list(items, page, pageSize);
@@ -2144,7 +2163,8 @@ export class AdminController {
     const needle = q?.trim().toLowerCase();
     return this.list(
       this.store.actionCommitments.filter((item) => {
-        const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.title, item.description], needle);
+        const matchesQuery =
+          !needle || this.matchesNeedle([item.id, item.userId, item.title, item.description], needle);
         const matchesStatus = !status || status === 'all' || item.status === status;
         return matchesQuery && matchesStatus;
       }),
@@ -2165,7 +2185,12 @@ export class AdminController {
     const needle = q?.trim().toLowerCase();
     return this.list(
       this.store.outcomeCheckins.filter((item) => {
-        const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.journeyId, item.reflection, item.result, item.barrier], needle);
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle(
+            [item.id, item.userId, item.journeyId, item.reflection, item.result, item.barrier],
+            needle,
+          );
         const matchesStatus = !status || status === 'all' || item.status === status;
         return matchesQuery && matchesStatus;
       }),
@@ -2186,7 +2211,8 @@ export class AdminController {
     const needle = q?.trim().toLowerCase();
     const items = this.store.peerExperiences.filter((item) => {
       const matchesQuery =
-        !needle || this.matchesNeedle([item.id, item.userId, item.title, item.domain, item.subDomain, item.content], needle);
+        !needle ||
+        this.matchesNeedle([item.id, item.userId, item.title, item.domain, item.subDomain, item.content], needle);
       const matchesStatus = !status || status === 'all' || item.status === status;
       return matchesQuery && matchesStatus;
     });
@@ -2222,7 +2248,10 @@ export class AdminController {
     const items = this.store.peerMatches.filter((item) => {
       const matchesQuery =
         !needle ||
-        this.matchesNeedle([item.id, item.userId, item.peerExperienceId, item.explanation, item.requestReason, item.requestQuestion], needle);
+        this.matchesNeedle(
+          [item.id, item.userId, item.peerExperienceId, item.explanation, item.requestReason, item.requestQuestion],
+          needle,
+        );
       const matchesStatus = !status || status === 'all' || item.status === status;
       return matchesQuery && matchesStatus;
     });
@@ -2259,7 +2288,9 @@ export class AdminController {
     const needle = q?.trim().toLowerCase();
     const all = await this.store.adminNotificationList({ status });
     const items = all.filter((item) => {
-      const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.type, item.title, item.body, item.targetRoute], needle);
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle([item.id, item.userId, item.type, item.title, item.body, item.targetRoute], needle);
       return matchesQuery;
     });
     return this.list(items, page, pageSize);
@@ -2280,7 +2311,10 @@ export class AdminController {
       .filter((item) => {
         const matchesQuery =
           !needle ||
-          this.matchesNeedle([item.id, item.matchId, item.starterUserId, item.receiverUserId, item.reportReason], needle);
+          this.matchesNeedle(
+            [item.id, item.matchId, item.starterUserId, item.receiverUserId, item.reportReason],
+            needle,
+          );
         const matchesStatus = !status || status === 'all' || item.status === status;
         const matchesReported = reported !== 'true' || Boolean(item.reportedAt);
         return matchesQuery && matchesStatus && matchesReported;
@@ -2317,10 +2351,7 @@ export class AdminController {
   }
 
   @Get('safety/events/:id')
-  async safetyEventDetail(
-    @Headers('authorization') auth: string,
-    @Param('id') id: string,
-  ) {
+  async safetyEventDetail(@Headers('authorization') auth: string, @Param('id') id: string) {
     this.admin(auth);
     const item = await this.store.getSafetyEvent(id);
     if (!item) throw new NotFoundException('安全事件不存在');
@@ -2391,7 +2422,8 @@ export class AdminController {
     this.admin(auth);
     const needle = q?.trim().toLowerCase();
     const items = this.store.personalSupportPlans.filter(
-      (item) => !needle || this.matchesNeedle([item.id, item.userId, item.title, JSON.stringify(item.plan ?? {})], needle),
+      (item) =>
+        !needle || this.matchesNeedle([item.id, item.userId, item.title, JSON.stringify(item.plan ?? {})], needle),
     );
     return this.list(items, page, pageSize);
   }
@@ -2633,11 +2665,7 @@ export class AdminController {
     return { item: this.store.moderatePost(this.admin(auth).id, id, 'hide') };
   }
   @Patch('posts/:id/visibility')
-  postVisibility(
-    @Headers('authorization') auth: string,
-    @Param('id') _id: string,
-    @Body() _body?: unknown,
-  ) {
+  postVisibility(@Headers('authorization') auth: string, @Param('id') _id: string, @Body() _body?: unknown) {
     this.admin(auth);
     throw new HttpException(
       {
@@ -3336,7 +3364,11 @@ export class AdminController {
 
   @Get('config')
   config() {
-    return { item: this.configObject(), enforcedKeys: ENFORCED_SETTING_KEYS, notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS };
+    return {
+      item: this.configObject(),
+      enforcedKeys: ENFORCED_SETTING_KEYS,
+      notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS,
+    };
   }
 
   @Put('system/settings')

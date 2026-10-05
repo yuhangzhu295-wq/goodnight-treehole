@@ -2,6 +2,9 @@ export const DIRECT_DB_MODELS = {
   UserNotification: 'notifications',
   SafetyEvent: 'safetyEvents',
   AIJob: 'aiJobs',
+  LifeJourney: 'lifeJourneys',
+  SituationSnapshot: 'situationSnapshots',
+  JourneyUpdate: 'journeyUpdates',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;
