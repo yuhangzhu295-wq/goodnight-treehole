@@ -135,10 +135,7 @@ export function mapActionCommitmentRow(row: {
         ? row.reminderAt.toISOString()
         : new Date(row.reminderAt).toISOString()
       : undefined,
-    evidence:
-      row.evidence && typeof row.evidence === 'object'
-        ? (row.evidence as Record<string, unknown>)
-        : undefined,
+    evidence: row.evidence && typeof row.evidence === 'object' ? (row.evidence as Record<string, unknown>) : undefined,
     parentActionId: row.parentActionId ?? undefined,
     adaptationReason: row.adaptationReason ?? undefined,
     attemptNumber: row.attemptNumber ?? 1,
@@ -347,6 +344,8 @@ export function mapJourneyUpdateRow(row: {
   };
 }
 
+export const DEFAULT_AI_JOB_STALENESS_MS = 5 * 60 * 1000;
+
 export type AIJobRecord = {
   id: string;
   userId: string;
@@ -370,6 +369,7 @@ export type AIJobRecord = {
   routeVersion: number;
   createdAt: string;
   completedAt?: string;
+  updatedAt?: string;
 };
 
 export function mapAiJobRow(row: {
@@ -395,6 +395,7 @@ export function mapAiJobRow(row: {
   traceJson: any;
   createdAt: Date | string;
   completedAt?: Date | string | null;
+  updatedAt?: Date | string | null;
 }): AIJobRecord {
   return {
     id: row.id,
@@ -425,6 +426,11 @@ export function mapAiJobRow(row: {
       ? row.completedAt instanceof Date
         ? row.completedAt.toISOString()
         : new Date(row.completedAt).toISOString()
+      : undefined,
+    updatedAt: row.updatedAt
+      ? row.updatedAt instanceof Date
+        ? row.updatedAt.toISOString()
+        : new Date(row.updatedAt).toISOString()
       : undefined,
   };
 }
@@ -925,6 +931,7 @@ export class Batch1PersistenceService {
       if (existing.status !== 'queued') return { claimed: false, job: mapAiJobRow(existing) };
       existing.status = 'running';
       existing.traceJson = [...(existing.traceJson ?? []), params.traceEntry];
+      existing.updatedAt = new Date();
       return { claimed: true, job: mapAiJobRow(existing) };
     }
     const existing = await this.prisma.aIJob.findUnique({ where: { id: params.id } });
@@ -939,12 +946,49 @@ export class Batch1PersistenceService {
       data: {
         status: 'running',
         traceJson: traces as any,
+        updatedAt: new Date(),
       },
     });
 
     const claimed = updateResult.count > 0;
     const finalRow = await this.prisma.aIJob.findUnique({ where: { id: params.id } });
     return { claimed, job: finalRow ? mapAiJobRow(finalRow) : null };
+  }
+
+  async recordJobProgress(params: {
+    id: string;
+    traceEntry: Record<string, unknown>;
+  }): Promise<{ updated: boolean; job: AIJobRecord | null }> {
+    if (!this.prisma?.aIJob?.findUnique) {
+      const existing = this.inMemoryAiJobs.get(params.id);
+      if (!existing || existing.status !== 'running') {
+        return { updated: false, job: existing ? mapAiJobRow(existing) : null };
+      }
+      existing.traceJson = [...(existing.traceJson ?? []), params.traceEntry];
+      existing.updatedAt = new Date();
+      return { updated: true, job: mapAiJobRow(existing) };
+    }
+    const existing = await this.prisma.aIJob.findUnique({ where: { id: params.id } });
+    if (!existing || existing.status !== 'running') {
+      return { updated: false, job: existing ? mapAiJobRow(existing) : null };
+    }
+
+    const dbTraces = Array.isArray(existing.traceJson) ? (existing.traceJson as any[]) : [];
+    const traces = [...dbTraces, params.traceEntry];
+    const updateResult = await this.prisma.aIJob.updateMany({
+      where: {
+        id: params.id,
+        status: 'running',
+      },
+      data: {
+        traceJson: traces as any,
+        updatedAt: new Date(),
+      },
+    });
+
+    const updated = updateResult.count > 0;
+    const finalRow = await this.prisma.aIJob.findUnique({ where: { id: params.id } });
+    return { updated, job: finalRow ? mapAiJobRow(finalRow) : null };
   }
 
   async updateJobTerminal(params: {
@@ -1174,19 +1218,76 @@ export class Batch1PersistenceService {
     };
   }
 
-  async recoverInterruptedAiJobs(): Promise<{ count: number }> {
+  async recoverInterruptedAiJobs(options?: {
+    stalenessThresholdMs?: number;
+  }): Promise<{ count: number; recoveredJobIds: string[] }> {
+    const stalenessThresholdMs =
+      options?.stalenessThresholdMs ?? Number(process.env.AI_JOB_STALENESS_MS || DEFAULT_AI_JOB_STALENESS_MS);
+    const staleBefore = new Date(Date.now() - stalenessThresholdMs);
     const now = new Date();
-    const result = await this.prisma.aIJob.updateMany({
+
+    if (!this.prisma?.aIJob?.findMany) {
+      let count = 0;
+      const recoveredJobIds: string[] = [];
+      for (const [id, job] of this.inMemoryAiJobs.entries()) {
+        if (!['queued', 'running'].includes(job.status)) continue;
+        const jobUpdated = job.updatedAt ? new Date(job.updatedAt) : new Date(job.createdAt);
+        if (jobUpdated <= staleBefore) {
+          job.status = 'failed';
+          job.completedAt = now;
+          job.errorMessage = '任务在服务重启时超时或中断，已标记为失败，可在后台重试。';
+          job.traceJson = [
+            ...(job.traceJson ?? []),
+            {
+              at: now.toISOString(),
+              event: 'terminal',
+              status: 'failed',
+              reason: 'stale-job-recovered-by-service-restart',
+            },
+          ];
+          job.updatedAt = now;
+          recoveredJobIds.push(id);
+          count++;
+        }
+      }
+      return { count, recoveredJobIds };
+    }
+
+    const staleJobs = await this.prisma.aIJob.findMany({
       where: {
         status: { in: ['queued', 'running'] },
-      },
-      data: {
-        status: 'failed',
-        completedAt: now,
-        errorMessage: '任务在服务重启时未完成，已标记为失败，可在后台重试。',
+        updatedAt: { lte: staleBefore },
       },
     });
-    return { count: result.count };
+
+    const recoveredJobIds: string[] = [];
+    for (const job of staleJobs) {
+      const traces = Array.isArray(job.traceJson) ? job.traceJson : [];
+      const recoveryTrace = {
+        at: now.toISOString(),
+        event: 'terminal',
+        status: 'failed',
+        reason: 'stale-job-recovered-by-service-restart',
+      };
+      const result = await this.prisma.aIJob.updateMany({
+        where: {
+          id: job.id,
+          status: { in: ['queued', 'running'] },
+          updatedAt: { lte: staleBefore },
+        },
+        data: {
+          status: 'failed',
+          completedAt: now,
+          errorMessage: '任务在服务重启时超时或中断，已标记为失败，可在后台重试。',
+          traceJson: [...traces, recoveryTrace] as any,
+          updatedAt: now,
+        },
+      });
+      if (result.count > 0) {
+        recoveredJobIds.push(job.id);
+      }
+    }
+    return { count: recoveredJobIds.length, recoveredJobIds };
   }
 
   async deleteAiJobsForTestCleanup(params: {
@@ -1537,7 +1638,12 @@ export class Batch1PersistenceService {
 
   async patchJourney(
     journeyId: string,
-    body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string; expectedUpdatedAt?: Date | string },
+    body: {
+      status?: 'active' | 'paused' | 'archived';
+      title?: string;
+      summary?: string;
+      expectedUpdatedAt?: Date | string;
+    },
     expectedUpdatedAt: Date | string | undefined,
     userId: string,
   ): Promise<LifeJourneyRecord> {
@@ -2088,10 +2194,7 @@ export class Batch1PersistenceService {
       if (resolvedActionIds.length > 0) {
         await tx.outcomeCheckin.deleteMany({
           where: {
-            OR: [
-              { journeyId: { in: sortedJourneyIds } },
-              { commitmentId: { in: resolvedActionIds } },
-            ],
+            OR: [{ journeyId: { in: sortedJourneyIds } }, { commitmentId: { in: resolvedActionIds } }],
           },
         });
         await tx.actionCommitment.deleteMany({ where: { id: { in: resolvedActionIds } } });
@@ -2310,9 +2413,7 @@ export class Batch1PersistenceService {
       const followUpId = `follow_up_${crypto.randomBytes(5).toString('hex')}`;
       const updateId = `journey_update_${crypto.randomBytes(5).toString('hex')}`;
 
-      const dueAtDate = params.dueAt
-        ? new Date(params.dueAt)
-        : new Date(nowTime.getTime() + 24 * 3_600_000);
+      const dueAtDate = params.dueAt ? new Date(params.dueAt) : new Date(nowTime.getTime() + 24 * 3_600_000);
       const reminderAtDate = params.reminderAt ? new Date(params.reminderAt) : null;
 
       const actionRow = await tx.actionCommitment.create({
@@ -2575,9 +2676,7 @@ export class Batch1PersistenceService {
           kind: 'action_checkin',
         },
       });
-      const matchingFollowUp = pendingFollowUps.find(
-        (item: any) => (item.payload as any)?.actionId === action.id,
-      );
+      const matchingFollowUp = pendingFollowUps.find((item: any) => (item.payload as any)?.actionId === action.id);
       let updatedFollowUp: any = null;
       if (matchingFollowUp) {
         updatedFollowUp = await tx.followUpJob.update({

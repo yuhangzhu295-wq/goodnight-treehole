@@ -26,7 +26,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
-import { Batch1PersistenceService, isGeneratedJourneyTitle } from './batch1-persistence.service.js';
+import {
+  Batch1PersistenceService,
+  DEFAULT_AI_JOB_STALENESS_MS,
+  isGeneratedJourneyTitle,
+} from './batch1-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -302,6 +306,7 @@ export interface AIJob {
   routeVersion: number;
   createdAt: string;
   completedAt?: string;
+  updatedAt?: string;
 }
 
 export interface LifeJourneyRecord {
@@ -1336,10 +1341,14 @@ export class StoreService implements OnModuleInit {
       delete data.actionCommitments;
       Object.defineProperty(data, 'actionCommitments', {
         get() {
-          throw new Error('StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)');
+          throw new Error(
+            'StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)',
+          );
         },
         set(_val) {
-          throw new Error('StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)');
+          throw new Error(
+            'StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)',
+          );
         },
         enumerable: false,
         configurable: true,
@@ -2232,20 +2241,27 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private async recoverInterruptedAiJobs() {
+  async recoverInterruptedAiJobs(options?: { stalenessThresholdMs?: number }) {
     if (DIRECT_DB_MODELS.AIJob) {
-      await this.batch1Persistence.recoverInterruptedAiJobs();
-      return;
+      return await this.batch1Persistence.recoverInterruptedAiJobs(options);
     }
+    const stalenessThresholdMs =
+      options?.stalenessThresholdMs ?? Number(process.env.AI_JOB_STALENESS_MS || DEFAULT_AI_JOB_STALENESS_MS);
+    const staleBefore = Date.now() - stalenessThresholdMs;
     let changed = false;
     for (const job of this.data.aiJobs) {
       if (!['queued', 'running'].includes(job.status)) continue;
+      const jobTime = job.createdAt ? Date.parse(job.createdAt) : 0;
+      if (jobTime > staleBefore) continue;
       job.status = 'failed';
       job.completedAt = now();
-      job.errorMessage = [job.errorMessage, '任务在服务重启时未完成，已标记为失败，可在后台重试。']
+      job.errorMessage = [job.errorMessage, '任务在服务重启时超时或中断，已标记为失败，可在后台重试。']
         .filter(Boolean)
         .join(' | ');
-      job.traceJson = [...(job.traceJson ?? []), { status: 'failed', reason: 'interrupted-by-service-restart' }];
+      job.traceJson = [
+        ...(job.traceJson ?? []),
+        { status: 'failed', reason: 'stale-job-recovered-by-service-restart' },
+      ];
       changed = true;
     }
     if (changed) this.persist();
@@ -2409,6 +2425,9 @@ export class StoreService implements OnModuleInit {
   private appendAiTrace(job: AIJob, entry: Record<string, unknown>) {
     const event = { at: now(), ...entry };
     job.traceJson = [...(Array.isArray(job.traceJson) ? job.traceJson : []), event];
+    if (DIRECT_DB_MODELS.AIJob && job.id && job.status === 'running') {
+      void this.batch1Persistence.recordJobProgress({ id: job.id, traceEntry: event }).catch(() => {});
+    }
     return event;
   }
 
@@ -3854,8 +3873,7 @@ export class StoreService implements OnModuleInit {
     const followUps = this.followUpJobs.filter(
       (item) => item.journeyId === journeyId && ['delivered', 'completed'].includes(item.status),
     ).length;
-    const latestIntensity =
-      (await this.batch1Persistence.getLatestIntensityForJourney(journeyId)) ?? journey.intensity;
+    const latestIntensity = (await this.batch1Persistence.getLatestIntensityForJourney(journeyId)) ?? journey.intensity;
     return {
       message: '这件事好像已经不再像以前那样困住你了。',
       initialIntensity: journey.initialIntensity ?? journey.intensity,
@@ -4076,8 +4094,7 @@ export class StoreService implements OnModuleInit {
     if (!experience) return undefined;
     const derivedStatisticsAllowed = this.privacySettings[experience.userId]?.allowAnonymousExperienceStats === true;
     const timelineCount = derivedStatisticsAllowed && experience.journeyId ? (timelineCountOverride ?? 0) : 0;
-    const checkinCount =
-      derivedStatisticsAllowed && experience.journeyId ? (checkinCountOverride ?? 0) : 0;
+    const checkinCount = derivedStatisticsAllowed && experience.journeyId ? (checkinCountOverride ?? 0) : 0;
     const laterRecordCount =
       [experience.laterSummary, experience.retrospective, ...(experience.helpfulActions ?? [])].filter(Boolean).length +
       timelineCount +
@@ -5353,12 +5370,7 @@ export class StoreService implements OnModuleInit {
     if (body.status === 'archived') {
       this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
     }
-    const item = await this.batch1Persistence.patchJourney(
-      journeyId,
-      body,
-      body.expectedUpdatedAt,
-      journey.userId,
-    );
+    const item = await this.batch1Persistence.patchJourney(journeyId, body, body.expectedUpdatedAt, journey.userId);
     return item;
   }
 
@@ -6136,6 +6148,20 @@ export class StoreService implements OnModuleInit {
         errors.push(`${provider.id}:${reason}`);
         continue;
       }
+      const attemptTrace = {
+        event: 'provider-attempt-started',
+        providerId: provider.id,
+        modelName: provider.modelName,
+        role: candidate.role,
+        status: 'started',
+      };
+      this.appendAiTrace(job, attemptTrace);
+      if (DIRECT_DB_MODELS.AIJob) {
+        await this.batch1Persistence.recordJobProgress({
+          id: job.id,
+          traceEntry: { at: now(), ...attemptTrace },
+        });
+      }
       try {
         const response = await this.remoteAi.generate(provider, {
           prompt,
@@ -6231,7 +6257,7 @@ export class StoreService implements OnModuleInit {
       } catch (error) {
         const message = sanitizeProviderError(error);
         errors.push(`${provider.id}:${message}`);
-        this.appendAiTrace(job, {
+        const failTrace = {
           event: 'provider-attempt',
           providerId: provider.id,
           modelName: provider.modelName,
@@ -6239,7 +6265,14 @@ export class StoreService implements OnModuleInit {
           status: 'failed',
           reason: message,
           durationMs: Math.max(1, Date.now() - attemptStartedAt),
-        });
+        };
+        this.appendAiTrace(job, failTrace);
+        if (DIRECT_DB_MODELS.AIJob) {
+          await this.batch1Persistence.recordJobProgress({
+            id: job.id,
+            traceEntry: { at: now(), ...failTrace },
+          });
+        }
         if (candidate.role === 'primary' && !isPeerResponseAssist && !this.remoteAi.canFailOver(error)) break;
       }
     }

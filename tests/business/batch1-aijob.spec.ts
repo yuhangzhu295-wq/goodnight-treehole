@@ -1011,4 +1011,180 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       await freshPrisma.$disconnect();
     }
   });
+
+  it('9. Multi-instance safe recovery: Instance B boot recovery does not kill Instance A running job, stale job is recovered', async () => {
+    // Two independent application instances against the SAME database
+    const appA = app;
+    const persistenceA = appA.get(Batch1PersistenceService);
+    const storeA = appA.get(StoreService);
+    const testUserId = storeA.getDemoUserId();
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // 1. Instance A starts an AI job and leaves it running
+      const activeJobId = `job_multi_live_${Date.now()}`;
+      await persistenceA.createAiJob({
+        id: activeJobId,
+        userId: testUserId,
+        contentId: `content_${activeJobId}`,
+        contentType: 'Situation',
+        jobType: '处境分析',
+        taskType: 'situation_analysis',
+        style: 'rational',
+        status: 'queued',
+        promptSummary: '实例A正在执行的任务',
+      });
+
+      const { claimed } = await persistenceA.updateJobRunning({
+        id: activeJobId,
+        traceEntry: { at: new Date().toISOString(), event: 'running', status: 'running' },
+      });
+      expect(claimed).toBe(true);
+
+      // Observable progression during running: Instance A advances trace and touches updatedAt
+      await persistenceA.recordJobProgress({
+        id: activeJobId,
+        traceEntry: {
+          at: new Date().toISOString(),
+          event: 'provider-attempt-started',
+          role: 'primary',
+          status: 'started',
+        },
+      });
+
+      const jobBeforeB = await freshPrisma.aIJob.findUnique({ where: { id: activeJobId } });
+      expect(jobBeforeB?.status).toBe('running');
+      expect((jobBeforeB?.traceJson as any[]).some((t) => t.event === 'provider-attempt-started')).toBe(true);
+
+      // 2. Prepare a genuinely stale job in the database (simulating a dead instance from 10 minutes ago)
+      const staleJobId = `job_multi_stale_${Date.now()}`;
+      await persistenceA.createAiJob({
+        id: staleJobId,
+        userId: testUserId,
+        contentId: `content_${staleJobId}`,
+        contentType: 'Situation',
+        jobType: '处境分析',
+        taskType: 'situation_analysis',
+        style: 'rational',
+        status: 'queued',
+        promptSummary: '已崩溃实例留下的陈旧任务',
+      });
+      await persistenceA.updateJobRunning({
+        id: staleJobId,
+        traceEntry: { at: new Date().toISOString(), event: 'running', status: 'running' },
+      });
+
+      // Backdate the stale job beyond the staleness window (10 minutes ago)
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+      await freshPrisma.$executeRawUnsafe(
+        `UPDATE "AIJob" SET "updatedAt" = $1, "createdAt" = $1 WHERE id = $2`,
+        tenMinutesAgo,
+        staleJobId,
+      );
+
+      // 3. Boot independent application instance B against the SAME database
+      // Instance B's boot executes StoreService.onModuleInit() -> recoverInterruptedAiJobs()
+      const appB = await createApiTestApp();
+      try {
+        // 4. Assert: Instance A's active in-flight job is STILL running, not failed!
+        const activeJobAfterBoot = await freshPrisma.aIJob.findUnique({ where: { id: activeJobId } });
+        expect(activeJobAfterBoot).not.toBeNull();
+        expect(activeJobAfterBoot?.status).toBe('running');
+
+        // 5. Assert: Instance A can still complete its job to a terminal state
+        const terminalRes = await persistenceA.updateJobTerminal({
+          id: activeJobId,
+          status: 'succeeded',
+          result: '实例A成功执行并完成终态写入',
+          durationMs: 450,
+          completedAt: new Date(),
+        });
+        expect(terminalRes.updated).toBe(true);
+        expect(terminalRes.job.status).toBe('succeeded');
+
+        const activeJobFinal = await freshPrisma.aIJob.findUnique({ where: { id: activeJobId } });
+        expect(activeJobFinal?.status).toBe('succeeded');
+        expect(activeJobFinal?.result).toBe('实例A成功执行并完成终态写入');
+
+        // 6. Assert converse: the genuinely stale job IS recovered to failed by boot
+        const staleJobAfterBoot = await freshPrisma.aIJob.findUnique({ where: { id: staleJobId } });
+        expect(staleJobAfterBoot).not.toBeNull();
+        expect(staleJobAfterBoot?.status).toBe('failed');
+        expect(staleJobAfterBoot?.errorMessage).toContain('超时或中断');
+        const staleTraces = staleJobAfterBoot?.traceJson as any[];
+        expect(
+          staleTraces.some((t) => t.status === 'failed' && t.reason === 'stale-job-recovered-by-service-restart'),
+        ).toBe(true);
+      } finally {
+        await appB.close();
+      }
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
+  it('10. Multi-instance terminal race: two independent app instances racing the same job produce exactly one terminal state', async () => {
+    const appA = app;
+    const appB = await createApiTestApp();
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+
+    try {
+      const persistenceA = appA.get(Batch1PersistenceService);
+      const persistenceB = appB.get(Batch1PersistenceService);
+      const storeA = appA.get(StoreService);
+      const testUserId = storeA.getDemoUserId();
+
+      const raceJobId = `job_multi_race_${Date.now()}`;
+      await persistenceA.createAiJob({
+        id: raceJobId,
+        userId: testUserId,
+        contentId: `content_${raceJobId}`,
+        contentType: 'Situation',
+        jobType: '处境分析',
+        taskType: 'situation_analysis',
+        style: 'rational',
+        status: 'queued',
+        promptSummary: '双实例并发竞态测试',
+      });
+      await persistenceA.updateJobRunning({
+        id: raceJobId,
+        traceEntry: { at: new Date().toISOString(), event: 'running', status: 'running' },
+      });
+
+      // Instance A and Instance B concurrently attempt different terminal states on the same job
+      const [resA, resB] = await Promise.all([
+        persistenceA.updateJobTerminal({
+          id: raceJobId,
+          status: 'succeeded',
+          result: '实例A成功结果',
+          durationMs: 120,
+        }),
+        persistenceB.updateJobTerminal({
+          id: raceJobId,
+          status: 'fallback',
+          result: '实例B兜底结果',
+          durationMs: 220,
+        }),
+      ]);
+
+      // Exactly one instance wins the CAS update
+      const updatedCount = (resA.updated ? 1 : 0) + (resB.updated ? 1 : 0);
+      expect(updatedCount).toBe(1);
+
+      const dbRow = await freshPrisma.aIJob.findUnique({ where: { id: raceJobId } });
+      expect(dbRow).not.toBeNull();
+      expect(['succeeded', 'fallback'].includes(dbRow?.status as string)).toBe(true);
+
+      if (resA.updated) {
+        expect(dbRow?.status).toBe('succeeded');
+        expect(dbRow?.result).toBe('实例A成功结果');
+      } else {
+        expect(dbRow?.status).toBe('fallback');
+        expect(dbRow?.result).toBe('实例B兜底结果');
+      }
+    } finally {
+      await appB.close();
+      await freshPrisma.$disconnect();
+    }
+  });
 });
