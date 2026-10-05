@@ -74,15 +74,31 @@ just committed. This is a pre-existing defect, and it is exactly the mechanism t
 destroy the audit half of the SafetyEvent closed loop.
 
 **Decision.** Remove the `AuditLog` absence sweep (`mapper:291`). Audit rows are never deleted
-by any flush. No retention/cleanup path is added in Batch 1 (none exists today; a future
-retention policy is separate scope).
+by any flush.
 
-**Why it is provable.** Deleting a `deleteMany` statement cannot delete a row. The remaining
-AuditLog write is the id-keyed upsert at `mapper:240`; because audit rows are immutable and
-the upsert only touches ids the array holds, a stale instance's upsert writes identical
-content for rows it already has and never touches rows it does not hold. Therefore after D1
-no flush can alter or remove a committed audit row. This does not migrate AuditLog ownership
-and does not widen the eight-model registry.
+**Known gap this creates — retention must not be claimed absent.** `pruneAuditLogsByRetention()`
+(`store:2359–2368`, called at boot from `store:1247`) filters `this.data.auditLogs` by age
+against the `logRetentionDays` system setting (`controllers.ts:185` lists it as an enforced
+setting). Today that setting is applied **through the flush**: the pruned array reaches
+`deleteAbsent` at `mapper:291`, which deletes the dropped rows. Removing `mapper:291`
+therefore **stops `logRetentionDays` from deleting database rows**. This is an explicit,
+accepted consequence of D1, not an absence of a path: the boot prune still trims the in-memory
+array, so an operator lowering the window sees the admin audit list shrink for that instance
+while the rows persist in the database, and audit rows accumulate bounded only by insert rate.
+A database-side retention delete — an explicit, age-bounded `deleteMany` on `AuditLog`, owned
+and scheduled deliberately — is **separate scope** and must be reviewed on its own. If this
+consequence is not acceptable, D1 must not be approved and SafetyEvent must not be registered.
+
+**Why it is provable.** Deleting a `deleteMany` statement cannot delete a row. The only
+remaining AuditLog write is the id-keyed upsert at `mapper:240`. For any audit row whose id is
+still present in `state.auditLogs`, the in-memory shape was loaded from the database at boot
+(`mapper:107`) and is never mutated in place — `store.audit()` (`store:2418`) only `unshift`s
+new rows, and `pruneAuditLogsByRetention` only removes entries from the array
+(`store:2365–2366`). The upsert's `update` branch therefore writes back the same bytes that
+were read, and cannot corrupt a committed row. For any audit row whose id is **not** in the
+array, the upsert does not touch it, and after the sweep removal nothing else does. Hence no
+flush can alter or remove a committed audit row. This does not migrate AuditLog ownership and
+does not widen the eight-model registry.
 
 **Consequence for the SafetyEvent step.** The SafetyEvent handling transaction
 (SafetyEvent status update + AuditLog insert) may commit safely; no other instance can erase
@@ -100,27 +116,50 @@ sweep (`mapper:275`, empty-list branch `deleteMany({})`). A stale instance can r
 address another instance's flush.
 
 **Decision.** Keep `FollowUpJob` **out** of `DIRECT_DB_MODELS` (as the round requires) and
-apply two narrow protections in the mapper, plus one tightening in the worker:
+apply two narrow protections in the mapper, plus one required change in the worker:
 
 1. Remove the `FollowUpJob` absence sweep (`mapper:275`). No flush deletes a FollowUpJob row.
 2. Make the mapper's FollowUpJob write **status-monotonic**. Replace the unconditional
    `upsert` at `mapper:230` with: insert when the row is absent; otherwise a guarded update
-   that applies the array's fields only when the array's `status` is not a *regression* from a
-   terminal database state, and that never clears `completedAt`. Concretely the guard is
-   `updateMany({ where: { id, ...(arrayStatusIsTerminal ? {} : { status: { notIn: ['completed','cancelled'] } }) }, data })`,
-   and `completedAt` is only ever set forward, never nulled.
-3. The worker's claim becomes a guarded conditional update
-   `updateMany({ where: { id, status: { in: ['pending','scheduled'] } }, data: { status:'delivered', completedAt } })`,
-   and the notification create and this claim run in **one transaction**, so they succeed or
-   fail together. A second worker delivering the same job affects 0 rows and is a no-op.
+   that applies the array's fields only when the array's `status` is not a *regression* out of
+   a terminal database state, and that never clears `completedAt`. Concretely the guard is
+   `updateMany({ where: { id, ...(arrayStatusIsTerminal ? {} : { status: { notIn: TERMINAL } }) }, data })`
+   with **`TERMINAL = ['delivered', 'completed']`**, and `completedAt` is only ever set
+   forward, never nulled.
+3. **Required worker change — this does not exist in the current code.** `worker:38–51`
+   currently awaits `userNotification.create` (`:38`) and `followUpJob.update` (`:51`) as two
+   separate statements with no enclosing transaction. Wrap both in one
+   `this.prisma.$transaction`, and replace the unconditional `update` with the guarded claim
+   `updateMany({ where: { id, status: { in: ['pending','scheduled'] } }, data: { status: 'delivered', completedAt } })`.
+
+**Status lattice, verified against every write site.** The only statuses any code writes to a
+`FollowUpJob` are `pending` (creation: `store:3617, 3627, 3675, 4868, 5004`), `delivered`
+(`worker:51`) and `completed` (`store:3690`). `scheduled` is *recognised but never written* —
+it appears only in the worker's skip guard (`worker:28`) and the admin counter
+(`controller:1921`). `cancelled` is never written to a `FollowUpJob` (the `cancelled` at
+`store:290` is the AiJob status). The observed transitions are `pending → delivered` and
+`pending → completed`; **no backward transition exists in the code**, so the terminal set is
+exactly `['delivered','completed']` and the guard blocks no legitimate write. If a future
+change introduces `cancelled`, or a legitimate `delivered → pending` reschedule, that change
+must add the write path and revisit `TERMINAL`; it must not be assumed here.
 
 **Why it is provable.** (1) removes a delete, which cannot delete a row. (2) can only block a
 write; a blocked write leaves the committed value intact, and a permitted write is either the
-same status or a forward transition. The only transitions the flush can perform are therefore
-status-preserving or advancing, so a committed `delivered`/`completed` can never be reverted
-to a non-terminal state, and `completedAt` can never be unset. (3) is a compare-and-swap on a
-`String` status column (`schema:780`), which PostgreSQL serializes; two workers cannot both
-observe `pending`.
+same status or a forward transition — and because the terminal set is exactly the set of
+statuses the code can produce as terminal, no legitimate write is blocked. So a committed
+`delivered`/`completed` can never be reverted to a non-terminal state, and `completedAt` can
+never be unset. (3) is a compare-and-swap on a `String` status column (`schema:780`); two
+workers cannot both observe `pending`.
+
+**Concurrent-create handling.** Wrapping (3) in one transaction makes the notification
+`create` and the job claim commit or roll back together, so a crash between them cannot leave
+a notification without a delivered job. Two workers racing the same job are serialized by the
+claim: the loser's `updateMany` matches 0 rows. The loser must then **not** create a
+notification — the current `findUnique`-then-`create` (`worker:33–38`) is a check-then-act and
+is not sufficient on its own. The implementation must create inside the same transaction after
+the claim succeeds (or re-check the claim's affected count first), and must treat a
+unique-constraint violation on `notification_${id}` as "already delivered" — an idempotency
+signal — rather than an unhandled worker error.
 
 **Note on registry semantics.** `DIRECT_DB_MODELS` governs **flush ownership**, not which
 tables a transaction may write. The worker's transactional claim therefore does not, and must
@@ -145,10 +184,13 @@ pending OutcomeCheckin" (`store:3661–3685`; `schema:514–515` has no unique c
 enforced today only by the single-instance in-memory store. The design keeps the "no schema
 change" claim, but only via explicit serialization, and only if the tests prove it:
 
-- **Journey single-active**: inside the restore/graduate transaction, lock the user's Journey
-  rows (`SELECT id FROM "LifeJourney" WHERE "userId" = $1 FOR UPDATE`) before the check-then-act,
-  or run at a retryable isolation level. Two instances restoring different Journeys must not
-  both end up active.
+- **Journey single-active**: locking the user's existing Journey rows is **not sufficient**.
+  Prisma's interactive transactions default to PostgreSQL `READ COMMITTED`, and `SELECT … FOR
+  UPDATE` locks existing rows only — it does not stop another transaction from **inserting** a
+  new matching row between the check and the act. Lock the **parent `User` row** instead
+  (`SELECT id FROM "User" WHERE id = $1 FOR UPDATE`) inside the restore/graduate transaction,
+  so every writer for that user serializes on one row, then do the check-then-act. Two
+  instances restoring different Journeys for the same user must not both end up active.
 - **OutcomeCheckin single-pending**: lock the parent Action row in the transaction before the
   check-then-insert. Two concurrent check-ins must produce at most one pending row.
 - **Status CAS for models without `updatedAt`**: SafetyEvent, UserNotification and
