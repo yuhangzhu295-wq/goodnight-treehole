@@ -26,7 +26,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
-import { Batch1PersistenceService, DIRECT_DB_MODELS } from './batch1-persistence.service.js';
+import { Batch1PersistenceService } from './batch1-persistence.service.js';
+import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
   DAPI_PROVIDER_ID,

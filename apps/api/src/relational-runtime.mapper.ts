@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { DIRECT_DB_MODELS } from './direct-db-models.js';
 
 type DbClient = any;
 type RuntimeData = Record<string, any>;
@@ -22,7 +23,6 @@ function attachmentIds(items: Array<{ mediaAssetId: string; sortOrder: number }>
 }
 
 export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeData | undefined> {
-  const { DIRECT_DB_MODELS } = await import('./batch1-persistence.service.js');
   const [users, adminUsers, moods, posts, replies, letters, diaries, favorites, categories, faqs, presets, tickets, settings, providers, routes, jobs, assets, audits, journeys, snapshots, journeyUpdates, commitments, checkins, peerExperiences, peerMatches, peerReputations, decisions, cooldowns, handoffs, contacts, futureMessages, supportPlans, stableSelfProfiles, memories, recoverySnapshots, safetyEvents, agentDecisionLogs, followUpJobs, notifications, peerConversations, peerMessages, peerReports, adminUserNotes] = await Promise.all([
     db.user.findMany({ include: { privacySetting: true }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
@@ -141,7 +141,6 @@ async function deleteAbsent(model: any, ids: string[]) {
 }
 
 export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeData): Promise<void> {
-  const { DIRECT_DB_MODELS } = await import('./batch1-persistence.service.js');
   const users = asArray(state.users);
   if (!users.length) throw new Error('Relational persistence requires at least one user');
   const providerMap = new Map(asArray(state.aiProviders).filter((item: any) => item?.id).map((item: any) => [item.id, { ...item }]));
