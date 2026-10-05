@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
@@ -320,24 +320,58 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
       updatedAt: new Date().toISOString(),
     });
 
-    // Delete the archive via API
-    await request(server)
-      .delete(`/api/v1/archive/journeys/${journeyId}`)
-      .set('x-goodnight-user-id', testUserId)
-      .send({ confirmation: 'DELETE_ARCHIVE' })
-      .expect(200);
+    // This test explicitly asserts the ordering: detachSafetyEventsForJourney must execute and commit
+    // SafetyEvent.journeyId = NULL before the Journey row is deleted by persistAndFlush().
+    // Verifying that SafetyEvent.journeyId === null while the LifeJourney row still exists in PostgreSQL
+    // proves that detachment happens via the explicit database update rather than relying on schema onDelete: SetNull cascade.
+    const persistence = app.get(Batch1PersistenceService);
+    let explicitDetachObservedBeforeJourneyDeletion = false;
+    const originalDetach = persistence.detachSafetyEventsForJourney.bind(persistence);
+    const detachSpy = vi.spyOn(persistence, 'detachSafetyEventsForJourney').mockImplementation(async (targetJourneyId: string) => {
+      const res = await originalDetach(targetJourneyId);
+      // Immediately after the explicit detach commits, but BEFORE the Journey row is deleted by persistAndFlush:
+      // Verify from an independent Prisma client that the SafetyEvent already has journeyId = null,
+      // while the LifeJourney row STILL exists in PostgreSQL.
+      const separateClient = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      try {
+        const journeyStillExists = await separateClient.lifeJourney.findUnique({ where: { id: targetJourneyId } });
+        const eventAlreadyDetached = await separateClient.safetyEvent.findUnique({ where: { id: eventId } });
+        if (journeyStillExists !== null && eventAlreadyDetached?.journeyId === null) {
+          explicitDetachObservedBeforeJourneyDeletion = true;
+        }
+      } finally {
+        await separateClient.$disconnect();
+      }
+      return res;
+    });
 
-    // Verify in database: LifeJourney is deleted, SafetyEvent survives with journeyId = null
-    const freshPrismaVerify = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
-      const journey = await freshPrismaVerify.lifeJourney.findUnique({ where: { id: journeyId } });
-      expect(journey).toBeNull();
+      // Delete the archive via API
+      await request(server)
+        .delete(`/api/v1/archive/journeys/${journeyId}`)
+        .set('x-goodnight-user-id', testUserId)
+        .send({ confirmation: 'DELETE_ARCHIVE' })
+        .expect(200);
 
-      const event = await freshPrismaVerify.safetyEvent.findUnique({ where: { id: eventId } });
-      expect(event).not.toBeNull();
-      expect(event?.journeyId).toBeNull();
+      // Prove that the explicit detach was called with the targeted journeyId
+      expect(detachSpy).toHaveBeenCalledWith(journeyId);
+      // Prove that SafetyEvent.journeyId was detached BEFORE the Journey row was deleted (not via onDelete: SetNull cascade)
+      expect(explicitDetachObservedBeforeJourneyDeletion).toBe(true);
+
+      // Verify in database: LifeJourney is deleted, SafetyEvent survives with journeyId = null
+      const freshPrismaVerify = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      try {
+        const journey = await freshPrismaVerify.lifeJourney.findUnique({ where: { id: journeyId } });
+        expect(journey).toBeNull();
+
+        const event = await freshPrismaVerify.safetyEvent.findUnique({ where: { id: eventId } });
+        expect(event).not.toBeNull();
+        expect(event?.journeyId).toBeNull();
+      } finally {
+        await freshPrismaVerify.$disconnect();
+      }
     } finally {
-      await freshPrismaVerify.$disconnect();
+      detachSpy.mockRestore();
     }
   });
 

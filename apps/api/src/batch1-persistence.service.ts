@@ -292,7 +292,7 @@ export class Batch1PersistenceService {
     eventId: string,
     adminUserId: string,
     input: { status?: unknown; note?: unknown; _failAfterUpdate?: boolean },
-  ): Promise<{ item: SafetyEventRecord; auditId: string; before: SafetyEventRecord }> {
+  ): Promise<{ item: SafetyEventRecord; auditId: string; auditCreatedAt: string; before: SafetyEventRecord }> {
     return await this.prisma.$transaction(async (tx) => {
       const existing = await tx.safetyEvent.findUnique({
         where: { id: eventId },
@@ -336,6 +336,7 @@ export class Batch1PersistenceService {
       }
 
       const auditId = `audit_${crypto.randomBytes(5).toString('hex')}`;
+      const auditCreatedAt = now.toISOString();
       await tx.auditLog.create({
         data: {
           id: auditId,
@@ -351,7 +352,7 @@ export class Batch1PersistenceService {
         },
       });
 
-      return { item: afterItem, auditId, before: beforeItem };
+      return { item: afterItem, auditId, auditCreatedAt, before: beforeItem };
     });
   }
 

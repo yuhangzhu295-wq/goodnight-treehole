@@ -3537,7 +3537,7 @@ export class StoreService implements OnModuleInit {
       afterJson: result.item,
       ip: '127.0.0.1',
       userAgent: 'local-dev',
-      createdAt: now(),
+      createdAt: result.auditCreatedAt,
     });
     return { item: result.item };
   }
