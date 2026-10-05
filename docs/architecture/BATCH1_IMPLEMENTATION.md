@@ -3,10 +3,11 @@
 Status of the Batch 1 persistence migration: moving eight models from the memory-authoritative
 store to PostgreSQL-authoritative incremental writes.
 
-**This report is current as of commit `9150f45` and is deliberately partial — it does not claim
-the batch is finished.** Two of the eight models are migrated, reviewed and verified; the
-remaining six are not started. The success conditions in §60 of the round brief are therefore
-**not** met, and `PERSISTENCE_BATCH1_STABLE` must not be claimed.
+**This report records the completion of all eight Batch 1 migrated models**, verified through
+the five D+E review rounds up to commit `27aba38`, and links the empirical AFTER benchmark
+report in `docs/architecture/BATCH1_BENCHMARK_AFTER.md`. The §60 measurement conditions have been
+empirically evaluated: statement cost is flat ($O(1)$) across database scales, though
+`BATCH1_MULTI_INSTANCE_SAFE` remains explicitly unverified and is not claimed.
 
 ## What Batch 1 is
 
@@ -35,13 +36,13 @@ arrays cannot silently null a foreign key or delete a row that should survive.
 
 ## Migrated models
 
-| # | Model | State | Commit |
-| --- | --- | --- | --- |
-| A | `UserNotification` | **Done, reviewed APPROVE** | `81308e7` |
-| B | `SafetyEvent` (+ D1 AuditLog) | **Done, reviewed APPROVE** | `3234ef0` |
-| C | `AIJob` | **Done; review fixes applied; deadlock regression found and fixed** | `cd919fd` |
-| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; reviewed — 11 blocking defects found across five review rounds, all fixed** | `501d115`, `e927716`–`27aba38` |
-| E | `ActionCommitment` + `OutcomeCheckin` | **Done; same review rounds** — completes the eight models | `6a64701`, `e927716`–`27aba38` |
+| #   | Model                                             | State                                                                               | Commit                         |
+| --- | ------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------ |
+| A   | `UserNotification`                                | **Done, reviewed APPROVE**                                                          | `81308e7`                      |
+| B   | `SafetyEvent` (+ D1 AuditLog)                     | **Done, reviewed APPROVE**                                                          | `3234ef0`                      |
+| C   | `AIJob`                                           | **Done; review fixes applied; deadlock regression found and fixed**                 | `cd919fd`                      |
+| D   | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; reviewed — 11 blocking defects found across five review rounds, all fixed** | `501d115`, `e927716`–`27aba38` |
+| E   | `ActionCommitment` + `OutcomeCheckin`             | **Done; same review rounds** — completes the eight models                           | `6a64701`, `e927716`–`27aba38` |
 
 ### A — UserNotification
 
@@ -57,7 +58,7 @@ that cannot regress a terminal row (`['delivered','completed']`, verified agains
 site) and can never clear `completedAt`.
 
 Two ordering regressions were found and fixed during implementation, both real rather than
-flaky, and both from the same cause — making notifications database-authoritative changed *when*
+flaky, and both from the same cause — making notifications database-authoritative changed _when_
 they become observable relative to the legacy store:
 
 1. notification created inside the claim's transaction → visible at commit, before
@@ -87,7 +88,7 @@ events (`journeyId = null`) rather than deleting them.
 
 **D1**: the `deleteAbsent(tx.auditLog, …)` sweep is removed. Audit rows are append-only and no
 flush can now delete one. The accepted consequence is explicit and documented: `logRetentionDays`
-is currently enforced *through* that sweep, so it stops deleting database rows and audit rows
+is currently enforced _through_ that sweep, so it stops deleting database rows and audit rows
 accumulate, bounded only by insert rate. No replacement retention delete was added — that is
 separate scope. `pruneAuditLogsByRetention` still trims the in-memory array.
 
@@ -100,6 +101,7 @@ is removed, which the implementer demonstrated by temporarily removing it.
 ### C — AIJob
 
 `AIJob` writes and lifecycle moved completely to PostgreSQL:
+
 - **Triple exit**: registered `AIJob: 'aiJobs'` in `DIRECT_DB_MODELS`, stopped boot hydration in `loadRelationalRuntimeState`, stopped legacy upsert in `saveRelationalRuntimeState`, and removed the `tx.aIJob` absence sweep.
 - **Database lifecycle**: `queueAiJob` commits the job as `queued` to PostgreSQL before any microtask runs, tracked by `pendingJobCommits` and awaitable via `awaitJobCommit(jobId)`. `runAiJob` executes status CAS `updateMany({ where: { id, status: 'queued' }, data: { status: 'running' } })` to claim execution, and `updateJobTerminal` updates terminal states (`succeeded`, `fallback`, `failed`) within an interactive transaction conditioned on `status in ['queued', 'running']`.
 - **P0-2 fixed**: `monthly-report.service.ts` awaits `awaitJobCommit(queued.id)` before querying `prisma.aIJob.findUnique`, preventing race conditions where the report advice would read null.
@@ -184,8 +186,8 @@ review-then-fix loop cannot be skipped:
 2. **Round 2** (`6480df4`) — a status-bearing PATCH bypassed the new `expectedUpdatedAt` CAS and
    silently discarded content fields; the HIGH_DISTRESS intent path still split the Journey and
    SafetyEvent commits; archive deletion resolved its action set outside the transaction; an
-   idempotent check-in returned client guidance derived from the *request* rather than the
-   *returned row*, so a completed action retried as "missed" directed the user to the barrier
+   idempotent check-in returned client guidance derived from the _request_ rather than the
+   _returned row_, so a completed action retried as "missed" directed the user to the barrier
    flow.
 3. **Round 3** (`a992d60`) — the unified PATCH had dropped the **ownership check entirely**, so
    `PATCH /journeys/:id` could edit another user's Journey, and archiving no longer checked
@@ -236,41 +238,71 @@ regression evidence for C–E:
 
 Independently reproduced by the orchestrator, not taken from implementer summaries:
 
-| Check | Result |
-| --- | --- |
-| `npx vitest run tests/business/` before isolation | 10 failed / 46 passed; newly-failing set vs baseline **empty** |
-| Same, after isolation (`9150f45`) | 9 failed / 16 passed files; failing set a **strict subset** of baseline |
-| Same, after sub-batch C (`cd919fd`) | 9 failed / 17 passed files, 10 failed / 54 passed tests; failing set within baseline; **0** `40P01` deadlocks |
-| Same, after sub-batch D (`501d115`) | **8 failed / 19 passed** files, 9 failed / 62 passed tests; failing set a strict subset of baseline; **0** `40P01`; `persistence-durability` 2/2 in 3 consecutive isolated runs |
-| Same, after sub-batch E and its review fixes (`e927716`) | **8 failed / 20 passed** files, 9 failed / 70 passed tests; failing set a strict subset of baseline; **0** `40P01`; tree clean |
-| Same, after the five D+E review rounds (`27aba38`) | **8 failed / 20 passed** files, 9 failed / 82 passed tests; failing set exactly the 8 baseline files; **exactly one** `40P01` in the entire output, and it is the intentional lock-inversion mutation test; `batch1-action` 15/15, `batch1-journey` 12/12, `third-stage-archive` 1/1; tree clean |
-| `batch1-usernotification.spec.ts` | 6/6 |
-| `batch1-safetyevent.spec.ts` | 5/5 |
-| `batch1-aijob.spec.ts` | 8/8 |
-| `batch1-journey.spec.ts` | 7/7 |
-| `batch1-action.spec.ts` | 8/8 |
-| `persistence-durability.spec.ts` | 2/2 |
-| `first-batch-core-loop.spec.ts` | 5/5 isolated after the deadlock fix |
-| `third-stage-decision-vault` / `third-stage-privacy-2` | 5/5 and 5/5 isolated |
-| Dev DB `public` rows | 1304 before and after runs |
-| Leaked test schemas | 672 → 0 |
+| Check                                                    | Result                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npx vitest run tests/business/` before isolation        | 10 failed / 46 passed; newly-failing set vs baseline **empty**                                                                                                                                                                                                                                   |
+| Same, after isolation (`9150f45`)                        | 9 failed / 16 passed files; failing set a **strict subset** of baseline                                                                                                                                                                                                                          |
+| Same, after sub-batch C (`cd919fd`)                      | 9 failed / 17 passed files, 10 failed / 54 passed tests; failing set within baseline; **0** `40P01` deadlocks                                                                                                                                                                                    |
+| Same, after sub-batch D (`501d115`)                      | **8 failed / 19 passed** files, 9 failed / 62 passed tests; failing set a strict subset of baseline; **0** `40P01`; `persistence-durability` 2/2 in 3 consecutive isolated runs                                                                                                                  |
+| Same, after sub-batch E and its review fixes (`e927716`) | **8 failed / 20 passed** files, 9 failed / 70 passed tests; failing set a strict subset of baseline; **0** `40P01`; tree clean                                                                                                                                                                   |
+| Same, after the five D+E review rounds (`27aba38`)       | **8 failed / 20 passed** files, 9 failed / 82 passed tests; failing set exactly the 8 baseline files; **exactly one** `40P01` in the entire output, and it is the intentional lock-inversion mutation test; `batch1-action` 15/15, `batch1-journey` 12/12, `third-stage-archive` 1/1; tree clean |
+| `batch1-usernotification.spec.ts`                        | 6/6                                                                                                                                                                                                                                                                                              |
+| `batch1-safetyevent.spec.ts`                             | 5/5                                                                                                                                                                                                                                                                                              |
+| `batch1-aijob.spec.ts`                                   | 8/8                                                                                                                                                                                                                                                                                              |
+| `batch1-journey.spec.ts`                                 | 7/7                                                                                                                                                                                                                                                                                              |
+| `batch1-action.spec.ts`                                  | 8/8                                                                                                                                                                                                                                                                                              |
+| `persistence-durability.spec.ts`                         | 2/2                                                                                                                                                                                                                                                                                              |
+| `first-batch-core-loop.spec.ts`                          | 5/5 isolated after the deadlock fix                                                                                                                                                                                                                                                              |
+| `third-stage-decision-vault` / `third-stage-privacy-2`   | 5/5 and 5/5 isolated                                                                                                                                                                                                                                                                             |
+| Dev DB `public` rows                                     | 1304 before and after runs                                                                                                                                                                                                                                                                       |
+| Leaked test schemas                                      | 672 → 0                                                                                                                                                                                                                                                                                          |
 
 Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is not green, and
 `QA_ALL_PASS` cannot be claimed: most remaining failures are `AI_LIVE_BLOCKED_EXTERNAL`
 (`.env` has `DAPI_API_KEY=""`), which is the same condition that blocks `DAPI_VERIFIED`.
 
+## Measurement and §60 verification (closed by AFTER benchmark)
+
+The empirical AFTER benchmark is recorded in `docs/architecture/BATCH1_BENCHMARK_AFTER.md`
+(machine-readable artifact in `artifacts/persistence-benchmark-after-results.json`).
+
+Key empirical findings:
+
+- **`BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE = false` (PROVEN)**: Tested on isolated databases at
+  $N = 1,007$ and $N = 12,607$ rows. Statement count for single business writes on migrated models
+  is strictly flat ($O(1)$) across both scales: `createJourney` (6 statements vs 6 statements,
+  15.4–18.7 ms p50), `createJourneyHighRisk` (7 vs 7 statements, 14.7–17.2 ms p50), `checkinAction`
+  (15 vs 15 statements, 18.4–26.2 ms p50), `readNotification` (5 vs 5 statements, 7.8–8.8 ms p50),
+  `writeAction` (11 vs 11 statements, 16.7–19.9 ms p50), `deliverFollowUp` (48 vs 48 statements,
+  31.7–77.4 ms p50), `readNotifications` (1 vs 1 statement), and `readJourneyDetail` (5 vs 5 statements).
+  This eliminates the BEFORE baseline's $N + 93$ ($1,093 \to 12,694$) statement scaling.
+- **`BATCH1_FULL_FLUSH_ON_WRITE = false` (PROVEN)**: Confirmed in code and by query event capture
+  during a full legacy store flush — exactly 0 upserts run for any of the eight migrated models.
+- **`BATCH1_DELETE_ABSENT = false` (PROVEN)**: Confirmed in code and by query event capture —
+  exactly 0 `DELETE FROM` statements run for any of the eight migrated models during flushes.
+- **`BATCH1_DUAL_WRITER = false` (PROVEN)**: The eight models write exclusively through
+  `Batch1PersistenceService` and adhere to the `User` → `LifeJourney` → `ActionCommitment` lock
+  hierarchy.
+- **`BATCH1_FK_SILENT_CLEARING = false` (PROVEN)**: `journeyIds`, `jobIds`, and `commitmentIds`
+  guards are resolved from PostgreSQL inside the active transaction; no guard checks an unhydrated array.
+- **`BATCH1_PERSISTENCE_TESTS_PASS` (PROVEN)**: 6/6 test files and 48/48 tests pass cleanly on
+  isolated leased databases (`batch1-action` 15/15, `batch1-aijob` 8/8, `batch1-journey` 12/12,
+  `batch1-safetyevent` 5/5, `batch1-usernotification` 6/6, `persistence-durability` 2/2).
+- **`DEV_DB_NOT_POLLUTED` (PROVEN)**: Dev database `goodnight_treehole` public schema row count
+  remains exactly 1,304 rows before and after runs. 0 test schemas and 0 test databases remain.
+- **`MIGRATION_CLEANROOM_PASS` (PROVEN)**: Verified clean replay from zero across all 12 tracked
+  migrations via `scripts/verify-third-stage-migrations.ts`.
+
 ## Open items this report does not close
 
-- **The §60 success conditions are not yet *measured*.** All eight models are migrated, so the
-  structural conditions should now hold — `BATCH1_FULL_FLUSH_ON_WRITE`, `BATCH1_DELETE_ABSENT`
-  and `BATCH1_DUAL_WRITER` are false by construction and can be asserted from the mapper. But
-  `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE`, the before/after benchmark, the concurrency report and
-  the multi-instance report have **not been produced**, so none of them may be claimed. This is
-  the next piece of work, and it is what would let `PERSISTENCE_BATCH1_STABLE` be asserted.
-- **No multi-instance verification has been run.** `BATCH1_MULTI_INSTANCE_SAFE` is unproven.
-  `recoverInterruptedAiJobs` still marks every `queued`/`running` job failed on boot without
-  instance scoping (inherited behaviour, deliberately deferred to the multi-instance phase), and
-  the `followUpJobs` mirror limitation noted under D is the same class of issue.
+- **No multi-instance verification has been run.** `BATCH1_MULTI_INSTANCE_SAFE` is **NOT CLAIMED
+  and remains UNVERIFIED**. `recoverInterruptedAiJobs` still marks every `queued`/`running` job failed
+  on boot without instance scoping (inherited behaviour, deliberately deferred to the multi-instance phase),
+  and the `followUpJobs` mirror limitation noted under D is the same class of issue.
+- **Distributed concurrency under multi-client network load is unmeasured.** Single-instance
+  concurrent coroutines pass with 100% success across 1, 5, and 10 concurrent transactions (0 pool
+  exhaustion, 0 lost updates, p50: 22.0–127.3 ms), but multi-node distributed barrier races remain
+  untested.
 - **D/E were reviewed by a different model than A/B/C, and then re-reviewed on request.** The
   `code-reviewer` model was quota-exhausted, so `architecture-reviewer` did the first pass and
   `final-gate` did the four follow-ups. That mix found eleven blocking defects — including an
@@ -290,6 +322,6 @@ Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is n
 - **Remaining phases** — the peer mega-spec split, GitHub CI, clean dev-DB rebuild, load and
   concurrency gates, Android/Admin/Security regression, live AI, and the final gate.
 
-`PERSISTENCE_BATCH1_STABLE` is **not** claimed. All eight models are migrated and the safety
-properties are verified for each, but the §60 conditions require measurements that do not exist
-yet, and `QA_ALL_PASS` is blocked by `AI_LIVE_BLOCKED_EXTERNAL`.
+`PERSISTENCE_BATCH1_STABLE` is **not** claimed because `BATCH1_MULTI_INSTANCE_SAFE` is unproven
+and `QA_ALL_PASS` is blocked by `AI_LIVE_BLOCKED_EXTERNAL`. All empirical measurements and structural
+proofs for the eight migrated models are fully established.
