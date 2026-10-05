@@ -1879,90 +1879,6 @@ export class Batch1PersistenceService {
     });
   }
 
-  async onActionCommitmentCreated(params: {
-    journeyId: string;
-    userId: string;
-    stage?: string;
-    update: {
-      id: string;
-      content: string;
-      payload?: Record<string, unknown>;
-      createdAt: string;
-    };
-  }): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // Single lock root: LifeJourney row locked first
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${params.journeyId} FOR UPDATE`);
-      await tx.lifeJourney.update({
-        where: { id: params.journeyId },
-        data: {
-          stage: params.stage ?? 'acting',
-          updatedAt: new Date(params.update.createdAt),
-        },
-      });
-      await tx.journeyUpdate.create({
-        data: {
-          id: params.update.id,
-          journeyId: params.journeyId,
-          userId: params.userId,
-          kind: 'commitment_created',
-          content: params.update.content,
-          payload: params.update.payload ? (params.update.payload as Prisma.InputJsonValue) : Prisma.JsonNull,
-          createdAt: new Date(params.update.createdAt),
-        },
-      });
-    });
-  }
-
-  async onActionCheckin(params: {
-    journeyId: string;
-    userId: string;
-    update: {
-      id: string;
-      content: string;
-      payload?: Record<string, unknown>;
-      stage?: string;
-      intensity?: number;
-      lifeFunction?: string;
-      actionResult?: string;
-      decisionChange?: string;
-      contactState?: string;
-      sleepState?: string;
-      socialState?: string;
-      selfReportedHelpfulness?: number;
-      createdAt: string;
-    };
-  }): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // Single lock root: LifeJourney row locked first
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${params.journeyId} FOR UPDATE`);
-      await tx.journeyUpdate.create({
-        data: {
-          id: params.update.id,
-          journeyId: params.journeyId,
-          userId: params.userId,
-          kind: 'checkin',
-          content: params.update.content,
-          payload: params.update.payload ? (params.update.payload as Prisma.InputJsonValue) : Prisma.JsonNull,
-          stage: params.update.stage ?? null,
-          intensity: params.update.intensity ?? null,
-          lifeFunction: params.update.lifeFunction ?? null,
-          actionResult: params.update.actionResult ?? null,
-          decisionChange: params.update.decisionChange ?? null,
-          contactState: params.update.contactState ?? null,
-          sleepState: params.update.sleepState ?? null,
-          socialState: params.update.socialState ?? null,
-          selfReportedHelpfulness: params.update.selfReportedHelpfulness ?? null,
-          createdAt: new Date(params.update.createdAt),
-        },
-      });
-      await tx.lifeJourney.update({
-        where: { id: params.journeyId },
-        data: { updatedAt: new Date() },
-      });
-    });
-  }
-
   async restoreArchivedJourney(journeyId: string, userId: string): Promise<LifeJourneyRecord> {
     return await this.prisma.$transaction(async (tx) => {
       // D3: Lock parent User row to serialize check-then-act against concurrent restores/inserts
@@ -2463,8 +2379,6 @@ export class Batch1PersistenceService {
     barrier?: string;
     outcome?: Record<string, unknown>;
     _failDuringTransaction?: boolean;
-    _invertLockOrderForMutationTest?: boolean;
-    _onLockedActionBeforeJourney?: () => Promise<void>;
   }): Promise<{
     action: ActionCommitmentRecord;
     checkin: OutcomeCheckinRecord;
@@ -2491,24 +2405,15 @@ export class Batch1PersistenceService {
         throw new NotFoundException('行动不存在');
       }
 
-      if (params._invertLockOrderForMutationTest) {
-        // [TEST-ONLY MUTATION HOOK]: Invert lock order to prove deadlock without Journey -> Action ordering
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
-        if (params._onLockedActionBeforeJourney) {
-          await params._onLockedActionBeforeJourney();
-        }
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${actionMeta.journeyId} FOR UPDATE`);
-      } else {
-        // Global row-lock hierarchy: User -> LifeJourney -> Action
-        // Step 1: Lock User row FIRST
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${actionMeta.userId} FOR UPDATE`);
+      // Global row-lock hierarchy: User -> LifeJourney -> Action
+      // Step 1: Lock User row FIRST
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${actionMeta.userId} FOR UPDATE`);
 
-        // Step 2: Lock LifeJourney row SECOND
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${actionMeta.journeyId} FOR UPDATE`);
+      // Step 2: Lock LifeJourney row SECOND
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${actionMeta.journeyId} FOR UPDATE`);
 
-        // Step 3: Lock parent Action row THIRD
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
-      }
+      // Step 3: Lock parent Action row THIRD
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
 
       const action = await tx.actionCommitment.findUnique({
         where: { id: params.actionId },

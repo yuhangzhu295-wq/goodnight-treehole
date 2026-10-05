@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import request from 'supertest';
 import { createApiTestApp, loginAdmin, auth } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
@@ -1205,8 +1205,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
     }
   });
 
-  it('P0-Lock mutation check: inverting lock order in checkinAction reproduces 40P01 deadlock against deleteJourneyArchive', async () => {
-    const persistence = app.get(Batch1PersistenceService);
+  it('P0-Lock mutation check: inverting lock order between Action and Journey reproduces 40P01 deadlock', async () => {
     const userId = `user_mutation_${Date.now()}`;
     const journeyId = `deadlock_mut_j_${Date.now()}`;
     const actionId = `deadlock_mut_act_${Date.now()}`;
@@ -1259,58 +1258,60 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         },
       });
 
-      let checkinActionLocked = false;
-      let deleteArchiveLocked = false;
+      let t1AcquiredAction = false;
+      let t2AcquiredJourney = false;
 
-      // Transaction 1: Inverted checkinAction (locks Action first, pauses, then tries to lock Journey)
-      // Transaction 2: deleteJourneyArchive (locks Journey first, pauses, then tries to delete Action)
-      const [t1Result, t2Result] = await Promise.allSettled([
-        persistence.checkinAction({
-          actionId,
-          userId,
-          status: 'completed',
-          reflection: '变异打卡',
-          _invertLockOrderForMutationTest: true,
-          _onLockedActionBeforeJourney: async () => {
-            checkinActionLocked = true;
-            // Wait until deleteJourneyArchive has acquired its Journey lock
+      // Two concurrent transactions with inverted lock order executed directly via independent Prisma clients:
+      // T1: Locks Action first, then attempts to lock Journey
+      // T2: Locks Journey first, then attempts to lock Action
+      const client1 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      const client2 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+
+      try {
+        const [t1Result, t2Result] = await Promise.allSettled([
+          client1.$transaction(async (tx) => {
+            await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${actionId} FOR UPDATE`);
+            t1AcquiredAction = true;
             const start = Date.now();
-            while (!deleteArchiveLocked && Date.now() - start < 2000) {
+            while (!t2AcquiredJourney && Date.now() - start < 2000) {
               await new Promise((r) => setTimeout(r, 20));
             }
-          },
-        }),
-        persistence.deleteJourneyArchive({
-          journeyId,
-          userId,
-          archiveRoute: `/pages/journey/detail?id=${journeyId}`,
-          _onLockedJourney: async () => {
-            deleteArchiveLocked = true;
-            // Wait until checkinAction has acquired its Action lock
+            await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
+          }),
+          client2.$transaction(async (tx) => {
+            await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
+            t2AcquiredJourney = true;
             const start = Date.now();
-            while (!checkinActionLocked && Date.now() - start < 2000) {
+            while (!t1AcquiredAction && Date.now() - start < 2000) {
               await new Promise((r) => setTimeout(r, 20));
             }
-          },
-        }),
-      ]);
+            await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${actionId} FOR UPDATE`);
+          }),
+        ]);
 
-      // When lock order is inverted, PostgreSQL detects cyclic wait-for and aborts one with 40P01
-      const reasons = [
-        t1Result.status === 'rejected' ? String(t1Result.reason) : '',
-        t2Result.status === 'rejected' ? String(t2Result.reason) : '',
-      ];
-      const deadlockDetected = reasons.some((r) => /40P01|deadlock/i.test(r));
-      expect(deadlockDetected).toBe(true);
+        // When lock order is inverted, PostgreSQL detects cyclic wait-for and aborts one with 40P01
+        const r1 = (t1Result as any)?.reason;
+        const r2 = (t2Result as any)?.reason;
+        const reasons = [
+          String(r1?.message || r1 || ''),
+          String(r2?.message || r2 || ''),
+        ];
+        const deadlockDetected = reasons.some((r) => /40P01|deadlock/i.test(r));
+        expect(deadlockDetected).toBe(true);
+      } finally {
+        await client1.$disconnect();
+        await client2.$disconnect();
+      }
     } finally {
       await freshPrisma.$disconnect();
     }
   });
 
-  it('P0-RootLock discriminating test: concurrent action creation and journey write enforce LifeJourney lock root without 40P01 deadlock', async () => {
+  it('P0-RootLock discriminating test: concurrent action creation and legacy flush (saveRelationalRuntimeState) enforce User -> LifeJourney lock hierarchy without 40P01 deadlock', async () => {
     const store = app.get(StoreService);
     const userId = store.getDemoUserId();
     const journeyId = `core_deadlock_j_${Date.now()}`;
+    const moodId = `core_deadlock_m_${Date.now()}`;
 
     const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     try {
@@ -1343,24 +1344,52 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         },
       });
 
-      // Concurrently run action creation and journey intent update
-      const [actionRes, intentRes] = await Promise.allSettled([
+      // Prepare a legacy flush state that updates User and upserts Mood with journeyId
+      const staleState = {
+        users: [
+          {
+            id: userId,
+            openid: 'demo_openid_rootlock',
+            nickname: 'Demo User',
+            anonymousCode: 'demo_rl',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        moods: [
+          {
+            id: moodId,
+            userId,
+            emotion: '焦虑',
+            content: '并发刷新心情记录',
+            visibility: 'PRIVATE',
+            riskLevel: 'low',
+            riskScore: 0,
+            status: 'active',
+            journeyId,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
+
+      // Concurrently run action creation and legacy flush (the exact counterparty in the core-loop deadlock)
+      const [actionRes, flushRes] = await Promise.allSettled([
         store.createActionCommitment(journeyId, {
           title: '并发创建行动',
           dueAt: new Date(Date.now() + 86400000).toISOString(),
         }),
-        store.setJourneyIntent(journeyId, 'NEXT_STEP'),
+        saveRelationalRuntimeState(freshPrisma, staleState),
       ]);
 
       const actionError = actionRes.status === 'rejected' ? String(actionRes.reason) : '';
-      const intentError = intentRes.status === 'rejected' ? String(intentRes.reason) : '';
+      const flushError = flushRes.status === 'rejected' ? String(flushRes.reason) : '';
 
-      // Both serialize on LifeJourney lock root without 40P01 deadlock
+      // Both serialize cleanly under User -> LifeJourney -> ActionCommitment hierarchy without 40P01 deadlock
       expect(actionError).not.toMatch(/40P01|deadlock/i);
-      expect(intentError).not.toMatch(/40P01|deadlock/i);
+      expect(flushError).not.toMatch(/40P01|deadlock/i);
 
       expect(actionRes.status).toBe('fulfilled');
-      expect(intentRes.status).toBe('fulfilled');
+      expect(flushRes.status).toBe('fulfilled');
     } finally {
       await freshPrisma.$disconnect();
     }
