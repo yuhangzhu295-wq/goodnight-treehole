@@ -222,8 +222,15 @@ change" claim, but only via explicit serialization, and only if the tests prove 
   activation paths (`restoreArchivedJourney`, `updateJourneyStatus('active')`), which reject
   with `400` if an active journey exists; initial journey creation (`createJourney`) creates
   a new journey without blocking on prior active journeys, preserving existing product behavior.
+- **Global row-lock order is Journey → Action**: every transaction that touches both
+  `LifeJourney` and `ActionCommitment` (including `createActionCommitment`, `checkinAction`,
+  `ensurePendingCheckin`, `deleteJourneyArchive`, and test cleanup) must take locks in that
+  strict order (`LifeJourney` row locked with `FOR UPDATE` before `ActionCommitment`). This
+  prevents cyclic wait-for deadlocks (`40P01`) between competing check-in and archive deletion
+  transactions.
 - **OutcomeCheckin single-pending**: lock the parent Action row in the transaction before the
-  check-then-insert. Two concurrent check-ins must produce at most one pending row. If an action
+  check-then-insert (following the Journey → Action order by locking LifeJourney first). Two
+  concurrent check-ins must produce at most one pending row. If an action
   is already terminal (`completed` or `missed`), subsequent check-in requests are explicitly
   idempotent: the existing terminal row is returned unchanged, preventing rewrites of `checkedAt`
   or `reflection`, and avoiding duplicate JourneyUpdates.
@@ -241,10 +248,10 @@ change" claim, but only via explicit serialization, and only if the tests prove 
 
 *Deliberate partial-apply in situation analysis AI completion:* The AI callback (`applySituationAnalysisAiCompletion`)
 updates two separate entities (`SituationSnapshot` and `LifeJourney`) with independent CAS guards.
-If a user edits the Journey title or summary while AI generation is in flight, the Journey CAS
+If a user edits the Journey title or summary while AI generation is in flight, the Journey's `updatedAt` CAS
 matches 0 rows and does not overwrite user edits (Defect 1 fix), while the SituationSnapshot
-receives the structured analysis if unconfirmed. This partial application is intentional: user
-edits to the Journey are protected while unconfirmed psychological signals in the snapshot are retained.
+receives the structured analysis if unconfirmed (`confidence !== 'user_confirmed'`). This partial application is intentional: user
+edits to the Journey are protected by the `updatedAt` CAS, while unconfirmed psychological signals in the snapshot are retained via the commit-time `user_confirmed` condition.
 
 *Known limitation on FollowUpJob mirror:* `FollowUpJob` is not a registered direct-db model in
 Batch 1. The in-memory `followUpJobs` mirror in `StoreService` remains a second read input, and

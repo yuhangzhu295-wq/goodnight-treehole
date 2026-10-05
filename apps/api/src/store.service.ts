@@ -4824,7 +4824,7 @@ export class StoreService implements OnModuleInit {
     };
     this.recoverySnapshots.unshift(item);
     if (journey) {
-      await this.batch1Persistence.patchJourney(journey.id, {});
+      await this.batch1Persistence.patchJourney(journey.id, {}, undefined, journey.userId);
     }
     await this.persistAndFlush();
     return { item };

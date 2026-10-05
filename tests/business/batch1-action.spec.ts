@@ -1135,4 +1135,175 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       await freshPrisma.$disconnect();
     }
   });
+
+  it('P0-Lock discriminating test: concurrent check-in and archive deletion enforce Journey -> Action lock order without 40P01 deadlock', async () => {
+    const store = app.get(StoreService);
+    const persistence = app.get(Batch1PersistenceService);
+    const userId = store.getDemoUserId();
+    const journeyId = `deadlock_test_j_${Date.now()}`;
+    const actionId = `deadlock_test_act_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: '死锁防护测试旅程',
+          domain: '生活',
+          status: 'archived',
+          stage: 'graduated',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actionId,
+          journeyId,
+          userId,
+          title: '竞争行动',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.outcomeCheckin.create({
+        data: {
+          id: `checkin_${Date.now()}`,
+          journeyId,
+          commitmentId: actionId,
+          userId,
+          status: 'pending',
+          createdAt: new Date(),
+        },
+      });
+
+      // Under global Journey -> Action lock ordering, both transactions lock LifeJourney first.
+      // They serialize cleanly without deadlock (no 40P01).
+      const [checkinRes, deleteRes] = await Promise.allSettled([
+        store.checkinAction(actionId, { status: 'completed', reflection: '竞争打卡' }),
+        persistence.deleteJourneyArchive({
+          journeyId,
+          userId,
+          archiveRoute: `/pages/journey/detail?id=${journeyId}`,
+        }),
+      ]);
+
+      // Assert that neither transaction aborted with 40P01 Postgres deadlock error
+      const checkinError = checkinRes.status === 'rejected' ? String(checkinRes.reason) : '';
+      const deleteError = deleteRes.status === 'rejected' ? String(deleteRes.reason) : '';
+      expect(checkinError).not.toMatch(/40P01|deadlock/i);
+      expect(deleteError).not.toMatch(/40P01|deadlock/i);
+
+      // And archive deletion succeeded
+      expect(deleteRes.status).toBe('fulfilled');
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
+  it('P0-Lock mutation check: inverting lock order in checkinAction reproduces 40P01 deadlock against deleteJourneyArchive', async () => {
+    const persistence = app.get(Batch1PersistenceService);
+    const userId = `user_mutation_${Date.now()}`;
+    const journeyId = `deadlock_mut_j_${Date.now()}`;
+    const actionId = `deadlock_mut_act_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.user.create({
+        data: {
+          id: userId,
+          openid: `openid_${userId}`,
+          nickname: 'Mutation User',
+          anonymousCode: `code_${userId}`,
+          createdAt: new Date(),
+        },
+      });
+
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: '死锁变异测试旅程',
+          domain: '生活',
+          status: 'archived',
+          stage: 'graduated',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actionId,
+          journeyId,
+          userId,
+          title: '变异竞争行动',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.outcomeCheckin.create({
+        data: {
+          id: `checkin_${Date.now()}`,
+          journeyId,
+          commitmentId: actionId,
+          userId,
+          status: 'pending',
+          createdAt: new Date(),
+        },
+      });
+
+      let checkinActionLocked = false;
+      let deleteArchiveLocked = false;
+
+      // Transaction 1: Inverted checkinAction (locks Action first, pauses, then tries to lock Journey)
+      // Transaction 2: deleteJourneyArchive (locks Journey first, pauses, then tries to delete Action)
+      const [t1Result, t2Result] = await Promise.allSettled([
+        persistence.checkinAction({
+          actionId,
+          userId,
+          status: 'completed',
+          reflection: '变异打卡',
+          _invertLockOrderForMutationTest: true,
+          _onLockedActionBeforeJourney: async () => {
+            checkinActionLocked = true;
+            // Wait until deleteJourneyArchive has acquired its Journey lock
+            const start = Date.now();
+            while (!deleteArchiveLocked && Date.now() - start < 2000) {
+              await new Promise((r) => setTimeout(r, 20));
+            }
+          },
+        }),
+        persistence.deleteJourneyArchive({
+          journeyId,
+          userId,
+          archiveRoute: `/pages/journey/detail?id=${journeyId}`,
+          _onLockedJourney: async () => {
+            deleteArchiveLocked = true;
+            // Wait until checkinAction has acquired its Action lock
+            const start = Date.now();
+            while (!checkinActionLocked && Date.now() - start < 2000) {
+              await new Promise((r) => setTimeout(r, 20));
+            }
+          },
+        }),
+      ]);
+
+      // When lock order is inverted, PostgreSQL detects cyclic wait-for and aborts one with 40P01
+      const reasons = [
+        t1Result.status === 'rejected' ? String(t1Result.reason) : '',
+        t2Result.status === 'rejected' ? String(t2Result.reason) : '',
+      ];
+      const deadlockDetected = reasons.some((r) => /40P01|deadlock/i.test(r));
+      expect(deadlockDetected).toBe(true);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });

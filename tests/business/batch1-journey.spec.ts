@@ -619,27 +619,44 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         data: { status: 'paused' },
       });
 
-      // Attempt to activate J2 via PATCH while J1 is active -> must fail with 400
-      const activateRes = await request(server)
+      // 1. Assert hybrid PATCH returns BOTH { item, journey }
+      const hybridRes = await request(server)
         .patch(`/api/v1/journeys/${j2Id}`)
-        .send({ status: 'active' });
+        .send({ status: 'paused', title: '混合更新标题' })
+        .expect(200);
 
-      expect(activateRes.status).toBe(400);
-      expect(activateRes.body.message).toContain('请先结束或暂停当前旅程，再恢复这段归档');
+      expect(hybridRes.body.journey).toBeDefined();
+      expect(hybridRes.body.item).toBeDefined();
+      expect(hybridRes.body.journey.status).toBe('paused');
+      expect(hybridRes.body.item.title).toBe('混合更新标题');
+      expect(hybridRes.body.journey.title).toBe('混合更新标题');
 
-      // Now pause J1
+      // 2. Pause J1 as well so both J1 and J2 are paused
       await request(server)
         .patch(`/api/v1/journeys/${j1Id}`)
         .send({ status: 'paused' })
         .expect(200);
 
-      // Now activating J2 succeeds
-      const activateSuccessRes = await request(server)
-        .patch(`/api/v1/journeys/${j2Id}`)
-        .send({ status: 'active' })
-        .expect(200);
+      // 3. Concurrent activation race: dispatch two concurrent unversioned PATCH requests requesting status: 'active'
+      const [race1, race2] = await Promise.allSettled([
+        request(server).patch(`/api/v1/journeys/${j1Id}`).send({ status: 'active' }),
+        request(server).patch(`/api/v1/journeys/${j2Id}`).send({ status: 'active' }),
+      ]);
 
-      expect(activateSuccessRes.body.journey.status).toBe('active');
+      const raceStatuses = [
+        race1.status === 'fulfilled' ? race1.value.status : null,
+        race2.status === 'fulfilled' ? race2.value.status : null,
+      ];
+
+      // Under parent-User lock, exactly one activation succeeds (200), the loser gets 400
+      expect(raceStatuses).toContain(200);
+      expect(raceStatuses).toContain(400);
+
+      // Verify in PostgreSQL: exactly ONE active journey exists for this user
+      const finalActiveJourneys = await freshPrisma.lifeJourney.findMany({
+        where: { id: { in: [j1Id, j2Id] }, status: 'active' },
+      });
+      expect(finalActiveJourneys.length).toBe(1);
     } finally {
       await freshPrisma.$disconnect();
     }

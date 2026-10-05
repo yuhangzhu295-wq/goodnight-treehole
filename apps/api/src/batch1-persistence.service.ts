@@ -1536,18 +1536,15 @@ export class Batch1PersistenceService {
   async patchJourney(
     journeyId: string,
     body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string; expectedUpdatedAt?: Date | string },
-    expectedUpdatedAt?: Date | string,
-    userId?: string,
+    expectedUpdatedAt: Date | string | undefined,
+    userId: string,
   ): Promise<LifeJourneyRecord> {
     return await this.prisma.$transaction(async (tx) => {
-      // P0-3: If requested status is 'active', lock the parent User row FIRST before any read or decision
+      // P0-3: If requested status is 'active', lock the parent User row FIRST before any read that informs the activation decision
       if (body.status === 'active') {
-        const preCheck = await tx.lifeJourney.findUnique({ where: { id: journeyId }, select: { userId: true } });
-        if (!preCheck) throw new NotFoundException('旅程不存在或无权访问');
-        const targetUserId = userId ?? preCheck.userId;
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${targetUserId} FOR UPDATE`);
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
         const activeCount = await tx.lifeJourney.count({
-          where: { userId: targetUserId, status: 'active', id: { not: journeyId } },
+          where: { userId, status: 'active', id: { not: journeyId } },
         });
         if (activeCount > 0) {
           throw new BadRequestException('请先结束或暂停当前旅程，再恢复这段归档');
@@ -1555,8 +1552,7 @@ export class Batch1PersistenceService {
       }
 
       const existing = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
-      if (!existing) throw new NotFoundException('旅程不存在或无权访问');
-      if (userId && existing.userId !== userId) {
+      if (!existing || existing.userId !== userId) {
         throw new NotFoundException('旅程不存在或无权访问');
       }
 
@@ -2308,6 +2304,13 @@ export class Batch1PersistenceService {
     };
   }> {
     return await this.prisma.$transaction(async (tx) => {
+      // Global row-lock order: Journey -> Action
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${params.journeyId} FOR UPDATE`);
+      const journey = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
+      if (!journey || journey.userId !== params.userId) {
+        throw new NotFoundException('旅程不存在或无权访问');
+      }
+
       // Validate parentActionId if provided
       if (params.parentActionId) {
         const parent = await tx.actionCommitment.findFirst({
@@ -2425,6 +2428,8 @@ export class Batch1PersistenceService {
     barrier?: string;
     outcome?: Record<string, unknown>;
     _failDuringTransaction?: boolean;
+    _invertLockOrderForMutationTest?: boolean;
+    _onLockedActionBeforeJourney?: () => Promise<void>;
   }): Promise<{
     action: ActionCommitmentRecord;
     checkin: OutcomeCheckinRecord;
@@ -2441,15 +2446,36 @@ export class Batch1PersistenceService {
     } | null;
   }> {
     return await this.prisma.$transaction(async (tx) => {
-      // D3: Lock parent Action row inside transaction before check-then-act
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
+      // Query target action metadata without row lock to obtain journeyId under READ COMMITTED
+      const actionMeta = await tx.actionCommitment.findUnique({
+        where: { id: params.actionId },
+        select: { id: true, journeyId: true, userId: true },
+      });
+      if (!actionMeta) throw new NotFoundException('行动不存在');
+      if (params.userId && actionMeta.userId !== params.userId) {
+        throw new NotFoundException('行动不存在');
+      }
+
+      if (params._invertLockOrderForMutationTest) {
+        // [TEST-ONLY MUTATION HOOK]: Invert lock order to prove deadlock without Journey -> Action ordering
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
+        if (params._onLockedActionBeforeJourney) {
+          await params._onLockedActionBeforeJourney();
+        }
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${actionMeta.journeyId} FOR UPDATE`);
+      } else {
+        // Global row-lock order: Journey -> Action
+        // Step 1: Lock LifeJourney row FIRST
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${actionMeta.journeyId} FOR UPDATE`);
+
+        // Step 2: Lock parent Action row SECOND
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
+      }
+
       const action = await tx.actionCommitment.findUnique({
         where: { id: params.actionId },
       });
       if (!action) throw new NotFoundException('行动不存在');
-      if (params.userId && action.userId !== params.userId) {
-        throw new NotFoundException('行动不存在');
-      }
 
       // Find pending checkin for this action
       const pendingCheckin = await tx.outcomeCheckin.findFirst({
@@ -2617,7 +2643,17 @@ export class Batch1PersistenceService {
     params?: { dueAt?: string | Date; now?: Date },
   ): Promise<OutcomeCheckinRecord> {
     return await this.prisma.$transaction(async (tx) => {
-      // D3: Lock parent Action row inside transaction before check-then-insert
+      // Global row-lock order: Journey -> Action
+      const actionMeta = await tx.actionCommitment.findUnique({
+        where: { id: actionId },
+        select: { id: true, journeyId: true },
+      });
+      if (!actionMeta) throw new NotFoundException('行动不存在');
+
+      // Step 1: Lock LifeJourney row FIRST
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${actionMeta.journeyId} FOR UPDATE`);
+
+      // Step 2: Lock parent Action row SECOND
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${actionId} FOR UPDATE`);
       const action = await tx.actionCommitment.findUnique({ where: { id: actionId } });
       if (!action) throw new NotFoundException('行动不存在');
