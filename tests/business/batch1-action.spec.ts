@@ -229,6 +229,269 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
     }
   });
 
+  it('P0-1 discriminating test: A second check-in request on a completed check-in is idempotent and never rewrites reflection, checkedAt, intensity, or creates duplicate JourneyUpdates', async () => {
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const journeyId = `journey_p01_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: 'P0-1幂等打卡测试旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 1. Create action commitment with initial pending checkin
+      const createRes = await store.createActionCommitment(journeyId, {
+        title: '初始测试行动',
+        dueAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+      const actId = createRes.item.id;
+
+      // 2. Perform first checkin
+      const firstCheckin = await store.checkinAction(actId, {
+        status: 'completed',
+        reflection: '最初的真实感悟内容',
+        result: '第一版结果',
+        intensity: 8,
+      });
+
+      expect(firstCheckin.action.status).toBe('completed');
+      expect(firstCheckin.checkin.status).toBe('completed');
+      expect(firstCheckin.checkin.reflection).toBe('最初的真实感悟内容');
+      const originalCheckedAt = firstCheckin.checkin.checkedAt;
+      expect(originalCheckedAt).toBeDefined();
+
+      // Read from DB to record original state
+      const dbCheckin1 = await freshPrisma.outcomeCheckin.findFirst({
+        where: { commitmentId: actId },
+      });
+      expect(dbCheckin1?.reflection).toBe('最初的真实感悟内容');
+      expect(dbCheckin1?.intensity).toBe(8);
+
+      const updateCountBefore = await freshPrisma.journeyUpdate.count({
+        where: { journeyId, kind: 'checkin' },
+      });
+      expect(updateCountBefore).toBe(1);
+
+      // 3. Attempt second checkin with different reflection, intensity, and result
+      const secondCheckin = await store.checkinAction(actId, {
+        status: 'completed',
+        reflection: '试图非法覆写的篡改内容',
+        result: '篡改结果',
+        intensity: 2,
+      });
+
+      // Idempotent: must return the original reflection and original checkedAt
+      expect(secondCheckin.checkin.reflection).toBe('最初的真实感悟内容');
+      expect(secondCheckin.checkin.checkedAt).toBe(originalCheckedAt);
+
+      // Verify in PostgreSQL that DB row was NOT rewritten
+      const dbCheckin2 = await freshPrisma.outcomeCheckin.findFirst({
+        where: { commitmentId: actId },
+      });
+      expect(dbCheckin2?.reflection).toBe('最初的真实感悟内容');
+      expect(dbCheckin2?.result).toBe('第一版结果');
+      expect(dbCheckin2?.intensity).toBe(8);
+      expect(dbCheckin2?.checkedAt?.toISOString()).toBe(dbCheckin1?.checkedAt?.toISOString());
+
+      // Verify no duplicate JourneyUpdate was created
+      const updateCountAfter = await freshPrisma.journeyUpdate.count({
+        where: { journeyId, kind: 'checkin' },
+      });
+      expect(updateCountAfter).toBe(1);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
+  it('P0-2 discriminating test: A failed archive deletion does NOT detach SafetyEvents prematurely', async () => {
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const journeyId = `journey_p02_${Date.now()}`;
+    const safetyId = `safety_p02_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // Create an ACTIVE journey (not archived)
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: '活跃旅程（不可删除归档）',
+          domain: '生活',
+          status: 'active', // Active!
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.safetyEvent.create({
+        data: {
+          id: safetyId,
+          userId,
+          journeyId,
+          level: 'high',
+          source: 'journey_create',
+          action: 'real_world_support_prompt',
+          status: 'open',
+          createdAt: new Date(),
+        },
+      });
+
+      // Attempt store.deleteJourneyArchive on an active journey -> must fail with BadRequestException
+      await expect(store.deleteJourneyArchive(journeyId, userId)).rejects.toThrow(
+        /只能删除已归档或已完成的旅程/,
+      );
+
+      // Verify in PostgreSQL that SafetyEvent was NOT prematurely detached!
+      const dbSafety = await freshPrisma.safetyEvent.findUnique({ where: { id: safetyId } });
+      expect(dbSafety).not.toBeNull();
+      expect(dbSafety?.journeyId).toBe(journeyId); // Still attached!
+
+      // Also test: an archived journey where deleteJourneyArchive transaction fails
+      const archivedJourneyId = `journey_p02_fail_${Date.now()}`;
+      const archivedSafetyId = `safety_p02_fail_${Date.now()}`;
+
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: archivedJourneyId,
+          userId,
+          title: '已归档旅程（事务失败回滚测试）',
+          domain: '生活',
+          status: 'archived',
+          stage: 'graduated',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.safetyEvent.create({
+        data: {
+          id: archivedSafetyId,
+          userId,
+          journeyId: archivedJourneyId,
+          level: 'high',
+          source: 'journey_create',
+          action: 'real_world_support_prompt',
+          status: 'open',
+          createdAt: new Date(),
+        },
+      });
+
+      const persistence = app.get(Batch1PersistenceService);
+      await expect(
+        persistence.deleteJourneyArchive({
+          journeyId: archivedJourneyId,
+          userId,
+          actionIds: [],
+          archiveRoute: `/pages/journey/detail?id=${archivedJourneyId}`,
+          _failDuringTransaction: true,
+        }),
+      ).rejects.toThrow(/Simulated failure during deleteJourneyArchive transaction/);
+
+      // Verify in PostgreSQL: SafetyEvent was NOT detached because transaction rolled back!
+      const dbSafety2 = await freshPrisma.safetyEvent.findUnique({ where: { id: archivedSafetyId } });
+      expect(dbSafety2).not.toBeNull();
+      expect(dbSafety2?.journeyId).toBe(archivedJourneyId); // Preserved!
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
+  it('P0-3 discriminating test: High-risk Journey creation commits SafetyEvent atomically in one transaction, and a SafetyEvent failure rolls back the entire Journey', async () => {
+    const persistence = app.get(Batch1PersistenceService);
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const failJourneyId = `journey_p03_fail_${Date.now()}`;
+    const failSafetyId = `safety_p03_fail_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // 1. Simulated failure during SafetyEvent creation within createJourneyWithSnapshotAndUpdate
+      await expect(
+        persistence.createJourneyWithSnapshotAndUpdate({
+          journey: {
+            id: failJourneyId,
+            userId,
+            title: '高风险失败旅程',
+            domain: '情绪',
+            status: 'active',
+            stage: 'safety_first',
+            visibility: 'PRIVATE',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          snapshot: {
+            id: `snap_${Date.now()}`,
+            journeyId: failJourneyId,
+            facts: ['高风险事实'],
+            feelings: ['绝望'],
+            needs: ['援助'],
+            constraints: [],
+            risks: ['危机'],
+            contextTags: ['紧急'],
+            confidence: 'agent_draft',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          update: {
+            id: `update_${Date.now()}`,
+            journeyId: failJourneyId,
+            userId,
+            kind: 'created',
+            content: '事情发生',
+            createdAt: new Date().toISOString(),
+          },
+          safetyEvent: {
+            id: failSafetyId,
+            level: 'high',
+            source: 'journey_create',
+            action: 'real_world_support_prompt',
+            _failDuringSafetyEvent: true,
+          },
+        }),
+      ).rejects.toThrow(/Simulated failure during atomic safety event creation/);
+
+      // Verify in PostgreSQL: LifeJourney, SituationSnapshot, JourneyUpdate were completely rolled back!
+      const dbJourney = await freshPrisma.lifeJourney.findUnique({ where: { id: failJourneyId } });
+      expect(dbJourney).toBeNull();
+
+      const dbSafety = await freshPrisma.safetyEvent.findUnique({ where: { id: failSafetyId } });
+      expect(dbSafety).toBeNull();
+
+      // 2. Successful high-risk journey creation via store.createJourney: atomically commits both
+      const highRiskText = `高风险测试内容 ${Date.now()}：我有自杀的冲动和自伤行为，撑不下去了，需要有人救我。`;
+      const created = await store.createJourney({
+        title: '高风险成功旅程',
+        domain: '情绪',
+        content: highRiskText,
+      });
+
+      const successJourneyId = created.journey.id;
+      const successDbJourney = await freshPrisma.lifeJourney.findUnique({ where: { id: successJourneyId } });
+      expect(successDbJourney).not.toBeNull();
+      expect(successDbJourney?.stage).toBe('safety_first');
+
+      const successDbSafety = await freshPrisma.safetyEvent.findFirst({
+        where: { journeyId: successJourneyId, level: 'high' },
+      });
+      expect(successDbSafety).not.toBeNull();
+      expect(successDbSafety?.journeyId).toBe(successJourneyId);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
   it('3. Atomic check-in: a failure leaves no half-written JourneyUpdate or FollowUpJob state', async () => {
     const store = app.get(StoreService);
     const persistence = app.get(Batch1PersistenceService);

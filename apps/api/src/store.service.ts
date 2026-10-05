@@ -2961,10 +2961,22 @@ export class StoreService implements OnModuleInit {
       createdAt,
     };
 
+    const safetyEventParam =
+      risk.level === 'high'
+        ? {
+            id: id('safety'),
+            level: 'high' as const,
+            source: 'journey_create',
+            action: 'real_world_support_prompt',
+            payload: { escalation: true, triggerExcerpt: String(content).slice(0, 400) },
+          }
+        : undefined;
+
     const created = await this.batch1Persistence.createJourneyWithSnapshotAndUpdate({
       journey,
       snapshot,
       update,
+      safetyEvent: safetyEventParam,
     });
 
     const job = this.queueAI({
@@ -2987,19 +2999,6 @@ export class StoreService implements OnModuleInit {
       })
       .catch(() => undefined);
 
-    if (risk.level === 'high') {
-      await this.batch1Persistence.createSafetyEvent({
-        id: id('safety'),
-        userId,
-        journeyId: journey.id,
-        level: 'high',
-        source: 'journey_create',
-        action: 'real_world_support_prompt',
-        payload: { escalation: true, triggerExcerpt: String(content).slice(0, 400) },
-        status: 'open',
-        createdAt,
-      });
-    }
     return {
       journey: created.journey,
       snapshot: created.snapshot,
@@ -3112,7 +3111,6 @@ export class StoreService implements OnModuleInit {
     this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
     this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
     this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
-    await this.batch1Persistence.detachSafetyEventsForJourneys(Array.from(journeyIds));
     this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
     this.data.followUpJobs = this.data.followUpJobs.filter(
       (item) =>
@@ -3361,7 +3359,6 @@ export class StoreService implements OnModuleInit {
     );
     const archiveRoute = `/pages/journey/detail?id=${journeyId}`;
 
-    await this.batch1Persistence.detachSafetyEventsForJourney(journeyId);
     await this.batch1Persistence.deleteJourneyArchive({
       journeyId,
       userId,

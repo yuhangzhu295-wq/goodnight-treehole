@@ -343,20 +343,17 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
     const originalDetach = persistence.detachSafetyEventsForJourney.bind(persistence);
     const detachSpy = vi
       .spyOn(persistence, 'detachSafetyEventsForJourney')
-      .mockImplementation(async (targetJourneyId: string) => {
-        const res = await originalDetach(targetJourneyId);
-        // Immediately after the explicit detach commits, but BEFORE the Journey row is deleted by persistAndFlush:
-        // Verify from an independent Prisma client that the SafetyEvent already has journeyId = null,
-        // while the LifeJourney row STILL exists in PostgreSQL.
-        const separateClient = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      .mockImplementation(async (targetJourneyId: string, tx?: any) => {
+        const res = await originalDetach(targetJourneyId, tx);
+        const client = tx ?? new PrismaClient({ datasources: { db: { url: dbUrl } } });
         try {
-          const journeyStillExists = await separateClient.lifeJourney.findUnique({ where: { id: targetJourneyId } });
-          const eventAlreadyDetached = await separateClient.safetyEvent.findUnique({ where: { id: eventId } });
+          const journeyStillExists = await client.lifeJourney.findUnique({ where: { id: targetJourneyId } });
+          const eventAlreadyDetached = await client.safetyEvent.findUnique({ where: { id: eventId } });
           if (journeyStillExists !== null && eventAlreadyDetached?.journeyId === null) {
             explicitDetachObservedBeforeJourneyDeletion = true;
           }
         } finally {
-          await separateClient.$disconnect();
+          if (!tx) await client.$disconnect();
         }
         return res;
       });
@@ -369,8 +366,8 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
         .send({ confirmation: 'DELETE_ARCHIVE' })
         .expect(200);
 
-      // Prove that the explicit detach was called with the targeted journeyId
-      expect(detachSpy).toHaveBeenCalledWith(journeyId);
+      // Prove that the explicit detach was called with the targeted journeyId inside the deletion transaction
+      expect(detachSpy).toHaveBeenCalledWith(journeyId, expect.anything());
       // Prove that SafetyEvent.journeyId was detached BEFORE the Journey row was deleted (not via onDelete: SetNull cascade)
       expect(explicitDetachObservedBeforeJourneyDeletion).toBe(true);
 

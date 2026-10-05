@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { UserNotification, AIStyle, AIJobStatus, SupportIntent, Visibility } from '@goodnight/shared-types';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
@@ -782,17 +782,19 @@ export class Batch1PersistenceService {
     });
   }
 
-  async detachSafetyEventsForJourney(journeyId: string): Promise<{ count: number }> {
-    const result = await this.prisma.safetyEvent.updateMany({
+  async detachSafetyEventsForJourney(journeyId: string, tx?: any): Promise<{ count: number }> {
+    const client = tx ?? this.prisma;
+    const result = await client.safetyEvent.updateMany({
       where: { journeyId },
       data: { journeyId: null },
     });
     return { count: result.count };
   }
 
-  async detachSafetyEventsForJourneys(journeyIds: string[]): Promise<{ count: number }> {
+  async detachSafetyEventsForJourneys(journeyIds: string[], tx?: any): Promise<{ count: number }> {
     if (!journeyIds.length) return { count: 0 };
-    const result = await this.prisma.safetyEvent.updateMany({
+    const client = tx ?? this.prisma;
+    const result = await client.safetyEvent.updateMany({
       where: { journeyId: { in: journeyIds } },
       data: { journeyId: null },
     });
@@ -1440,7 +1442,20 @@ export class Batch1PersistenceService {
       content: string;
       createdAt: string;
     };
-  }): Promise<{ journey: LifeJourneyRecord; snapshot: SituationSnapshotRecord; update: JourneyUpdateRecord }> {
+    safetyEvent?: {
+      id: string;
+      level: 'high';
+      source: string;
+      action: string;
+      payload?: Record<string, unknown>;
+      _failDuringSafetyEvent?: boolean;
+    };
+  }): Promise<{
+    journey: LifeJourneyRecord;
+    snapshot: SituationSnapshotRecord;
+    update: JourneyUpdateRecord;
+    safetyEvent?: SafetyEventRecord;
+  }> {
     return await this.prisma.$transaction(async (tx) => {
       const createdJourney = await tx.lifeJourney.create({
         data: {
@@ -1487,17 +1502,40 @@ export class Batch1PersistenceService {
         },
       });
 
+      let createdSafetyEvent: any = undefined;
+      if (params.safetyEvent) {
+        if (params.safetyEvent._failDuringSafetyEvent) {
+          throw new Error('Simulated failure during atomic safety event creation');
+        }
+        createdSafetyEvent = await tx.safetyEvent.create({
+          data: {
+            id: params.safetyEvent.id,
+            userId: params.journey.userId,
+            journeyId: createdJourney.id,
+            level: params.safetyEvent.level,
+            source: params.safetyEvent.source,
+            action: params.safetyEvent.action,
+            payload: params.safetyEvent.payload
+              ? (params.safetyEvent.payload as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            status: 'open',
+            createdAt: new Date(params.journey.createdAt),
+          },
+        });
+      }
+
       return {
         journey: mapLifeJourneyRow(createdJourney),
         snapshot: mapSituationSnapshotRow(createdSnapshot),
         update: mapJourneyUpdateRow(createdUpdate),
+        safetyEvent: createdSafetyEvent ? mapSafetyEventRow(createdSafetyEvent) : undefined,
       };
     });
   }
 
   async patchJourney(
     journeyId: string,
-    body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string },
+    body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string; expectedUpdatedAt?: Date | string },
     expectedUpdatedAt?: Date | string,
   ): Promise<LifeJourneyRecord> {
     return await this.prisma.$transaction(async (tx) => {
@@ -1516,13 +1554,14 @@ export class Batch1PersistenceService {
       }
       data.updatedAt = new Date();
 
-      if (expectedUpdatedAt) {
+      const expectedVersion = expectedUpdatedAt ?? (body as any).expectedUpdatedAt;
+      if (expectedVersion) {
         const result = await tx.lifeJourney.updateMany({
-          where: { id: journeyId, updatedAt: new Date(expectedUpdatedAt) },
+          where: { id: journeyId, updatedAt: new Date(expectedVersion) },
           data,
         });
         if (result.count === 0) {
-          throw new BadRequestException('旅程已被并发更新，请刷新重试');
+          throw new ConflictException('旅程已被并发更新，请刷新重试');
         }
       } else {
         await tx.lifeJourney.update({
@@ -1927,6 +1966,7 @@ export class Batch1PersistenceService {
     userId: string;
     actionIds: string[];
     archiveRoute: string;
+    _failDuringTransaction?: boolean;
   }): Promise<{ deletedJourneyId: string }> {
     return await this.prisma.$transaction(async (tx) => {
       const journey = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
@@ -1951,7 +1991,7 @@ export class Batch1PersistenceService {
       await tx.recoverySnapshot.updateMany({ where: { journeyId }, data: { journeyId: null } });
       await tx.agentDecisionLog.updateMany({ where: { journeyId }, data: { journeyId: null } });
       await tx.followUpJob.updateMany({ where: { journeyId }, data: { journeyId: null } });
-      await tx.safetyEvent.updateMany({ where: { journeyId }, data: { journeyId: null } });
+      await this.detachSafetyEventsForJourney(journeyId, tx);
 
       // 2. Delete child records
       if (params.actionIds.length > 0) {
@@ -1972,6 +2012,10 @@ export class Batch1PersistenceService {
 
       // 3. Delete LifeJourney row
       await tx.lifeJourney.delete({ where: { id: journeyId } });
+
+      if (params._failDuringTransaction) {
+        throw new Error('Simulated failure during deleteJourneyArchive transaction');
+      }
 
       return { deletedJourneyId: journeyId };
     });
@@ -1997,7 +2041,7 @@ export class Batch1PersistenceService {
         await tx.recoverySnapshot.updateMany({ where: { journeyId }, data: { journeyId: null } });
         await tx.agentDecisionLog.updateMany({ where: { journeyId }, data: { journeyId: null } });
         await tx.followUpJob.updateMany({ where: { journeyId }, data: { journeyId: null } });
-        await tx.safetyEvent.updateMany({ where: { journeyId }, data: { journeyId: null } });
+        await this.detachSafetyEventsForJourney(journeyId, tx);
       }
 
       await tx.outcomeCheckin.deleteMany({
@@ -2245,21 +2289,7 @@ export class Batch1PersistenceService {
         },
       });
 
-      const followUpPayload = { actionId, title: params.title };
-      const followUpRow = await tx.followUpJob.create({
-        data: {
-          id: followUpId,
-          userId: params.userId,
-          journeyId: params.journeyId,
-          kind: 'action_checkin',
-          dueAt: dueAtDate,
-          status: 'pending',
-          payload: followUpPayload,
-          createdAt: nowTime,
-        },
-      });
-
-      // Update journey stage and touch updatedAt
+      // Update journey stage and touch updatedAt (LifeJourney before FollowUpJob)
       await tx.lifeJourney.update({
         where: { id: params.journeyId },
         data: {
@@ -2280,6 +2310,20 @@ export class Batch1PersistenceService {
             parentActionId: params.parentActionId,
             adaptationReason: params.adaptationReason,
           } as any,
+          createdAt: nowTime,
+        },
+      });
+
+      const followUpPayload = { actionId, title: params.title };
+      const followUpRow = await tx.followUpJob.create({
+        data: {
+          id: followUpId,
+          userId: params.userId,
+          journeyId: params.journeyId,
+          kind: 'action_checkin',
+          dueAt: dueAtDate,
+          status: 'pending',
+          payload: followUpPayload,
           createdAt: nowTime,
         },
       });
@@ -2337,26 +2381,18 @@ export class Batch1PersistenceService {
         throw new NotFoundException('行动不存在');
       }
 
+      // Find pending checkin for this action
+      const pendingCheckin = await tx.outcomeCheckin.findFirst({
+        where: { commitmentId: action.id, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      });
+
       const rawStatus = ['completed', 'skipped', 'missed'].includes(String(params.status))
         ? String(params.status)
         : 'completed';
       const actionStatus = rawStatus === 'completed' ? 'completed' : rawStatus === 'skipped' ? 'skipped' : 'paused';
       const checkinStatus = rawStatus === 'completed' ? 'completed' : 'missed';
       const nowTime = new Date();
-
-      const updatedAction = await tx.actionCommitment.update({
-        where: { id: params.actionId },
-        data: {
-          status: actionStatus,
-          updatedAt: nowTime,
-        },
-      });
-
-      // Find pending checkin for this action
-      const pendingCheckin = await tx.outcomeCheckin.findFirst({
-        where: { commitmentId: action.id, status: 'pending' },
-        orderBy: { createdAt: 'desc' },
-      });
 
       let finalCheckinRow: any;
       if (pendingCheckin) {
@@ -2374,71 +2410,59 @@ export class Batch1PersistenceService {
         });
         if (casResult.count === 0) {
           // Already transitioned out of pending by concurrent write
-          finalCheckinRow = await tx.outcomeCheckin.findUnique({ where: { id: pendingCheckin.id } });
-        } else {
-          finalCheckinRow = await tx.outcomeCheckin.findUnique({ where: { id: pendingCheckin.id } });
+          const terminalCheckin = await tx.outcomeCheckin.findUnique({ where: { id: pendingCheckin.id } });
+          return {
+            action: mapActionCommitmentRow(action),
+            checkin: mapOutcomeCheckinRow(terminalCheckin!),
+            followUp: null,
+          };
         }
+        finalCheckinRow = await tx.outcomeCheckin.findUnique({ where: { id: pendingCheckin.id } });
       } else {
-        // No pending checkin: check if there's an existing checkin for this action (e.g. concurrent race)
-        const existingCheckin = await tx.outcomeCheckin.findFirst({
-          where: { commitmentId: action.id },
+        // No pending checkin: check if there is an existing terminal checkin for this action
+        const existingTerminalCheckin = await tx.outcomeCheckin.findFirst({
+          where: { commitmentId: action.id, status: { in: ['completed', 'missed'] } },
           orderBy: { createdAt: 'desc' },
         });
-        if (existingCheckin) {
-          finalCheckinRow = await tx.outcomeCheckin.update({
-            where: { id: existingCheckin.id },
-            data: {
-              status: checkinStatus,
-              reflection: params.reflection ?? existingCheckin.reflection,
-              result: params.result ?? existingCheckin.result,
-              intensity: params.intensity ?? existingCheckin.intensity,
-              barrier: params.barrier ?? existingCheckin.barrier,
-              checkedAt: nowTime,
-            },
-          });
-        } else {
-          finalCheckinRow = await tx.outcomeCheckin.create({
-            data: {
-              id: `checkin_${crypto.randomBytes(5).toString('hex')}`,
-              journeyId: action.journeyId,
-              commitmentId: action.id,
-              userId: action.userId,
-              status: checkinStatus,
-              reflection: params.reflection ?? null,
-              result: params.result ?? null,
-              intensity: params.intensity ?? null,
-              barrier: params.barrier ?? null,
-              checkedAt: nowTime,
-              dueAt: action.dueAt,
-              createdAt: nowTime,
-            },
-          });
+        if (existingTerminalCheckin) {
+          // Idempotent: action is already in a terminal check-in state.
+          // Return the existing terminal checkin unchanged — do NOT rewrite reflection, checkedAt, etc.
+          // Do NOT emit a duplicate JourneyUpdate.
+          return {
+            action: mapActionCommitmentRow(action),
+            checkin: mapOutcomeCheckinRow(existingTerminalCheckin),
+            followUp: null,
+          };
         }
-      }
 
-      // Update matching pending followUpJob
-      const pendingFollowUps = await tx.followUpJob.findMany({
-        where: {
-          userId: action.userId,
-          status: 'pending',
-          kind: 'action_checkin',
-        },
-      });
-      const matchingFollowUp = pendingFollowUps.find(
-        (item: any) => (item.payload as any)?.actionId === action.id,
-      );
-      let updatedFollowUp: any = null;
-      if (matchingFollowUp) {
-        updatedFollowUp = await tx.followUpJob.update({
-          where: { id: matchingFollowUp.id },
+        // Edge case: action had no checkin row at all (created without checkin)
+        finalCheckinRow = await tx.outcomeCheckin.create({
           data: {
-            status: 'completed',
-            completedAt: nowTime,
+            id: `checkin_${crypto.randomBytes(5).toString('hex')}`,
+            journeyId: action.journeyId,
+            commitmentId: action.id,
+            userId: action.userId,
+            status: checkinStatus,
+            reflection: params.reflection ?? null,
+            result: params.result ?? null,
+            intensity: params.intensity ?? null,
+            barrier: params.barrier ?? null,
+            checkedAt: nowTime,
+            dueAt: action.dueAt,
+            createdAt: nowTime,
           },
         });
       }
 
-      // Create JourneyUpdate and update LifeJourney
+      const updatedAction = await tx.actionCommitment.update({
+        where: { id: params.actionId },
+        data: {
+          status: actionStatus,
+          updatedAt: nowTime,
+        },
+      });
+
+      // Create JourneyUpdate and update LifeJourney (LifeJourney locked before FollowUpJob)
       const outcome = params.outcome ?? {};
       const checkinRecord = mapOutcomeCheckinRow(finalCheckinRow);
       const updateId = `journey_update_${crypto.randomBytes(5).toString('hex')}`;
@@ -2471,6 +2495,28 @@ export class Batch1PersistenceService {
         where: { id: action.journeyId },
         data: { updatedAt: nowTime },
       });
+
+      // Update matching pending followUpJob (FollowUpJob locked after LifeJourney)
+      const pendingFollowUps = await tx.followUpJob.findMany({
+        where: {
+          userId: action.userId,
+          status: 'pending',
+          kind: 'action_checkin',
+        },
+      });
+      const matchingFollowUp = pendingFollowUps.find(
+        (item: any) => (item.payload as any)?.actionId === action.id,
+      );
+      let updatedFollowUp: any = null;
+      if (matchingFollowUp) {
+        updatedFollowUp = await tx.followUpJob.update({
+          where: { id: matchingFollowUp.id },
+          data: {
+            status: 'completed',
+            completedAt: nowTime,
+          },
+        });
+      }
 
       if (params._failDuringTransaction) {
         throw new Error('Simulated failure during checkinAction transaction');

@@ -394,10 +394,16 @@ export class PublicController {
   @Patch('journeys/:id')
   async patchJourney(
     @Param('id') id: string,
-    @Body() body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string },
+    @Body()
+    body: {
+      status?: 'active' | 'paused' | 'archived';
+      title?: string;
+      summary?: string;
+      expectedUpdatedAt?: string;
+    },
   ) {
     if (body.status) return await this.store.updateJourneyStatus(id, body.status);
-    const item = await this.batch1Persistence.patchJourney(id, body);
+    const item = await this.batch1Persistence.patchJourney(id, body, body.expectedUpdatedAt);
     return { item };
   }
 

@@ -216,12 +216,24 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       createdAt: new Date().toISOString(),
     };
 
-    const completionResult = await persistence.applySituationAnalysisAiCompletion({
-      journeyId,
-      userId,
-      completedJob: aiJobPayload as any,
-    });
+    // Test interleaving at the CAS boundary: concurrent confirmSituation and AI completion
+    const [concurrentConfirmRes, completionResult] = await Promise.all([
+      store.confirmSituation(journeyId, {
+        facts: confirmedFacts,
+        feelings: confirmedFeelings,
+        needs: ['需要：安静的生活节奏'],
+        constraints: ['约束：无法立即辞职'],
+        risks: ['风险：焦虑加剧'],
+        intensity: 4,
+      }),
+      persistence.applySituationAnalysisAiCompletion({
+        journeyId,
+        userId,
+        completedJob: aiJobPayload as any,
+      }),
+    ]);
 
+    expect(concurrentConfirmRes.item.confidence).toBe('user_confirmed');
     // The AI write must be rejected at commit time because confidence === 'user_confirmed'
     expect(completionResult.applied).toBe(false);
 
@@ -332,6 +344,23 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       expect(finalRow).not.toBeNull();
       expect(finalRow?.title).toBe(writer1Title);
       expect(finalRow?.summary).toBe(writer2Summary);
+
+      // In addition: conflicting PATCHes to the SAME field with expectedUpdatedAt enforce CAS (409 Conflict)
+      const versionBeforeConflict = finalRow!.updatedAt.toISOString();
+
+      const [casRes1, casRes2] = await Promise.all([
+        request(server).patch(`/api/v1/journeys/${journeyId}`).send({
+          title: `CAS_WINNER_${Date.now()}`,
+          expectedUpdatedAt: versionBeforeConflict,
+        }),
+        request(server).patch(`/api/v1/journeys/${journeyId}`).send({
+          title: `CAS_LOSER_${Date.now()}`,
+          expectedUpdatedAt: versionBeforeConflict,
+        }),
+      ]);
+
+      const statuses = [casRes1.status, casRes2.status].sort();
+      expect(statuses).toEqual([200, 409]);
     } finally {
       await freshPrisma.$disconnect();
     }
@@ -393,6 +422,12 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         where: { id: { in: [j1Id, j2Id] }, status: 'active' },
       });
       expect(activeJourneys.length).toBe(1);
+
+      // Create vs restore invariant: while an active journey exists, restore is rejected
+      const theArchivedId = activeJourneys[0].id === j1Id ? j2Id : j1Id;
+      const rejectRestore = await request(server).post(`/api/v1/archive/journeys/${theArchivedId}/restore`);
+      expect(rejectRestore.status).toBe(400);
+      expect(rejectRestore.body.message).toContain('请先结束或暂停当前旅程，再恢复这段归档');
     } finally {
       await checkPrisma.$disconnect();
     }

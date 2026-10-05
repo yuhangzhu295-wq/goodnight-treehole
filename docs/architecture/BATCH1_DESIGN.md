@@ -218,16 +218,31 @@ change" claim, but only via explicit serialization, and only if the tests prove 
   (`SELECT id FROM "User" WHERE id = $1 FOR UPDATE`) inside the restore/graduate transaction,
   so every writer for that user serializes on one row, then do the check-then-act. Two
   instances restoring different Journeys for the same user must not both end up active.
+  *Narrowed scope qualification:* This mutual exclusion is enforced across the restore and
+  activation paths (`restoreArchivedJourney`, `updateJourneyStatus('active')`), which reject
+  with `400` if an active journey exists; initial journey creation (`createJourney`) creates
+  a new journey without blocking on prior active journeys, preserving existing product behavior.
 - **OutcomeCheckin single-pending**: lock the parent Action row in the transaction before the
-  check-then-insert. Two concurrent check-ins must produce at most one pending row.
+  check-then-insert. Two concurrent check-ins must produce at most one pending row. If an action
+  is already terminal (`completed` or `missed`), subsequent check-in requests are explicitly
+  idempotent: the existing terminal row is returned unchanged, preventing rewrites of `checkedAt`
+  or `reflection`, and avoiding duplicate JourneyUpdates.
 - **Status CAS for models without `updatedAt`**: SafetyEvent, UserNotification and
   OutcomeCheckin use expected-status conditions (`open`/`handled`, `unread`, `pending`) or a
   row lock in a local transaction. A repeated notification read must be idempotent; a check-in
   may transition out of `pending` only once.
 - **`updatedAt` CAS** for Journey, SituationSnapshot, ActionCommitment, AIJob
   (`schema:398, 447, 490, 1105`), writing only changed fields and checking the affected row
-  count. The AI write to a Snapshot additionally uses `confidence != user_confirmed` as a
-  **commit-time condition** (`store:2778–2783, 3243–3361`), not a pre-transaction check.
+  count. For Journey PATCH (`PATCH /api/v1/journeys/:id`), the CAS is enforced when the caller
+  supplies `expectedUpdatedAt`, returning `409 Conflict` on mismatch. Unversioned PATCH requests
+  fall back to field-level last-writer-wins on changed fields. The AI write to a Snapshot additionally
+  uses `confidence != user_confirmed` as a **commit-time condition** (`store:2778–2783, 3243–3361`),
+  not a pre-transaction check.
+
+*Known limitation on FollowUpJob mirror:* `FollowUpJob` is not a registered direct-db model in
+Batch 1. The in-memory `followUpJobs` mirror in `StoreService` remains a second read input, and
+graduation counts that array (`store:3915`), so cross-instance worker delivery can make the
+displayed follow-up count in graduation summaries stale until full reload.
 
 **Escalation rule.** If the concurrency tests cannot demonstrate an invariant without a
 unique constraint, then the "Batch 1 needs no schema change" claim is false for that model:
