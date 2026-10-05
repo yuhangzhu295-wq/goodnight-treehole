@@ -433,6 +433,119 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     }
   });
 
+  it('P0-A discriminating test: status-bearing Journey PATCH applies expectedUpdatedAt CAS and updates both status and content fields', async () => {
+    const server = app.getHttpServer();
+    const created = await request(server)
+      .post('/api/v1/journeys')
+      .send({ title: `J_P0A_${Date.now()}`, domain: '生活', content: '初始生活困境' })
+      .expect(201);
+    const journeyId = created.body.journey.id as string;
+    const initialVersion = created.body.journey.updatedAt;
+
+    // 1. Sending { status: 'paused', title: '...' } with a stale expectedUpdatedAt must receive 409 Conflict
+    const staleVersion = new Date(Date.now() - 3600000).toISOString();
+    const staleRes = await request(server)
+      .patch(`/api/v1/journeys/${journeyId}`)
+      .send({
+        status: 'paused',
+        title: '试图在过期版本上修改标题',
+        expectedUpdatedAt: staleVersion,
+      });
+    expect(staleRes.status).toBe(409);
+
+    // 2. Sending { status: 'paused', title: '...' } with matching expectedUpdatedAt must update BOTH status and title
+    const updatedTitle = `UPDATED_TITLE_P0A_${Date.now()}`;
+    const validRes = await request(server)
+      .patch(`/api/v1/journeys/${journeyId}`)
+      .send({
+        status: 'paused',
+        title: updatedTitle,
+        expectedUpdatedAt: initialVersion,
+      })
+      .expect(200);
+
+    expect(validRes.body.item.status).toBe('paused');
+    expect(validRes.body.item.title).toBe(updatedTitle);
+
+    // Verify in PostgreSQL
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const dbRow = await freshPrisma.lifeJourney.findUnique({ where: { id: journeyId } });
+      expect(dbRow?.status).toBe('paused');
+      expect(dbRow?.title).toBe(updatedTitle);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
+  it('P0-B discriminating test: HIGH_DISTRESS intent transition and SafetyEvent creation are atomic in one transaction', async () => {
+    const persistence = app.get(Batch1PersistenceService);
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const journeyId = `journey_p0b_${Date.now()}`;
+    const safetyId = `safety_p0b_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: 'P0-B危机意图测试旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'clarifying',
+          currentIntent: 'JUST_LISTEN',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 1. Simulated failure during SafetyEvent creation within setJourneyIntent must roll back the Journey update!
+      await expect(
+        persistence.setJourneyIntent({
+          journeyId,
+          intent: 'HIGH_DISTRESS',
+          stage: 'safety_first',
+          intentUpdatedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          safetyEvent: {
+            id: safetyId,
+            userId,
+            level: 'high',
+            source: 'support_intent',
+            action: 'real_world_support_prompt',
+            _failDuringSafetyEvent: true,
+          },
+        }),
+      ).rejects.toThrow(/Simulated failure during atomic safety event creation on intent transition/);
+
+      // Verify in PostgreSQL: Journey stage is STILL clarifying (NOT left in safety_first without a safety event!)
+      const dbJourney = await freshPrisma.lifeJourney.findUnique({ where: { id: journeyId } });
+      expect(dbJourney?.stage).toBe('clarifying');
+      expect(dbJourney?.currentIntent).toBe('JUST_LISTEN');
+
+      const dbSafety = await freshPrisma.safetyEvent.findUnique({ where: { id: safetyId } });
+      expect(dbSafety).toBeNull();
+
+      // 2. Successful store.setJourneyIntent with HIGH_DISTRESS commits both atomically
+      const successRes = await store.setJourneyIntent(journeyId, 'HIGH_DISTRESS');
+      expect(successRes.journey.stage).toBe('safety_first');
+
+      const dbJourneySuccess = await freshPrisma.lifeJourney.findUnique({ where: { id: journeyId } });
+      expect(dbJourneySuccess?.stage).toBe('safety_first');
+      expect(dbJourneySuccess?.currentIntent).toBe('HIGH_DISTRESS');
+
+      const dbSafetySuccess = await freshPrisma.safetyEvent.findFirst({
+        where: { journeyId, level: 'high', source: 'support_intent' },
+      });
+      expect(dbSafetySuccess).not.toBeNull();
+      expect(dbSafetySuccess?.journeyId).toBe(journeyId);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
   it('6. Legacy FK preservation: a legacy flush must not null the journeyId of legacy models and must not delete the Journey', async () => {
     const store = app.get(StoreService);
     const userId = store.getDemoUserId();

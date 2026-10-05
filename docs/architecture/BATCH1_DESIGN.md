@@ -239,6 +239,13 @@ change" claim, but only via explicit serialization, and only if the tests prove 
   uses `confidence != user_confirmed` as a **commit-time condition** (`store:2778–2783, 3243–3361`),
   not a pre-transaction check.
 
+*Deliberate partial-apply in situation analysis AI completion:* The AI callback (`applySituationAnalysisAiCompletion`)
+updates two separate entities (`SituationSnapshot` and `LifeJourney`) with independent CAS guards.
+If a user edits the Journey title or summary while AI generation is in flight, the Journey CAS
+matches 0 rows and does not overwrite user edits (Defect 1 fix), while the SituationSnapshot
+receives the structured analysis if unconfirmed. This partial application is intentional: user
+edits to the Journey are protected while unconfirmed psychological signals in the snapshot are retained.
+
 *Known limitation on FollowUpJob mirror:* `FollowUpJob` is not a registered direct-db model in
 Batch 1. The in-memory `followUpJobs` mirror in `StoreService` remains a second read input, and
 graduation counts that array (`store:3915`), so cross-instance worker delivery can make the

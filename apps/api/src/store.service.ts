@@ -3194,26 +3194,25 @@ export class StoreService implements OnModuleInit {
               ? 'cooldown'
               : 'clarifying';
     }
-    const updatedJourney = await this.batch1Persistence.setJourneyIntent({
+    const safetyEventParam = requiresSafetyFirst
+      ? {
+          id: id('safety'),
+          userId: journey.userId,
+          level: 'high' as const,
+          source: 'support_intent',
+          action: 'real_world_support_prompt',
+          payload: { intent },
+        }
+      : undefined;
+
+    const { journey: updatedJourney } = await this.batch1Persistence.setJourneyIntent({
       journeyId: journey.id,
       intent: nextIntent,
       stage: nextStage,
       intentUpdatedAt: now(),
       updatedAt: now(),
+      safetyEvent: safetyEventParam,
     });
-    if (requiresSafetyFirst) {
-      await this.batch1Persistence.createSafetyEvent({
-        id: id('safety'),
-        userId: journey.userId,
-        journeyId: journey.id,
-        level: 'high',
-        source: 'support_intent',
-        action: 'real_world_support_prompt',
-        payload: { intent },
-        status: 'open',
-        createdAt: now(),
-      });
-    }
     return {
       journey: updatedJourney,
       intent,
@@ -3350,7 +3349,6 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('只能删除已归档或已完成的旅程');
     }
 
-    const actionIds = new Set(await this.batch1Persistence.getActionIdsForJourney(journeyId));
     const exportAssets = this.assets.filter(
       (item) =>
         item.userId === userId &&
@@ -3359,12 +3357,12 @@ export class StoreService implements OnModuleInit {
     );
     const archiveRoute = `/pages/journey/detail?id=${journeyId}`;
 
-    await this.batch1Persistence.deleteJourneyArchive({
+    const { deletedActionIds } = await this.batch1Persistence.deleteJourneyArchive({
       journeyId,
       userId,
-      actionIds: Array.from(actionIds),
       archiveRoute,
     });
+    const actionIds = new Set(deletedActionIds);
 
     if (!DIRECT_DB_MODELS.ActionCommitment) {
       this.data.actionCommitments = this.data.actionCommitments.filter((item) => item.journeyId !== journeyId);
@@ -3778,16 +3776,14 @@ export class StoreService implements OnModuleInit {
       }
     }
 
-    const rawStatus = ['completed', 'skipped', 'missed'].includes(String(input.status))
-      ? String(input.status)
-      : 'completed';
+    const finalCheckinStatus = result.checkin.status;
 
     return {
       action: result.action,
       checkin: result.checkin,
       followUp: result.followUp,
       adaptive:
-        rawStatus === 'missed'
+        finalCheckinStatus === 'missed'
           ? { required: true, nextRoute: `/pages/action/index?section=barrier&actionId=${result.action.id}` }
           : { required: false },
     };

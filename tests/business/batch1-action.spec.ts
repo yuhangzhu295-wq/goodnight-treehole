@@ -313,6 +313,72 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
     }
   });
 
+  it('P0-D discriminating test: An idempotent check-in returns guidance matching the returned row in both directions', async () => {
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const journeyId = `journey_p0d_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: 'P0-D打卡客户端引导测试旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Direction 1: Action completed first, then retried with status: 'missed'
+      const action1 = await store.createActionCommitment(journeyId, {
+        title: '行动1：已完成',
+      });
+      const firstRes1 = await store.checkinAction(action1.item.id, {
+        status: 'completed',
+        reflection: '完成感悟',
+      });
+      expect(firstRes1.checkin.status).toBe('completed');
+      expect(firstRes1.adaptive.required).toBe(false);
+
+      // Retry completed action with status: 'missed' -> must return completed checkin and adaptive.required: false
+      const retryMissed = await store.checkinAction(action1.item.id, {
+        status: 'missed',
+        reflection: '试图报告未完成',
+        barrier: 'forgot',
+      });
+      expect(retryMissed.checkin.status).toBe('completed');
+      expect(retryMissed.adaptive.required).toBe(false);
+
+      // Direction 2: Action missed first, then retried with status: 'completed'
+      const action2 = await store.createActionCommitment(journeyId, {
+        title: '行动2：未完成',
+      });
+      const firstRes2 = await store.checkinAction(action2.item.id, {
+        status: 'missed',
+        reflection: '未完成感悟',
+        barrier: 'too_hard',
+      });
+      expect(firstRes2.checkin.status).toBe('missed');
+      expect(firstRes2.adaptive.required).toBe(true);
+      expect((firstRes2.adaptive as any).nextRoute).toContain('barrier');
+
+      // Retry missed action with status: 'completed' -> must return missed checkin and adaptive.required: true
+      const retryCompleted = await store.checkinAction(action2.item.id, {
+        status: 'completed',
+        reflection: '试图报告已完成',
+      });
+      expect(retryCompleted.checkin.status).toBe('missed');
+      expect(retryCompleted.adaptive.required).toBe(true);
+      expect((retryCompleted.adaptive as any).nextRoute).toContain('barrier');
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
+
   it('P0-2 discriminating test: A failed archive deletion does NOT detach SafetyEvents prematurely', async () => {
     const store = app.get(StoreService);
     const userId = store.getDemoUserId();
@@ -868,6 +934,91 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       expect(survivingSafety?.journeyId).toBeNull();
     } finally {
       await verifyPrisma.$disconnect();
+    }
+  });
+
+  it('P0-C discriminating test: store.deleteJourneyArchive route path resolves action set and AIJob deletion inside transaction', async () => {
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const journeyId = `del_route_j_${Date.now()}`;
+    const actionId = `del_route_act_${Date.now()}`;
+    const aiJobId = `del_route_job_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: '已归档旅程（测试路由级删除）',
+          domain: '生活',
+          status: 'archived',
+          stage: 'graduated',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actionId,
+          journeyId,
+          userId,
+          title: '待删除行动',
+          status: 'completed',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.aIProvider.upsert({
+        where: { id: 'provider_template' },
+        create: {
+          id: 'provider_template',
+          name: 'Template Provider',
+          type: 'template',
+          baseUrl: 'local://template',
+          modelName: 'safe-template',
+          providerKind: 'template',
+          usageTags: [],
+        },
+        update: {},
+      });
+
+      await freshPrisma.aIJob.create({
+        data: {
+          id: aiJobId,
+          userId,
+          contentId: actionId, // Linked to the action!
+          contentType: 'ActionCommitment',
+          jobType: '自适应行动',
+          taskType: 'adaptive_action',
+          style: 'rational',
+          providerId: 'provider_template',
+          modelName: 'safe-template',
+          status: 'succeeded',
+          promptSummary: '行动规划',
+          retryCount: 0,
+          fallbackUsed: false,
+          routeVersion: 1,
+          durationMs: 50,
+          traceJson: [],
+          createdAt: new Date(),
+        },
+      });
+
+      // Call store.deleteJourneyArchive (the route-level path)
+      const result = await store.deleteJourneyArchive(journeyId, userId);
+      expect(result.deletedJourneyId).toBe(journeyId);
+
+      // Verify in PostgreSQL that BOTH the Action AND its linked AIJob were deleted inside the transaction!
+      const checkAction = await freshPrisma.actionCommitment.findUnique({ where: { id: actionId } });
+      expect(checkAction).toBeNull();
+
+      const checkAiJob = await freshPrisma.aIJob.findUnique({ where: { id: aiJobId } });
+      expect(checkAiJob).toBeNull();
+    } finally {
+      await freshPrisma.$disconnect();
     }
   });
 });

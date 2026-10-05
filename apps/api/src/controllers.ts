@@ -402,7 +402,6 @@ export class PublicController {
       expectedUpdatedAt?: string;
     },
   ) {
-    if (body.status) return await this.store.updateJourneyStatus(id, body.status);
     const item = await this.batch1Persistence.patchJourney(id, body, body.expectedUpdatedAt);
     return { item };
   }

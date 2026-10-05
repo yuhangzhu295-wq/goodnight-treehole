@@ -1542,6 +1542,16 @@ export class Batch1PersistenceService {
       const existing = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
       if (!existing) throw new NotFoundException('旅程不存在');
 
+      if (body.status === 'active' && existing.status !== 'active') {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${existing.userId} FOR UPDATE`);
+        const activeCount = await tx.lifeJourney.count({
+          where: { userId: existing.userId, status: 'active', id: { not: journeyId } },
+        });
+        if (activeCount > 0) {
+          throw new BadRequestException('请先结束或暂停当前旅程，再恢复这段归档');
+        }
+      }
+
       const data: Prisma.LifeJourneyUpdateInput = {};
       if (typeof body.title === 'string' && body.title.trim()) {
         data.title = body.title.trim().slice(0, 120);
@@ -1581,17 +1591,54 @@ export class Batch1PersistenceService {
     stage: string;
     intentUpdatedAt: string;
     updatedAt: string;
-  }): Promise<LifeJourneyRecord> {
-    const updated = await this.prisma.lifeJourney.update({
-      where: { id: params.journeyId },
-      data: {
-        currentIntent: params.intent,
-        stage: params.stage,
-        intentUpdatedAt: new Date(params.intentUpdatedAt),
-        updatedAt: new Date(params.updatedAt),
-      },
+    safetyEvent?: {
+      id: string;
+      userId: string;
+      level: 'high';
+      source: string;
+      action: string;
+      payload?: Record<string, unknown>;
+      _failDuringSafetyEvent?: boolean;
+    };
+  }): Promise<{ journey: LifeJourneyRecord; safetyEvent?: SafetyEventRecord }> {
+    return await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.lifeJourney.update({
+        where: { id: params.journeyId },
+        data: {
+          currentIntent: params.intent,
+          stage: params.stage,
+          intentUpdatedAt: new Date(params.intentUpdatedAt),
+          updatedAt: new Date(params.updatedAt),
+        },
+      });
+
+      let createdSafetyEvent: any = undefined;
+      if (params.safetyEvent) {
+        if (params.safetyEvent._failDuringSafetyEvent) {
+          throw new Error('Simulated failure during atomic safety event creation on intent transition');
+        }
+        createdSafetyEvent = await tx.safetyEvent.create({
+          data: {
+            id: params.safetyEvent.id,
+            userId: params.safetyEvent.userId,
+            journeyId: updated.id,
+            level: params.safetyEvent.level,
+            source: params.safetyEvent.source,
+            action: params.safetyEvent.action,
+            payload: params.safetyEvent.payload
+              ? (params.safetyEvent.payload as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            status: 'open',
+            createdAt: new Date(params.updatedAt),
+          },
+        });
+      }
+
+      return {
+        journey: mapLifeJourneyRow(updated),
+        safetyEvent: createdSafetyEvent ? mapSafetyEventRow(createdSafetyEvent) : undefined,
+      };
     });
-    return mapLifeJourneyRow(updated);
   }
 
   async confirmSituation(params: {
@@ -1964,10 +2011,10 @@ export class Batch1PersistenceService {
   async deleteJourneyArchive(params: {
     journeyId: string;
     userId: string;
-    actionIds: string[];
+    actionIds?: string[];
     archiveRoute: string;
     _failDuringTransaction?: boolean;
-  }): Promise<{ deletedJourneyId: string }> {
+  }): Promise<{ deletedJourneyId: string; deletedActionIds: string[] }> {
     return await this.prisma.$transaction(async (tx) => {
       const journey = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
       if (!journey || journey.userId !== params.userId) throw new NotFoundException('旅程不存在或无权访问');
@@ -1993,12 +2040,19 @@ export class Batch1PersistenceService {
       await tx.followUpJob.updateMany({ where: { journeyId }, data: { journeyId: null } });
       await this.detachSafetyEventsForJourney(journeyId, tx);
 
-      // 2. Delete child records
-      if (params.actionIds.length > 0) {
+      // 2. Resolve action set inside the transaction
+      const dbActions = await tx.actionCommitment.findMany({
+        where: { journeyId },
+        select: { id: true },
+      });
+      const resolvedActionIds = dbActions.map((a) => a.id);
+
+      // 3. Delete child records using in-transaction resolved actionIds
+      if (resolvedActionIds.length > 0) {
         await tx.outcomeCheckin.deleteMany({
-          where: { OR: [{ journeyId }, { commitmentId: { in: params.actionIds } }] },
+          where: { OR: [{ journeyId }, { commitmentId: { in: resolvedActionIds } }] },
         });
-        await tx.actionCommitment.deleteMany({ where: { id: { in: params.actionIds } } });
+        await tx.actionCommitment.deleteMany({ where: { id: { in: resolvedActionIds } } });
       } else {
         await tx.outcomeCheckin.deleteMany({ where: { journeyId } });
         await tx.actionCommitment.deleteMany({ where: { journeyId } });
@@ -2006,18 +2060,18 @@ export class Batch1PersistenceService {
       await tx.journeyUpdate.deleteMany({ where: { journeyId } });
       await tx.situationSnapshot.deleteMany({ where: { journeyId } });
 
-      const contentIds = [journeyId, ...params.actionIds];
+      const contentIds = [journeyId, ...resolvedActionIds];
       await tx.aIJob.deleteMany({ where: { contentId: { in: contentIds } } });
       await tx.userNotification.deleteMany({ where: { userId: params.userId, targetRoute: params.archiveRoute } });
 
-      // 3. Delete LifeJourney row
+      // 4. Delete LifeJourney row
       await tx.lifeJourney.delete({ where: { id: journeyId } });
 
       if (params._failDuringTransaction) {
         throw new Error('Simulated failure during deleteJourneyArchive transaction');
       }
 
-      return { deletedJourneyId: journeyId };
+      return { deletedJourneyId: journeyId, deletedActionIds: resolvedActionIds };
     });
   }
 
