@@ -6,7 +6,6 @@ import {
   NotFoundException,
   OnModuleInit,
   UnauthorizedException,
-  forwardRef,
 } from '@nestjs/common';
 import type {
   AIProvider,
@@ -1235,7 +1234,7 @@ export class StoreService implements OnModuleInit {
   constructor(
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
     @Inject(RemoteAiProviderService) private readonly remoteAi: RemoteAiProviderService = new RemoteAiProviderService(),
-    @Inject(forwardRef(() => Batch1PersistenceService)) private readonly batch1Persistence: Batch1PersistenceService = new Batch1PersistenceService(prisma),
+    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);

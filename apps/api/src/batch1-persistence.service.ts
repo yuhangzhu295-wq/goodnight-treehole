@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { UserNotification } from '@goodnight/shared-types';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
@@ -41,7 +41,7 @@ export function mapUserNotificationRow(row: {
 @Injectable()
 export class Batch1PersistenceService {
   constructor(
-    @Inject(forwardRef(() => PrismaRuntimeService))
+    @Inject(PrismaRuntimeService)
     private readonly prisma: PrismaRuntimeService,
   ) {}
 

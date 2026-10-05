@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import { DIRECT_DB_MODELS } from './batch1-persistence.service.js';
 
 type DbClient = any;
 type RuntimeData = Record<string, any>;
@@ -23,6 +22,7 @@ function attachmentIds(items: Array<{ mediaAssetId: string; sortOrder: number }>
 }
 
 export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeData | undefined> {
+  const { DIRECT_DB_MODELS } = await import('./batch1-persistence.service.js');
   const [users, adminUsers, moods, posts, replies, letters, diaries, favorites, categories, faqs, presets, tickets, settings, providers, routes, jobs, assets, audits, journeys, snapshots, journeyUpdates, commitments, checkins, peerExperiences, peerMatches, peerReputations, decisions, cooldowns, handoffs, contacts, futureMessages, supportPlans, stableSelfProfiles, memories, recoverySnapshots, safetyEvents, agentDecisionLogs, followUpJobs, notifications, peerConversations, peerMessages, peerReports, adminUserNotes] = await Promise.all([
     db.user.findMany({ include: { privacySetting: true }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
@@ -141,6 +141,7 @@ async function deleteAbsent(model: any, ids: string[]) {
 }
 
 export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeData): Promise<void> {
+  const { DIRECT_DB_MODELS } = await import('./batch1-persistence.service.js');
   const users = asArray(state.users);
   if (!users.length) throw new Error('Relational persistence requires at least one user');
   const providerMap = new Map(asArray(state.aiProviders).filter((item: any) => item?.id).map((item: any) => [item.id, { ...item }]));
@@ -274,21 +275,31 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             if (dbJourney) targetJourneyId = item.journeyId;
           }
         }
-        await tx.followUpJob.updateMany({
-          where: {
-            id: item.id,
-            ...(arrayStatusIsTerminal ? {} : { status: { notIn: ['delivered', 'completed'] } }),
-          },
-          data: {
-            userId: item.userId,
-            journeyId: targetJourneyId,
-            kind: item.kind,
-            dueAt: date(item.dueAt),
-            status: item.status ?? 'pending',
-            payload: json(item.payload),
-            completedAt: targetCompletedAt,
-          },
-        });
+        if (arrayStatusIsTerminal) {
+          await tx.followUpJob.updateMany({
+            where: { id: item.id },
+            data: {
+              status: item.status,
+              completedAt: targetCompletedAt,
+            },
+          });
+        } else {
+          await tx.followUpJob.updateMany({
+            where: {
+              id: item.id,
+              status: { notIn: ['delivered', 'completed'] },
+            },
+            data: {
+              userId: item.userId,
+              journeyId: targetJourneyId,
+              kind: item.kind,
+              dueAt: date(item.dueAt),
+              status: item.status ?? 'pending',
+              payload: json(item.payload),
+              completedAt: targetCompletedAt,
+            },
+          });
+        }
       }
     }
     if (!DIRECT_DB_MODELS.UserNotification) {

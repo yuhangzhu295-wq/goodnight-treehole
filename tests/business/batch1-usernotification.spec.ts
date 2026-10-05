@@ -364,4 +364,63 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
       await freshPrismaVerify.$disconnect();
     }
   });
+
+  it('6. Privacy gate: FUTURE_SELF with allowFutureSelfNotifications=false suppresses UserNotification creation', async () => {
+    const store = app.get(StoreService);
+    const worker = app.get(FollowUpWorkerService);
+    const jobId = `job_privacy_${Date.now()}`;
+    const testUserId = store.getDemoUserId();
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.privacySetting.upsert({
+        where: { userId: testUserId },
+        create: {
+          userId: testUserId,
+          allowFutureSelfNotifications: false,
+        },
+        update: {
+          allowFutureSelfNotifications: false,
+        },
+      });
+
+      await freshPrisma.followUpJob.create({
+        data: {
+          id: jobId,
+          userId: testUserId,
+          kind: 'FUTURE_SELF',
+          status: 'pending',
+          dueAt: new Date(),
+          payload: { messageId: 'msg_privacy_test' },
+        },
+      });
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+
+    const payload = {
+      id: jobId,
+      kind: 'FUTURE_SELF',
+      userId: testUserId,
+      payload: { messageId: 'msg_privacy_test' },
+    };
+
+    const deliveryResult = await (worker as any).deliver(payload);
+    expect(deliveryResult.status).toBe('delivered');
+    expect(deliveryResult.notificationId).toBeUndefined();
+
+    // Verify in database: followUpJob is delivered, but NO notification was created
+    const freshPrismaVerify = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const job = await freshPrismaVerify.followUpJob.findUnique({ where: { id: jobId } });
+      expect(job?.status).toBe('delivered');
+
+      const notif = await freshPrismaVerify.userNotification.findUnique({
+        where: { id: `notification_${jobId}` },
+      });
+      expect(notif).toBeNull();
+    } finally {
+      await freshPrismaVerify.$disconnect();
+    }
+  });
 });

@@ -74,25 +74,18 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
 
     if (futureNotificationsAllowed) {
       const message = this.notificationCopy(input.kind, input.payload);
-      try {
-        await this.prisma.userNotification.create({
-          data: {
-            id: notificationId,
-            userId: input.userId,
-            type: message.type,
-            title: message.title,
-            body: message.body,
-            targetRoute: message.targetRoute,
-            status: 'unread',
-          },
-        });
-      } catch (error: any) {
-        if (error?.code === 'P2002' || String(error?.message).includes('Unique constraint')) {
-          // Idempotency signal: already delivered
-        } else {
-          throw error;
-        }
-      }
+      await this.prisma.userNotification.createMany({
+        data: [{
+          id: notificationId,
+          userId: input.userId,
+          type: message.type,
+          title: message.title,
+          body: message.body,
+          targetRoute: message.targetRoute,
+          status: 'unread',
+        }],
+        skipDuplicates: true,
+      });
     }
 
     return {
