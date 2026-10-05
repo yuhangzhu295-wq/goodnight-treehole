@@ -40,8 +40,8 @@ arrays cannot silently null a foreign key or delete a row that should survive.
 | A | `UserNotification` | **Done, reviewed APPROVE** | `81308e7` |
 | B | `SafetyEvent` (+ D1 AuditLog) | **Done, reviewed APPROVE** | `3234ef0` |
 | C | `AIJob` | **Done; review fixes applied; deadlock regression found and fixed** | `cd919fd` |
-| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; core safety properties verified directly; independent code review outstanding (reviewer model quota-exhausted)** | `501d115` |
-| E | `ActionCommitment` + `OutcomeCheckin` | Not started | — |
+| D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | **Done; reviewed — 3 blocking defects found and fixed** | `501d115`, `e927716` |
+| E | `ActionCommitment` + `OutcomeCheckin` | **Done; same review round** — completes the eight models | `6a64701`, `e927716` |
 
 ### A — UserNotification
 
@@ -123,7 +123,53 @@ The FK anchor of the whole batch. Full triple exit for all three models (hydrati
 
 **D3 concurrency**: the parent `User` row is locked with `SELECT … FOR UPDATE` inside the restore/graduate/activate transactions (`:1738, :1773, :1792`) before the check-then-act, because locking the user's Journey rows cannot block a concurrent insert under `READ COMMITTED`. (Narrowed scope: restore and activation paths enforce single-active mutual exclusion; initial creation does not block on active journeys). `patchJourney` enforces `updatedAt` CAS when `expectedUpdatedAt` is provided by the caller (raising 409 Conflict), falling back to field-level last-writer-wins for unversioned PATCH requests. Archive deletion detaches the dependent models explicitly (`updateMany({ journeyId: null })`, `:1826–1834`) inside the verified deletion transaction rather than relying on the cascade or external calls. In sub-batch E, `checkinAction` serializes on parent Action row lock, performs status CAS on `OutcomeCheckin` transitions out of `pending`, and is explicitly idempotent on terminal check-ins (never rewriting `checkedAt` or `reflection`). A known limitation is that the `followUpJobs` in-memory mirror remains a second read input for graduation follow-up counts until FollowUpJob migrates.
 
-**Independent code review is outstanding.** The reviewer's model returned `429 RESOURCE_EXHAUSTED` when this sub-batch was submitted, so D has not had the adversarial review that A, B and C each received — and every one of those reviews found real defects. The orchestrator verified the three highest-risk properties directly (FK guard, commit-time guard, parent-row locking) and the full-suite evidence is green, but **D should be treated as reviewed-pending until that pass is completed**. This is the single most important outstanding item, because D's changes protect fifteen models' foreign keys.
+**Review found three blocking defects, all fixed in `e927716`.** The `code-reviewer` model was
+quota-exhausted, so this review ran on `architecture-reviewer` instead — a different model than
+the one that reviewed A/B/C, which is worth knowing when weighing it. It found:
+
+1. **A completed check-in could be rewritten.** `checkinAction`'s CAS returned on a zero-row
+   match but then fell through and updated the existing terminal row blindly, including
+   `reflection` and `checkedAt`, so a second request rewrote a completed check-in. Fixed by
+   making a zero-row CAS an idempotent return of the unchanged terminal row and by skipping the
+   duplicate `JourneyUpdate`. Idempotent-return was chosen over rejecting with a conflict so that
+   a client retry or a worker redelivery does not produce a false error for an action that
+   already succeeded.
+2. **Archive deletion detached SafetyEvents before its deletion transaction**, so a failed
+   deletion left retained safety events without their `journeyId`. The detach now happens
+   **inside** the verified deletion transaction. (Sub-batch B's reviewer had judged the earlier
+   split acceptable; on review it is not, because the failure mode is silent.)
+3. **High-risk Journey creation was not atomic with its SafetyEvent** — the Journey committed,
+   the AI job was queued, and only then was the SafetyEvent created in a separate transaction.
+   A SafetyEvent failure therefore left a committed high-risk Journey with **no safety record**,
+   the exact outcome the safety path exists to prevent. The SafetyEvent is now created in the
+   same transaction as the Journey/Snapshot/Update.
+
+Also fixed: `patchJourney` now accepts and forwards `expectedUpdatedAt`, returning `409` on a
+conflict, with unversioned requests keeping field-level last-writer-wins — and the D3 claim was
+qualified to say exactly that, rather than claiming a CAS the controller never supplied. The
+single-active-Journey guarantee was **narrowed** to the restore/activation paths, because
+product rules allow a user to create journeys directly and the existing `first-batch-core-loop`
+flow depends on it. The `followUpJobs` mirror is recorded as a known limitation: graduation's
+follow-up count reads that array, so cross-instance delivery can make it briefly stale, and it
+must not be described as database-authoritative.
+
+Each fix was mutation-tested — the guard was removed, the new test confirmed to fail, the guard
+restored — and the observed failures are recorded in the sub-batch report.
+
+### E — ActionCommitment + OutcomeCheckin
+
+The last two models; the batch is now complete. Full triple exit for both, and the `commitmentId`
+guard — which protects `OutcomeCheckin.commitmentId` — gets the same treatment as `journeyIds`:
+candidates are collected and resolved inside the transaction (`mapper:882–896`), with a secondary
+database check at `:1194–1210` so a stale snapshot cannot null an existing reference. Verified by
+the orchestrator by reading the code.
+
+Writes moved: action creation, check-in, adaptive actions, archive deletion and test cleanup,
+with the check-in's FollowUpJob status and JourneyUpdate in one transaction. Reads moved: home,
+journey actions/detail/archive/graduation, adaptive parent, Peer draft, admin actions and
+check-ins, and the monthly report. `checkinAction` serializes on the parent `ActionCommitment`
+row (`FOR UPDATE`) and transitions out of `pending` by status CAS, which is what makes the
+one-pending-check-in-per-action invariant hold without a schema change.
 
 ## Test isolation (step 16)
 
@@ -150,10 +196,13 @@ Independently reproduced by the orchestrator, not taken from implementer summari
 | Same, after isolation (`9150f45`) | 9 failed / 16 passed files; failing set a **strict subset** of baseline |
 | Same, after sub-batch C (`cd919fd`) | 9 failed / 17 passed files, 10 failed / 54 passed tests; failing set within baseline; **0** `40P01` deadlocks |
 | Same, after sub-batch D (`501d115`) | **8 failed / 19 passed** files, 9 failed / 62 passed tests; failing set a strict subset of baseline; **0** `40P01`; `persistence-durability` 2/2 in 3 consecutive isolated runs |
+| Same, after sub-batch E and its review fixes (`e927716`) | **8 failed / 20 passed** files, 9 failed / 70 passed tests; failing set a strict subset of baseline; **0** `40P01`; tree clean |
 | `batch1-usernotification.spec.ts` | 6/6 |
 | `batch1-safetyevent.spec.ts` | 5/5 |
 | `batch1-aijob.spec.ts` | 8/8 |
 | `batch1-journey.spec.ts` | 7/7 |
+| `batch1-action.spec.ts` | 8/8 |
+| `persistence-durability.spec.ts` | 2/2 |
 | `first-batch-core-loop.spec.ts` | 5/5 isolated after the deadlock fix |
 | `third-stage-decision-vault` / `third-stage-privacy-2` | 5/5 and 5/5 isolated |
 | Dev DB `public` rows | 1304 before and after runs |
@@ -165,20 +214,22 @@ Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is n
 
 ## Open items this report does not close
 
-- **Sub-batch E** — `ActionCommitment` and `OutcomeCheckin` still memory-authoritative. Until E
-  lands, the archive path keeps an in-memory filter for them, so they must not be treated as
-  transactionally persisted.
-- **Sub-batch D's independent code review** — outstanding because the reviewer's model was
-  quota-exhausted. The orchestrator verified the FK guard, the commit-time `user_confirmed`
-  guard and the parent-`User`-row locking directly, and the suite is green, but D has not had
-  the adversarial review A/B/C received.
-- **§60 success conditions** — `BATCH1_FULL_FLUSH_ON_WRITE`, `BATCH1_DELETE_ABSENT`,
-  `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE` and the rest are still **false** for the two unmigrated
-  models (`ActionCommitment`, `OutcomeCheckin`). The before/after benchmark, concurrency and
-  multi-instance reports are not yet produced.
+- **The §60 success conditions are not yet *measured*.** All eight models are migrated, so the
+  structural conditions should now hold — `BATCH1_FULL_FLUSH_ON_WRITE`, `BATCH1_DELETE_ABSENT`
+  and `BATCH1_DUAL_WRITER` are false by construction and can be asserted from the mapper. But
+  `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE`, the before/after benchmark, the concurrency report and
+  the multi-instance report have **not been produced**, so none of them may be claimed. This is
+  the next piece of work, and it is what would let `PERSISTENCE_BATCH1_STABLE` be asserted.
+- **No multi-instance verification has been run.** `BATCH1_MULTI_INSTANCE_SAFE` is unproven.
+  `recoverInterruptedAiJobs` still marks every `queued`/`running` job failed on boot without
+  instance scoping (inherited behaviour, deliberately deferred to the multi-instance phase), and
+  the `followUpJobs` mirror limitation noted under D is the same class of issue.
+- **D/E were reviewed by a different model than A/B/C.** The `code-reviewer` model was
+  quota-exhausted, so `architecture-reviewer` did that pass. It found three blocking defects, so
+  it was clearly worth running — but if you want uniformity, re-run it on the usual reviewer.
 - **Remaining phases** — the peer mega-spec split, GitHub CI, clean dev-DB rebuild, load and
   concurrency gates, Android/Admin/Security regression, live AI, and the final gate.
 
-`PERSISTENCE_BATCH1_STABLE` is **not** claimed. `BATCH1_REFERENCE_SAFETY.md`'s safety properties
-are proven of the design and verified for six of the eight models; `ActionCommitment` and
-`OutcomeCheckin` remain.
+`PERSISTENCE_BATCH1_STABLE` is **not** claimed. All eight models are migrated and the safety
+properties are verified for each, but the §60 conditions require measurements that do not exist
+yet, and `QA_ALL_PASS` is blocked by `AI_LIVE_BLOCKED_EXTERNAL`.
