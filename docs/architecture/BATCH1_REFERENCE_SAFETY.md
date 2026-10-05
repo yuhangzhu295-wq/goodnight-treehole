@@ -51,10 +51,35 @@ reloading":
    delivered job. "The worker no longer reloads" fixes only one trigger path inside one
    instance; it does not fix cross-instance competition.
 
-The gate is **NOT PASSED** as of the first review. Candidate resolutions are recorded in
-`BATCH1_DESIGN.md` under "P0 decisions"; the gate flips to PASS only after `code-reviewer`
-approves those resolutions and the corresponding targeted tests exist. Per the round's rule,
-implementation must not start before that.
+**Gate status: PASSED for design (implementation authorised), 2026-10-05.**
+
+The first review left the gate NOT PASSED on the two P0 unknowns. Candidate resolutions were
+recorded in `BATCH1_DESIGN.md` under "P0 decisions", reviewed by `code-reviewer`, and after
+one round of corrections **APPROVED** (`3068fb0`). The four blocking findings were:
+
+- **D1 was wrong to claim no retention path existed.** `pruneAuditLogsByRetention()`
+  (`store:2359–2368`, boot call `store:1247`) is the live `logRetentionDays` implementation,
+  and today it works *through* the sweep at `mapper:291`. D1 now records explicitly that
+  removing the sweep stops retention from deleting database rows, as an accepted, visible
+  consequence, with a database-side retention delete deferred to separate scope.
+- **The D1 immutability proof was informal.** It is now stated precisely and verifiably.
+- **The D2 terminal set was wrong.** It read `['completed','cancelled']`; `cancelled` is never
+  written to a `FollowUpJob` and `delivered` *is* terminal, so the guard would have failed to
+  prevent the exact regression it exists to prevent. Corrected to `['delivered','completed']`
+  against every write site.
+- **D2 described a worker transaction that does not exist.** `worker:38–51` is two
+  unserialised statements today; D2 now states the required change and the concurrent-create
+  handling explicitly.
+
+The reviewer confirmed the corrected terminal set is complete against every `FollowUpJob`
+status write, and that D1's retention consequence is visible, bounded, and less harmful than
+the P0 it fixes, so it does not block SafetyEvent registration.
+
+What this does **not** yet mean: the safety properties above are proven *of the design*, not
+observed in a running system. They become verified facts only when the per-step targeted
+tests in `BATCH1_DESIGN.md` pass — the FK-preservation regression, the database-only read
+gate, and the concurrency invariants. Until then, treat them as the obligations the
+implementation must discharge, not as results.
 
 ---
 
@@ -280,8 +305,9 @@ read/write and the worker reload), the following must be settled and verified:
    `TEST_ISOLATION_DESIGN.md` §2–4; known migration history per `MIGRATION_FORENSICS.md` §9,
    §82–117 — `db push` must not be used to stand in for a migration test.
 
-**Gate: NOT PASSED** at the time of this review. The companion design
-(`BATCH1_DESIGN.md`) records reviewable candidate resolutions for unknowns 1 and 2 and the
-concurrency invariants; it is not a claim that they are already proven. Per the round's rule,
-no implementation may start until `code-reviewer` approves those resolutions and the targeted
-tests exist.
+**Gate: PASSED for design, implementation authorised** (see §0 for the review history).
+Unknowns 1 and 2 are resolved by D1 and D2 in `BATCH1_DESIGN.md`; the concurrency invariants
+in unknown 5 are resolved by D3's parent-row locking, with an escalation rule if the tests
+cannot demonstrate them. Unknowns 3 and 4 are verification obligations, discharged by the
+per-step tests rather than by argument. The findings in §1–§5 above remain the authoritative
+list of consumers the implementation must convert; they are not retracted by the approval.
