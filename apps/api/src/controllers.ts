@@ -1916,7 +1916,7 @@ export class AdminController {
           (item) => item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now()),
         ).length,
         peerExperiences: this.store.peerExperiences.filter((item) => item.status === 'published').length,
-        safetyEvents: this.store.safetyEvents.filter((item) => item.level === 'high').length,
+        safetyEvents: await this.store.countHighRiskSafetyEvents(),
         supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
         followUps: this.store.followUpJobs.filter((item) => ['pending', 'scheduled'].includes(item.status)).length,
         unreadNotifications: await this.store.countUnreadNotifications(),
@@ -2234,7 +2234,7 @@ export class AdminController {
   }
 
   @Get('safety/events')
-  safetyEvents(
+  async safetyEvents(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2244,19 +2244,28 @@ export class AdminController {
     this.admin(auth);
     const needle = q?.trim().toLowerCase();
     const userNames = new Map(this.store.users.map((user) => [user.id, user.nickname]));
-    const items = this.store.safetyEvents
-      .filter((event) => {
-        const matchesQuery =
-          !needle ||
-          this.matchesNeedle(
-            [event.id, event.userId, userNames.get(event.userId), this.safetyTriggerText(event.payload)],
-            needle,
-          );
-        const matchesStatus = !status || status === 'all' || event.status === status;
-        return matchesQuery && matchesStatus;
-      })
-      .map((event) => ({ ...event, triggerExcerpt: this.safetyTriggerText(event.payload) }));
+    const all = await this.store.adminSafetyEventList({ status });
+    const items = all.filter((event) => {
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle(
+          [event.id, event.userId, event.userNickname ?? userNames.get(event.userId), event.triggerExcerpt],
+          needle,
+        );
+      return matchesQuery;
+    });
     return this.list(items, page, pageSize);
+  }
+
+  @Get('safety/events/:id')
+  async safetyEventDetail(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+  ) {
+    this.admin(auth);
+    const item = await this.store.getSafetyEvent(id);
+    if (!item) throw new NotFoundException('安全事件不存在');
+    return { item: { ...item, triggerExcerpt: this.safetyTriggerText(item.payload) } };
   }
 
   @Patch('safety/events/:id/handle')
@@ -2266,13 +2275,7 @@ export class AdminController {
     @Body() body: { status?: 'open' | 'handled'; note?: string },
   ) {
     const admin = this.admin(auth);
-    const existing = this.store.safetyEvents.find((event) => event.id === id);
-    if (!existing) throw new NotFoundException('安全事件不存在');
-    const before = { ...existing };
-    const result = await this.store.handleSafetyEvent(id, admin.id, body ?? {});
-    this.store.audit(admin.id, 'SAFETY_EVENT_HANDLE', 'SafetyEvent', id, before, result.item);
-    await this.store.persistAndFlush();
-    return result;
+    return await this.store.handleSafetyEvent(id, admin.id, body ?? {});
   }
 
   // One row per report, so an operator sees every report rather than only the most recent one

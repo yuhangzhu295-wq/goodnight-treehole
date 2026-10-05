@@ -59,7 +59,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.stableSelfProfile.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.memoryItem.findMany({ orderBy: { createdAt: 'desc' } }),
     db.recoverySnapshot.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.SafetyEvent ? Promise.resolve([]) : db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
     db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
     db.followUpJob.findMany({ orderBy: { dueAt: 'asc' } }),
     DIRECT_DB_MODELS.UserNotification ? Promise.resolve([]) : db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -123,7 +123,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     stableSelfProfiles: stableSelfProfiles.map((item: any) => ({ id: item.id, userId: item.userId, profile: item.profile ?? {}, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
     memoryItems: memories.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, category: item.category, title: item.title, content: item.content, source: item.source, scope: item.scope, status: item.status, consentedAt: iso(item.consentedAt), expiresAt: iso(item.expiresAt), deletedAt: item.deletedAt ? iso(item.deletedAt) : undefined, createdAt: iso(item.createdAt), updatedAt: iso(item.updatedAt) })),
     recoverySnapshots: recoverySnapshots.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, summary: item.summary, signals: item.signals ?? {}, createdAt: iso(item.createdAt) })),
-    safetyEvents: safetyEvents.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, level: item.level, source: item.source, action: item.action, payload: item.payload ?? undefined, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
+    ...(DIRECT_DB_MODELS.SafetyEvent ? {} : {
+      safetyEvents: safetyEvents.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, level: item.level, source: item.source, action: item.action, payload: item.payload ?? undefined, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
+    }),
     agentDecisionLogs: agentDecisionLogs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, aiJobId: item.aiJobId ?? undefined, taskType: item.taskType, decision: item.decision ?? {}, createdAt: iso(item.createdAt) })),
     followUpJobs: followUpJobs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, kind: item.kind, dueAt: iso(item.dueAt), status: item.status, payload: item.payload ?? undefined, completedAt: item.completedAt ? iso(item.completedAt) : undefined, createdAt: iso(item.createdAt) })),
     ...(DIRECT_DB_MODELS.UserNotification ? {} : {
@@ -228,7 +230,9 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     for (const item of asArray(state.stableSelfProfiles)) await tx.stableSelfProfile.upsert({ where: { userId: item.userId }, create: { id: item.id, userId: item.userId, profile: json(item.profile ?? {}), createdAt: date(item.createdAt), updatedAt: date(item.updatedAt) }, update: { profile: json(item.profile ?? {}) } });
     for (const item of asArray(state.memoryItems)) await tx.memoryItem.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, category: item.category, title: item.title ?? item.category ?? '有限记忆', content: item.content, source: item.source ?? 'user_saved', scope: item.scope ?? 'all_ai', status: item.status ?? 'active', consentedAt: date(item.consentedAt), expiresAt: date(item.expiresAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt ?? item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, category: item.category, title: item.title ?? item.category ?? '有限记忆', content: item.content, source: item.source ?? 'user_saved', scope: item.scope ?? 'all_ai', status: item.status ?? 'active', consentedAt: date(item.consentedAt), expiresAt: date(item.expiresAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null } });
     for (const item of asArray(state.recoverySnapshots)) await tx.recoverySnapshot.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, summary: item.summary, signals: json(item.signals ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, summary: item.summary, signals: json(item.signals ?? {}) } });
-    for (const item of asArray(state.safetyEvents)) await tx.safetyEvent.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
+    if (!DIRECT_DB_MODELS.SafetyEvent) {
+      for (const item of asArray(state.safetyEvents)) await tx.safetyEvent.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
+    }
     for (const item of asArray(state.agentDecisionLogs)) await tx.agentDecisionLog.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId: jobIds.has(item.aiJobId) ? item.aiJobId : null, taskType: item.taskType, decision: json(item.decision ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId: jobIds.has(item.aiJobId) ? item.aiJobId : null, taskType: item.taskType, decision: json(item.decision ?? {}) } });
     const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed'] as const;
     for (const item of asArray(state.followUpJobs)) {
@@ -345,7 +349,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     await deleteAbsent(tx.stableSelfProfile, asArray(state.stableSelfProfiles).map((item: any) => item.id));
     await deleteAbsent(tx.memoryItem, asArray(state.memoryItems).map((item: any) => item.id));
     await deleteAbsent(tx.recoverySnapshot, asArray(state.recoverySnapshots).map((item: any) => item.id));
-    await deleteAbsent(tx.safetyEvent, asArray(state.safetyEvents).map((item: any) => item.id));
+    if (!DIRECT_DB_MODELS.SafetyEvent) await deleteAbsent(tx.safetyEvent, asArray(state.safetyEvents).map((item: any) => item.id));
     await deleteAbsent(tx.agentDecisionLog, asArray(state.agentDecisionLogs).map((item: any) => item.id));
     await deleteAbsent(tx.peerReputation, asArray(state.peerReputations).map((item: any) => item.id));
     await deleteAbsent(tx.lifeJourney, asArray(state.lifeJourneys).map((item: any) => item.id));
@@ -362,7 +366,6 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     await deleteAbsent(tx.feedbackCategory, asArray(state.feedbackCategories).map((item: any) => item.id));
     await deleteAbsent(tx.faqItem, asArray(state.faqs).map((item: any) => item.id));
     await deleteAbsent(tx.replyPreset, asArray(state.replyPresets).map((item: any) => item.id));
-    await deleteAbsent(tx.auditLog, asArray(state.auditLogs).map((item: any) => item.id));
     await deleteAbsent(tx.mediaAsset, asArray(state.assets).map((item: any) => item.id));
     const fixtureMarker = process.env.VISUAL_FIXTURE_MODE === '1'
       ? { fixture: { id: 'visual-v1', version: process.env.VISUAL_FIXTURE_VERSION ?? 'unknown', runtimeInstanceId: process.env.RUNTIME_INSTANCE_ID ?? 'unknown' } }

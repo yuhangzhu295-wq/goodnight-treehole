@@ -1,5 +1,6 @@
 export const DIRECT_DB_MODELS = {
   UserNotification: 'notifications',
+  SafetyEvent: 'safetyEvents',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

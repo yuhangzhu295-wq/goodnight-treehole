@@ -1256,6 +1256,19 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.SafetyEvent) {
+      delete data.safetyEvents;
+      Object.defineProperty(data, 'safetyEvents', {
+        get() {
+          throw new Error('StoreData.safetyEvents is disabled: SafetyEvent is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.safetyEvents is disabled: SafetyEvent is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
@@ -1430,6 +1443,9 @@ export class StoreService implements OnModuleInit {
     return this.data.recoverySnapshots;
   }
   get safetyEvents() {
+    if (DIRECT_DB_MODELS.SafetyEvent) {
+      throw new Error('Direct DB model SafetyEvent: store.safetyEvents getter is disabled. Query the database instead.');
+    }
     return this.data.safetyEvents;
   }
   get agentDecisionLogs() {
@@ -2575,6 +2591,7 @@ export class StoreService implements OnModuleInit {
     ] as const;
     let changed = false;
     for (const key of arrayKeys) {
+      if (key === 'safetyEvents' && DIRECT_DB_MODELS.SafetyEvent) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
@@ -2779,18 +2796,6 @@ export class StoreService implements OnModuleInit {
       content,
       createdAt,
     });
-    if (risk.level === 'high')
-      this.safetyEvents.unshift({
-        id: id('safety'),
-        userId,
-        journeyId: journey.id,
-        level: 'high',
-        source: 'journey_create',
-        action: 'real_world_support_prompt',
-        payload: { escalation: true, triggerExcerpt: String(content).slice(0, 400) },
-        status: 'open',
-        createdAt,
-      });
     const job = this.queueAI({
       taskType: 'situation_analysis',
       userId,
@@ -2875,6 +2880,19 @@ export class StoreService implements OnModuleInit {
       })
       .catch(() => undefined);
     await this.persistAndFlush();
+    if (risk.level === 'high') {
+      await this.batch1Persistence.createSafetyEvent({
+        id: id('safety'),
+        userId,
+        journeyId: journey.id,
+        level: 'high',
+        source: 'journey_create',
+        action: 'real_world_support_prompt',
+        payload: { escalation: true, triggerExcerpt: String(content).slice(0, 400) },
+        status: 'open',
+        createdAt,
+      });
+    }
     return {
       journey,
       snapshot,
@@ -2980,7 +2998,7 @@ export class StoreService implements OnModuleInit {
     this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
     this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
     this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
-    this.data.safetyEvents = this.data.safetyEvents.filter((item) => !hasJourney(item.journeyId));
+    await this.batch1Persistence.detachSafetyEventsForJourneys(Array.from(journeyIds));
     this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
     this.data.followUpJobs = this.data.followUpJobs.filter(
       (item) =>
@@ -3032,25 +3050,14 @@ export class StoreService implements OnModuleInit {
       'HIGH_DISTRESS',
     ];
     if (!validIntents.includes(intent)) throw new BadRequestException('暂时无法识别这个需要');
+    const hasDbHighRisk = await this.batch1Persistence.hasHighRiskSafetyEventForJourney(journey.id);
     const requiresSafetyFirst =
       intent === 'HIGH_DISTRESS' ||
-      (journey.stage === 'safety_first' &&
-        this.safetyEvents.some((item) => item.journeyId === journey.id && item.level === 'high'));
+      (journey.stage === 'safety_first' && hasDbHighRisk);
     if (requiresSafetyFirst) {
       journey.stage = 'safety_first';
       journey.currentIntent = 'HIGH_DISTRESS';
       journey.intentUpdatedAt = now();
-      this.safetyEvents.unshift({
-        id: id('safety'),
-        userId: journey.userId,
-        journeyId: journey.id,
-        level: 'high',
-        source: 'support_intent',
-        action: 'real_world_support_prompt',
-        payload: { intent },
-        status: 'open',
-        createdAt: now(),
-      });
     } else {
       journey.currentIntent = intent;
       journey.intentUpdatedAt = now();
@@ -3065,6 +3072,19 @@ export class StoreService implements OnModuleInit {
     }
     journey.updatedAt = now();
     await this.persistAndFlush();
+    if (requiresSafetyFirst) {
+      await this.batch1Persistence.createSafetyEvent({
+        id: id('safety'),
+        userId: journey.userId,
+        journeyId: journey.id,
+        level: 'high',
+        source: 'support_intent',
+        action: 'real_world_support_prompt',
+        payload: { intent },
+        status: 'open',
+        createdAt: now(),
+      });
+    }
     return { journey, intent, route: this.intentRoute(intent, journey.stage === 'safety_first') };
   }
 
@@ -3237,7 +3257,7 @@ export class StoreService implements OnModuleInit {
     this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
     this.data.memoryItems = detachJourney(this.data.memoryItems);
     this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
-    this.data.safetyEvents = detachJourney(this.data.safetyEvents);
+    await this.batch1Persistence.detachSafetyEventsForJourney(journeyId);
     this.data.agentDecisionLogs = detachJourney(this.data.agentDecisionLogs);
     this.data.followUpJobs = detachJourney(this.data.followUpJobs);
 
@@ -3505,24 +3525,21 @@ export class StoreService implements OnModuleInit {
     return { journey };
   }
 
-  async handleSafetyEvent(eventId: string, adminUserId: string, input: { status?: unknown; note?: unknown }) {
-    const event = this.safetyEvents.find((item) => item.id === eventId);
-    if (!event) throw new NotFoundException('安全事件不存在');
-    const status = input.status === 'open' ? 'open' : input.status === 'handled' ? 'handled' : undefined;
-    if (!status) throw new BadRequestException('处理状态无效');
-    // Mutates in memory only: the caller writes the audit row and flushes once so the
-    // handled state and its audit entry commit in the same transaction.
-    event.status = status;
-    if (status === 'handled') {
-      event.handledAt = now();
-      event.handledBy = adminUserId;
-      event.note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : undefined;
-    } else {
-      event.handledAt = undefined;
-      event.handledBy = undefined;
-      event.note = undefined;
-    }
-    return { item: event };
+  async handleSafetyEvent(eventId: string, adminUserId: string, input: { status?: unknown; note?: unknown; _failAfterUpdate?: boolean }) {
+    const result = await this.batch1Persistence.handleSafetyEvent(eventId, adminUserId, input);
+    this.auditLogs.unshift({
+      id: result.auditId,
+      adminUserId,
+      action: 'SAFETY_EVENT_HANDLE',
+      resourceType: 'SafetyEvent',
+      resourceId: eventId,
+      beforeJson: result.before,
+      afterJson: result.item,
+      ip: '127.0.0.1',
+      userAgent: 'local-dev',
+      createdAt: now(),
+    });
+    return { item: result.item };
   }
 
   async addJourneyUpdate(
@@ -4729,6 +4746,18 @@ export class StoreService implements OnModuleInit {
 
   async countUnreadNotifications(userId?: string) {
     return await this.batch1Persistence.countUnreadNotifications(userId);
+  }
+
+  async adminSafetyEventList(filter?: { q?: string; status?: string }) {
+    return await this.batch1Persistence.listAdminSafetyEvents(filter);
+  }
+
+  async getSafetyEvent(id: string) {
+    return await this.batch1Persistence.getSafetyEvent(id);
+  }
+
+  async countHighRiskSafetyEvents() {
+    return await this.batch1Persistence.countHighRiskSafetyEvents();
   }
 
   async saveRecoveryCheckin(
