@@ -33,9 +33,14 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
     const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
 
-    // 1. Transaction A: Idempotent legacy-model updates only
-    if (messageId || cooldownId || decisionId) {
-      await this.prisma.$transaction(async (tx) => {
+    // 1. Transaction A: Claim FollowUpJob together with legacy-model updates atomically
+    const claimResult = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.followUpJob.updateMany({
+        where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
+        data: { status: 'delivered', completedAt },
+      });
+
+      if (claim.count > 0) {
         if (messageId) {
           await tx.messageToFutureSelf.updateMany({
             where: { id: messageId, userId: input.userId },
@@ -54,51 +59,47 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
             data: { status: 'ready', reviewedAt: completedAt },
           });
         }
-      });
-    }
-
-    // 2. Reload the store so legacy in-memory state is consistent before the notification is observable
-    await this.store.reloadRuntimeState();
-
-    // 3. Transaction B: Guarded FollowUpJob claim plus idempotent UserNotification creation
-    const result = await this.prisma.$transaction(async (tx) => {
-      const claimResult = await tx.followUpJob.updateMany({
-        where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
-        data: { status: 'delivered', completedAt },
-      });
-
-      if (claimResult.count === 0) {
-        const current = await tx.followUpJob.findUnique({ where: { id: input.id } });
-        return { skipped: true, status: current?.status };
       }
-
-      if (futureNotificationsAllowed) {
-        const message = this.notificationCopy(input.kind, input.payload);
-        try {
-          await tx.userNotification.create({
-            data: {
-              id: notificationId,
-              userId: input.userId,
-              type: message.type,
-              title: message.title,
-              body: message.body,
-              targetRoute: message.targetRoute,
-              status: 'unread',
-            },
-          });
-        } catch (error: any) {
-          if (error?.code === 'P2002' || String(error?.message).includes('Unique constraint')) {
-            // Idempotency signal: already delivered
-          } else {
-            throw error;
-          }
-        }
-      }
-
-      return { notificationId: futureNotificationsAllowed ? notificationId : undefined, status: 'delivered' };
+      return claim;
     });
 
-    return result;
+    // 2. Reload the runtime store so legacy in-memory state is consistent before the notification is observable
+    await this.store.reloadRuntimeState();
+
+    // 3. Notification creation: read current job state
+    const currentJob = await this.prisma.followUpJob.findUnique({ where: { id: input.id } });
+    if (!currentJob || currentJob.status !== 'delivered') {
+      return { skipped: true, status: currentJob?.status };
+    }
+
+    if (futureNotificationsAllowed) {
+      const message = this.notificationCopy(input.kind, input.payload);
+      try {
+        await this.prisma.userNotification.create({
+          data: {
+            id: notificationId,
+            userId: input.userId,
+            type: message.type,
+            title: message.title,
+            body: message.body,
+            targetRoute: message.targetRoute,
+            status: 'unread',
+          },
+        });
+      } catch (error: any) {
+        if (error?.code === 'P2002' || String(error?.message).includes('Unique constraint')) {
+          // Idempotency signal: already delivered
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    return {
+      notificationId: futureNotificationsAllowed ? notificationId : undefined,
+      status: 'delivered',
+      ...(claimResult.count === 0 ? { skipped: true } : {}),
+    };
   }
 
   private notificationCopy(kind: string, payload?: Record<string, unknown>) {
