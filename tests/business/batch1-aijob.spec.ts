@@ -5,6 +5,7 @@ import request from 'supertest';
 import { createApiTestApp, loginAdmin, auth } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
+import { MonthlyReportService } from '../../apps/api/src/monthly-report.service';
 import { RemoteAiProviderService, RemoteProviderError, DAPI_PROVIDER_ID } from '../../apps/api/src/remote-ai-provider.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
 
@@ -207,7 +208,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     }
   });
 
-  it('2. Lifecycle ordering: job is committed queued before external call is attempted, and terminal state is written by id under condition', async () => {
+  it('2. Lifecycle ordering: job is committed queued before external call, running while executing, and terminal state is written by id under condition', async () => {
     const store = app.get(StoreService);
     const remoteAi = app.get(RemoteAiProviderService);
     const testUserId = store.getDemoUserId();
@@ -217,21 +218,21 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const prevEnabled = primaryProv?.enabled;
     if (primaryProv) primaryProv.enabled = true;
 
-    let committedQueuedObservedBeforeExternalCall = false;
+    let committedRunningObservedDuringExternalCall = false;
 
-    // Spy on remoteAi.generate: when called, inspect database from fresh client to verify queued row is committed!
+    // Spy on remoteAi.generate: when called, inspect database from fresh client to verify running row exists!
     const generateSpy = vi.spyOn(remoteAi, 'generate').mockImplementation(async (provider, input) => {
       const freshClient = new PrismaClient({ datasources: { db: { url: dbUrl } } });
       try {
-        const queuedRow = await freshClient.aIJob.findFirst({
+        const runningRow = await freshClient.aIJob.findFirst({
           where: {
             userId: testUserId,
             status: 'running',
             promptSummary: { contains: '生命周期排序验证测试' },
           },
         });
-        if (queuedRow) {
-          committedQueuedObservedBeforeExternalCall = true;
+        if (runningRow) {
+          committedRunningObservedDuringExternalCall = true;
         }
       } finally {
         await freshClient.$disconnect();
@@ -268,7 +269,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       // Await terminal state from database
       const completed = await store.waitForAiJob(queuedJob.id);
       expect(completed.status).toBe('succeeded');
-      expect(committedQueuedObservedBeforeExternalCall).toBe(true);
+      expect(committedRunningObservedDuringExternalCall).toBe(true);
 
       // Verify final terminal row in database with fresh client
       const freshClientFinal = new PrismaClient({ datasources: { db: { url: dbUrl } } });
@@ -437,28 +438,27 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
         promptSummary: '提交失败测试',
       });
 
-      // Spy updateJobTerminal to simulate database failure during terminal state write
-      const terminalSpy = vi.spyOn(persistence, 'updateJobTerminal').mockRejectedValue(new Error('DB connection terminated'));
-      try {
-        await expect(
-          persistence.updateJobTerminal({
-            id: brokenJobId,
-            status: 'succeeded',
-            result: '假装成功',
-          }),
-        ).rejects.toThrow('DB connection terminated');
+      // Pass an invalid enum value to updateJobTerminal without mocking:
+      // Prisma / PostgreSQL rejects it through the real database execution path!
+      await expect(
+        persistence.updateJobTerminal({
+          id: brokenJobId,
+          status: 'invalid_terminal_status' as any,
+          result: '假装成功',
+        }),
+      ).rejects.toThrow();
 
-        // Check fresh client: DB row is still running, not succeeded
-        const freshPrismaBroken = new PrismaClient({ datasources: { db: { url: dbUrl } } });
-        try {
-          const row = await freshPrismaBroken.aIJob.findUnique({ where: { id: brokenJobId } });
-          expect(row?.status).toBe('running');
-        } finally {
-          await freshPrismaBroken.$disconnect();
-        }
+      // Check fresh client: DB row is still running, not succeeded
+      const freshPrismaBroken = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      try {
+        const row = await freshPrismaBroken.aIJob.findUnique({ where: { id: brokenJobId } });
+        expect(row?.status).toBe('running');
       } finally {
-        terminalSpy.mockRestore();
+        await freshPrismaBroken.$disconnect();
       }
+
+      // Prove waiter cannot announce success: times out and rejects
+      await expect(store.waitForAiJob(brokenJobId, 300)).rejects.toThrow(/did not finish/);
     } finally {
       generateSpy.mockRestore();
       if (primaryProv && prevEnabled !== undefined) primaryProv.enabled = prevEnabled;
@@ -727,6 +727,171 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       expect((decisionLog?.decision as any)?.title).toBe('整理后的新标题');
     } finally {
       await freshPrismaVerify.$disconnect();
+    }
+  });
+
+  it('7. P0-1 coverage: AgentDecisionLog created by AI completion survives immediate legacy flush before state reload', async () => {
+    const persistence = app.get(Batch1PersistenceService);
+    const store = app.get(StoreService);
+    const testUserId = store.getDemoUserId();
+    const journeyId = `journey_p01_${Date.now()}`;
+    const snapshotId = `snapshot_p01_${Date.now()}`;
+    const jobId = `job_p01_${Date.now()}`;
+
+    // 1. Create Journey, Snapshot, and AIJob directly in database
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.aIProvider.upsert({
+        where: { id: 'provider_template' },
+        create: {
+          id: 'provider_template',
+          name: '模板提供方',
+          type: 'template',
+          baseUrl: 'local://template',
+          modelName: 'safe-template',
+          providerKind: 'template',
+          usageTags: [],
+        },
+        update: {},
+      });
+
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId: testUserId,
+          title: '工作旅程',
+          domain: '工作',
+          status: 'active',
+          stage: 'clarifying',
+        },
+      });
+      await freshPrisma.situationSnapshot.create({
+        data: {
+          id: snapshotId,
+          journeyId,
+          facts: ['事实1'],
+          feelings: ['感受1'],
+          needs: [],
+          constraints: [],
+          risks: [],
+          confidence: 'agent_draft',
+        },
+      });
+      await freshPrisma.aIJob.create({
+        data: {
+          id: jobId,
+          userId: testUserId,
+          contentId: journeyId,
+          contentType: 'Situation',
+          jobType: '处境分析',
+          taskType: 'situation_analysis',
+          style: 'rational',
+          providerId: 'provider_template',
+          modelName: 'safe-template',
+          status: 'succeeded',
+          promptSummary: 'P0-1测试',
+          result: '分析结果',
+          durationMs: 20,
+          traceJson: [],
+        },
+      });
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+
+    // 2. Run applySituationAnalysisAiCompletion which creates AgentDecisionLog with aiJobId in DB
+    const callbackResult = await persistence.applySituationAnalysisAiCompletion({
+      journeyId,
+      userId: testUserId,
+      completedJob: {
+        id: jobId,
+        userId: testUserId,
+        contentId: journeyId,
+        contentType: 'Situation',
+        jobType: '处境分析',
+        taskType: 'situation_analysis',
+        style: 'rational',
+        providerId: 'provider_template',
+        modelName: 'safe-template',
+        status: 'succeeded',
+        promptSummary: 'P0-1测试',
+        result: '分析结果',
+        durationMs: 20,
+        retryCount: 0,
+        fallbackUsed: false,
+        routeVersion: 1,
+        traceJson: [],
+        createdAt: new Date().toISOString(),
+        structuredResult: { summary: '分析结果', facts: ['事实1'] },
+      },
+    });
+    expect(callbackResult.applied).toBe(true);
+
+    // Verify AgentDecisionLog was created in DB
+    const freshPrismaMid = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    let createdLogId: string;
+    try {
+      const log = await freshPrismaMid.agentDecisionLog.findFirstOrThrow({ where: { journeyId, aiJobId: jobId } });
+      createdLogId = log.id;
+      expect(log.aiJobId).toBe(jobId);
+    } finally {
+      await freshPrismaMid.$disconnect();
+    }
+
+    // 3. Simulate immediate persistAndFlush from an instance whose in-memory snapshot was not reloaded yet
+    const freshPrismaStale = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const staleState = {
+        users: [{ id: testUserId, openid: `openid_${Date.now()}`, nickname: 'Demo', anonymousCode: 'demo_code', status: 'normal', createdAt: new Date().toISOString() }],
+        lifeJourneys: [{ id: journeyId, userId: testUserId, title: '工作旅程', domain: '工作', status: 'active', stage: 'clarifying', visibility: 'PRIVATE', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+        agentDecisionLogs: [{ id: createdLogId, userId: testUserId, journeyId, taskType: 'situation_analysis', decision: { summary: '分析结果' }, createdAt: new Date().toISOString() }], // snapshot where aiJobId was not yet populated
+      };
+      await saveRelationalRuntimeState(freshPrismaStale, staleState);
+    } finally {
+      await freshPrismaStale.$disconnect();
+    }
+
+    // 4. Assert from fresh client that the secondary guard in mapper preserved aiJobId!
+    const freshPrismaFinal = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const logAfterFlush = await freshPrismaFinal.agentDecisionLog.findUnique({ where: { id: createdLogId } });
+      expect(logAfterFlush).not.toBeNull();
+      expect(logAfterFlush?.aiJobId).toBe(jobId);
+    } finally {
+      await freshPrismaFinal.$disconnect();
+    }
+  });
+
+  it('8. P0-2 proof: MonthlyReport advice awaits job commit and reads back valid aiJobId rather than null', async () => {
+    const store = app.get(StoreService);
+    const reports = app.get(MonthlyReportService);
+    const testUserId = store.getDemoUserId();
+
+    // Ensure privacy allows report analysis
+    store.privacySettings[testUserId] = {
+      ...(store.privacySettings[testUserId] ?? {}),
+      allowJourneyLongTermAnalysis: true,
+      allowMonthlyReportShare: true,
+    } as any;
+
+    const month = '2026-09';
+    // Call advice - which queues a monthly_recovery_summary job and awaits awaitJobCommit
+    const result = await reports.advice(month, testUserId);
+
+    expect(result.item.aiJobId).toBeDefined();
+    expect(typeof result.item.aiJobId).toBe('string');
+    expect(result.item.aiJobId?.length).toBeGreaterThan(0);
+    expect(result.item.aiJobStatus).toBeDefined();
+
+    // Verify row was committed to PostgreSQL
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const dbRow = await freshPrisma.aIJob.findUnique({ where: { id: result.item.aiJobId! } });
+      expect(dbRow).not.toBeNull();
+      expect(dbRow?.id).toBe(result.item.aiJobId);
+      expect(dbRow?.taskType).toBe('monthly_recovery_summary');
+    } finally {
+      await freshPrisma.$disconnect();
     }
   });
 });

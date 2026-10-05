@@ -428,6 +428,12 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     if (!DIRECT_DB_MODELS.AIJob) await deleteAbsent(tx.aIJob, jobs.map((item: any) => item.id));
     await deleteAbsent(tx.aIStyleRoute, routes.map((item: any) => item.id ?? `route_${item.style}`));
     if (DIRECT_DB_MODELS.AIJob) {
+      // P1-4 Semantic change (Batch 1 Sub-batch C):
+      // An admin removing an AIProvider that any historical or active AIJob in the database
+      // still references will no longer take effect through the snapshot path.
+      // The foreign key AIJob_providerId_fkey ON DELETE RESTRICT forbids deleting a referenced provider;
+      // attempting to sweep it would abort the transaction with a foreign key violation.
+      // We explicitly preserve any AIProvider currently referenced by a database AIJob.
       const dbUsedProviders = await tx.aIJob.findMany({
         select: { providerId: true },
         distinct: ['providerId'],

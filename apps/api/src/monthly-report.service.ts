@@ -348,7 +348,10 @@ export class MonthlyReportService {
             sourceId: `monthly_report_${userId}_${month}_${sourceSignature}`,
           })
         : undefined;
-      if (job) await this.store.flush();
+      if (job) {
+        await this.store.awaitJobCommit(job.id);
+        await this.store.flush();
+      }
       metadata = {
         items: statistics.keywords,
         sourceSignature,
@@ -439,6 +442,7 @@ export class MonthlyReportService {
         userId,
         sourceId: contentId,
       });
+      await this.store.awaitJobCommit(queued.id);
       await this.store.flush();
       job = await this.prisma.aIJob.findUnique({ where: { id: queued.id } });
     }

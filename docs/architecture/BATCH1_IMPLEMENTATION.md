@@ -39,7 +39,7 @@ arrays cannot silently null a foreign key or delete a row that should survive.
 | --- | --- | --- | --- |
 | A | `UserNotification` | **Done, reviewed APPROVE** | `81308e7` |
 | B | `SafetyEvent` (+ D1 AuditLog) | **Done, reviewed APPROVE** | `3234ef0` |
-| C | `AIJob` | Not started | — |
+| C | `AIJob` | **Done** | `6e1f5d7` |
 | D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | Not started | — |
 | E | `ActionCommitment` + `OutcomeCheckin` | Not started | — |
 
@@ -96,6 +96,20 @@ Two consumers the design had not listed were found and converted (`ensurePhaseTw
 post-commit timestamp instead of the transaction's, and the archive-detachment test could not
 distinguish the explicit detach from the `onDelete: SetNull` cascade — it now fails if the detach
 is removed, which the implementer demonstrated by temporarily removing it.
+
+### C — AIJob
+
+`AIJob` writes and lifecycle moved completely to PostgreSQL:
+- **Triple exit**: registered `AIJob: 'aiJobs'` in `DIRECT_DB_MODELS`, stopped boot hydration in `loadRelationalRuntimeState`, stopped legacy upsert in `saveRelationalRuntimeState`, and removed the `tx.aIJob` absence sweep.
+- **Database lifecycle**: `queueAiJob` commits the job as `queued` to PostgreSQL before any microtask runs, tracked by `pendingJobCommits` and awaitable via `awaitJobCommit(jobId)`. `runAiJob` executes status CAS `updateMany({ where: { id, status: 'queued' }, data: { status: 'running' } })` to claim execution, and `updateJobTerminal` updates terminal states (`succeeded`, `fallback`, `failed`) within an interactive transaction conditioned on `status in ['queued', 'running']`.
+- **P0-2 fixed**: `monthly-report.service.ts` awaits `awaitJobCommit(queued.id)` before querying `prisma.aIJob.findUnique`, preventing race conditions where the report advice would read null.
+- **P0-3 fixed**: `updateJobTerminal` reads the latest row inside the transaction and merges caller trace entries onto `existing.traceJson` by JSON signature, preserving the audit trail rather than overwriting with a stale caller array.
+- **P1-2 (known limitation & guard documentation)**: `AgentDecisionLog.aiJobId` is a plain string column with no foreign key constraint in Prisma schema (`schema:764–768`). In `saveRelationalRuntimeState`, `jobIds` is queried in-transaction, and a secondary database lookup checks whether an existing row in DB already has `aiJobId`. This prevents a stale in-memory snapshot flush from silently nulling `aiJobId`. This guard is essential and must never be removed.
+- **P1-4 (semantic change & guard documentation)**: `saveRelationalRuntimeState` previously swept `AIProvider` using `deleteAbsent(tx.aIProvider, ...)`, which violated `AIJob_providerId_fkey` (which has `ON DELETE RESTRICT`) whenever an existing `AIJob` referenced a provider not in the snapshot. The mapper now explicitly queries `tx.aIJob.findMany({ select: { providerId: true }, distinct: ['providerId'] })` and protects any provider referenced by any database `AIJob`. Deliberate semantic change: an admin deleting a provider that any historical or active `AIJob` still references will no longer take effect through the snapshot path.
+- **P1-5**: `recoverInterruptedAiJobs` marks all `queued`/`running` jobs `failed` on boot without instance scoping, matching pre-existing boot repair semantics. Multi-instance fencing belongs to the subsequent clustering phase.
+- **P2-1**: Concurrency testing verifies the database CAS predicate and single-winner guarantees under concurrent transaction attempts.
+- **AI Completion callbacks**: `applySituationAnalysisAiCompletion` performs transactional scoped database updates on `SituationSnapshot` and `LifeJourney` (conditioned on `confidence !== 'user_confirmed'`) and inserts `AgentDecisionLog`, ensuring updates land safely even when the in-memory array is missing the object.
+- **Injected 402 degradation**: verified through injected `RemoteProviderError(..., 402, false)` that normal tasks transition to `fallback` (with `fallbackUsed: true` and trace), Peer assist tasks transition to `failed` (with `fallbackUsed: false` and trace), and a failed terminal commit cannot let the waiter announce success.
 
 ## Test isolation (step 16)
 

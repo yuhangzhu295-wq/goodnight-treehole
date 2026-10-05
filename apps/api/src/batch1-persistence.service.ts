@@ -624,6 +624,18 @@ export class Batch1PersistenceService {
       if (!['queued', 'running'].includes(existing.status)) {
         return { updated: false, job: mapAiJobRow(existing) };
       }
+      const dbTraces = Array.isArray(existing.traceJson) ? (existing.traceJson as any[]) : [];
+      const callerTraces = Array.isArray(params.traceJson) ? params.traceJson : [];
+      const existingSignatures = new Set(dbTraces.map((t) => JSON.stringify(t)));
+      const mergedTraces = [...dbTraces];
+      for (const entry of callerTraces) {
+        const sig = JSON.stringify(entry);
+        if (!existingSignatures.has(sig)) {
+          mergedTraces.push(entry);
+          existingSignatures.add(sig);
+        }
+      }
+
       existing.status = params.status;
       if (params.result !== undefined) existing.result = params.result;
       if (params.structuredResult !== undefined) existing.structuredResult = params.structuredResult;
@@ -634,10 +646,30 @@ export class Batch1PersistenceService {
       if (providerId) existing.providerId = providerId;
       if (params.modelName !== undefined) existing.modelName = params.modelName;
       existing.completedAt = completedAt;
-      if (params.traceJson !== undefined) existing.traceJson = params.traceJson;
+      existing.traceJson = mergedTraces;
       return { updated: true, job: mapAiJobRow(existing) };
     }
 
+    // 1. Fetch latest traceJson from database row to merge onto it (P0-3)
+    const existing = await this.prisma.aIJob.findUnique({ where: { id: params.id } });
+    if (!existing) throw new NotFoundException('AI 任务不存在');
+    if (!['queued', 'running'].includes(existing.status)) {
+      return { updated: false, job: mapAiJobRow(existing) };
+    }
+
+    const dbTraces = Array.isArray(existing.traceJson) ? (existing.traceJson as any[]) : [];
+    const callerTraces = Array.isArray(params.traceJson) ? params.traceJson : [];
+    const existingSignatures = new Set(dbTraces.map((t) => JSON.stringify(t)));
+    const mergedTraces = [...dbTraces];
+    for (const entry of callerTraces) {
+      const sig = JSON.stringify(entry);
+      if (!existingSignatures.has(sig)) {
+        mergedTraces.push(entry);
+        existingSignatures.add(sig);
+      }
+    }
+
+    // 2. Perform atomic CAS conditional update so only one racer wins under concurrency
     const updateResult = await this.prisma.aIJob.updateMany({
       where: {
         id: params.id,
@@ -654,7 +686,7 @@ export class Batch1PersistenceService {
         ...(providerId ? { providerId } : {}),
         ...(params.modelName !== undefined ? { modelName: params.modelName } : {}),
         completedAt,
-        ...(params.traceJson !== undefined ? { traceJson: params.traceJson as any } : {}),
+        traceJson: mergedTraces as any,
       },
     });
 
