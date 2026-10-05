@@ -63,6 +63,34 @@ document refuses to claim "no lost updates" from it. Running the spec in isolati
 individually diagnosed". It is not claimed to be external-AI, and it is not claimed to be
 harmless. A sub-batch is only required to keep the set from growing.
 
+## The development database IS polluted — at the schema level
+
+`DEV_DB_NOT_POLLUTED` cannot be claimed from a `public`-schema row count. Measured directly on the
+project database (container `goodnight-treehole-postgres-1`, port 15432):
+
+| Measurement | Value |
+| --- | --- |
+| Live rows in `public` across 54 tables | 1304 |
+| Applied migrations | 12 |
+| **Leftover `goodnight_treehole_test_*` schemas** | **429** |
+
+`public` is stable, so a row count taken there does not move and looks clean. The pollution is
+elsewhere: `resetTestDatabase()` (`scripts/test-database.ts:23–33`) drops only the schema it is
+about to recreate, and the name it recreates is derived from the process and pool id
+(`goodnight_treehole_test_business_43220_1`), so **each run mints new schema names and never
+drops the old ones**. 429 schemas have accumulated, roughly 20 per full business-suite run, and
+the three verification runs performed while reviewing sub-batch A added to the count.
+
+An implementer reported "dev DB row count before 1304, after 1304, `DEV_DB_NOT_POLLUTED`
+confirmed". The numbers are right and the conclusion does not follow: they were taken from
+`public` only. This is the second time in this round that a measurement was taken against the
+wrong target (the first was port 5432 instead of 15432), so the rule for the remaining
+sub-batches is that a pollution claim must name the query and the scope it covered.
+
+This is the concrete justification for the test-isolation work (`TEST_ISOLATION_DESIGN.md`): a
+per-run database created by `prisma migrate deploy` and dropped afterwards, never a
+`db push`-built schema inside the development database.
+
 ## How this is used
 
 A sub-batch's regression evidence is a diff against this list, not a pass count:
@@ -72,10 +100,30 @@ A sub-batch's regression evidence is a diff against this list, not a pass count:
   cause — a newly passing notification test is not automatically good news, and a newly failing
   one is not automatically a flake.
 
-Sub-batch A initially **added** one failure,
-`third-stage-decision-vault.spec.ts > holds a user decision, delivers a real cooldown
-notification, and only then lets the user decide and archive`, which failed intermittently
-(measured 1 of 3 isolated runs). It was a real regression — the notification became
-database-visible at commit while `/api/v1/decisions` still read the legacy store, so a reader
-could see "cooldown released" against a decision still reading `cooling`. It was fixed in the
-worker's delivery ordering rather than by relaxing the assertion. See the sub-batch A report.
+Sub-batch A took three attempts to reach that state, and both intermediate failures were real
+regressions rather than flakes — which is why they were fixed in code instead of by relaxing an
+assertion. Both came from the same cause: making `UserNotification` database-authoritative
+changed *when* a notification becomes observable relative to the legacy in-memory store.
+
+1. **First attempt** — the worker created the notification inside the same transaction as the
+   claim, so it became visible at commit, before `reloadRuntimeState()` refreshed the store.
+   `third-stage-decision-vault` then failed intermittently (measured 1 of 3 isolated runs): a
+   reader could see the `COOLDOWN_RELEASED` notification while `/api/v1/decisions` still read
+   `cooling`, which is the state the notification's deep link leads to.
+2. **Second attempt** — the fix put the legacy-model writes in one transaction, the reload
+   next, and the claim plus notification in a second transaction. That inverted the window:
+   `third-stage-privacy-2` polls `messageToFutureSelf.deliveredAt` and then requires the
+   FollowUpJob to be `delivered`, but the legacy write now committed *before* the claim, so the
+   legacy state became visible while the job was still `pending`.
+3. **Final** — the claim commits **atomically with the legacy-model writes**, then the store is
+   reloaded, then the notification is created last and idempotently. That satisfies both
+   directions: legacy state visible ⇒ job already `delivered`, and notification visible ⇒ store
+   already consistent. The notification create is not skipped when the claim matched zero rows
+   (a retry after a crash between the two transactions would otherwise lose it permanently);
+   instead it is gated on the job's current status being `delivered` and made idempotent by the
+   deterministic id, so a duplicate is a `P2002` no-op.
+
+Verified independently by the orchestrator: `10 failed / 40 passed`, and the newly-failing set
+against this baseline is **empty**. `first-batch-core-loop` and
+`goodnight-2-incremental > delivers an overdue follow-up…` also moved from failing to passing,
+because notification reads are no longer served from the store.
