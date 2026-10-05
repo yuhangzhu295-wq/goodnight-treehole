@@ -1306,4 +1306,63 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       await freshPrisma.$disconnect();
     }
   });
+
+  it('P0-RootLock discriminating test: concurrent action creation and journey write enforce LifeJourney lock root without 40P01 deadlock', async () => {
+    const store = app.get(StoreService);
+    const userId = store.getDemoUserId();
+    const journeyId = `core_deadlock_j_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyId,
+          userId,
+          title: '核心循环死锁防护测试旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'clarifying',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await freshPrisma.situationSnapshot.create({
+        data: {
+          id: `snap_${Date.now()}`,
+          journeyId,
+          facts: ['事实1'],
+          feelings: ['感受1'],
+          needs: [],
+          constraints: [],
+          risks: [],
+          contextTags: ['生活'],
+          confidence: 'agent_draft',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Concurrently run action creation and journey intent update
+      const [actionRes, intentRes] = await Promise.allSettled([
+        store.createActionCommitment(journeyId, {
+          title: '并发创建行动',
+          dueAt: new Date(Date.now() + 86400000).toISOString(),
+        }),
+        store.setJourneyIntent(journeyId, 'NEXT_STEP'),
+      ]);
+
+      const actionError = actionRes.status === 'rejected' ? String(actionRes.reason) : '';
+      const intentError = intentRes.status === 'rejected' ? String(intentRes.reason) : '';
+
+      // Both serialize on LifeJourney lock root without 40P01 deadlock
+      expect(actionError).not.toMatch(/40P01|deadlock/i);
+      expect(intentError).not.toMatch(/40P01|deadlock/i);
+
+      expect(actionRes.status).toBe('fulfilled');
+      expect(intentRes.status).toBe('fulfilled');
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });
