@@ -186,10 +186,12 @@ export class MonthlyReportService {
     const journeys = dbJourneys.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.completedAt),
     );
-    const actions = this.store.actionCommitments.filter(
+    const dbActions = await this.batch1Persistence.getActionsForUser(userId);
+    const actions = dbActions.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt),
     );
-    const checkins = this.store.outcomeCheckins.filter(
+    const dbCheckins = await this.batch1Persistence.getCheckinsForUser(userId);
+    const checkins = dbCheckins.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.checkedAt, item.dueAt),
     );
     const recoverySnapshots = this.store.recoverySnapshots.filter(
@@ -324,10 +326,10 @@ export class MonthlyReportService {
     for (const item of this.store.moods) if (item.userId === userId) addMonths(item.createdAt);
     const journeyMonths = await this.batch1Persistence.getAvailableMonthsForJourneys(userId);
     for (const m of journeyMonths) months.add(m);
-    for (const item of this.store.actionCommitments)
-      if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.dueAt, item.reminderAt);
-    for (const item of this.store.outcomeCheckins)
-      if (item.userId === userId) addMonths(item.createdAt, item.checkedAt, item.dueAt);
+    const actionMonths = await this.batch1Persistence.getAvailableMonthsForActions(userId);
+    for (const m of actionMonths) months.add(m);
+    const checkinMonths = await this.batch1Persistence.getAvailableMonthsForCheckins(userId);
+    for (const m of checkinMonths) months.add(m);
     for (const item of this.store.recoverySnapshots) if (item.userId === userId) addMonths(item.createdAt);
     for (const item of this.store.decisionRecords)
       if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.reviewedAt);

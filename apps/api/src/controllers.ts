@@ -1991,10 +1991,8 @@ export class AdminController {
       journeySummary: {
         total: await this.batch1Persistence.countTotalJourneys(),
         active: await this.batch1Persistence.countActiveJourneys(),
-        actions: this.store.actionCommitments.filter((item) => item.status === 'active').length,
-        dueCheckins: this.store.outcomeCheckins.filter(
-          (item) => item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now()),
-        ).length,
+        actions: await this.batch1Persistence.countActiveActions(),
+        dueCheckins: await this.batch1Persistence.countDueCheckins(),
         peerExperiences: this.store.peerExperiences.filter((item) => item.status === 'published').length,
         safetyEvents: await this.store.countHighRiskSafetyEvents(),
         supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
@@ -2132,6 +2130,7 @@ export class AdminController {
     const dbJourneys = await this.batch1Persistence.listAdminJourneys();
     const journeyIds = dbJourneys.map((j) => j.id);
     const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(journeyIds);
+    const actionCounts = await this.batch1Persistence.countActionsByJourneyIds(journeyIds);
     const items = dbJourneys
       .filter((item) => {
         const matchesQuery =
@@ -2146,13 +2145,13 @@ export class AdminController {
       .map((item) => ({
         ...item,
         updates: updateCounts.get(item.id) ?? 0,
-        actions: this.store.actionCommitments.filter((action) => action.journeyId === item.id).length,
+        actions: actionCounts.get(item.id) ?? 0,
       }));
     return this.list(items, page, pageSize);
   }
 
   @Get('actions')
-  adminActions(
+  async adminActions(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2161,8 +2160,9 @@ export class AdminController {
   ) {
     this.admin(auth);
     const needle = q?.trim().toLowerCase();
+    const actions = await this.batch1Persistence.listAdminActions();
     return this.list(
-      this.store.actionCommitments.filter((item) => {
+      actions.filter((item) => {
         const matchesQuery =
           !needle || this.matchesNeedle([item.id, item.userId, item.title, item.description], needle);
         const matchesStatus = !status || status === 'all' || item.status === status;
@@ -2174,7 +2174,7 @@ export class AdminController {
   }
 
   @Get('checkins')
-  adminCheckins(
+  async adminCheckins(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2183,8 +2183,9 @@ export class AdminController {
   ) {
     this.admin(auth);
     const needle = q?.trim().toLowerCase();
+    const checkins = await this.batch1Persistence.listAdminCheckins();
     return this.list(
-      this.store.outcomeCheckins.filter((item) => {
+      checkins.filter((item) => {
         const matchesQuery =
           !needle ||
           this.matchesNeedle(

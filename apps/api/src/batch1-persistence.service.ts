@@ -70,6 +70,121 @@ export type JourneyUpdateRecord = {
   createdAt: string;
 };
 
+export type ActionCommitmentRecord = {
+  id: string;
+  journeyId: string;
+  userId: string;
+  title: string;
+  description?: string;
+  status: 'active' | 'completed' | 'skipped' | 'paused';
+  dueAt?: string;
+  reminderAt?: string;
+  evidence?: Record<string, unknown>;
+  parentActionId?: string;
+  adaptationReason?: string;
+  attemptNumber?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OutcomeCheckinRecord = {
+  id: string;
+  journeyId: string;
+  commitmentId?: string;
+  userId: string;
+  status: 'pending' | 'completed' | 'missed';
+  reflection?: string;
+  result?: string;
+  intensity?: number;
+  checkedAt?: string;
+  dueAt?: string;
+  barrier?: string;
+  createdAt: string;
+};
+
+export function mapActionCommitmentRow(row: {
+  id: string;
+  journeyId: string;
+  userId: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  dueAt?: Date | string | null;
+  reminderAt?: Date | string | null;
+  evidence?: any;
+  parentActionId?: string | null;
+  adaptationReason?: string | null;
+  attemptNumber?: number | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}): ActionCommitmentRecord {
+  return {
+    id: row.id,
+    journeyId: row.journeyId,
+    userId: row.userId,
+    title: row.title,
+    description: row.description ?? undefined,
+    status: row.status as ActionCommitmentRecord['status'],
+    dueAt: row.dueAt
+      ? row.dueAt instanceof Date
+        ? row.dueAt.toISOString()
+        : new Date(row.dueAt).toISOString()
+      : undefined,
+    reminderAt: row.reminderAt
+      ? row.reminderAt instanceof Date
+        ? row.reminderAt.toISOString()
+        : new Date(row.reminderAt).toISOString()
+      : undefined,
+    evidence:
+      row.evidence && typeof row.evidence === 'object'
+        ? (row.evidence as Record<string, unknown>)
+        : undefined,
+    parentActionId: row.parentActionId ?? undefined,
+    adaptationReason: row.adaptationReason ?? undefined,
+    attemptNumber: row.attemptNumber ?? 1,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : new Date(row.updatedAt).toISOString(),
+  };
+}
+
+export function mapOutcomeCheckinRow(row: {
+  id: string;
+  journeyId: string;
+  commitmentId?: string | null;
+  userId: string;
+  status: string;
+  reflection?: string | null;
+  result?: string | null;
+  intensity?: number | null;
+  checkedAt?: Date | string | null;
+  dueAt?: Date | string | null;
+  barrier?: string | null;
+  createdAt: Date | string;
+}): OutcomeCheckinRecord {
+  return {
+    id: row.id,
+    journeyId: row.journeyId,
+    commitmentId: row.commitmentId ?? undefined,
+    userId: row.userId,
+    status: row.status as OutcomeCheckinRecord['status'],
+    reflection: row.reflection ?? undefined,
+    result: row.result ?? undefined,
+    intensity: row.intensity ?? undefined,
+    checkedAt: row.checkedAt
+      ? row.checkedAt instanceof Date
+        ? row.checkedAt.toISOString()
+        : new Date(row.checkedAt).toISOString()
+      : undefined,
+    dueAt: row.dueAt
+      ? row.dueAt instanceof Date
+        ? row.dueAt.toISOString()
+        : new Date(row.dueAt).toISOString()
+      : undefined,
+    barrier: row.barrier ?? undefined,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+  };
+}
+
 export function isGeneratedJourneyTitle(title: string): boolean {
   const value = title.trim();
   return value === '正在整理的一件事' || /^.{1,12}里正在整理的一件事$/.test(value);
@@ -1911,7 +2026,7 @@ export class Batch1PersistenceService {
     expectedSnapshotUpdatedAt?: Date | string;
     isGeneratedTitle?: (title: string) => boolean;
   }): Promise<{ applied: boolean }> {
-    const { journeyId, userId, completedJob } = params;
+    const { journeyId, completedJob } = params;
     if (!['succeeded', 'fallback'].includes(completedJob.status)) return { applied: false };
 
     return await this.prisma.$transaction(async (tx) => {
@@ -2052,5 +2167,606 @@ export class Batch1PersistenceService {
 
       return { applied: snapshotUpdate.count > 0 };
     });
+  }
+
+  async createActionCommitment(params: {
+    journeyId: string;
+    userId: string;
+    title: string;
+    description?: string;
+    dueAt?: string;
+    reminderAt?: string;
+    parentActionId?: string;
+    adaptationReason?: string;
+    attemptNumber?: number;
+  }): Promise<{
+    item: ActionCommitmentRecord;
+    checkin: OutcomeCheckinRecord;
+    followUp: {
+      id: string;
+      userId: string;
+      journeyId: string;
+      kind: string;
+      dueAt: string;
+      status: string;
+      payload: Record<string, unknown>;
+      createdAt: string;
+    };
+  }> {
+    return await this.prisma.$transaction(async (tx) => {
+      // Validate parentActionId if provided
+      if (params.parentActionId) {
+        const parent = await tx.actionCommitment.findFirst({
+          where: { id: params.parentActionId, userId: params.userId },
+        });
+        if (!parent) {
+          throw new NotFoundException('原行动不存在');
+        }
+      }
+
+      const nowTime = new Date();
+      const actionId = `action_${crypto.randomBytes(5).toString('hex')}`;
+      const checkinId = `checkin_${crypto.randomBytes(5).toString('hex')}`;
+      const followUpId = `follow_up_${crypto.randomBytes(5).toString('hex')}`;
+      const updateId = `journey_update_${crypto.randomBytes(5).toString('hex')}`;
+
+      const dueAtDate = params.dueAt
+        ? new Date(params.dueAt)
+        : new Date(nowTime.getTime() + 24 * 3_600_000);
+      const reminderAtDate = params.reminderAt ? new Date(params.reminderAt) : null;
+
+      const actionRow = await tx.actionCommitment.create({
+        data: {
+          id: actionId,
+          journeyId: params.journeyId,
+          userId: params.userId,
+          title: params.title,
+          description: params.description ?? null,
+          status: 'active',
+          dueAt: dueAtDate,
+          reminderAt: reminderAtDate,
+          parentActionId: params.parentActionId ?? null,
+          adaptationReason: params.adaptationReason ?? null,
+          attemptNumber: params.attemptNumber ?? (params.parentActionId ? 2 : 1),
+          createdAt: nowTime,
+          updatedAt: nowTime,
+        },
+      });
+
+      const checkinRow = await tx.outcomeCheckin.create({
+        data: {
+          id: checkinId,
+          journeyId: params.journeyId,
+          commitmentId: actionId,
+          userId: params.userId,
+          status: 'pending',
+          dueAt: dueAtDate,
+          createdAt: nowTime,
+        },
+      });
+
+      const followUpPayload = { actionId, title: params.title };
+      const followUpRow = await tx.followUpJob.create({
+        data: {
+          id: followUpId,
+          userId: params.userId,
+          journeyId: params.journeyId,
+          kind: 'action_checkin',
+          dueAt: dueAtDate,
+          status: 'pending',
+          payload: followUpPayload,
+          createdAt: nowTime,
+        },
+      });
+
+      // Update journey stage and touch updatedAt
+      await tx.lifeJourney.update({
+        where: { id: params.journeyId },
+        data: {
+          stage: 'acting',
+          updatedAt: nowTime,
+        },
+      });
+
+      // Create journeyUpdate
+      await tx.journeyUpdate.create({
+        data: {
+          id: updateId,
+          journeyId: params.journeyId,
+          userId: params.userId,
+          kind: 'commitment_created',
+          content: params.title,
+          payload: {
+            parentActionId: params.parentActionId,
+            adaptationReason: params.adaptationReason,
+          } as any,
+          createdAt: nowTime,
+        },
+      });
+
+      return {
+        item: mapActionCommitmentRow(actionRow),
+        checkin: mapOutcomeCheckinRow(checkinRow),
+        followUp: {
+          id: followUpRow.id,
+          userId: followUpRow.userId,
+          journeyId: followUpRow.journeyId ?? params.journeyId,
+          kind: followUpRow.kind,
+          dueAt: followUpRow.dueAt.toISOString(),
+          status: followUpRow.status,
+          payload: followUpPayload,
+          createdAt: followUpRow.createdAt.toISOString(),
+        },
+      };
+    });
+  }
+
+  async checkinAction(params: {
+    actionId: string;
+    userId?: string;
+    status?: string;
+    reflection?: string;
+    result?: string;
+    intensity?: number;
+    barrier?: string;
+    outcome?: Record<string, unknown>;
+    _failDuringTransaction?: boolean;
+  }): Promise<{
+    action: ActionCommitmentRecord;
+    checkin: OutcomeCheckinRecord;
+    followUp: {
+      id: string;
+      userId: string;
+      journeyId: string;
+      kind: string;
+      dueAt: string;
+      status: string;
+      payload: Record<string, unknown>;
+      completedAt?: string;
+      createdAt: string;
+    } | null;
+  }> {
+    return await this.prisma.$transaction(async (tx) => {
+      // D3: Lock parent Action row inside transaction before check-then-act
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${params.actionId} FOR UPDATE`);
+      const action = await tx.actionCommitment.findUnique({
+        where: { id: params.actionId },
+      });
+      if (!action) throw new NotFoundException('行动不存在');
+      if (params.userId && action.userId !== params.userId) {
+        throw new NotFoundException('行动不存在');
+      }
+
+      const rawStatus = ['completed', 'skipped', 'missed'].includes(String(params.status))
+        ? String(params.status)
+        : 'completed';
+      const actionStatus = rawStatus === 'completed' ? 'completed' : rawStatus === 'skipped' ? 'skipped' : 'paused';
+      const checkinStatus = rawStatus === 'completed' ? 'completed' : 'missed';
+      const nowTime = new Date();
+
+      const updatedAction = await tx.actionCommitment.update({
+        where: { id: params.actionId },
+        data: {
+          status: actionStatus,
+          updatedAt: nowTime,
+        },
+      });
+
+      // Find pending checkin for this action
+      const pendingCheckin = await tx.outcomeCheckin.findFirst({
+        where: { commitmentId: action.id, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      let finalCheckinRow: any;
+      if (pendingCheckin) {
+        // D3: Status CAS - transition out of pending only once
+        const casResult = await tx.outcomeCheckin.updateMany({
+          where: { id: pendingCheckin.id, status: 'pending' },
+          data: {
+            status: checkinStatus,
+            reflection: params.reflection ?? null,
+            result: params.result ?? null,
+            intensity: params.intensity ?? null,
+            barrier: params.barrier ?? null,
+            checkedAt: nowTime,
+          },
+        });
+        if (casResult.count === 0) {
+          // Already transitioned out of pending by concurrent write
+          finalCheckinRow = await tx.outcomeCheckin.findUnique({ where: { id: pendingCheckin.id } });
+        } else {
+          finalCheckinRow = await tx.outcomeCheckin.findUnique({ where: { id: pendingCheckin.id } });
+        }
+      } else {
+        // No pending checkin: check if there's an existing checkin for this action (e.g. concurrent race)
+        const existingCheckin = await tx.outcomeCheckin.findFirst({
+          where: { commitmentId: action.id },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (existingCheckin) {
+          finalCheckinRow = await tx.outcomeCheckin.update({
+            where: { id: existingCheckin.id },
+            data: {
+              status: checkinStatus,
+              reflection: params.reflection ?? existingCheckin.reflection,
+              result: params.result ?? existingCheckin.result,
+              intensity: params.intensity ?? existingCheckin.intensity,
+              barrier: params.barrier ?? existingCheckin.barrier,
+              checkedAt: nowTime,
+            },
+          });
+        } else {
+          finalCheckinRow = await tx.outcomeCheckin.create({
+            data: {
+              id: `checkin_${crypto.randomBytes(5).toString('hex')}`,
+              journeyId: action.journeyId,
+              commitmentId: action.id,
+              userId: action.userId,
+              status: checkinStatus,
+              reflection: params.reflection ?? null,
+              result: params.result ?? null,
+              intensity: params.intensity ?? null,
+              barrier: params.barrier ?? null,
+              checkedAt: nowTime,
+              dueAt: action.dueAt,
+              createdAt: nowTime,
+            },
+          });
+        }
+      }
+
+      // Update matching pending followUpJob
+      const pendingFollowUps = await tx.followUpJob.findMany({
+        where: {
+          userId: action.userId,
+          status: 'pending',
+          kind: 'action_checkin',
+        },
+      });
+      const matchingFollowUp = pendingFollowUps.find(
+        (item: any) => (item.payload as any)?.actionId === action.id,
+      );
+      let updatedFollowUp: any = null;
+      if (matchingFollowUp) {
+        updatedFollowUp = await tx.followUpJob.update({
+          where: { id: matchingFollowUp.id },
+          data: {
+            status: 'completed',
+            completedAt: nowTime,
+          },
+        });
+      }
+
+      // Create JourneyUpdate and update LifeJourney
+      const outcome = params.outcome ?? {};
+      const checkinRecord = mapOutcomeCheckinRow(finalCheckinRow);
+      const updateId = `journey_update_${crypto.randomBytes(5).toString('hex')}`;
+      await tx.journeyUpdate.create({
+        data: {
+          id: updateId,
+          journeyId: action.journeyId,
+          userId: action.userId,
+          kind: 'checkin',
+          content: checkinRecord.reflection || `行动${actionStatus === 'completed' ? '已完成' : '已更新'}`,
+          payload: { ...outcome, barrier: params.barrier } as any,
+          stage: typeof outcome.stage === 'string' ? outcome.stage : null,
+          intensity: Number.isFinite(Number(outcome.intensity))
+            ? Number(outcome.intensity)
+            : (checkinRecord.intensity ?? null),
+          lifeFunction: (outcome.lifeFunction as string) ?? null,
+          actionResult: (outcome.actionResult as string) ?? null,
+          decisionChange: (outcome.decisionChange as string) ?? null,
+          contactState: (outcome.contactState as string) ?? null,
+          sleepState: (outcome.sleepState as string) ?? null,
+          socialState: (outcome.socialState as string) ?? null,
+          selfReportedHelpfulness: Number.isFinite(Number(outcome.selfReportedHelpfulness))
+            ? Number(outcome.selfReportedHelpfulness)
+            : null,
+          createdAt: nowTime,
+        },
+      });
+
+      await tx.lifeJourney.update({
+        where: { id: action.journeyId },
+        data: { updatedAt: nowTime },
+      });
+
+      if (params._failDuringTransaction) {
+        throw new Error('Simulated failure during checkinAction transaction');
+      }
+
+      return {
+        action: mapActionCommitmentRow(updatedAction),
+        checkin: checkinRecord,
+        followUp: updatedFollowUp
+          ? {
+              id: updatedFollowUp.id,
+              userId: updatedFollowUp.userId,
+              journeyId: updatedFollowUp.journeyId ?? action.journeyId,
+              kind: updatedFollowUp.kind,
+              dueAt: updatedFollowUp.dueAt.toISOString(),
+              status: updatedFollowUp.status,
+              payload: updatedFollowUp.payload as Record<string, unknown>,
+              completedAt: updatedFollowUp.completedAt?.toISOString(),
+              createdAt: updatedFollowUp.createdAt.toISOString(),
+            }
+          : null,
+      };
+    });
+  }
+
+  async ensurePendingCheckin(
+    actionId: string,
+    params?: { dueAt?: string | Date; now?: Date },
+  ): Promise<OutcomeCheckinRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      // D3: Lock parent Action row inside transaction before check-then-insert
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "ActionCommitment" WHERE id = ${actionId} FOR UPDATE`);
+      const action = await tx.actionCommitment.findUnique({ where: { id: actionId } });
+      if (!action) throw new NotFoundException('行动不存在');
+
+      const existingPending = await tx.outcomeCheckin.findFirst({
+        where: { commitmentId: actionId, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existingPending) {
+        return mapOutcomeCheckinRow(existingPending);
+      }
+
+      const nowTime = params?.now ?? new Date();
+      const dueAt = params?.dueAt ? new Date(params.dueAt) : (action.dueAt ?? nowTime);
+      const created = await tx.outcomeCheckin.create({
+        data: {
+          id: `checkin_${crypto.randomBytes(5).toString('hex')}`,
+          journeyId: action.journeyId,
+          commitmentId: action.id,
+          userId: action.userId,
+          status: 'pending',
+          dueAt,
+          createdAt: nowTime,
+        },
+      });
+      return mapOutcomeCheckinRow(created);
+    });
+  }
+
+  async getActionById(id: string): Promise<ActionCommitmentRecord | null> {
+    const row = await this.prisma.actionCommitment.findUnique({ where: { id } });
+    return row ? mapActionCommitmentRow(row) : null;
+  }
+
+  async getActionByIdAndUser(id: string, userId: string): Promise<ActionCommitmentRecord | null> {
+    const row = await this.prisma.actionCommitment.findFirst({ where: { id, userId } });
+    return row ? mapActionCommitmentRow(row) : null;
+  }
+
+  async getCheckinById(id: string): Promise<OutcomeCheckinRecord | null> {
+    const row = await this.prisma.outcomeCheckin.findUnique({ where: { id } });
+    return row ? mapOutcomeCheckinRow(row) : null;
+  }
+
+  async listActionsForJourney(journeyId: string, limit?: number): Promise<ActionCommitmentRecord[]> {
+    const rows = await this.prisma.actionCommitment.findMany({
+      where: { journeyId },
+      orderBy: { createdAt: 'desc' },
+      ...(limit ? { take: limit } : {}),
+    });
+    return rows.map(mapActionCommitmentRow);
+  }
+
+  async listCheckinsForJourney(journeyId: string, limit?: number): Promise<OutcomeCheckinRecord[]> {
+    const rows = await this.prisma.outcomeCheckin.findMany({
+      where: { journeyId },
+      orderBy: { createdAt: 'desc' },
+      ...(limit ? { take: limit } : {}),
+    });
+    return rows.map(mapOutcomeCheckinRow);
+  }
+
+  async listActiveActionsForUser(userId: string, limit = 3): Promise<ActionCommitmentRecord[]> {
+    const rows = await this.prisma.actionCommitment.findMany({
+      where: { userId, status: 'active' },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    return rows.map(mapActionCommitmentRow);
+  }
+
+  async listDueCheckinsForUser(userId: string, limit = 3): Promise<OutcomeCheckinRecord[]> {
+    const nowTime = new Date();
+    const rows = await this.prisma.outcomeCheckin.findMany({
+      where: {
+        userId,
+        status: 'pending',
+        OR: [{ dueAt: null }, { dueAt: { lte: nowTime } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    return rows.map(mapOutcomeCheckinRow);
+  }
+
+  async getLatestActionForJourney(journeyId: string): Promise<ActionCommitmentRecord | null> {
+    const row = await this.prisma.actionCommitment.findFirst({
+      where: { journeyId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return row ? mapActionCommitmentRow(row) : null;
+  }
+
+  async countActionsByJourneyIds(journeyIds: string[]): Promise<Map<string, number>> {
+    if (journeyIds.length === 0) return new Map();
+    const grouped = await this.prisma.actionCommitment.groupBy({
+      by: ['journeyId'],
+      where: { journeyId: { in: journeyIds } },
+      _count: { id: true },
+    });
+    const map = new Map<string, number>();
+    for (const g of grouped) {
+      map.set(g.journeyId, g._count.id);
+    }
+    return map;
+  }
+
+  async countCheckinsByJourneyIds(journeyIds: string[]): Promise<Map<string, number>> {
+    if (journeyIds.length === 0) return new Map();
+    const grouped = await this.prisma.outcomeCheckin.groupBy({
+      by: ['journeyId'],
+      where: { journeyId: { in: journeyIds } },
+      _count: { id: true },
+    });
+    const map = new Map<string, number>();
+    for (const g of grouped) {
+      map.set(g.journeyId, g._count.id);
+    }
+    return map;
+  }
+
+  async countCheckinsForJourney(journeyId: string): Promise<number> {
+    return await this.prisma.outcomeCheckin.count({ where: { journeyId } });
+  }
+
+  async countCompletedActionsForJourney(journeyId: string): Promise<number> {
+    return await this.prisma.actionCommitment.count({
+      where: { journeyId, status: 'completed' },
+    });
+  }
+
+  async getLatestIntensityForJourney(journeyId: string): Promise<number | undefined> {
+    const row = await this.prisma.outcomeCheckin.findFirst({
+      where: { journeyId, intensity: { not: null } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return row?.intensity ?? undefined;
+  }
+
+  async countActiveActions(): Promise<number> {
+    return await this.prisma.actionCommitment.count({ where: { status: 'active' } });
+  }
+
+  async countDueCheckins(): Promise<number> {
+    const nowTime = new Date();
+    return await this.prisma.outcomeCheckin.count({
+      where: {
+        status: 'pending',
+        OR: [{ dueAt: null }, { dueAt: { lte: nowTime } }],
+      },
+    });
+  }
+
+  async countTotalActions(): Promise<number> {
+    return await this.prisma.actionCommitment.count();
+  }
+
+  async listAdminActions(): Promise<ActionCommitmentRecord[]> {
+    const rows = await this.prisma.actionCommitment.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapActionCommitmentRow);
+  }
+
+  async listAdminCheckins(): Promise<OutcomeCheckinRecord[]> {
+    const rows = await this.prisma.outcomeCheckin.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapOutcomeCheckinRow);
+  }
+
+  async getActionsForUser(userId: string): Promise<ActionCommitmentRecord[]> {
+    const rows = await this.prisma.actionCommitment.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapActionCommitmentRow);
+  }
+
+  async getCheckinsForUser(userId: string): Promise<OutcomeCheckinRecord[]> {
+    const rows = await this.prisma.outcomeCheckin.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapOutcomeCheckinRow);
+  }
+
+  async getAvailableMonthsForActions(userId: string): Promise<string[]> {
+    const actions = await this.prisma.actionCommitment.findMany({
+      where: { userId },
+      select: { createdAt: true, updatedAt: true, dueAt: true, reminderAt: true },
+    });
+    const months = new Set<string>();
+    const addDate = (d?: Date | null) => {
+      if (d) {
+        const isoStr = d.toISOString();
+        if (/^\d{4}-\d{2}/.test(isoStr)) months.add(isoStr.slice(0, 7));
+      }
+    };
+    for (const a of actions) {
+      addDate(a.createdAt);
+      addDate(a.updatedAt);
+      addDate(a.dueAt);
+      addDate(a.reminderAt);
+    }
+    return Array.from(months);
+  }
+
+  async getAvailableMonthsForCheckins(userId: string): Promise<string[]> {
+    const checkins = await this.prisma.outcomeCheckin.findMany({
+      where: { userId },
+      select: { createdAt: true, checkedAt: true, dueAt: true },
+    });
+    const months = new Set<string>();
+    const addDate = (d?: Date | null) => {
+      if (d) {
+        const isoStr = d.toISOString();
+        if (/^\d{4}-\d{2}/.test(isoStr)) months.add(isoStr.slice(0, 7));
+      }
+    };
+    for (const c of checkins) {
+      addDate(c.createdAt);
+      addDate(c.checkedAt);
+      addDate(c.dueAt);
+    }
+    return Array.from(months);
+  }
+
+  async getActionIdsForJourney(journeyId: string): Promise<string[]> {
+    const rows = await this.prisma.actionCommitment.findMany({
+      where: { journeyId },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  async listActionsForTestCleanup(params: {
+    journeyIds: string[];
+    demoUserId: string;
+    legacy?: boolean;
+    fixturePattern?: RegExp;
+  }): Promise<{ actionIds: string[]; actionJourneyIds: string[] }> {
+    const rows = await this.prisma.actionCommitment.findMany({
+      where: {
+        OR: [
+          ...(params.journeyIds.length ? [{ journeyId: { in: params.journeyIds } }] : []),
+          ...(params.legacy ? [{ userId: params.demoUserId }] : []),
+        ],
+      },
+      select: { id: true, journeyId: true, title: true, userId: true },
+    });
+    const actionIds = new Set<string>();
+    const actionJourneyIds = new Set<string>();
+    for (const r of rows) {
+      if (params.journeyIds.includes(r.journeyId)) {
+        actionIds.add(r.id);
+        actionJourneyIds.add(r.journeyId);
+      } else if (params.legacy && r.userId === params.demoUserId && params.fixturePattern?.test(r.title)) {
+        actionIds.add(r.id);
+        actionJourneyIds.add(r.journeyId);
+      }
+    }
+    return {
+      actionIds: Array.from(actionIds),
+      actionJourneyIds: Array.from(actionJourneyIds),
+    };
   }
 }

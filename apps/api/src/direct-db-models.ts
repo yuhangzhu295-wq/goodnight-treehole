@@ -5,6 +5,8 @@ export const DIRECT_DB_MODELS = {
   LifeJourney: 'lifeJourneys',
   SituationSnapshot: 'situationSnapshots',
   JourneyUpdate: 'journeyUpdates',
+  ActionCommitment: 'actionCommitments',
+  OutcomeCheckin: 'outcomeCheckins',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

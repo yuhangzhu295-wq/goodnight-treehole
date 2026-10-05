@@ -1332,6 +1332,32 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.ActionCommitment) {
+      delete data.actionCommitments;
+      Object.defineProperty(data, 'actionCommitments', {
+        get() {
+          throw new Error('StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.OutcomeCheckin) {
+      delete data.outcomeCheckins;
+      Object.defineProperty(data, 'outcomeCheckins', {
+        get() {
+          throw new Error('StoreData.outcomeCheckins is disabled: OutcomeCheckin is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.outcomeCheckins is disabled: OutcomeCheckin is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
@@ -1479,9 +1505,19 @@ export class StoreService implements OnModuleInit {
     return this.data.journeyUpdates;
   }
   get actionCommitments() {
+    if (DIRECT_DB_MODELS.ActionCommitment) {
+      throw new Error(
+        'Direct DB model ActionCommitment: store.actionCommitments getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.actionCommitments;
   }
   get outcomeCheckins() {
+    if (DIRECT_DB_MODELS.OutcomeCheckin) {
+      throw new Error(
+        'Direct DB model OutcomeCheckin: store.outcomeCheckins getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.outcomeCheckins;
   }
   get peerExperiences() {
@@ -2688,6 +2724,8 @@ export class StoreService implements OnModuleInit {
       if (key === 'lifeJourneys' && DIRECT_DB_MODELS.LifeJourney) continue;
       if (key === 'situationSnapshots' && DIRECT_DB_MODELS.SituationSnapshot) continue;
       if (key === 'journeyUpdates' && DIRECT_DB_MODELS.JourneyUpdate) continue;
+      if (key === 'actionCommitments' && DIRECT_DB_MODELS.ActionCommitment) continue;
+      if (key === 'outcomeCheckins' && DIRECT_DB_MODELS.OutcomeCheckin) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
@@ -2789,15 +2827,8 @@ export class StoreService implements OnModuleInit {
 
   async tonightHome(userId = this.getDemoUserId()) {
     const journey = await this.batch1Persistence.getActiveJourneyForUser(userId);
-    const activeActions = this.actionCommitments
-      .filter((item) => item.userId === userId && item.status === 'active')
-      .slice(0, 3);
-    const dueCheckins = this.outcomeCheckins
-      .filter(
-        (item) =>
-          item.userId === userId && item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now()),
-      )
-      .slice(0, 3);
+    const activeActions = await this.batch1Persistence.listActiveActionsForUser(userId, 3);
+    const dueCheckins = await this.batch1Persistence.listDueCheckinsForUser(userId, 3);
     const followUps = this.followUpJobs
       .filter((item) => item.userId === userId && item.status === 'pending' && Date.parse(item.dueAt) <= Date.now())
       .slice(0, 3);
@@ -3027,23 +3058,18 @@ export class StoreService implements OnModuleInit {
     if (ownedJourneys.some((journey) => journey.userId !== demoUserId))
       throw new ForbiddenException('测试清理只能处理当前演示用户创建的 Journey。');
     const journeyIds = new Set(ownedJourneys.map((journey) => journey.id));
-    const actionIds = new Set(
-      this.actionCommitments
-        .filter(
-          (action) =>
-            journeyIds.has(action.journeyId) ||
-            (legacy && action.userId === demoUserId && fixtureText.test(action.title)),
-        )
-        .map((action) => action.id),
-    );
-    const actionJourneyIds = new Set(
-      this.actionCommitments.filter((action) => actionIds.has(action.id)).map((action) => action.journeyId),
-    );
+    const { actionIds: foundActionIds, actionJourneyIds } = await this.batch1Persistence.listActionsForTestCleanup({
+      journeyIds: Array.from(journeyIds),
+      demoUserId,
+      legacy,
+      fixturePattern: fixtureText,
+    });
+    const actionIds = new Set<string>(foundActionIds);
     for (const journeyId of actionJourneyIds) journeyIds.add(journeyId);
 
     const before = {
       journeys: await this.batch1Persistence.countTotalJourneys(),
-      actions: this.actionCommitments.length,
+      actions: await this.batch1Persistence.countTotalActions(),
       jobs: DIRECT_DB_MODELS.AIJob ? 0 : this.aiJobs.length,
       handoffs: this.realityHandoffs.length,
       decisions: this.decisionRecords.length,
@@ -3056,10 +3082,14 @@ export class StoreService implements OnModuleInit {
       journeyIds: Array.from(journeyIds),
       actionIds: Array.from(actionIds),
     });
-    this.data.actionCommitments = this.data.actionCommitments.filter((item) => !actionIds.has(item.id));
-    this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
-      (item) => !hasJourney(item.journeyId) && !hasAction(item.commitmentId),
-    );
+    if (!DIRECT_DB_MODELS.ActionCommitment) {
+      this.data.actionCommitments = this.data.actionCommitments.filter((item) => !actionIds.has(item.id));
+    }
+    if (!DIRECT_DB_MODELS.OutcomeCheckin) {
+      this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
+        (item) => !hasJourney(item.journeyId) && !hasAction(item.commitmentId),
+      );
+    }
     this.data.peerExperiences = this.data.peerExperiences.filter((item) => !hasJourney(item.journeyId));
     this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
     this.data.decisionRecords = this.data.decisionRecords.filter(
@@ -3119,7 +3149,7 @@ export class StoreService implements OnModuleInit {
     await this.persistAndFlush();
     return {
       journeys: journeyIds.size,
-      actions: before.actions - this.actionCommitments.length,
+      actions: actionIds.size,
       notifications: deletedNotifications.count,
       jobs: deletedJobsCount,
       handoffs: before.handoffs - this.realityHandoffs.length,
@@ -3237,8 +3267,8 @@ export class StoreService implements OnModuleInit {
       journey,
       snapshot: snapshot ?? null,
       updates,
-      commitments: this.actionCommitments.filter((item) => item.journeyId === journeyId),
-      checkins: this.outcomeCheckins.filter((item) => item.journeyId === journeyId),
+      commitments: await this.batch1Persistence.listActionsForJourney(journeyId),
+      checkins: await this.batch1Persistence.listCheckinsForJourney(journeyId),
       recovery: this.recoverySnapshots.filter((item) => item.journeyId === journeyId),
       peerMatches: this.peerMatches
         .filter((item) => item.journeyId === journeyId)
@@ -3322,9 +3352,7 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('只能删除已归档或已完成的旅程');
     }
 
-    const actionIds = new Set(
-      this.actionCommitments.filter((item) => item.journeyId === journeyId).map((item) => item.id),
-    );
+    const actionIds = new Set(await this.batch1Persistence.getActionIdsForJourney(journeyId));
     const exportAssets = this.assets.filter(
       (item) =>
         item.userId === userId &&
@@ -3341,10 +3369,14 @@ export class StoreService implements OnModuleInit {
       archiveRoute,
     });
 
-    this.data.actionCommitments = this.data.actionCommitments.filter((item) => item.journeyId !== journeyId);
-    this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
-      (item) => item.journeyId !== journeyId && !actionIds.has(item.commitmentId ?? ''),
-    );
+    if (!DIRECT_DB_MODELS.ActionCommitment) {
+      this.data.actionCommitments = this.data.actionCommitments.filter((item) => item.journeyId !== journeyId);
+    }
+    if (!DIRECT_DB_MODELS.OutcomeCheckin) {
+      this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
+        (item) => item.journeyId !== journeyId && !actionIds.has(item.commitmentId ?? ''),
+      );
+    }
     this.data.assets = this.data.assets.filter((item) => !exportAssets.some((asset) => asset.id === item.id));
 
     // The following records can stand on their own outside a Journey. Keep the
@@ -3375,7 +3407,7 @@ export class StoreService implements OnModuleInit {
 
   async journeyActions(journeyId: string) {
     const journey = await this.requireJourney(journeyId);
-    return this.actionCommitments.filter((item) => item.journeyId === journey.id);
+    return await this.batch1Persistence.listActionsForJourney(journey.id);
   }
 
   async journeyTimeline(journeyId: string) {
@@ -3386,9 +3418,19 @@ export class StoreService implements OnModuleInit {
   async journeyPeers(journeyId: string, requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中允许同路人匹配');
-    return this.peerMatches
-      .filter((item) => item.journeyId === journey.id)
-      .map((item) => this.peerMatchForUser(item))
+    const matches = this.peerMatches.filter((item) => item.journeyId === journey.id);
+    const peerExpIds = matches.map((m) => m.peerExperienceId);
+    const peerExps = this.peerExperiences.filter((e) => peerExpIds.includes(e.id));
+    const targetJourneyIds = peerExps.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
+    const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(targetJourneyIds);
+    const checkinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(targetJourneyIds);
+    return matches
+      .map((item) => {
+        const exp = this.peerExperiences.find((e) => e.id === item.peerExperienceId);
+        const uCount = exp?.journeyId ? (updateCounts.get(exp.journeyId) ?? 0) : 0;
+        const cCount = exp?.journeyId ? (checkinCounts.get(exp.journeyId) ?? 0) : 0;
+        return this.peerMatchForUser(item, this.peerExperienceSummary(exp, uCount, cCount));
+      })
       .filter((item) => item.experience);
   }
 
@@ -3629,9 +3671,7 @@ export class StoreService implements OnModuleInit {
     const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 1);
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     const base = content?.trim() || updates[0]?.content || snapshot?.facts.join('、') || journey.title;
-    const previous = this.actionCommitments
-      .filter((item) => item.journeyId === journeyId)
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    const previous = await this.batch1Persistence.getLatestActionForJourney(journeyId);
     const source =
       mode === 'smaller'
         ? [
@@ -3669,64 +3709,37 @@ export class StoreService implements OnModuleInit {
     },
   ) {
     const journey = await this.requireJourney(journeyId);
-    const createdAt = now();
     const dueAt = this.optionalDate(input.dueAt, '完成时间') ?? new Date(Date.now() + 24 * 3_600_000).toISOString();
-    if (
-      input.parentActionId &&
-      !this.actionCommitments.some((action) => action.id === input.parentActionId && action.userId === journey.userId)
-    )
-      throw new NotFoundException('原行动不存在');
-    const item: ActionCommitmentRecord = {
-      id: id('action'),
+    const reminderAt = this.optionalDate(input.reminderAt, '提醒时间');
+    const title = this.text(input.title, '行动标题', 120);
+    const description = typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined;
+    const attemptNumber = Math.max(1, Number(input.attemptNumber ?? (input.parentActionId ? 2 : 1)));
+
+    const result = await this.batch1Persistence.createActionCommitment({
       journeyId,
       userId: journey.userId,
-      title: this.text(input.title, '行动标题', 120),
-      description: typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined,
-      status: 'active',
+      title,
+      description,
       dueAt,
-      reminderAt: this.optionalDate(input.reminderAt, '提醒时间'),
+      reminderAt,
       parentActionId: input.parentActionId,
       adaptationReason: input.adaptationReason,
-      attemptNumber: Math.max(1, Number(input.attemptNumber ?? (input.parentActionId ? 2 : 1))),
-      createdAt,
-      updatedAt: createdAt,
-    };
-    const checkin: OutcomeCheckinRecord = {
-      id: id('checkin'),
-      journeyId,
-      commitmentId: item.id,
-      userId: journey.userId,
-      status: 'pending',
-      dueAt,
-      createdAt,
-    };
-    const followUp: FollowUpJob = {
-      id: id('follow_up'),
-      userId: journey.userId,
-      journeyId,
-      kind: 'action_checkin',
-      dueAt,
-      status: 'pending',
-      payload: { actionId: item.id, title: item.title },
-      createdAt,
-    };
-    this.actionCommitments.unshift(item);
-    this.outcomeCheckins.unshift(checkin);
-    this.followUpJobs.unshift(followUp);
-    await this.batch1Persistence.onActionCommitmentCreated({
-      journeyId,
-      userId: journey.userId,
-      stage: 'acting',
-      update: {
-        id: id('journey_update'),
-        content: item.title,
-        payload: { parentActionId: item.parentActionId, adaptationReason: item.adaptationReason },
-        createdAt,
-      },
+      attemptNumber,
     });
-    await this.persistAndFlush();
+
+    const followUp: FollowUpJob = {
+      id: result.followUp.id,
+      userId: result.followUp.userId,
+      journeyId: result.followUp.journeyId,
+      kind: result.followUp.kind,
+      dueAt: result.followUp.dueAt,
+      status: result.followUp.status as any,
+      payload: result.followUp.payload,
+      createdAt: result.followUp.createdAt,
+    };
+    this.followUpJobs.unshift(followUp);
     const queue = await scheduleFollowUp(followUp);
-    return { item, checkin, followUp, queue };
+    return { item: result.item, checkin: result.checkin, followUp, queue };
   }
 
   async checkinAction(
@@ -3738,74 +3751,53 @@ export class StoreService implements OnModuleInit {
       intensity?: number;
       barrier?: ActionBarrier;
       outcome?: Partial<JourneyOutcome>;
+      _failDuringTransaction?: boolean;
     },
   ) {
-    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
-    if (!action) throw new NotFoundException('行动不存在');
-    const status = ['completed', 'skipped', 'missed'].includes(String(input.status))
+    const demoUserId = this.getDemoUserId();
+    const reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
+    const resultText = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
+    const intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
+
+    const result = await this.batch1Persistence.checkinAction({
+      actionId,
+      userId: demoUserId,
+      status: input.status,
+      reflection,
+      result: resultText,
+      intensity,
+      barrier: input.barrier,
+      outcome: input.outcome as Record<string, unknown>,
+      _failDuringTransaction: input._failDuringTransaction,
+    });
+
+    if (result.followUp) {
+      const followUp = this.followUpJobs.find(
+        (item) => item.status === 'pending' && (item.payload?.actionId === actionId || item.id === result.followUp?.id),
+      );
+      if (followUp) {
+        followUp.status = 'completed';
+        followUp.completedAt = result.followUp.completedAt;
+      }
+    }
+
+    const rawStatus = ['completed', 'skipped', 'missed'].includes(String(input.status))
       ? String(input.status)
       : 'completed';
-    action.status = status === 'completed' ? 'completed' : status === 'skipped' ? 'skipped' : 'paused';
-    action.updatedAt = now();
-    const checkin = this.outcomeCheckins.find(
-      (item) => item.commitmentId === action.id && item.status === 'pending',
-    ) ?? {
-      id: id('checkin'),
-      journeyId: action.journeyId,
-      commitmentId: action.id,
-      userId: action.userId,
-      status: 'pending' as const,
-      dueAt: action.dueAt,
-      createdAt: now(),
-    };
-    checkin.status = status === 'completed' ? 'completed' : 'missed';
-    checkin.reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
-    checkin.result = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
-    checkin.intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
-    checkin.barrier = input.barrier;
-    checkin.checkedAt = now();
-    if (!this.outcomeCheckins.some((item) => item.id === checkin.id)) this.outcomeCheckins.unshift(checkin);
-    const followUp = this.followUpJobs.find(
-      (item) => item.status === 'pending' && item.payload?.actionId === action.id,
-    );
-    if (followUp) {
-      followUp.status = 'completed';
-      followUp.completedAt = checkin.checkedAt;
-    }
-    const outcome = input.outcome ?? {};
-    await this.batch1Persistence.onActionCheckin({
-      journeyId: action.journeyId,
-      userId: action.userId,
-      update: {
-        id: id('journey_update'),
-        content: checkin.reflection || `行动${action.status === 'completed' ? '已完成' : '已更新'}`,
-        payload: { ...outcome, barrier: input.barrier },
-        stage: typeof outcome.stage === 'string' ? outcome.stage : undefined,
-        intensity: Number.isFinite(Number(outcome.intensity)) ? Number(outcome.intensity) : checkin.intensity,
-        lifeFunction: outcome.lifeFunction,
-        actionResult: outcome.actionResult,
-        decisionChange: outcome.decisionChange,
-        contactState: outcome.contactState,
-        sleepState: outcome.sleepState,
-        socialState: outcome.socialState,
-        selfReportedHelpfulness: outcome.selfReportedHelpfulness,
-        createdAt: now(),
-      },
-    });
-    await this.persistAndFlush();
+
     return {
-      action,
-      checkin,
-      followUp: followUp ?? null,
+      action: result.action,
+      checkin: result.checkin,
+      followUp: result.followUp,
       adaptive:
-        status === 'missed'
-          ? { required: true, nextRoute: `/pages/action/index?section=barrier&actionId=${action.id}` }
+        rawStatus === 'missed'
+          ? { required: true, nextRoute: `/pages/action/index?section=barrier&actionId=${result.action.id}` }
           : { required: false },
     };
   }
 
   async requestAdaptiveAction(actionId: string, barrier: ActionBarrier) {
-    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, this.getDemoUserId());
     if (!action) throw new NotFoundException('行动不存在');
     const labels: Record<ActionBarrier, string> = {
       forgot: '忘了',
@@ -3832,7 +3824,7 @@ export class StoreService implements OnModuleInit {
     actionId: string,
     input: { title?: unknown; description?: unknown; barrier?: ActionBarrier; dueAt?: unknown },
   ) {
-    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, this.getDemoUserId());
     if (!action) throw new NotFoundException('原行动不存在');
     const barrier = input.barrier ?? 'other';
     return await this.createActionCommitment(action.journeyId, {
@@ -3847,9 +3839,7 @@ export class StoreService implements OnModuleInit {
 
   async graduateJourney(journeyId: string) {
     const journey = await this.requireJourney(journeyId);
-    const completed = this.actionCommitments.filter(
-      (item) => item.journeyId === journeyId && item.status === 'completed',
-    ).length;
+    const completed = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
     await this.batch1Persistence.graduateJourney(journeyId, journey.userId);
     if (this.privacySettings[journey.userId]?.allowRecoveryData === true)
@@ -3867,17 +3857,12 @@ export class StoreService implements OnModuleInit {
 
   async graduationSummary(journeyId: string) {
     const journey = await this.requireJourney(journeyId);
-    const completedActions = this.actionCommitments.filter(
-      (item) => item.journeyId === journeyId && item.status === 'completed',
-    ).length;
+    const completedActions = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     const followUps = this.followUpJobs.filter(
       (item) => item.journeyId === journeyId && ['delivered', 'completed'].includes(item.status),
     ).length;
     const latestIntensity =
-      this.outcomeCheckins
-        .filter((item) => item.journeyId === journeyId && item.intensity !== undefined)
-        .sort((a, b) => Date.parse(b.checkedAt ?? b.createdAt) - Date.parse(a.checkedAt ?? a.createdAt))[0]
-        ?.intensity ?? journey.intensity;
+      (await this.batch1Persistence.getLatestIntensityForJourney(journeyId)) ?? journey.intensity;
     return {
       message: '这件事好像已经不再像以前那样困住你了。',
       initialIntensity: journey.initialIntensity ?? journey.intensity,
@@ -3899,7 +3884,7 @@ export class StoreService implements OnModuleInit {
     if (existing) return { decision, graduation: await this.graduationSummary(journeyId), draft: existing };
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 6);
-    const actions = this.actionCommitments.filter((item) => item.journeyId === journeyId);
+    const actions = await this.batch1Persistence.listActionsForJourney(journeyId);
     const completed = actions.filter((item) => item.status === 'completed').map((item) => item.title);
     const content = [
       snapshot?.facts?.length ? `当时发生了：${snapshot.facts.join('；')}` : '',
@@ -4052,7 +4037,8 @@ export class StoreService implements OnModuleInit {
     this.peerExperiences.unshift(item);
     await this.persistAndFlush();
     const updateCount = journey ? await this.batch1Persistence.countUpdatesForJourney(journey.id) : 0;
-    return { item: this.peerExperienceSummary(item, updateCount) };
+    const checkinCount = journey ? await this.batch1Persistence.countCheckinsForJourney(journey.id) : 0;
+    return { item: this.peerExperienceSummary(item, updateCount, checkinCount) };
   }
 
   async peerNetwork(requestedUserId?: string) {
@@ -4063,30 +4049,42 @@ export class StoreService implements OnModuleInit {
     const topPublished = published.slice(0, 3);
     const journeyIds = topPublished.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
     const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(journeyIds);
+    const checkinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(journeyIds);
     const matches = this.peerMatches
       .filter((item) => item.userId === userId)
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
-      .map((match) => this.peerMatchForUser(match))
+      .map((match) => {
+        const exp = this.peerExperiences.find((item) => item.id === match.peerExperienceId);
+        const uCount = exp?.journeyId ? (updateCounts.get(exp.journeyId) ?? 0) : 0;
+        const cCount = exp?.journeyId ? (checkinCounts.get(exp.journeyId) ?? 0) : 0;
+        return this.peerMatchForUser(match, this.peerExperienceSummary(exp, uCount, cCount));
+      })
       .filter((item) => item.experience);
     return {
       privacyEnabled: true,
       experiences: topPublished.map((item) =>
-        this.peerExperienceSummary(item, item.journeyId ? (updateCounts.get(item.journeyId) ?? 0) : 0),
+        this.peerExperienceSummary(
+          item,
+          item.journeyId ? (updateCounts.get(item.journeyId) ?? 0) : 0,
+          item.journeyId ? (checkinCounts.get(item.journeyId) ?? 0) : 0,
+        ),
       ),
       matches,
       limited: published.length > 3,
     };
   }
 
-  private peerExperienceSummary(experience?: PeerExperienceRecord, timelineCountOverride?: number) {
+  private peerExperienceSummary(
+    experience?: PeerExperienceRecord,
+    timelineCountOverride?: number,
+    checkinCountOverride?: number,
+  ) {
     if (!experience) return undefined;
     const derivedStatisticsAllowed = this.privacySettings[experience.userId]?.allowAnonymousExperienceStats === true;
     const timelineCount = derivedStatisticsAllowed && experience.journeyId ? (timelineCountOverride ?? 0) : 0;
     const checkinCount =
-      derivedStatisticsAllowed && experience.journeyId
-        ? this.outcomeCheckins.filter((item) => item.journeyId === experience.journeyId).length
-        : 0;
+      derivedStatisticsAllowed && experience.journeyId ? (checkinCountOverride ?? 0) : 0;
     const laterRecordCount =
       [experience.laterSummary, experience.retrospective, ...(experience.helpfulActions ?? [])].filter(Boolean).length +
       timelineCount +
@@ -4104,10 +4102,11 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  private peerMatchForUser(match: PeerMatchRecord) {
-    const experience = this.peerExperienceSummary(
-      this.peerExperiences.find((item) => item.id === match.peerExperienceId),
-    );
+  private peerMatchForUser(match: PeerMatchRecord, experienceOverride?: any) {
+    const experience =
+      experienceOverride !== undefined
+        ? experienceOverride
+        : this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId));
     return {
       id: match.id,
       journeyId: match.journeyId,
@@ -4490,16 +4489,20 @@ export class StoreService implements OnModuleInit {
       createdAt: item.createdAt,
     }));
     const actions = experience.journeyId
-      ? this.actionCommitments
-          .filter((item) => item.journeyId === experience.journeyId)
-          .slice(0, 4)
-          .map((item) => ({ id: item.id, title: this.redactPeerPublicText(item.title), createdAt: item.createdAt }))
+      ? (await this.batch1Persistence.listActionsForJourney(experience.journeyId, 4)).map((item) => ({
+          id: item.id,
+          title: this.redactPeerPublicText(item.title),
+          createdAt: item.createdAt,
+        }))
       : [];
     const updateCount = experience.journeyId
       ? await this.batch1Persistence.countUpdatesForJourney(experience.journeyId)
       : 0;
+    const checkinCount = experience.journeyId
+      ? await this.batch1Persistence.countCheckinsForJourney(experience.journeyId)
+      : 0;
     const safeExperience = {
-      ...this.peerExperienceSummary(experience, updateCount),
+      ...this.peerExperienceSummary(experience, updateCount, checkinCount),
       content: this.redactPeerPublicText(experience.content),
     };
     const later = experience.laterSummary
@@ -4761,9 +4764,14 @@ export class StoreService implements OnModuleInit {
     const updateCount = sharedExperience?.journeyId
       ? await this.batch1Persistence.countUpdatesForJourney(sharedExperience.journeyId)
       : 0;
+    const checkinCount = sharedExperience?.journeyId
+      ? await this.batch1Persistence.countCheckinsForJourney(sharedExperience.journeyId)
+      : 0;
     return {
       item: this.peerConversationForUser(conversation, userId),
-      sharedExperience: sharedExperience ? this.peerExperienceSummary(sharedExperience, updateCount) : undefined,
+      sharedExperience: sharedExperience
+        ? this.peerExperienceSummary(sharedExperience, updateCount, checkinCount)
+        : undefined,
     };
   }
 

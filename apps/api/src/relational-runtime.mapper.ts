@@ -99,8 +99,12 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.JourneyUpdate
       ? Promise.resolve([])
       : db.journeyUpdate.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.actionCommitment.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.outcomeCheckin.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.ActionCommitment
+      ? Promise.resolve([])
+      : db.actionCommitment.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.OutcomeCheckin
+      ? Promise.resolve([])
+      : db.outcomeCheckin.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerExperience.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.peerMatch.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.peerReputation.findMany({ orderBy: { updatedAt: 'desc' } }),
@@ -471,36 +475,44 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
             createdAt: iso(item.createdAt),
           })),
         }),
-    actionCommitments: commitments.map((item: any) => ({
-      id: item.id,
-      journeyId: item.journeyId,
-      userId: item.userId,
-      title: item.title,
-      description: item.description ?? undefined,
-      status: item.status,
-      dueAt: item.dueAt ? iso(item.dueAt) : undefined,
-      reminderAt: item.reminderAt ? iso(item.reminderAt) : undefined,
-      evidence: item.evidence ?? undefined,
-      parentActionId: item.parentActionId ?? undefined,
-      adaptationReason: item.adaptationReason ?? undefined,
-      attemptNumber: item.attemptNumber ?? 1,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
-    outcomeCheckins: checkins.map((item: any) => ({
-      id: item.id,
-      journeyId: item.journeyId,
-      commitmentId: item.commitmentId ?? undefined,
-      userId: item.userId,
-      status: item.status,
-      reflection: item.reflection ?? undefined,
-      result: item.result ?? undefined,
-      intensity: item.intensity ?? undefined,
-      checkedAt: item.checkedAt ? iso(item.checkedAt) : undefined,
-      dueAt: item.dueAt ? iso(item.dueAt) : undefined,
-      barrier: item.barrier ?? undefined,
-      createdAt: iso(item.createdAt),
-    })),
+    ...(DIRECT_DB_MODELS.ActionCommitment
+      ? {}
+      : {
+          actionCommitments: commitments.map((item: any) => ({
+            id: item.id,
+            journeyId: item.journeyId,
+            userId: item.userId,
+            title: item.title,
+            description: item.description ?? undefined,
+            status: item.status,
+            dueAt: item.dueAt ? iso(item.dueAt) : undefined,
+            reminderAt: item.reminderAt ? iso(item.reminderAt) : undefined,
+            evidence: item.evidence ?? undefined,
+            parentActionId: item.parentActionId ?? undefined,
+            adaptationReason: item.adaptationReason ?? undefined,
+            attemptNumber: item.attemptNumber ?? 1,
+            createdAt: iso(item.createdAt),
+            updatedAt: iso(item.updatedAt),
+          })),
+        }),
+    ...(DIRECT_DB_MODELS.OutcomeCheckin
+      ? {}
+      : {
+          outcomeCheckins: checkins.map((item: any) => ({
+            id: item.id,
+            journeyId: item.journeyId,
+            commitmentId: item.commitmentId ?? undefined,
+            userId: item.userId,
+            status: item.status,
+            reflection: item.reflection ?? undefined,
+            result: item.result ?? undefined,
+            intensity: item.intensity ?? undefined,
+            checkedAt: item.checkedAt ? iso(item.checkedAt) : undefined,
+            dueAt: item.dueAt ? iso(item.dueAt) : undefined,
+            barrier: item.barrier ?? undefined,
+            createdAt: iso(item.createdAt),
+          })),
+        }),
     peerExperiences: peerExperiences.map((item: any) => ({
       id: item.id,
       userId: item.userId,
@@ -806,7 +818,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
   const letterIds = new Set(asArray(state.letters).map((item: any) => item.id));
   const fallbackJobIds = new Set(jobs.map((item: any) => item.id));
   const fallbackJourneyIds = new Set(asArray(state.lifeJourneys).map((item: any) => item.id));
-  const commitmentIds = new Set(asArray(state.actionCommitments).map((item: any) => item.id));
+  const fallbackCommitmentIds = new Set(asArray(state.actionCommitments).map((item: any) => item.id));
   const decisionIds = new Set(asArray(state.decisionRecords).map((item: any) => item.id));
   const peerExperienceIds = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
   const userIds = new Set(users.map((item: any) => item.id));
@@ -866,6 +878,22 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
         journeyIds = new Set(existingDbJourneys.map((j: any) => j.id));
       } else {
         journeyIds = fallbackJourneyIds;
+      }
+      let commitmentIds: Set<string>;
+      if (DIRECT_DB_MODELS.ActionCommitment) {
+        const candidateCommitmentIds = [
+          ...asArray(state.outcomeCheckins).map((item: any) => item.commitmentId),
+          ...asArray(state.actionCommitments).map((item: any) => item.parentActionId),
+        ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+        const existingDbCommitments = candidateCommitmentIds.length
+          ? await tx.actionCommitment.findMany({
+              where: { id: { in: candidateCommitmentIds } },
+              select: { id: true },
+            })
+          : [];
+        commitmentIds = new Set(existingDbCommitments.map((c: any) => c.id));
+      } else {
+        commitmentIds = fallbackCommitmentIds;
       }
       const adminUsers = asArray(state.adminUsers);
       const roles = [...new Set(adminUsers.map((item: any) => String(item.role || 'super_admin')))];
@@ -1126,69 +1154,95 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             },
           });
       }
-      for (const item of asArray(state.actionCommitments).filter((item: any) => journeyIds.has(item.journeyId)))
-        await tx.actionCommitment.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            journeyId: item.journeyId,
-            userId: item.userId,
-            title: item.title,
-            description: item.description ?? null,
-            status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'),
-            dueAt: item.dueAt ? date(item.dueAt) : null,
-            reminderAt: item.reminderAt ? date(item.reminderAt) : null,
-            evidence: json(item.evidence),
-            parentActionId: item.parentActionId ? item.parentActionId : null,
-            adaptationReason: item.adaptationReason ?? null,
-            attemptNumber: Number(item.attemptNumber ?? 1),
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            journeyId: item.journeyId,
-            userId: item.userId,
-            title: item.title,
-            description: item.description ?? null,
-            status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'),
-            dueAt: item.dueAt ? date(item.dueAt) : null,
-            reminderAt: item.reminderAt ? date(item.reminderAt) : null,
-            evidence: json(item.evidence),
-            parentActionId: item.parentActionId ? item.parentActionId : null,
-            adaptationReason: item.adaptationReason ?? null,
-            attemptNumber: Number(item.attemptNumber ?? 1),
-          },
-        });
-      for (const item of asArray(state.outcomeCheckins).filter((item: any) => journeyIds.has(item.journeyId)))
-        await tx.outcomeCheckin.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            journeyId: item.journeyId,
-            commitmentId: commitmentIds.has(item.commitmentId) ? item.commitmentId : null,
-            userId: item.userId,
-            status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
-            reflection: item.reflection ?? null,
-            result: item.result ?? null,
-            intensity: item.intensity == null ? null : Number(item.intensity),
-            checkedAt: item.checkedAt ? date(item.checkedAt) : null,
-            dueAt: item.dueAt ? date(item.dueAt) : null,
-            barrier: item.barrier ?? null,
-            createdAt: date(item.createdAt),
-          },
-          update: {
-            journeyId: item.journeyId,
-            commitmentId: commitmentIds.has(item.commitmentId) ? item.commitmentId : null,
-            userId: item.userId,
-            status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
-            reflection: item.reflection ?? null,
-            result: item.result ?? null,
-            intensity: item.intensity == null ? null : Number(item.intensity),
-            checkedAt: item.checkedAt ? date(item.checkedAt) : null,
-            dueAt: item.dueAt ? date(item.dueAt) : null,
-            barrier: item.barrier ?? null,
-          },
-        });
+      if (!DIRECT_DB_MODELS.ActionCommitment) {
+        for (const item of asArray(state.actionCommitments).filter((item: any) => journeyIds.has(item.journeyId)))
+          await tx.actionCommitment.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              journeyId: item.journeyId,
+              userId: item.userId,
+              title: item.title,
+              description: item.description ?? null,
+              status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'),
+              dueAt: item.dueAt ? date(item.dueAt) : null,
+              reminderAt: item.reminderAt ? date(item.reminderAt) : null,
+              evidence: json(item.evidence),
+              parentActionId: item.parentActionId ? item.parentActionId : null,
+              adaptationReason: item.adaptationReason ?? null,
+              attemptNumber: Number(item.attemptNumber ?? 1),
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              journeyId: item.journeyId,
+              userId: item.userId,
+              title: item.title,
+              description: item.description ?? null,
+              status: valid(item.status, ['active', 'completed', 'skipped', 'paused'] as const, 'active'),
+              dueAt: item.dueAt ? date(item.dueAt) : null,
+              reminderAt: item.reminderAt ? date(item.reminderAt) : null,
+              evidence: json(item.evidence),
+              parentActionId: item.parentActionId ? item.parentActionId : null,
+              adaptationReason: item.adaptationReason ?? null,
+              attemptNumber: Number(item.attemptNumber ?? 1),
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.OutcomeCheckin) {
+        for (const item of asArray(state.outcomeCheckins).filter((item: any) => journeyIds.has(item.journeyId))) {
+          let commitmentId = commitmentIds.has(item.commitmentId) ? item.commitmentId : null;
+          if (!commitmentId && DIRECT_DB_MODELS.ActionCommitment && item.id) {
+            const existingCheckin = await tx.outcomeCheckin.findUnique({
+              where: { id: item.id },
+              select: { commitmentId: true },
+            });
+            if (existingCheckin?.commitmentId) {
+              if (commitmentIds.has(existingCheckin.commitmentId)) {
+                commitmentId = existingCheckin.commitmentId;
+              } else {
+                const dbCommitment = await tx.actionCommitment.findUnique({
+                  where: { id: existingCheckin.commitmentId },
+                  select: { id: true },
+                });
+                if (dbCommitment) {
+                  commitmentId = dbCommitment.id;
+                  commitmentIds.add(dbCommitment.id);
+                }
+              }
+            }
+          }
+          await tx.outcomeCheckin.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              journeyId: item.journeyId,
+              commitmentId,
+              userId: item.userId,
+              status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
+              reflection: item.reflection ?? null,
+              result: item.result ?? null,
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              checkedAt: item.checkedAt ? date(item.checkedAt) : null,
+              dueAt: item.dueAt ? date(item.dueAt) : null,
+              barrier: item.barrier ?? null,
+              createdAt: date(item.createdAt),
+            },
+            update: {
+              journeyId: item.journeyId,
+              commitmentId,
+              userId: item.userId,
+              status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
+              reflection: item.reflection ?? null,
+              result: item.result ?? null,
+              intensity: item.intensity == null ? null : Number(item.intensity),
+              checkedAt: item.checkedAt ? date(item.checkedAt) : null,
+              dueAt: item.dueAt ? date(item.dueAt) : null,
+              barrier: item.barrier ?? null,
+            },
+          });
+        }
+      }
       for (const item of asArray(state.peerExperiences))
         await tx.peerExperience.upsert({
           where: { id: item.id },
@@ -2233,19 +2287,21 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
       if (diaryAttachments.length)
         await tx.diaryAttachment.createMany({ data: diaryAttachments, skipDuplicates: true });
 
-      await deleteAbsent(
-        tx.outcomeCheckin,
-        asArray(state.outcomeCheckins).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.OutcomeCheckin)
+        await deleteAbsent(
+          tx.outcomeCheckin,
+          asArray(state.outcomeCheckins).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.JourneyUpdate)
         await deleteAbsent(
           tx.journeyUpdate,
           asArray(state.journeyUpdates).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.actionCommitment,
-        asArray(state.actionCommitments).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.ActionCommitment)
+        await deleteAbsent(
+          tx.actionCommitment,
+          asArray(state.actionCommitments).map((item: any) => item.id),
+        );
       await deleteAbsent(
         tx.peerMessage,
         asArray(state.peerMessages).map((item: any) => item.id),
