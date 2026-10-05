@@ -134,11 +134,13 @@ completion is overwriting user-confirmed content. This was bisected rather than 
 | `3234ef0` (sub-batches A+B) | old per-schema | PASS 2/2 |
 | `9150f45` (sub-batches A+B) | new per-file database | **FAIL (assertion)** |
 
-Sub-batches A and B are therefore **not** the cause; the new environment surfaced it. This is the
-exact interleaving `BATCH1_DESIGN.md` assigns to **sub-batch D**: "`user_confirmed` and AI
-completion interleaved: the confirmed content must never be reverted to draft by the AI". It is
-recorded here as an open product defect to be closed by D, not as a test-environment artifact —
-the isolation change did not create it, it stopped hiding it.
+Sub-batches A and B are therefore **not** the cause; the new environment surfaced it. It is
+**deterministic**: 4 of 4 isolated runs through the runner fail, and it only *looks*
+intermittent in a full-suite run because file ordering sometimes masks it. This is the exact
+interleaving `BATCH1_DESIGN.md` assigns to **sub-batch D**: "`user_confirmed` and AI completion
+interleaved: the confirmed content must never be reverted to draft by the AI". It is recorded
+here as an open product defect to be closed by D — the isolation change did not create it, it
+stopped hiding it — and D must fix the behaviour, not the ordering.
 
 **Leaked schemas.** The count had grown from 429 to **672** during this round's verification runs.
 They were dropped (only the `goodnight_treehole_test_*` prefix; `public` untouched at 54 tables,

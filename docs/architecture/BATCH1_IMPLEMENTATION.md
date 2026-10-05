@@ -39,7 +39,7 @@ arrays cannot silently null a foreign key or delete a row that should survive.
 | --- | --- | --- | --- |
 | A | `UserNotification` | **Done, reviewed APPROVE** | `81308e7` |
 | B | `SafetyEvent` (+ D1 AuditLog) | **Done, reviewed APPROVE** | `3234ef0` |
-| C | `AIJob` | **Done** | `6e1f5d7` |
+| C | `AIJob` | **Done; review fixes applied; deadlock regression found and fixed** | `cd919fd` |
 | D | `Journey` + `SituationSnapshot` + `JourneyUpdate` | Not started | — |
 | E | `ActionCommitment` + `OutcomeCheckin` | Not started | — |
 
@@ -108,8 +108,10 @@ is removed, which the implementer demonstrated by temporarily removing it.
 - **P1-4 (semantic change & guard documentation)**: `saveRelationalRuntimeState` previously swept `AIProvider` using `deleteAbsent(tx.aIProvider, ...)`, which violated `AIJob_providerId_fkey` (which has `ON DELETE RESTRICT`) whenever an existing `AIJob` referenced a provider not in the snapshot. The mapper now explicitly queries `tx.aIJob.findMany({ select: { providerId: true }, distinct: ['providerId'] })` and protects any provider referenced by any database `AIJob`. Deliberate semantic change: an admin deleting a provider that any historical or active `AIJob` still references will no longer take effect through the snapshot path.
 - **P1-5**: `recoverInterruptedAiJobs` marks all `queued`/`running` jobs `failed` on boot without instance scoping, matching pre-existing boot repair semantics. Multi-instance fencing belongs to the subsequent clustering phase.
 - **P2-1**: Concurrency testing verifies the database CAS predicate and single-winner guarantees under concurrent transaction attempts.
-- **AI Completion callbacks**: `applySituationAnalysisAiCompletion` performs transactional scoped database updates on `SituationSnapshot` and `LifeJourney` (conditioned on `confidence !== 'user_confirmed'`) and inserts `AgentDecisionLog`, ensuring updates land safely even when the in-memory array is missing the object.
-- **Injected 402 degradation**: verified through injected `RemoteProviderError(..., 402, false)` that normal tasks transition to `fallback` (with `fallbackUsed: true` and trace), Peer assist tasks transition to `failed` (with `fallbackUsed: false` and trace), and a failed terminal commit cannot let the waiter announce success.
+- **AI completion callback — corrected during review.** The first implementation made the callback a **direct writer** of `SituationSnapshot` and `LifeJourney` in its own transaction. Because those two models are still legacy-owned until sub-batch D, that created a **second writer** to tables the legacy flush also upserts, and the two transactions deadlocked: `PostgresError 40P01` on `tx.situationSnapshot.upsert()` inside `persistAndFlush` from `setJourneyIntent`, surfacing as a 500 on `PATCH /api/v1/journeys/:id`. `first-batch-core-loop` — passing after A and B — began failing. The corrected callback keeps a **single writer**: it queries the row, **hydrates it into the store array if the object is missing** (which is what closes the silent-loss path), re-checks `confidence !== 'user_confirmed'` against the database row at write time, then persists through the serialized `persistAndFlush()`. A comment at the site records that the hydration is transitional and disappears once sub-batch D makes the callback a legitimate direct writer — so it is not "simplified" back into a deadlock.
+- **Injected 402 degradation**: verified through injected `RemoteProviderError(..., 402, false)` that normal tasks transition to `fallback` (with `fallbackUsed: true` and trace), Peer assist tasks transition to `failed` (with `fallbackUsed: false` and trace), and a failed terminal commit cannot let the waiter announce success. This is `INJECTED_402_VERIFIED`; it is **not** a live-AI pass, and no live-AI success is claimed anywhere.
+
+**Lesson worth carrying into D and E:** during the transition, a model may be written directly **or** by the legacy flush, never both. "Convert the callback to a direct write" is only correct once the table it writes has actually migrated. The design's dual-write prohibition is not a formality — violating it produced a reproducible deadlock, not a subtle slowdown.
 
 ## Test isolation (step 16)
 
@@ -134,8 +136,11 @@ Independently reproduced by the orchestrator, not taken from implementer summari
 | --- | --- |
 | `npx vitest run tests/business/` before isolation | 10 failed / 46 passed; newly-failing set vs baseline **empty** |
 | Same, after isolation (`9150f45`) | 9 failed / 16 passed files; failing set a **strict subset** of baseline |
+| Same, after sub-batch C (`cd919fd`) | 9 failed / 17 passed files, 10 failed / 54 passed tests; failing set within baseline; **0** `40P01` deadlocks |
 | `batch1-usernotification.spec.ts` | 6/6 |
 | `batch1-safetyevent.spec.ts` | 5/5 |
+| `batch1-aijob.spec.ts` | 8/8 |
+| `first-batch-core-loop.spec.ts` | 5/5 isolated after the deadlock fix |
 | `third-stage-decision-vault` / `third-stage-privacy-2` | 5/5 and 5/5 isolated |
 | Dev DB `public` rows | 1304 before and after runs |
 | Leaked test schemas | 672 → 0 |
@@ -146,11 +151,19 @@ Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is n
 
 ## Open items this report does not close
 
-- **Sub-batches C, D, E** — six models still memory-authoritative.
-- **A real product defect, newly unmasked** — `persistence-durability` Defect 1 now fails with an
-  assertion rather than pool exhaustion: an AI completion overwrites the user's PATCHed journey
-  summary. Bisected to confirm sub-batches A/B are not the cause; it is the interleaving
-  sub-batch D is specified to fix.
+- **Sub-batches D and E** — six models still memory-authoritative: `Journey`,
+  `SituationSnapshot`, `JourneyUpdate`, `ActionCommitment`, `OutcomeCheckin`, and the
+  `Journey`-coupled completion callback which becomes a legitimate direct writer only once D
+  lands.
+- **A real, reproducible product defect that D must fix** — `persistence-durability` Defect 1
+  fails **4 of 4 isolated runs**: the test PATCHes a journey `summary` and the database then
+  holds an AI-generated fallback summary, so an AI completion is overwriting user-confirmed
+  content. It was bisected to confirm sub-batches A and B are not the cause (it passes with
+  A+B code under the old test environment), and it is the interleaving
+  `BATCH1_DESIGN.md` assigns to D: "`user_confirmed` and AI completion interleaved: the
+  confirmed content must never be reverted to draft by the AI". It is deterministic in
+  isolation and only *appears* intermittent in a full-suite run because run ordering sometimes
+  masks it — so D must fix the behaviour, not the timing.
 - **§60 success conditions** — `BATCH1_FULL_FLUSH_ON_WRITE`, `BATCH1_DELETE_ABSENT`,
   `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE` and the rest are still **false** for the six unmigrated
   models. The before/after benchmark, concurrency and multi-instance reports are not yet
@@ -159,4 +172,4 @@ Baseline failing set and its causes: `TEST_BASELINE_FAILURES.md`. The suite is n
   concurrency gates, Android/Admin/Security regression, live AI, and the final gate.
 
 `PERSISTENCE_BATCH1_STABLE` is **not** claimed. `BATCH1_REFERENCE_SAFETY.md`'s safety properties
-are proven of the design and observed for two models; they are not yet verified for the batch.
+are proven of the design and observed for three models; they are not yet verified for the batch.
