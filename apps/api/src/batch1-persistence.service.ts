@@ -2039,8 +2039,24 @@ export class Batch1PersistenceService {
   }): Promise<{ count: number }> {
     if (params.journeyIds.length === 0) return { count: 0 };
     return await this.prisma.$transaction(async (tx) => {
-      for (const journeyId of params.journeyIds) {
+      // 1. Lock parent User rows in sorted, deterministic order
+      const targetJourneys = await tx.lifeJourney.findMany({
+        where: { id: { in: params.journeyIds } },
+        select: { id: true, userId: true },
+      });
+      const distinctUserIds = [...new Set(targetJourneys.map((j) => j.userId))].sort();
+      for (const userId of distinctUserIds) {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
+      }
+
+      // 2. Lock LifeJourney rows in sorted, deterministic order
+      const sortedJourneyIds = [...new Set(params.journeyIds)].sort();
+      for (const journeyId of sortedJourneyIds) {
         await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
+      }
+
+      // 3. Detach relations
+      for (const journeyId of sortedJourneyIds) {
         await tx.diary.updateMany({ where: { journeyId }, data: { journeyId: null } });
         await tx.mood.updateMany({ where: { journeyId }, data: { journeyId: null } });
         await tx.post.updateMany({ where: { journeyId }, data: { journeyId: null } });
@@ -2057,20 +2073,36 @@ export class Batch1PersistenceService {
         await this.detachSafetyEventsForJourney(journeyId, tx);
       }
 
-      await tx.outcomeCheckin.deleteMany({
+      // 4. Resolve actionIds in-transaction
+      const inTxActions = await tx.actionCommitment.findMany({
         where: {
           OR: [
-            { journeyId: { in: params.journeyIds } },
-            ...(params.actionIds.length ? [{ commitmentId: { in: params.actionIds } }] : []),
+            { journeyId: { in: sortedJourneyIds } },
+            ...(params.actionIds.length ? [{ id: { in: params.actionIds } }] : []),
           ],
         },
+        select: { id: true },
       });
-      if (params.actionIds.length > 0) {
-        await tx.actionCommitment.deleteMany({ where: { id: { in: params.actionIds } } });
+      const resolvedActionIds = [...new Set([...params.actionIds, ...inTxActions.map((a) => a.id)])];
+
+      if (resolvedActionIds.length > 0) {
+        await tx.outcomeCheckin.deleteMany({
+          where: {
+            OR: [
+              { journeyId: { in: sortedJourneyIds } },
+              { commitmentId: { in: resolvedActionIds } },
+            ],
+          },
+        });
+        await tx.actionCommitment.deleteMany({ where: { id: { in: resolvedActionIds } } });
+      } else {
+        await tx.outcomeCheckin.deleteMany({ where: { journeyId: { in: sortedJourneyIds } } });
+        await tx.actionCommitment.deleteMany({ where: { journeyId: { in: sortedJourneyIds } } });
       }
-      await tx.journeyUpdate.deleteMany({ where: { journeyId: { in: params.journeyIds } } });
-      await tx.situationSnapshot.deleteMany({ where: { journeyId: { in: params.journeyIds } } });
-      const delRes = await tx.lifeJourney.deleteMany({ where: { id: { in: params.journeyIds } } });
+
+      await tx.journeyUpdate.deleteMany({ where: { journeyId: { in: sortedJourneyIds } } });
+      await tx.situationSnapshot.deleteMany({ where: { journeyId: { in: sortedJourneyIds } } });
+      const delRes = await tx.lifeJourney.deleteMany({ where: { id: { in: sortedJourneyIds } } });
       return { count: delRes.count };
     });
   }

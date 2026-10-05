@@ -1394,4 +1394,51 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       await freshPrisma.$disconnect();
     }
   });
+
+  it('P0-CleanupOrder discriminating test: concurrent cleanup requests covering journeys in opposite order serialize under deterministic lock order without 40P01 deadlock', async () => {
+    const persistence = app.get(Batch1PersistenceService);
+    const user1 = `user_clean1_${Date.now()}`;
+    const user2 = `user_clean2_${Date.now()}`;
+    const jA = `journey_cleana_${Date.now()}`;
+    const jB = `journey_cleanb_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.user.createMany({
+        data: [
+          { id: user1, openid: `openid_${user1}`, nickname: 'Clean User 1', anonymousCode: `code_${user1}`, createdAt: new Date() },
+          { id: user2, openid: `openid_${user2}`, nickname: 'Clean User 2', anonymousCode: `code_${user2}`, createdAt: new Date() },
+        ],
+      });
+
+      await freshPrisma.lifeJourney.createMany({
+        data: [
+          { id: jA, userId: user1, title: '旅程 A', domain: '生活', status: 'archived', stage: 'graduated', createdAt: new Date(), updatedAt: new Date() },
+          { id: jB, userId: user2, title: '旅程 B', domain: '生活', status: 'archived', stage: 'graduated', createdAt: new Date(), updatedAt: new Date() },
+        ],
+      });
+
+      // Concurrently run two cleanup requests with opposite journey orders: [jA, jB] vs [jB, jA]
+      const [res1, res2] = await Promise.allSettled([
+        persistence.deleteJourneysForTestCleanup({ journeyIds: [jA, jB], actionIds: [] }),
+        persistence.deleteJourneysForTestCleanup({ journeyIds: [jB, jA], actionIds: [] }),
+      ]);
+
+      const err1 = res1.status === 'rejected' ? String(res1.reason) : '';
+      const err2 = res2.status === 'rejected' ? String(res2.reason) : '';
+
+      // Under sorted, deterministic User -> LifeJourney locking, no 40P01 deadlock occurs
+      expect(err1).not.toMatch(/40P01|deadlock/i);
+      expect(err2).not.toMatch(/40P01|deadlock/i);
+
+      // Verify journeys were deleted
+      const checkJA = await freshPrisma.lifeJourney.findUnique({ where: { id: jA } });
+      expect(checkJA).toBeNull();
+
+      const checkJB = await freshPrisma.lifeJourney.findUnique({ where: { id: jB } });
+      expect(checkJB).toBeNull();
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });

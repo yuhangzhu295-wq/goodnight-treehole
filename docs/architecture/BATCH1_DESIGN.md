@@ -228,15 +228,21 @@ change" claim, but only via explicit serialization, and only if the tests prove 
   `SafetyEvent`), must acquire the parent `User` row lock (`FOR UPDATE`) first, then the `LifeJourney`
   row lock (`FOR UPDATE`) second, before touching child tables (`ActionCommitment` locked third).
   *Why User comes first:* In PostgreSQL, inserting or updating any row whose foreign key references
-  `User` takes an implicit `ShareLock` on that `User` row. The legacy flush (`saveRelationalRuntimeState`)
-  writes `User` *before* the FK-referencing legacy rows (such as `Mood`, `Post`, `PeerExperience`).
-  A transaction taking `LifeJourney` first and subsequently inserting a row referencing `User` cycles
-  against the legacy flush (`User` held, waiting for `LifeJourney` vs. `LifeJourney` held, waiting for `User`),
-  triggering `40P01 (deadlock detected)`. Enforcing `User` first establishes a single serialization order
-  and eliminates cyclic wait-for graphs across the entire journey graph.
+  `User` takes an implicit key-share row lock (`FOR KEY SHARE`) on that `User` row. The legacy flush
+  (`saveRelationalRuntimeState`) writes `User` *before* the FK-referencing legacy rows (such as `Mood`,
+  `Post`, `PeerExperience`). A transaction taking `LifeJourney` first and subsequently inserting a row
+  referencing `User` cycles against the legacy flush (`User` held, waiting for `LifeJourney` vs.
+  `LifeJourney` held, waiting for `User`), triggering `40P01 (deadlock detected)`. Enforcing `User`
+  first establishes a single serialization order and eliminates cyclic wait-for graphs across the entire journey graph.
   *Scope & Lifetime:* This rule is an architectural precondition for all present and future transactions touching
   the journey domain. The guarantee holds while the legacy flush exists; once the remaining legacy models
   migrate and the flush's `User`-first write is decommissioned, the hierarchy should be re-derived.
+- **Deterministic ordering for multi-row locking**:
+  When a transaction locks multiple rows of the same table (such as multiple `User` or `LifeJourney`
+  rows in batch deletion or test cleanup), rows must be locked in a **deterministic order sorted by ID**.
+  A transaction acquiring locks in arbitrary order cycles against an overlapping transaction locking the
+  same rows in reverse order, producing a `40P01` deadlock even without legacy flush involvement.
+  Every batch operation must sort target IDs alphabetically before acquiring row locks.
 - **OutcomeCheckin single-pending**: lock the parent Action row in the transaction before the
   check-then-insert (following the User → LifeJourney → Action order). Two
   concurrent check-ins must produce at most one pending row. If an action
