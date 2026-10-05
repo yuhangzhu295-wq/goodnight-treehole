@@ -1,20 +1,44 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import fs from 'node:fs';
 import path from 'node:path';
-import { resetTestDatabase } from '../../scripts/test-database.js';
+
+export function assertTestDatabaseUrl(rawUrl = process.env.DATABASE_URL): string {
+  if (!rawUrl) {
+    throw new Error(
+      'DATABASE_URL is not set. Tests must be executed through the isolated test runner (e.g. pnpm test:business:isolated).',
+    );
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`DATABASE_URL is not a valid URL: ${rawUrl}`);
+  }
+  const dbName = parsed.pathname.replace(/^\//, '');
+  if (!/^goodnight_treehole_test_[a-z0-9_]+$/.test(dbName)) {
+    throw new Error(`Refusing non-lease test database: "${dbName}". Expected format: goodnight_treehole_test_<runId>.`);
+  }
+  if (dbName === 'goodnight_treehole' || dbName === 'goodnight_treehole_cleanroom') {
+    throw new Error(`Refusing to run tests against development database: "${dbName}".`);
+  }
+  return rawUrl;
+}
+
+// Read and validate the runner-provided DATABASE_URL before any import
+// of apps/api/src/prisma-runtime.service.ts captures the URL at module load.
+const testDatabaseUrl = assertTestDatabaseUrl();
+process.env.DATABASE_URL = testDatabaseUrl;
 
 const workerId = process.env.VITEST_POOL_ID ?? '0';
-const storeFile = path.resolve('artifacts/runtime', `goodnight-store.business-spec-${process.pid}-${workerId}.json`);
-fs.mkdirSync(path.dirname(storeFile), { recursive: true });
-fs.rmSync(storeFile, { force: true });
-process.env.GOODNIGHT_STORE_FILE = storeFile;
-process.env.DATABASE_URL = resetTestDatabase(
-  `goodnight_treehole_test_business_${process.pid}_${workerId}`,
-);
-// Keep the in-process integration worker isolated from a developer API worker
-// that may be running against the real development database on the same Redis.
-process.env.FOLLOW_UP_QUEUE_NAME = `goodnight-follow-ups-test-${process.pid}-${workerId}`;
+if (!process.env.GOODNIGHT_STORE_FILE) {
+  process.env.GOODNIGHT_STORE_FILE = path.resolve(
+    'artifacts/runtime',
+    `goodnight-store.business-spec-${process.pid}-${workerId}.json`,
+  );
+}
+if (!process.env.FOLLOW_UP_QUEUE_NAME) {
+  process.env.FOLLOW_UP_QUEUE_NAME = `goodnight-follow-ups-test-${process.pid}-${workerId}`;
+}
 
 export async function createApiTestApp(): Promise<INestApplication> {
   const { createServer } = await import('../../apps/api/src/main.js');
@@ -35,7 +59,10 @@ export function followUpTestConnection() {
 }
 
 export async function loginAdmin(server: unknown) {
-  const response = await request(server).post('/api/admin/v1/login').send({ username: 'admin', password: 'admin123' }).expect(201);
+  const response = await request(server)
+    .post('/api/admin/v1/login')
+    .send({ username: 'admin', password: 'admin123' })
+    .expect(201);
   return response.body.token as string;
 }
 
@@ -51,5 +78,7 @@ export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 1
     if (!['queued', 'running'].includes(response.body.status)) return response.body;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  throw new Error(`AI job ${jobId} did not reach a terminal state; last status: ${response?.body?.status ?? 'unknown'}`);
+  throw new Error(
+    `AI job ${jobId} did not reach a terminal state; last status: ${response?.body?.status ?? 'unknown'}`,
+  );
 }
