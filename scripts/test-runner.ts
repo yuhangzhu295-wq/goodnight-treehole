@@ -129,6 +129,9 @@ function countMigrationDirectories(): number {
   return count;
 }
 
+let activeChild: ChildProcess | null = null;
+let currentLeaseDb: string | null = null;
+
 async function runCommand(
   cmd: string,
   args: string[],
@@ -155,20 +158,68 @@ async function runCommand(
   });
 }
 
-let activeChild: ChildProcess | null = null;
+function resolveSpecFiles(targets: string[]): string[] {
+  const files: string[] = [];
+  const addPath = (p: string) => {
+    const resolved = path.isAbsolute(p) ? p : path.resolve(repoRoot, p);
+    if (!fs.existsSync(resolved)) return;
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) {
+      const entries = fs.readdirSync(resolved);
+      for (const entry of entries) {
+        if (entry.endsWith('.spec.ts')) {
+          files.push(path.join(resolved, entry));
+        }
+      }
+    } else if (stat.isFile() && (resolved.endsWith('.spec.ts') || resolved.endsWith('.spec.js'))) {
+      files.push(resolved);
+    }
+  };
+
+  if (targets.length === 0) {
+    addPath('tests/business');
+  } else {
+    for (const t of targets) {
+      addPath(t);
+    }
+  }
+  return [...new Set(files)].sort();
+}
+
+interface FileRunResult {
+  file: string;
+  relPath: string;
+  passed: boolean;
+  numTests: number;
+  numPassed: number;
+  numFailed: number;
+  failedTestTitles: string[];
+  dbName: string;
+  timings: {
+    dbCreate: number;
+    migrate: number;
+    test: number;
+    drop: number;
+    total: number;
+  };
+}
 
 async function main() {
-  const t0 = Date.now();
+  const suiteStartTime = Date.now();
   const rawArgs = process.argv.slice(2);
 
   let keepDbOnFailure = process.env.KEEP_TEST_DB_ON_FAILURE === 'true' || process.env.KEEP_TEST_DB_ON_FAILURE === '1';
 
-  const forwardedArgs: string[] = [];
+  const pathTargets: string[] = [];
   for (const arg of rawArgs) {
     if (arg === '--keep-db-on-failure') {
       keepDbOnFailure = true;
+    } else if (arg.startsWith('--')) {
+      // flags like --pool, etc.
+    } else if (arg === 'vitest' || arg === 'run') {
+      // skip runner tokens
     } else {
-      forwardedArgs.push(arg);
+      pathTargets.push(arg);
     }
   }
 
@@ -193,87 +244,20 @@ async function main() {
     process.exit(2);
   }
 
-  // 1. Generate unpredictable runId and test database name
-  const rawRunId = `${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`.toLowerCase();
-  const runId = rawRunId.replace(/[^a-z0-9_]/g, '_');
-  const dbName = `goodnight_treehole_test_${runId}`;
-
-  // Validate prefix, character set, length, and forbid dev db
-  if (!/^goodnight_treehole_test_[a-z0-9_]+$/.test(dbName)) {
-    throw new Error(`Invalid test database name: ${dbName}`);
-  }
-  if (Buffer.byteLength(dbName, 'utf8') > 63) {
-    throw new Error(
-      `Test database name exceeds PostgreSQL 63-byte identifier limit (${Buffer.byteLength(dbName, 'utf8')} bytes): ${dbName}`,
-    );
-  }
-  if (dbName === devDbName || dbName === 'goodnight_treehole' || dbName === 'goodnight_treehole_cleanroom') {
-    throw new Error(`Refusing database name matching development database: ${dbName}`);
+  const specFiles = resolveSpecFiles(pathTargets);
+  if (specFiles.length === 0) {
+    console.error('[test-runner] No spec files found matching targets:', pathTargets);
+    process.exit(1);
   }
 
-  const leaseUrl = `postgresql://${dbUser}:${encodeURIComponent(dbPassword)}@${dbHost}:${dbPort}/${dbName}?schema=public`;
+  console.log(`[test-runner] Running ${specFiles.length} spec file(s) with per-file database lease isolation.\n`);
 
-  // Runtime environment paths
   const runtimeDir = path.resolve(repoRoot, 'artifacts', 'runtime');
   fs.mkdirSync(runtimeDir, { recursive: true });
 
-  const storeFile = path.resolve(runtimeDir, `goodnight-store-test-${runId}.json`);
-  if (fs.existsSync(storeFile)) {
-    fs.rmSync(storeFile, { force: true });
-  }
-
-  const uploadsDir = path.resolve(runtimeDir, `uploads-test-${runId}`);
-  fs.mkdirSync(uploadsDir, { recursive: true });
-
-  const queueName = `goodnight-follow-ups-test-${runId}`;
-
-  let dbCreated = false;
-  let testSuccess = false;
-  let exitCode = 0;
-  let tCreate = t0;
-  let tMigrate = t0;
-  let tTestStart = t0;
-  let tTestEnd = t0;
-
-  const teardown = () => {
-    if (!dbCreated) return;
-    if (!testSuccess && keepDbOnFailure) {
-      console.log('================================================================================');
-      console.log(`[test-runner] KEEP_TEST_DB_ON_FAILURE active: preserved database "${dbName}".`);
-      console.log('[test-runner] Reproduction command:');
-      console.log(
-        `  DATABASE_URL="${leaseUrl}" GOODNIGHT_STORE_FILE="${storeFile}" GOODNIGHT_UPLOADS_DIR="${uploadsDir}" FOLLOW_UP_QUEUE_NAME="${queueName}" npx vitest run tests/business/ --pool=forks --maxWorkers=1 --minWorkers=1 --no-file-parallelism --reporter=basic`,
-      );
-      console.log('================================================================================');
-      return;
-    }
-
-    console.log(`[test-runner] Dropping lease database "${dbName}"...`);
-    try {
-      // Terminate any open connections to that lease database only
-      execPsql(
-        maintenanceDb,
-        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid();`,
-      );
-      execPsql(maintenanceDb, `DROP DATABASE IF EXISTS "${dbName}";`);
-
-      const remaining = execPsql(maintenanceDb, `SELECT count(*) FROM pg_database WHERE datname = '${dbName}';`);
-      if (parseInt(remaining, 10) !== 0) {
-        console.error(`[test-runner] Warning: database "${dbName}" still exists after drop.`);
-      } else {
-        console.log(`[test-runner] Database "${dbName}" dropped cleanly.`);
-      }
-    } catch (dropErr: any) {
-      console.error(`[test-runner] Failed to drop lease database "${dbName}":`, dropErr?.message ?? dropErr);
-    }
-
-    try {
-      if (fs.existsSync(storeFile)) fs.rmSync(storeFile, { force: true });
-      if (fs.existsSync(uploadsDir)) fs.rmSync(uploadsDir, { recursive: true, force: true });
-    } catch (fileErr: any) {
-      console.error('[test-runner] Failed to clean up runtime files:', fileErr?.message ?? fileErr);
-    }
-  };
+  const vitestMjs = path.resolve(repoRoot, 'node_modules', 'vitest', 'vitest.mjs');
+  const prismaCli = path.resolve(repoRoot, 'node_modules', 'prisma', 'build', 'index.js');
+  const expectedMigrations = countMigrationDirectories();
 
   const handleSignal = (signal: string) => {
     console.log(`\n[test-runner] Received ${signal}. Terminating child processes and cleaning up...`);
@@ -284,93 +268,122 @@ async function main() {
         // ignore
       }
     }
-    teardown();
+    if (currentLeaseDb) {
+      try {
+        execPsql(
+          maintenanceDb,
+          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${currentLeaseDb}' AND pid <> pg_backend_pid();`,
+        );
+        execPsql(maintenanceDb, `DROP DATABASE IF EXISTS "${currentLeaseDb}";`);
+      } catch {
+        // ignore
+      }
+    }
     process.exit(130);
   };
 
   process.once('SIGINT', () => handleSignal('SIGINT'));
   process.once('SIGTERM', () => handleSignal('SIGTERM'));
 
-  try {
-    // 2. CREATE DATABASE on maintenance connection
-    console.log(`[test-runner] Creating lease database "${dbName}" via ${maintenanceDb}...`);
-    execPsql(maintenanceDb, `CREATE DATABASE "${dbName}";`);
-    dbCreated = true;
-    tCreate = Date.now();
-    console.log(`[test-runner] Lease database "${dbName}" created in ${tCreate - t0}ms.`);
+  const fileResults: FileRunResult[] = [];
 
-    // 3. Migrate and verify
-    console.log('[test-runner] Running prisma migrate deploy...');
-    const expectedMigrations = countMigrationDirectories();
-    const prismaCli = path.resolve(repoRoot, 'node_modules', 'prisma', 'build', 'index.js');
-    const migrateRes = spawnSync(
-      process.execPath,
-      [prismaCli, 'migrate', 'deploy', '--schema', 'prisma/schema.prisma'],
-      {
-        cwd: repoRoot,
-        env: { ...process.env, ...envValues, DATABASE_URL: leaseUrl },
-        encoding: 'utf8',
-        windowsHide: true,
-      },
-    );
+  for (let fileIdx = 0; fileIdx < specFiles.length; fileIdx++) {
+    const specFile = specFiles[fileIdx];
+    const relFile = path.relative(repoRoot, specFile).replace(/\\/g, '/');
+    const fileStartTime = Date.now();
 
-    if (migrateRes.error || migrateRes.status !== 0) {
+    console.log(`\n================================================================================`);
+    console.log(`[test-runner] [${fileIdx + 1}/${specFiles.length}] Leasing database for ${relFile}`);
+    console.log(`================================================================================`);
+
+    const rawRunId = `${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`.toLowerCase();
+    const runId = rawRunId.replace(/[^a-z0-9_]/g, '_');
+    const dbName = `goodnight_treehole_test_${runId}`;
+
+    if (!/^goodnight_treehole_test_[a-z0-9_]+$/.test(dbName)) {
+      throw new Error(`Invalid test database name: ${dbName}`);
+    }
+    if (Buffer.byteLength(dbName, 'utf8') > 63) {
       throw new Error(
-        `Migration deploy failed: ${migrateRes.error?.message ?? migrateRes.stderr ?? migrateRes.stdout}`,
+        `Test database name exceeds PostgreSQL 63-byte identifier limit (${Buffer.byteLength(dbName, 'utf8')} bytes): ${dbName}`,
       );
     }
-
-    // Verify migration count in _prisma_migrations
-    const appliedCountStr = execPsql(
-      dbName,
-      'SELECT count(*) FROM "_prisma_migrations" WHERE "finished_at" IS NOT NULL AND "rolled_back_at" IS NULL;',
-    );
-    const appliedCount = parseInt(appliedCountStr, 10);
-    if (appliedCount !== expectedMigrations) {
-      throw new Error(`Migration count mismatch: expected ${expectedMigrations} migrations, received ${appliedCount}.`);
+    if (dbName === devDbName || dbName === 'goodnight_treehole' || dbName === 'goodnight_treehole_cleanroom') {
+      throw new Error(`Refusing database name matching development database: ${dbName}`);
     }
-    tMigrate = Date.now();
-    console.log(
-      `[test-runner] Verified ${appliedCount}/${expectedMigrations} migrations applied in ${tMigrate - tCreate}ms.`,
-    );
 
-    // 4. Construct test command
-    // Serial execution: a single fork / no file parallelism
-    const testCmd = process.execPath;
-    let testArgs: string[] = [];
+    const leaseUrl = `postgresql://${dbUser}:${encodeURIComponent(dbPassword)}@${dbHost}:${dbPort}/${dbName}?schema=public`;
+    currentLeaseDb = dbName;
 
-    const vitestMjs = path.resolve(repoRoot, 'node_modules', 'vitest', 'vitest.mjs');
+    const storeFile = path.resolve(runtimeDir, `goodnight-store-test-${runId}.json`);
+    if (fs.existsSync(storeFile)) {
+      fs.rmSync(storeFile, { force: true });
+    }
 
-    const ensureSerialFlags = (args: string[]) => {
-      const res = [...args];
-      if (!res.some((a) => a === '--pool' || a.startsWith('--pool='))) {
-        res.push('--pool=forks');
-      }
-      if (!res.some((a) => a === '--maxWorkers' || a.startsWith('--maxWorkers='))) {
-        res.push('--maxWorkers=1');
-      }
-      if (!res.some((a) => a === '--minWorkers' || a.startsWith('--minWorkers='))) {
-        res.push('--minWorkers=1');
-      }
-      if (
-        !res.some((a) => a === '--no-file-parallelism' || a === '--fileParallelism=false' || a === '--fileParallelism')
-      ) {
-        res.push('--no-file-parallelism');
-      }
-      if (!res.some((a) => a === '--hookTimeout' || a.startsWith('--hookTimeout='))) {
-        res.push('--hookTimeout=30000');
-      }
-      if (!res.some((a) => a === '--teardownTimeout' || a.startsWith('--teardownTimeout='))) {
-        res.push('--teardownTimeout=30000');
-      }
-      return res;
-    };
+    const uploadsDir = path.resolve(runtimeDir, `uploads-test-${runId}`);
+    fs.mkdirSync(uploadsDir, { recursive: true });
 
-    if (forwardedArgs.length === 0) {
-      testArgs = [
+    const queueName = `goodnight-follow-ups-test-${runId}`;
+    const reportJson = path.resolve(runtimeDir, `vitest-report-${runId}.json`);
+    if (fs.existsSync(reportJson)) {
+      fs.rmSync(reportJson, { force: true });
+    }
+
+    let dbCreated = false;
+    let filePassed = false;
+    let tCreate = fileStartTime;
+    let tMigrate = fileStartTime;
+    let tTestStart = fileStartTime;
+    let tTestEnd = fileStartTime;
+    let numTests = 0;
+    let numPassed = 0;
+    let numFailed = 0;
+    const failedTestTitles: string[] = [];
+
+    try {
+      // 1. CREATE DATABASE
+      const t0 = Date.now();
+      execPsql(maintenanceDb, `CREATE DATABASE "${dbName}";`);
+      dbCreated = true;
+      tCreate = Date.now() - t0;
+
+      // 2. Migrate and verify
+      const tMigrateStart = Date.now();
+      const migrateRes = spawnSync(
+        process.execPath,
+        [prismaCli, 'migrate', 'deploy', '--schema', 'prisma/schema.prisma'],
+        {
+          cwd: repoRoot,
+          env: { ...process.env, ...envValues, DATABASE_URL: leaseUrl },
+          encoding: 'utf8',
+          windowsHide: true,
+        },
+      );
+
+      if (migrateRes.error || migrateRes.status !== 0) {
+        throw new Error(
+          `Migration deploy failed: ${migrateRes.error?.message ?? migrateRes.stderr ?? migrateRes.stdout}`,
+        );
+      }
+
+      const appliedCountStr = execPsql(
+        dbName,
+        'SELECT count(*) FROM "_prisma_migrations" WHERE "finished_at" IS NOT NULL AND "rolled_back_at" IS NULL;',
+      );
+      const appliedCount = parseInt(appliedCountStr, 10);
+      if (appliedCount !== expectedMigrations) {
+        throw new Error(
+          `Migration count mismatch: expected ${expectedMigrations} migrations, received ${appliedCount}.`,
+        );
+      }
+      tMigrate = Date.now() - tMigrateStart;
+
+      // 3. Run Vitest for this single file
+      tTestStart = Date.now();
+      const testArgs = [
         vitestMjs,
         'run',
-        'tests/business/',
+        relFile,
         '--pool=forks',
         '--maxWorkers=1',
         '--minWorkers=1',
@@ -378,47 +391,166 @@ async function main() {
         '--hookTimeout=30000',
         '--teardownTimeout=30000',
         '--reporter=basic',
+        '--reporter=json',
+        `--outputFile.json=${reportJson}`,
       ];
-    } else if (forwardedArgs[0] === 'vitest') {
-      testArgs = [vitestMjs, ...ensureSerialFlags(forwardedArgs.slice(1))];
-    } else {
-      testArgs = [vitestMjs, 'run', ...ensureSerialFlags(forwardedArgs)];
+
+      const testEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        ...envValues,
+        DATABASE_URL: leaseUrl,
+        GOODNIGHT_STORE_FILE: storeFile,
+        GOODNIGHT_UPLOADS_DIR: uploadsDir,
+        FOLLOW_UP_QUEUE_NAME: queueName,
+      };
+
+      const runResult = await runCommand(process.execPath, testArgs, testEnv);
+      tTestEnd = Date.now() - tTestStart;
+
+      // Parse JSON report for exact test counts
+      if (fs.existsSync(reportJson)) {
+        try {
+          const reportData = JSON.parse(fs.readFileSync(reportJson, 'utf8'));
+          numTests = reportData.numTotalTests ?? 0;
+          numPassed = reportData.numPassedTests ?? 0;
+          numFailed = reportData.numFailedTests ?? 0;
+          filePassed = reportData.success && runResult.exitCode === 0;
+
+          if (Array.isArray(reportData.testResults)) {
+            for (const suite of reportData.testResults) {
+              if (Array.isArray(suite.assertionResults)) {
+                for (const test of suite.assertionResults) {
+                  if (test.status === 'failed') {
+                    failedTestTitles.push(test.fullName || test.title);
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          filePassed = runResult.exitCode === 0;
+        }
+      } else {
+        filePassed = runResult.exitCode === 0;
+      }
+    } catch (err: any) {
+      console.error(`[test-runner] Execution failed for ${relFile}:`, err?.message ?? err);
+      filePassed = false;
+      numFailed = numFailed || 1;
+      numTests = numTests || 1;
+      failedTestTitles.push(`Execution Error: ${err?.message ?? String(err)}`);
+    } finally {
+      const tDropStart = Date.now();
+      if (dbCreated) {
+        if (!filePassed && keepDbOnFailure) {
+          console.log('================================================================================');
+          console.log(`[test-runner] KEEP_TEST_DB_ON_FAILURE active: preserved database "${dbName}" for ${relFile}`);
+          console.log('[test-runner] Reproduction command:');
+          console.log(
+            `  DATABASE_URL="${leaseUrl}" GOODNIGHT_STORE_FILE="${storeFile}" GOODNIGHT_UPLOADS_DIR="${uploadsDir}" FOLLOW_UP_QUEUE_NAME="${queueName}" npx vitest run ${relFile} --pool=forks --maxWorkers=1 --minWorkers=1 --no-file-parallelism --reporter=basic`,
+          );
+          console.log('================================================================================');
+        } else {
+          try {
+            execPsql(
+              maintenanceDb,
+              `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid();`,
+            );
+            execPsql(maintenanceDb, `DROP DATABASE IF EXISTS "${dbName}";`);
+
+            const remaining = execPsql(maintenanceDb, `SELECT count(*) FROM pg_database WHERE datname = '${dbName}';`);
+            if (parseInt(remaining, 10) !== 0) {
+              console.error(`[test-runner] Warning: database "${dbName}" still exists after drop.`);
+            }
+          } catch (dropErr: any) {
+            console.error(`[test-runner] Failed to drop lease database "${dbName}":`, dropErr?.message ?? dropErr);
+          }
+
+          try {
+            if (fs.existsSync(storeFile)) fs.rmSync(storeFile, { force: true });
+            if (fs.existsSync(uploadsDir)) fs.rmSync(uploadsDir, { recursive: true, force: true });
+            if (fs.existsSync(reportJson)) fs.rmSync(reportJson, { force: true });
+          } catch {
+            // ignore
+          }
+        }
+      }
+      currentLeaseDb = null;
+      const tDrop = Date.now() - tDropStart;
+      const tFileTotal = Date.now() - fileStartTime;
+
+      fileResults.push({
+        file: specFile,
+        relPath: relFile,
+        passed: filePassed,
+        numTests,
+        numPassed,
+        numFailed,
+        failedTestTitles,
+        dbName,
+        timings: {
+          dbCreate: tCreate,
+          migrate: tMigrate,
+          test: tTestEnd,
+          drop: tDrop,
+          total: tFileTotal,
+        },
+      });
     }
-
-    const testEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...envValues,
-      DATABASE_URL: leaseUrl,
-      GOODNIGHT_STORE_FILE: storeFile,
-      GOODNIGHT_UPLOADS_DIR: uploadsDir,
-      FOLLOW_UP_QUEUE_NAME: queueName,
-    };
-
-    tTestStart = Date.now();
-    console.log(`[test-runner] Running test suite serially: node ${testArgs.join(' ')}`);
-    const runResult = await runCommand(testCmd, testArgs, testEnv);
-    tTestEnd = Date.now();
-
-    exitCode = runResult.exitCode;
-    testSuccess = exitCode === 0;
-  } catch (err: any) {
-    console.error('[test-runner] Execution failed:', err?.message ?? err);
-    testSuccess = false;
-    exitCode = exitCode || 1;
-  } finally {
-    const tCleanupStart = Date.now();
-    teardown();
-    const tCleanupEnd = Date.now();
-
-    console.log('\n[test-runner] Wall-clock breakdown:');
-    console.log(`  - DB lease creation: ${tCreate - t0}ms`);
-    console.log(`  - Migration deploy & verify: ${tMigrate - tCreate}ms`);
-    console.log(`  - Test suite execution: ${tTestEnd - tTestStart}ms`);
-    console.log(`  - Teardown & drop: ${tCleanupEnd - tCleanupStart}ms`);
-    console.log(`  - Total wall-clock: ${tCleanupEnd - t0}ms`);
-
-    process.exit(exitCode);
   }
+
+  // Aggregate Reporting
+  const totalDuration = Date.now() - suiteStartTime;
+  const passedFiles = fileResults.filter((r) => r.passed);
+  const failedFiles = fileResults.filter((r) => !r.passed);
+
+  const totalTests = fileResults.reduce((acc, r) => acc + r.numTests, 0);
+  const totalPassed = fileResults.reduce((acc, r) => acc + r.numPassed, 0);
+  const totalFailed = fileResults.reduce((acc, r) => acc + r.numFailed, 0);
+
+  console.log(`\n================================================================================`);
+  console.log(`[test-runner] AGGREGATE TEST SUITE REPORT`);
+  console.log(`================================================================================`);
+
+  console.log(`Test Files: ${failedFiles.length} failed | ${passedFiles.length} passed (${fileResults.length})`);
+  console.log(`Tests:      ${totalFailed} failed | ${totalPassed} passed (${totalTests})`);
+  console.log(`Duration:   ${(totalDuration / 1000).toFixed(2)}s`);
+
+  if (failedFiles.length > 0) {
+    console.log(`\nFailed Test Files (${failedFiles.length}):`);
+    for (const r of failedFiles) {
+      console.log(`  × ${r.relPath} (${r.numFailed}/${r.numTests} failed)`);
+      for (const title of r.failedTestTitles) {
+        console.log(`      - ${title}`);
+      }
+    }
+  }
+
+  console.log(`\nPer-File Timing Breakdown:`);
+  console.log(
+    `  ${'File'.padEnd(52)} ${'DB'.padStart(6)} ${'Migrate'.padStart(9)} ${'Test'.padStart(8)} ${'Drop'.padStart(6)} ${'Total'.padStart(8)} ${'Status'.padStart(6)}`,
+  );
+  console.log(`  ${'-'.repeat(98)}`);
+  for (const r of fileResults) {
+    const status = r.passed ? 'PASS' : 'FAIL';
+    console.log(
+      `  ${r.relPath.padEnd(52)} ${`${r.timings.dbCreate}ms`.padStart(6)} ${`${r.timings.migrate}ms`.padStart(9)} ${`${r.timings.test}ms`.padStart(8)} ${`${r.timings.drop}ms`.padStart(6)} ${`${r.timings.total}ms`.padStart(8)} ${status.padStart(6)}`,
+    );
+  }
+
+  const avgCreate = Math.round(fileResults.reduce((a, b) => a + b.timings.dbCreate, 0) / fileResults.length);
+  const avgMigrate = Math.round(fileResults.reduce((a, b) => a + b.timings.migrate, 0) / fileResults.length);
+  const avgTest = Math.round(fileResults.reduce((a, b) => a + b.timings.test, 0) / fileResults.length);
+  const avgDrop = Math.round(fileResults.reduce((a, b) => a + b.timings.drop, 0) / fileResults.length);
+
+  console.log(`  ${'-'.repeat(98)}`);
+  console.log(
+    `  ${'AVERAGE'.padEnd(52)} ${`${avgCreate}ms`.padStart(6)} ${`${avgMigrate}ms`.padStart(9)} ${`${avgTest}ms`.padStart(8)} ${`${avgDrop}ms`.padStart(6)} ${`${Math.round(totalDuration / fileResults.length)}ms`.padStart(8)}`,
+  );
+
+  console.log(`================================================================================\n`);
+
+  process.exit(failedFiles.length === 0 ? 0 : 1);
 }
 
 main();
