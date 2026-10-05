@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { DIRECT_DB_MODELS } from './batch1-persistence.service.js';
 
 type DbClient = any;
 type RuntimeData = Record<string, any>;
@@ -61,7 +62,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
     db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
     db.followUpJob.findMany({ orderBy: { dueAt: 'asc' } }),
-    db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.UserNotification ? Promise.resolve([]) : db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerConversation.findMany({ orderBy: { createdAt: 'desc' } }),
     db.peerMessage.findMany({ orderBy: { createdAt: 'asc' } }),
     db.peerReport.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -125,7 +126,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     safetyEvents: safetyEvents.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, level: item.level, source: item.source, action: item.action, payload: item.payload ?? undefined, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
     agentDecisionLogs: agentDecisionLogs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, aiJobId: item.aiJobId ?? undefined, taskType: item.taskType, decision: item.decision ?? {}, createdAt: iso(item.createdAt) })),
     followUpJobs: followUpJobs.map((item: any) => ({ id: item.id, userId: item.userId, journeyId: item.journeyId ?? undefined, kind: item.kind, dueAt: iso(item.dueAt), status: item.status, payload: item.payload ?? undefined, completedAt: item.completedAt ? iso(item.completedAt) : undefined, createdAt: iso(item.createdAt) })),
-    notifications: notifications.map((item: any) => ({ id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? undefined, status: item.status, createdAt: iso(item.createdAt), readAt: item.readAt ? iso(item.readAt) : undefined })),
+    ...(DIRECT_DB_MODELS.UserNotification ? {} : {
+      notifications: notifications.map((item: any) => ({ id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? undefined, status: item.status, createdAt: iso(item.createdAt), readAt: item.readAt ? iso(item.readAt) : undefined })),
+    }),
     peerConversations: peerConversations.map((item: any) => ({ id: item.id, matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status, startsAt: item.startsAt ? iso(item.startsAt) : iso(item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? iso(item.consentAcceptedAt) : undefined, expiresAt: iso(item.expiresAt), createdAt: iso(item.createdAt), closedAt: item.closedAt ? iso(item.closedAt) : undefined, closedReason: item.closedReason ?? undefined, feedback: item.feedback ?? undefined, feedbackNote: item.feedbackNote ?? undefined, reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined, reporterUserId: item.reporterUserId ?? undefined, reportReason: item.reportReason ?? undefined })),
     peerMessages: peerMessages.map((item: any) => ({ id: item.id, conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType, createdAt: iso(item.createdAt), reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined, blockedAt: item.blockedAt ? iso(item.blockedAt) : undefined, piiFlags: asArray(item.piiFlags).map(String) })),
     peerReports: peerReports.map((item: any) => ({ id: item.id, conversationId: item.conversationId, experienceId: item.experienceId ?? undefined, matchId: item.matchId ?? undefined, reporterUserId: item.reporterUserId, reason: item.reason, status: item.status ?? 'open', handledAt: item.handledAt ? iso(item.handledAt) : undefined, handledBy: item.handledBy ?? undefined, note: item.note ?? undefined, createdAt: iso(item.createdAt) })),
@@ -227,8 +230,70 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     for (const item of asArray(state.recoverySnapshots)) await tx.recoverySnapshot.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, summary: item.summary, signals: json(item.signals ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, summary: item.summary, signals: json(item.signals ?? {}) } });
     for (const item of asArray(state.safetyEvents)) await tx.safetyEvent.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, level: item.level, source: item.source, action: item.action, payload: json(item.payload), status: item.status ?? 'open', handledAt: item.handledAt ? date(item.handledAt) : null, handledBy: item.handledBy ?? null, note: item.note ?? null } });
     for (const item of asArray(state.agentDecisionLogs)) await tx.agentDecisionLog.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId: jobIds.has(item.aiJobId) ? item.aiJobId : null, taskType: item.taskType, decision: json(item.decision ?? {}), createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, aiJobId: jobIds.has(item.aiJobId) ? item.aiJobId : null, taskType: item.taskType, decision: json(item.decision ?? {}) } });
-    for (const item of asArray(state.followUpJobs)) await tx.followUpJob.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, kind: item.kind, dueAt: date(item.dueAt), status: item.status ?? 'pending', payload: json(item.payload), completedAt: item.completedAt ? date(item.completedAt) : null, createdAt: date(item.createdAt) }, update: { userId: item.userId, journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null, kind: item.kind, dueAt: date(item.dueAt), status: item.status ?? 'pending', payload: json(item.payload), completedAt: item.completedAt ? date(item.completedAt) : null } });
-    for (const item of asArray(state.notifications).filter((item: any) => userIds.has(item.userId))) await tx.userNotification.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? null, status: item.status ?? 'unread', createdAt: date(item.createdAt), readAt: item.readAt ? date(item.readAt) : null }, update: { userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? null, status: item.status ?? 'unread', readAt: item.readAt ? date(item.readAt) : null } });
+    const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed'] as const;
+    for (const item of asArray(state.followUpJobs)) {
+      const existing = await tx.followUpJob.findUnique({ where: { id: item.id } });
+      if (!existing) {
+        let initialJourneyId: string | null = null;
+        if (item.journeyId) {
+          if (journeyIds.has(item.journeyId)) {
+            initialJourneyId = item.journeyId;
+          } else {
+            const dbJourney = await tx.lifeJourney.findUnique({ where: { id: item.journeyId }, select: { id: true } });
+            if (dbJourney) initialJourneyId = item.journeyId;
+          }
+        }
+        await tx.followUpJob.create({
+          data: {
+            id: item.id,
+            userId: item.userId,
+            journeyId: initialJourneyId,
+            kind: item.kind,
+            dueAt: date(item.dueAt),
+            status: item.status ?? 'pending',
+            payload: json(item.payload),
+            completedAt: item.completedAt ? date(item.completedAt) : null,
+            createdAt: date(item.createdAt),
+          },
+        });
+      } else {
+        const arrayStatusIsTerminal = TERMINAL_FOLLOW_UP_STATUSES.includes(item.status);
+        let targetCompletedAt: Date | null = existing.completedAt;
+        if (item.completedAt) {
+          const itemDate = date(item.completedAt);
+          if (!targetCompletedAt || itemDate.getTime() > targetCompletedAt.getTime()) {
+            targetCompletedAt = itemDate;
+          }
+        }
+        let targetJourneyId: string | null = existing.journeyId;
+        if (item.journeyId && item.journeyId !== existing.journeyId) {
+          if (journeyIds.has(item.journeyId)) {
+            targetJourneyId = item.journeyId;
+          } else {
+            const dbJourney = await tx.lifeJourney.findUnique({ where: { id: item.journeyId }, select: { id: true } });
+            if (dbJourney) targetJourneyId = item.journeyId;
+          }
+        }
+        await tx.followUpJob.updateMany({
+          where: {
+            id: item.id,
+            ...(arrayStatusIsTerminal ? {} : { status: { notIn: ['delivered', 'completed'] } }),
+          },
+          data: {
+            userId: item.userId,
+            journeyId: targetJourneyId,
+            kind: item.kind,
+            dueAt: date(item.dueAt),
+            status: item.status ?? 'pending',
+            payload: json(item.payload),
+            completedAt: targetCompletedAt,
+          },
+        });
+      }
+    }
+    if (!DIRECT_DB_MODELS.UserNotification) {
+      for (const item of asArray(state.notifications).filter((item: any) => userIds.has(item.userId))) await tx.userNotification.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? null, status: item.status ?? 'unread', createdAt: date(item.createdAt), readAt: item.readAt ? date(item.readAt) : null }, update: { userId: item.userId, type: item.type, title: item.title, body: item.body, targetRoute: item.targetRoute ?? null, status: item.status ?? 'unread', readAt: item.readAt ? date(item.readAt) : null } });
+    }
     for (const item of asArray(state.peerConversations).filter((item: any) => peerMatchIds.has(item.matchId) && userIds.has(item.starterUserId) && userIds.has(item.receiverUserId))) await tx.peerConversation.upsert({ where: { id: item.id }, create: { id: item.id, matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status ?? 'active', startsAt: date(item.startsAt ?? item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null, expiresAt: date(item.expiresAt), createdAt: date(item.createdAt), closedAt: item.closedAt ? date(item.closedAt) : null, closedReason: item.closedReason ?? null, feedback: item.feedback ?? null, feedbackNote: item.feedbackNote ?? null, reportedAt: item.reportedAt ? date(item.reportedAt) : null, reporterUserId: item.reporterUserId ?? null, reportReason: item.reportReason ?? null }, update: { matchId: item.matchId, starterUserId: item.starterUserId, receiverUserId: item.receiverUserId, status: item.status ?? 'active', startsAt: date(item.startsAt ?? item.createdAt), consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null, expiresAt: date(item.expiresAt), closedAt: item.closedAt ? date(item.closedAt) : null, closedReason: item.closedReason ?? null, feedback: item.feedback ?? null, feedbackNote: item.feedbackNote ?? null, reportedAt: item.reportedAt ? date(item.reportedAt) : null, reporterUserId: item.reporterUserId ?? null, reportReason: item.reportReason ?? null } });
     for (const item of asArray(state.peerMessages).filter((item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.senderUserId))) await tx.peerMessage.upsert({ where: { id: item.id }, create: { id: item.id, conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType ?? 'HUMAN', createdAt: date(item.createdAt), reportedAt: item.reportedAt ? date(item.reportedAt) : null, blockedAt: item.blockedAt ? date(item.blockedAt) : null, piiFlags: json(item.piiFlags ?? []) }, update: { conversationId: item.conversationId, senderUserId: item.senderUserId, content: item.content, authorType: item.authorType ?? 'HUMAN', reportedAt: item.reportedAt ? date(item.reportedAt) : null, blockedAt: item.blockedAt ? date(item.blockedAt) : null, piiFlags: json(item.piiFlags ?? []) } });
     for (const item of asArray(state.favorites)) await tx.favorite.upsert({ where: { userId_targetType_targetId: { userId: item.userId, targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'), targetId: item.targetId } }, create: { id: item.id, userId: item.userId, targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'), targetId: item.targetId, createdAt: date(item.createdAt) }, update: {} });
@@ -257,7 +322,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     for (const item of asArray(state.adminUserNotes).filter((item: any) => userIds.has(item.userId) && adminUserIds.has(item.authorAdminId))) await tx.adminUserNote.upsert({ where: { id: item.id }, create: { id: item.id, userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, createdAt: date(item.createdAt), updatedAt: date(item.updatedAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null }, update: { userId: item.userId, authorAdminId: item.authorAdminId, content: item.content, updatedAt: date(item.updatedAt), deletedAt: item.deletedAt ? date(item.deletedAt) : null } });
     await deleteAbsent(tx.adminUserNote, asArray(state.adminUserNotes).map((item: any) => item.id));
     await deleteAbsent(tx.peerConversation, asArray(state.peerConversations).map((item: any) => item.id));
-    await deleteAbsent(tx.userNotification, asArray(state.notifications).map((item: any) => item.id));
+    if (!DIRECT_DB_MODELS.UserNotification) await deleteAbsent(tx.userNotification, asArray(state.notifications).map((item: any) => item.id));
     await deleteAbsent(tx.peerMatch, asArray(state.peerMatches).map((item: any) => item.id));
     await deleteAbsent(tx.peerExperience, asArray(state.peerExperiences).map((item: any) => item.id));
     await deleteAbsent(tx.situationSnapshot, asArray(state.situationSnapshots).map((item: any) => item.id));
@@ -272,7 +337,6 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
     await deleteAbsent(tx.recoverySnapshot, asArray(state.recoverySnapshots).map((item: any) => item.id));
     await deleteAbsent(tx.safetyEvent, asArray(state.safetyEvents).map((item: any) => item.id));
     await deleteAbsent(tx.agentDecisionLog, asArray(state.agentDecisionLogs).map((item: any) => item.id));
-    await deleteAbsent(tx.followUpJob, asArray(state.followUpJobs).map((item: any) => item.id));
     await deleteAbsent(tx.peerReputation, asArray(state.peerReputations).map((item: any) => item.id));
     await deleteAbsent(tx.lifeJourney, asArray(state.lifeJourneys).map((item: any) => item.id));
     await deleteAbsent(tx.reply, asArray(state.replies).map((item: any) => item.id));

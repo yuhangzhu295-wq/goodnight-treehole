@@ -5,9 +5,10 @@ import { RemoteAiProviderService } from './remote-ai-provider.service.js';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 import { MonthlyReportService } from './monthly-report.service.js';
 import { FollowUpWorkerService } from './follow-up-worker.service.js';
+import { Batch1PersistenceService } from './batch1-persistence.service.js';
 
 @Module({
   controllers: [HealthController, PublicController, AdminController],
-  providers: [RemoteAiProviderService, PrismaRuntimeService, StoreService, MonthlyReportService, FollowUpWorkerService],
+  providers: [RemoteAiProviderService, PrismaRuntimeService, Batch1PersistenceService, StoreService, MonthlyReportService, FollowUpWorkerService],
 })
 export class AppModule {}

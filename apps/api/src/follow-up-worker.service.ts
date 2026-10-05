@@ -24,44 +24,72 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async deliver(input: { id: string; kind: string; userId: string; journeyId?: string; payload?: Record<string, unknown> }) {
-    const existing = await this.prisma.followUpJob.findUnique({ where: { id: input.id } });
-    if (!existing || !['pending', 'scheduled'].includes(existing.status)) return { skipped: true, status: existing?.status };
-
     const notificationId = 'notification_' + input.id;
     const privacy = await this.prisma.privacySetting.findUnique({ where: { userId: input.userId } });
     const futureNotificationsAllowed = input.kind !== 'FUTURE_SELF' || privacy?.allowFutureSelfNotifications === true;
-    const existingNotification = futureNotificationsAllowed
-      ? await this.prisma.userNotification.findUnique({ where: { id: notificationId } })
-      : null;
-    if (futureNotificationsAllowed && !existingNotification) {
-      const message = this.notificationCopy(input.kind, input.payload);
-      await this.prisma.userNotification.create({
-        data: {
-          id: notificationId,
-          userId: input.userId,
-          type: message.type,
-          title: message.title,
-          body: message.body,
-          targetRoute: message.targetRoute,
-          status: 'unread',
-        },
-      });
-    }
+    const completedAt = new Date();
 
-    await this.prisma.followUpJob.update({ where: { id: input.id }, data: { status: 'delivered', completedAt: new Date() } });
-    const messageId = typeof input.payload?.messageId === 'string' ? input.payload.messageId : undefined;
-    if (messageId) await this.prisma.messageToFutureSelf.updateMany({ where: { id: messageId, userId: input.userId }, data: { deliveredAt: new Date() } });
-    const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
-    if (cooldownId) await this.prisma.cooldownItem.updateMany({ where: { id: cooldownId, userId: input.userId }, data: { status: 'released' } });
-    const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
-    if (decisionId)
-      await this.prisma.decisionRecord.updateMany({
-        where: { id: decisionId, userId: input.userId, status: 'cooling' },
-        data: { status: 'ready', reviewedAt: new Date() },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const claimResult = await tx.followUpJob.updateMany({
+        where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
+        data: { status: 'delivered', completedAt },
       });
+
+      if (claimResult.count === 0) {
+        const current = await tx.followUpJob.findUnique({ where: { id: input.id } });
+        return { skipped: true, status: current?.status };
+      }
+
+      if (futureNotificationsAllowed) {
+        const message = this.notificationCopy(input.kind, input.payload);
+        try {
+          await tx.userNotification.create({
+            data: {
+              id: notificationId,
+              userId: input.userId,
+              type: message.type,
+              title: message.title,
+              body: message.body,
+              targetRoute: message.targetRoute,
+              status: 'unread',
+            },
+          });
+        } catch (error: any) {
+          if (error?.code === 'P2002' || String(error?.message).includes('Unique constraint')) {
+            // Idempotency signal: already delivered
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      const messageId = typeof input.payload?.messageId === 'string' ? input.payload.messageId : undefined;
+      if (messageId) {
+        await tx.messageToFutureSelf.updateMany({
+          where: { id: messageId, userId: input.userId },
+          data: { deliveredAt: completedAt },
+        });
+      }
+      const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
+      if (cooldownId) {
+        await tx.cooldownItem.updateMany({
+          where: { id: cooldownId, userId: input.userId },
+          data: { status: 'released' },
+        });
+      }
+      const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
+      if (decisionId) {
+        await tx.decisionRecord.updateMany({
+          where: { id: decisionId, userId: input.userId, status: 'cooling' },
+          data: { status: 'ready', reviewedAt: completedAt },
+        });
+      }
+
+      return { notificationId: futureNotificationsAllowed ? notificationId : undefined, status: 'delivered' };
+    });
 
     await this.store.reloadRuntimeState();
-    return { notificationId: futureNotificationsAllowed ? notificationId : undefined, status: 'delivered' };
+    return result;
   }
 
   private notificationCopy(kind: string, payload?: Record<string, unknown>) {

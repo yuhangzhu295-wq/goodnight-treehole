@@ -766,8 +766,8 @@ export class PublicController {
   }
 
   @Get('notifications')
-  notifications(@Headers('x-goodnight-user-id') userId?: string) {
-    const items = this.store.notificationList(runtimeUserId(userId));
+  async notifications(@Headers('x-goodnight-user-id') userId?: string) {
+    const items = await this.store.notificationList(runtimeUserId(userId));
     return { items, unreadCount: items.filter((item) => item.status === 'unread').length };
   }
 
@@ -1878,7 +1878,7 @@ export class AdminController {
       .join(' · ');
   }
 
-  private dashboardData() {
+  private async dashboardData() {
     const today = new Date().toISOString().slice(0, 10);
     const dayKeys = Array.from({ length: 7 }, (_, index) => {
       const day = new Date();
@@ -1919,7 +1919,7 @@ export class AdminController {
         safetyEvents: this.store.safetyEvents.filter((item) => item.level === 'high').length,
         supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
         followUps: this.store.followUpJobs.filter((item) => ['pending', 'scheduled'].includes(item.status)).length,
-        unreadNotifications: this.store.notifications.filter((item) => item.status === 'unread').length,
+        unreadNotifications: await this.store.countUnreadNotifications(),
         peerRequests: this.store.peerMatches.filter((item) => item.status === 'requested').length,
         connectedPeerConversations: this.store.peerConversations.filter(
           (item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now(),
@@ -2014,18 +2014,18 @@ export class AdminController {
   }
 
   @Get('dashboard/overview')
-  overview() {
-    return { item: this.dashboardData() };
+  async overview() {
+    return { item: await this.dashboardData() };
   }
 
   @Get('dashboard')
-  dashboardAlias() {
-    return this.overview();
+  async dashboardAlias() {
+    return await this.overview();
   }
 
   @Get('dashboard/summary')
-  dashboardSummary() {
-    const item = this.dashboardData();
+  async dashboardSummary() {
+    const item = await this.dashboardData();
     return {
       item: {
         todayUsers: item.todayUsers,
@@ -2037,13 +2037,13 @@ export class AdminController {
   }
 
   @Get('dashboard/activity')
-  dashboardActivity() {
-    return { items: this.dashboardData().activeTrend };
+  async dashboardActivity() {
+    return { items: (await this.dashboardData()).activeTrend };
   }
 
   @Get('dashboard/emotion-distribution')
-  dashboardEmotionDistribution() {
-    return { item: this.dashboardData().emotionDistribution };
+  async dashboardEmotionDistribution() {
+    return { item: (await this.dashboardData()).emotionDistribution };
   }
 
   @Get('journeys')
@@ -2189,7 +2189,7 @@ export class AdminController {
   }
 
   @Get('notifications')
-  adminNotifications(
+  async adminNotifications(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2198,10 +2198,10 @@ export class AdminController {
   ) {
     this.admin(auth);
     const needle = q?.trim().toLowerCase();
-    const items = this.store.notifications.filter((item) => {
+    const all = await this.store.adminNotificationList({ status });
+    const items = all.filter((item) => {
       const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.type, item.title, item.body, item.targetRoute], needle);
-      const matchesStatus = !status || status === 'all' || item.status === status;
-      return matchesQuery && matchesStatus;
+      return matchesQuery;
     });
     return this.list(items, page, pageSize);
   }
@@ -2355,8 +2355,8 @@ export class AdminController {
   }
 
   @Get('dashboard/ai-summary')
-  dashboardAiSummary() {
-    return { item: this.dashboardData().aiSummary };
+  async dashboardAiSummary() {
+    return { item: (await this.dashboardData()).aiSummary };
   }
 
   @Get('users')

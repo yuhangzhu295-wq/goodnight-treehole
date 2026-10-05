@@ -6,6 +6,7 @@ import {
   NotFoundException,
   OnModuleInit,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import type {
   AIProvider,
@@ -26,6 +27,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
+import { Batch1PersistenceService, DIRECT_DB_MODELS } from './batch1-persistence.service.js';
 import {
   DAPI_BASE_URL,
   DAPI_PROVIDER_ID,
@@ -1233,13 +1235,33 @@ export class StoreService implements OnModuleInit {
   constructor(
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
     @Inject(RemoteAiProviderService) private readonly remoteAi: RemoteAiProviderService = new RemoteAiProviderService(),
+    @Inject(forwardRef(() => Batch1PersistenceService)) private readonly batch1Persistence: Batch1PersistenceService = new Batch1PersistenceService(prisma),
   ) {
     this.data = seedData();
+    this.isolateDirectDbModels(this.data);
+  }
+
+  private isolateDirectDbModels(data: any) {
+    if (!data || typeof data !== 'object') return;
+    if (DIRECT_DB_MODELS.UserNotification) {
+      delete data.notifications;
+      Object.defineProperty(data, 'notifications', {
+        get() {
+          throw new Error('StoreData.notifications is disabled: UserNotification is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.notifications is disabled: UserNotification is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     this.data = persisted ?? this.loadLegacyStore();
+    this.isolateDirectDbModels(this.data);
     this.migrateAiJobs();
     this.recoverInterruptedAiJobs();
     this.reconcileFavoriteCounts();
@@ -1264,6 +1286,7 @@ export class StoreService implements OnModuleInit {
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     if (persisted && this.mutationVersion === versionAtStart) {
       this.data = persisted;
+      this.isolateDirectDbModels(this.data);
       this.ensurePhaseTwoCoverage();
       // Reloaded relational data may contain a historical route definition.
       // Reapply the runtime-only DAPI policy before any queued job can use it.
@@ -1416,6 +1439,9 @@ export class StoreService implements OnModuleInit {
     return this.data.followUpJobs;
   }
   get notifications() {
+    if (DIRECT_DB_MODELS.UserNotification) {
+      throw new Error('Direct DB model UserNotification: store.notifications getter is disabled. Query the database instead.');
+    }
     return this.data.notifications;
   }
   get peerConversations() {
@@ -1433,7 +1459,9 @@ export class StoreService implements OnModuleInit {
 
   private ensurePhaseTwoCoverage() {
     let changed = false;
-    this.data.notifications ??= [];
+    if (!DIRECT_DB_MODELS.UserNotification) {
+      this.data.notifications ??= [];
+    }
     this.data.peerConversations ??= [];
     this.data.peerMessages ??= [];
     for (const journey of this.data.lifeJourneys) {
@@ -2915,7 +2943,6 @@ export class StoreService implements OnModuleInit {
     const before = {
       journeys: this.lifeJourneys.length,
       actions: this.actionCommitments.length,
-      notifications: this.notifications.length,
       jobs: this.aiJobs.length,
       handoffs: this.realityHandoffs.length,
       decisions: this.decisionRecords.length,
@@ -2923,9 +2950,6 @@ export class StoreService implements OnModuleInit {
     };
     const hasJourney = (journeyId?: string) => Boolean(journeyId && journeyIds.has(journeyId));
     const hasAction = (actionId?: string) => Boolean(actionId && actionIds.has(actionId));
-    const notificationMatches = (item: UserNotification) =>
-      explicitNotificationIds.has(item.id) ||
-      [...journeyIds].some((journeyId) => item.targetRoute?.includes(journeyId));
 
     this.data.lifeJourneys = this.data.lifeJourneys.filter((item) => !journeyIds.has(item.id));
     this.data.situationSnapshots = this.data.situationSnapshots.filter((item) => !journeyIds.has(item.journeyId));
@@ -2964,7 +2988,11 @@ export class StoreService implements OnModuleInit {
         !hasAction(String(item.payload?.actionId ?? '')) &&
         !explicitCooldownIds.has(String(item.payload?.cooldownId ?? '')),
     );
-    this.data.notifications = this.data.notifications.filter((item) => !notificationMatches(item));
+    const deletedNotifications = await this.batch1Persistence.deleteNotificationsForTestCleanup({
+      userId: demoUserId,
+      explicitIds: Array.from(explicitNotificationIds),
+      journeyIds: Array.from(journeyIds),
+    });
     this.data.aiJobs = this.data.aiJobs.filter(
       (item) =>
         !journeyIds.has(item.contentId) &&
@@ -2976,7 +3004,7 @@ export class StoreService implements OnModuleInit {
     return {
       journeys: before.journeys - this.lifeJourneys.length,
       actions: before.actions - this.actionCommitments.length,
-      notifications: before.notifications - this.notifications.length,
+      notifications: deletedNotifications.count,
       jobs: before.jobs - this.aiJobs.length,
       handoffs: before.handoffs - this.realityHandoffs.length,
       decisions: before.decisions - this.decisionRecords.length,
@@ -3191,7 +3219,7 @@ export class StoreService implements OnModuleInit {
       (item) => item.journeyId !== journeyId && !actionIds.has(item.commitmentId ?? ''),
     );
     this.data.aiJobs = this.data.aiJobs.filter((item) => item.contentId !== journeyId && !actionIds.has(item.contentId));
-    this.data.notifications = this.data.notifications.filter((item) => !item.targetRoute?.includes(archiveRoute));
+    await this.batch1Persistence.deleteNotificationsForArchive({ userId, archiveRoute });
     this.data.assets = this.data.assets.filter((item) => !exportAssets.some((asset) => asset.id === item.id));
 
     // The following records can stand on their own outside a Journey. Keep the
@@ -4203,7 +4231,7 @@ export class StoreService implements OnModuleInit {
     return value;
   }
 
-  private peerNotification(
+  private async peerNotification(
     userId: string,
     type: UserNotification['type'],
     suffix: string,
@@ -4211,29 +4239,17 @@ export class StoreService implements OnModuleInit {
     body: string,
     targetRoute: string,
   ) {
-    const notificationId = `notification_peer_${suffix}_${userId}`;
-    const existing = this.notifications.find((item) => item.id === notificationId);
-    if (existing) {
-      existing.title = title;
-      existing.body = body;
-      existing.targetRoute = targetRoute;
-      return existing;
-    }
-    const item: UserNotification = {
-      id: notificationId,
+    return await this.batch1Persistence.upsertPeerNotification({
       userId,
       type,
+      suffix,
       title,
       body,
       targetRoute,
-      status: 'unread',
-      createdAt: now(),
-    };
-    this.notifications.unshift(item);
-    return item;
+    });
   }
 
-  private closePeerConversationRecord(conversation: PeerConversationRecord, reason: 'closed' | 'expired' | 'blocked') {
+  private async closePeerConversationRecord(conversation: PeerConversationRecord, reason: 'closed' | 'expired' | 'blocked') {
     if (conversation.status === 'closed') return;
     conversation.status = 'closed';
     conversation.closedAt = now();
@@ -4245,7 +4261,7 @@ export class StoreService implements OnModuleInit {
           ? '这段匿名同行已被结束，你们不能继续发送消息。'
           : '这段匿名同行已经结束，你们不能继续发送消息。';
     const route = `/pages/peer/conversation?matchId=${encodeURIComponent(conversation.matchId)}`;
-    this.peerNotification(
+    await this.peerNotification(
       conversation.starterUserId,
       'CONVERSATION_CLOSED',
       `closed_${conversation.id}`,
@@ -4253,7 +4269,7 @@ export class StoreService implements OnModuleInit {
       body,
       route,
     );
-    this.peerNotification(
+    await this.peerNotification(
       conversation.receiverUserId,
       'CONVERSATION_CLOSED',
       `closed_${conversation.id}`,
@@ -4268,7 +4284,9 @@ export class StoreService implements OnModuleInit {
       (conversation) => conversation.status === 'active' && Date.parse(conversation.expiresAt) <= Date.now(),
     );
     if (!due.length) return;
-    due.forEach((conversation) => this.closePeerConversationRecord(conversation, 'expired'));
+    for (const conversation of due) {
+      await this.closePeerConversationRecord(conversation, 'expired');
+    }
     await this.persistAndFlush();
   }
 
@@ -4316,7 +4334,7 @@ export class StoreService implements OnModuleInit {
     item.status = status;
     item.updatedAt = now();
     if (status === 'requested' && experience && experience.userId !== item.userId) {
-      this.peerNotification(
+      await this.peerNotification(
         experience.userId,
         'PEER_REQUEST',
         `request_${item.id}`,
@@ -4356,7 +4374,7 @@ export class StoreService implements OnModuleInit {
       createdAt: startsAt,
     };
     this.peerConversations.unshift(conversation);
-    this.peerNotification(
+    await this.peerNotification(
       item.userId,
       'PEER_ACCEPTED',
       `accepted_${item.id}`,
@@ -4494,7 +4512,7 @@ export class StoreService implements OnModuleInit {
 
   async closePeerConversation(matchId: string, requestedUserId?: string) {
     const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    this.closePeerConversationRecord(conversation, 'closed');
+    await this.closePeerConversationRecord(conversation, 'closed');
     await this.persistAndFlush();
     return { item: this.peerConversationForUser(conversation, userId) };
   }
@@ -4633,7 +4651,7 @@ export class StoreService implements OnModuleInit {
     if (!match) throw new NotFoundException('同路匹配不存在');
     match.status = 'blocked';
     match.updatedAt = now();
-    this.closePeerConversationRecord(conversation, 'blocked');
+    await this.closePeerConversationRecord(conversation, 'blocked');
     await this.persistAndFlush();
     return { item: this.peerConversationForUser(conversation, userId), match: this.peerMatchForUser(match) };
   }
@@ -4695,23 +4713,22 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  notificationList(requestedUserId?: string) {
+  async notificationList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.notifications
-      .filter((item) => item.userId === userId)
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return await this.batch1Persistence.listUserNotifications(userId);
   }
 
   async readNotification(notificationId: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const item = this.notifications.find(
-      (notification) => notification.id === notificationId && notification.userId === userId,
-    );
-    if (!item) throw new NotFoundException('提醒不存在');
-    item.status = 'read';
-    item.readAt = now();
-    await this.persistAndFlush();
-    return { item };
+    return await this.batch1Persistence.markNotificationRead(notificationId, userId);
+  }
+
+  async adminNotificationList(filter?: { q?: string; status?: string }) {
+    return await this.batch1Persistence.listAdminNotifications(filter);
+  }
+
+  async countUnreadNotifications(userId?: string) {
+    return await this.batch1Persistence.countUnreadNotifications(userId);
   }
 
   async saveRecoveryCheckin(
