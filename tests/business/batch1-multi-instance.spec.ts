@@ -400,8 +400,8 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
     });
   });
 
-  describe('Flow 4: UserNotification multi-instance delivery and read races', () => {
-    it('5. Worker delivery racing mark-read results in exactly one notification and read state is not reverted', async () => {
+  describe('Flow 4: UserNotification multi-instance delivery and read idempotency', () => {
+    it('5. Worker delivery retry overlapping mark-read preserves read state idempotently without reverting to unread', async () => {
       const jobId = `followup_race_${Date.now()}`;
       const notificationId = `notification_${jobId}`;
 
@@ -424,12 +424,17 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         payload: { actionId: 'action_race_followup' },
       };
 
-      // 2. Initial delivery on Instance A
+      // 2. Initial delivery on Instance A establishes the notification row in 'unread' status
       const deliveryRes = await (harness.workerA as any).deliver(jobPayload);
       expect(deliveryRes.status).toBe('delivered');
 
-      // 3. Concurrent race: Worker delivery retry on Instance A racing mark-read on Instance B.
-      // StrictBarrier ensures both operations execute INSIDE their respective transactions holding/contending on row locks.
+      // 3. Concurrent race: Worker delivery retry on Instance A overlapping mark-read on Instance B.
+      // StrictBarrier ensures both operations overlap in execution time.
+      // Narrowed claim (Option b): This test proves delivery idempotency and read-state preservation
+      // under concurrent execution — a duplicate delivery does not revert the notification's read state
+      // back to unread, verified by mutation testing (forcing the write to clobber via upsert({ status: 'unread' })
+      // fails the assertion). It does not claim row-lock blocking contention between the duplicate insert
+      // (skipDuplicates: true) and the reader.
       const barrier = new StrictBarrier(['deliveryRetryInTx', 'markReadInTx']);
 
       const retryDeliveryPromise = (harness.workerA as any).deliver({

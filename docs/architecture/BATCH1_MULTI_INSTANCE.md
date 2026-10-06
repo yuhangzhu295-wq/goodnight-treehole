@@ -105,13 +105,16 @@ To discharge the gate's requirement, controlled two-instance, shared-database ra
 4. **SafetyEvent Creation vs Archive/Detach (Test 4)**:
    - **Race**: High-risk `SafetyEvent` creation on Instance A races `deleteJourneyArchive` on Instance B.
    - **Outcome**: **HOLDS**. When the safety event is created on an active journey, `deleteJourneyArchive` explicitly detaches it (`journeyId = null`), allowing the high-risk audit record to survive in PostgreSQL. If the journey has already been deleted, PostgreSQL foreign-key constraints prevent attaching a safety event to a non-existent journey. In no case does a safety record end up referencing a deleted journey.
-5. **Legacy-Flush Competition with Migrated Writes (Test 6)**:
+5. **UserNotification Delivery Retry vs Mark-Read (Test 5)**:
+   - **Race**: Worker delivery retry on Instance A overlaps mark-read on Instance B.
+   - **Outcome**: **HOLDS**. A `StrictBarrier` ensures both operations execute concurrently. The test verifies delivery idempotency and read-state preservation: duplicate worker delivery does not revert the notification's status from `read` back to `unread`, and exactly one notification row persists in PostgreSQL. This is proven by mutation testing (forcing the duplicate delivery to overwrite status via `upsert({ status: 'unread' })` fails the assertion). It proves read-state idempotency and non-reversion under concurrent execution, and does not claim row-lock blocking contention between the duplicate insert (`createMany({ skipDuplicates: true })`) and the reader.
+6. **Legacy-Flush Competition with Migrated Writes (Test 6)**:
    - **Race**: Instance A creates `Journey` + `SituationSnapshot` + `JourneyUpdate` while Instance B executes a full legacy flush (`saveRelationalRuntimeState`).
-   - **Outcome**: **HOLDS**. No `40P01` deadlock occurs. Because legacy upserts and absence sweeps for the eight models are guarded off by `DIRECT_DB_MODELS`, the migrated rows and their foreign keys survive intact.
-6. **Restart / Reload State Safety (Test 7)**:
-   - **Race**: Instance A commits a new journey; Instance B executes `store.reloadRuntimeState()` and subsequent `persistAndFlush()`.
-   - **Outcome**: **HOLDS**. Reload only reads PostgreSQL, and absence sweeps for migrated models are absent, so Instance B's flush does not revert or delete rows committed by Instance A.
-7. **Stale-Snapshot Foreign-Key Preservation (Test 8 — Resolved)**:
+   - **Outcome**: **HOLDS**. No `40P01` deadlock occurs. A `StrictBarrier` verifies that both transactions hold row locks in PostgreSQL simultaneously before proceeding. Because legacy upserts and absence sweeps for the eight models are guarded off by `DIRECT_DB_MODELS`, the migrated rows and their foreign keys survive intact.
+7. **Restart / Reload State Safety (Test 7)**:
+   - **Race**: Instance A commits a new journey; Instance B executes `store.reloadRuntimeState()` strictly within Instance A's open commit window and subsequently calls `persistAndFlush()`.
+   - **Outcome**: **HOLDS**. Reload only reads PostgreSQL without seeing uncommitted rows, and absence sweeps for migrated models are absent, so Instance B's flush does not revert or delete rows committed by Instance A.
+8. **Stale-Snapshot Foreign-Key Preservation (Test 8 — Resolved)**:
    - **Scenario**: Legacy model `Mood` has `journeyId = null` when Instance B loads state. Instance A (or direct write) sets a valid `journeyId`. Instance B subsequently flushes a snapshot where `journeyId` was omitted (`undefined`).
    - **Outcome**: **RESOLVED**. The legacy mapper now distinguishes snapshot omission (`undefined`, which omits the FK column from update, keeping the database committed value) from explicit detach (`null`, which clears the FK) across all 12 unmigrated models with `journeyId` relations (`Mood`, `Post`, `Diary`, `PeerExperience`, `PeerMatch`, `DecisionRecord`, `RealityHandoff`, `MessageToFutureSelf`, `PersonalSupportPlan`, `MemoryItem`, `RecoverySnapshot`, `AgentDecisionLog`), while `FollowUpJob` retains its existing-row preservation path. Test 8 proves that the valid committed foreign key survives stale snapshot flushes, and also verifies explicit detach and valid update.
 
