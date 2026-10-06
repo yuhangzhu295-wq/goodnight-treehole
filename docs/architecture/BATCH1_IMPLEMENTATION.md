@@ -325,11 +325,22 @@ Key empirical findings:
   acquire `User` → `LifeJourney` locks first, with multi-row locks in deterministic id order. It is
   stated in `BATCH1_DESIGN.md` under D3 and must be re-derived when the legacy flush is retired.
 
-**The final gate returned `PERSISTENCE_BATCH1_REJECTED`** — see `BATCH1_FINAL_GATE.md`. The
-rejection concerns the *strength of the stated guarantees*, not the reality of the improvement: the
-statement-count flatness is measured and real, but the multi-instance claim covers two paths rather
-than eight models, the latency comparison is not like-for-like, the stale-snapshot FK case is
-untested, and CI cannot yet distinguish a new failure from a known one.
+**The final gate returned `PERSISTENCE_BATCH1_ACCEPTED`** — see `BATCH1_FINAL_GATE.md`. Acceptance
+took five adjudication rounds; the first four rejected, and each rejection named a real defect or
+an overstated claim that was then fixed:
 
-`PERSISTENCE_BATCH1_STABLE` is **not** claimed, and neither is "all eight models are
-multi-instance safe". `QA_ALL_PASS` is separately blocked by `AI_LIVE_BLOCKED_EXTERNAL`.
+- a confirmed cross-instance **foreign-key clearing** defect on the 12 legacy models that shared
+  the vulnerable `journeyId` expression — now fixed by distinguishing an omitted field
+  (preserve), an explicit detach (`null`), and a supplied reference (validated), and mutation-proven;
+- race tests that **timed out silently** instead of proving overlap — now a strict barrier that
+  fails on non-arrival, with the notification case narrowed to the property it actually proves
+  (a duplicate delivery cannot revert read state) rather than an unprovable contention claim;
+- a latency comparison that was **not like-for-like** — now measured on two identical bases for
+  both architectures, which also exposed that the original `deliverFollowUp` figure was wrong;
+- and CI that could not distinguish a new failure from a known one — now a machine-checked
+  failing-set diff that fails the job on a regression.
+
+**Acceptance is scoped to the eight migrated models and the explicitly tested flows.** It is not
+approval for application-wide multi-instance deployment (35 models remain process-local), for
+live-AI behaviour (`DAPI_API_KEY` is empty), or for product experience. `PERSISTENCE_BATCH1_STABLE`
+is claimed only within that scope; `QA_ALL_PASS` remains blocked by `AI_LIVE_BLOCKED_EXTERNAL`.
