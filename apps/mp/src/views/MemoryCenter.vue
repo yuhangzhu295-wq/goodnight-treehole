@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
-import AppIcon from '../components/icons/AppIcon.vue';
 
 type MemoryItem = {
   id: string;
@@ -28,6 +27,7 @@ const aiMemoryAllowed = ref(false);
 const composerOpen = ref(false);
 const editingId = ref('');
 const pendingDeleteId = ref('');
+const openedUsageId = ref('');
 const createDraft = reactive({ title: '', content: '', days: 90, scope: 'all_ai' });
 const editDraft = reactive({ title: '', content: '', days: 90, scope: 'all_ai' });
 
@@ -53,6 +53,12 @@ function daysLeft(item: MemoryItem) {
   return `${days} 天后自动删除`;
 }
 
+function showUsage(item: MemoryItem) {
+  const text = `最近由 ${item.usages?.[0]?.taskType} 使用，任务 ${item.usages?.[0]?.jobId}`;
+  notice.value = text;
+  openedUsageId.value = openedUsageId.value === item.id ? '' : item.id;
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -63,9 +69,6 @@ async function load() {
     ]);
     items.value = memoryResult.items ?? [];
     memoryAllowed.value = privacyResult.item?.allowLongTermMemory === true;
-    // Two independent permissions: storing a memory, and letting a model read it. The page
-    // previously gated the "no AI task can read this" claim on the storage flag, so the
-    // banner could be wrong in either direction (product audit ISSUE-022).
     aiMemoryAllowed.value = privacyResult.item?.allowAiMemoryUse === true;
   } catch (cause: any) {
     error.value = cause?.message ?? '记忆资料读取失败';
@@ -141,420 +144,729 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page memory-page">
-    <header class="memory-hero">
-      <button aria-label="返回" @click="router.back()"><AppIcon name="back" :size="20" /></button>
-      <h1>AI记得什么</h1>
-      <p>只记住你同意保留、并且对你有帮助的内容。</p>
-    </header>
-    <main class="memory-paper">
-      <div class="memory-trust">
-        <span aria-hidden="true">⌁</span><strong>你可以完全掌控这里</strong><small>目前有 {{ activeCount }} 条可被允许范围内的 AI 使用</small>
+    <header class="memory-header">
+      <button class="back-btn" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
+      <div class="header-titles">
+        <h1 class="memory-title">AI 记忆中心</h1>
+        <p class="memory-subtitle">管理系统记录的信息与使用范围</p>
       </div>
-      <section v-if="!aiMemoryAllowed" class="memory-off" data-testid="memory-ai-off">
-        <strong>AI 暂时不能读取这些记忆</strong>
-        <p>内容仍然保留在这里，只有你自己能看。想让 AI 在陪伴时参考，可以去隐私设置打开。</p>
-        <button @click="router.push('/pages/settings/privacy')">去隐私设置</button>
-      </section>
-      <section v-if="!memoryAllowed" class="memory-off" data-testid="memory-privacy-off">
-        <strong>AI 记忆当前已关闭</strong>
-        <p>现有内容仍对你可见，但任何 AI 任务都不能读取。</p>
-        <button @click="router.push('/pages/settings/privacy')">去隐私设置</button>
-      </section>
-      <p v-if="loading" class="state-note">正在读取你允许保存的内容…</p>
-      <section v-else class="memory-list">
-        <article v-for="(item, index) in items" :key="item.id" class="memory-card" :class="`memory-card-${index % 4}`">
-          <div class="memory-icon" aria-hidden="true">{{ ['♥', '♧', '●', '☾'][index % 4] }}</div>
-          <div class="memory-main">
-            <h2>{{ item.title }}</h2>
-            <p>{{ item.content }}</p>
-            <small>来自：{{ sourceLabel[item.source] ?? item.source }} · {{ scopeLabel[item.scope] ?? item.scope }} ·
-              {{ daysLeft(item) }}</small><small>状态：{{
-              item.status === 'active' ? '允许使用' : item.status === 'disabled' ? '禁止未来使用' : '已到期'
-            }}</small><button
-              v-if="item.usages?.length"
+    </header>
+
+    <div class="memory-status-strip">
+      <div class="status-strip-info">
+        <strong class="status-strip-title">记忆使用权限</strong>
+        <span class="status-strip-note">当前 {{ activeCount }} 条记忆在允许范围内供 AI 参考</span>
+      </div>
+    </div>
+
+    <!-- Disabled State Notices -->
+    <section v-if="!aiMemoryAllowed" class="permission-notice" data-testid="memory-ai-off">
+      <div class="notice-body">
+        <strong class="notice-title">AI 暂时不能读取这些记忆</strong>
+        <p class="notice-desc">内容仅对你可见。如需允许 AI 参考，可在隐私设置中开启。</p>
+      </div>
+      <button class="notice-btn" type="button" @click="router.push('/pages/settings/privacy')">去隐私设置</button>
+    </section>
+
+    <section v-if="!memoryAllowed" class="permission-notice" data-testid="memory-privacy-off">
+      <div class="notice-body">
+        <strong class="notice-title">AI 记忆当前已关闭</strong>
+        <p class="notice-desc">现有内容仅对你可见，任何 AI 任务都不能读取。</p>
+      </div>
+      <button class="notice-btn" type="button" @click="router.push('/pages/settings/privacy')">去隐私设置</button>
+    </section>
+
+    <p v-if="loading" class="status-msg info">正在读取记忆记录…</p>
+    <p v-if="error" class="status-msg error" role="alert">{{ error }}</p>
+    <p v-if="notice" class="status-msg success" role="status">{{ notice }}</p>
+
+    <!-- Create Memory Form -->
+    <form v-if="composerOpen" class="form-surface" @submit.prevent="createMemory">
+      <div class="form-header">
+        <strong class="form-title">添加新记忆</strong>
+        <button class="form-close-btn" type="button" aria-label="关闭" @click="composerOpen = false">×</button>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="create-memory-title">标题</label>
+        <input
+          id="create-memory-title"
+          v-model="createDraft.title"
+          class="form-input"
+          maxlength="100"
+          placeholder="记忆名称"
+        />
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="create-memory-content">内容</label>
+        <textarea
+          id="create-memory-content"
+          v-model="createDraft.content"
+          class="form-textarea"
+          maxlength="500"
+          placeholder="输入希望系统记住的具体内容"
+        ></textarea>
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label" for="create-memory-scope">使用范围</label>
+          <select id="create-memory-scope" v-model="createDraft.scope" class="form-select">
+            <option value="all_ai">所有允许的 AI 任务</option>
+            <option value="journey">仅 Journey</option>
+            <option value="recovery">仅 Recovery</option>
+            <option value="support">仅现实支持</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="create-memory-days">保留天数</label>
+          <input
+            id="create-memory-days"
+            v-model.number="createDraft.days"
+            class="form-input"
+            type="number"
+            min="1"
+            max="3650"
+          />
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-cancel" type="button" @click="composerOpen = false">取消</button>
+        <button
+          class="btn-submit"
+          data-testid="memory-create-save"
+          type="submit"
+          :disabled="busyId === 'create'"
+        >
+          确认并保存
+        </button>
+      </div>
+    </form>
+
+    <!-- Create Button -->
+    <div v-if="memoryAllowed && !composerOpen" class="create-bar">
+      <button
+        class="create-btn"
+        data-testid="memory-create-open"
+        type="button"
+        @click="composerOpen = true"
+      >
+        添加一条新记忆
+      </button>
+    </div>
+
+    <!-- Memory Records List -->
+    <section v-if="!loading" class="group-section" aria-label="记忆记录列表">
+      <div class="section-label">记录列表 ({{ items.length }})</div>
+      <div v-if="items.length" class="records-container">
+        <article
+          v-for="item in items"
+          :key="item.id"
+          class="record-surface"
+        >
+          <div class="record-header">
+            <div class="record-title-wrap">
+              <h2 class="record-title">{{ item.title }}</h2>
+              <span class="status-badge" :class="item.status">
+                {{ item.status === 'active' ? '允许使用' : item.status === 'disabled' ? '已暂停' : '已到期' }}
+              </span>
+            </div>
+            <button
+              class="edit-memory"
+              type="button"
+              :aria-label="`编辑${item.title}`"
+              @click="beginEdit(item)"
+            >
+              编辑
+            </button>
+          </div>
+
+          <p class="record-content">{{ item.content }}</p>
+
+          <div class="record-meta-strip">
+            <span class="meta-tag">来源: {{ sourceLabel[item.source] ?? item.source }}</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-tag">范围: {{ scopeLabel[item.scope] ?? item.scope }}</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-tag">{{ daysLeft(item) }}</span>
+          </div>
+
+          <!-- Explanation affordance -->
+          <div v-if="item.usages?.length" class="disclosure-strip">
+            <button
               class="usage-note"
               type="button"
-              @click="notice = `最近由 ${item.usages?.[0]?.taskType} 使用，任务 ${item.usages?.[0]?.jobId}`"
+              @click="showUsage(item)"
             >
               为什么 AI 知道这个？
             </button>
+            <p v-if="openedUsageId === item.id" class="disclosure-text">
+              最近由 {{ item.usages[0]?.taskType }} 使用，任务 {{ item.usages[0]?.jobId }}
+            </p>
           </div>
-          <button class="edit-memory" type="button" :aria-label="`编辑${item.title}`" @click="beginEdit(item)">
-            ✎
-          </button>
-          <div class="memory-actions">
-            <button type="button" @click="remove(item)">{{ pendingDeleteId === item.id ? '确认删除' : '删除' }}</button><button
+
+          <!-- Actions -->
+          <div class="record-actions">
+            <button
               v-if="item.status === 'active'"
+              class="action-link"
               type="button"
               @click="update(item, { status: 'disabled' }, '这条记忆已禁止未来使用。')"
             >
               以后不要用
-            </button><button
+            </button>
+            <button
               v-else-if="item.status === 'disabled'"
+              class="action-link"
               type="button"
               @click="update(item, { status: 'active' }, '这条记忆已恢复使用。')"
             >
               恢复使用
-            </button><button
+            </button>
+            <button
               v-if="item.status !== 'expired'"
+              class="action-link"
               type="button"
               @click="update(item, { status: 'expired' }, '这条记忆已立即到期。')"
             >
               立即过期
             </button>
+            <button
+              class="action-link action-danger"
+              type="button"
+              @click="remove(item)"
+            >
+              {{ pendingDeleteId === item.id ? '确认删除' : '删除' }}
+            </button>
           </div>
+
+          <!-- In-place Edit Form -->
           <form
             v-if="editingId === item.id"
-            class="memory-edit"
+            class="edit-inline-form"
             @submit.prevent="update(item, { ...editDraft }, '这条记忆已经更新。')"
           >
-            <input v-model="editDraft.title" aria-label="编辑记忆标题" maxlength="100" /><textarea
-              v-model="editDraft.content"
-              aria-label="编辑记忆内容"
-              maxlength="500"
-            ></textarea>
-            <div>
-              <select v-model="editDraft.scope" aria-label="编辑记忆范围">
-                <option value="all_ai">所有允许的 AI 任务</option>
-                <option value="journey">仅 Journey</option>
-                <option value="recovery">仅 Recovery</option>
-                <option value="support">仅现实支持</option>
-              </select><input v-model.number="editDraft.days" aria-label="编辑记忆保留天数" type="number" min="1" max="3650" />
+            <div class="form-field">
+              <label class="form-label" :for="`edit-title-${item.id}`">标题</label>
+              <input
+                :id="`edit-title-${item.id}`"
+                v-model="editDraft.title"
+                class="form-input"
+                aria-label="编辑记忆标题"
+                maxlength="100"
+              />
             </div>
-            <button type="submit" :disabled="busyId === item.id">保存修改</button><button type="button" @click="editingId = ''">取消</button>
+            <div class="form-field">
+              <label class="form-label" :for="`edit-content-${item.id}`">内容</label>
+              <textarea
+                :id="`edit-content-${item.id}`"
+                v-model="editDraft.content"
+                class="form-textarea"
+                aria-label="编辑记忆内容"
+                maxlength="500"
+              ></textarea>
+            </div>
+            <div class="form-row-2">
+              <div class="form-field">
+                <label class="form-label" :for="`edit-scope-${item.id}`">使用范围</label>
+                <select
+                  :id="`edit-scope-${item.id}`"
+                  v-model="editDraft.scope"
+                  class="form-select"
+                  aria-label="编辑记忆范围"
+                >
+                  <option value="all_ai">所有允许的 AI 任务</option>
+                  <option value="journey">仅 Journey</option>
+                  <option value="recovery">仅 Recovery</option>
+                  <option value="support">仅现实支持</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="form-label" :for="`edit-days-${item.id}`">保留天数</label>
+                <input
+                  :id="`edit-days-${item.id}`"
+                  v-model.number="editDraft.days"
+                  class="form-input"
+                  aria-label="编辑记忆保留天数"
+                  type="number"
+                  min="1"
+                  max="3650"
+                />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn-cancel" type="button" @click="editingId = ''">取消</button>
+              <button class="btn-submit" type="submit" :disabled="busyId === item.id">保存修改</button>
+            </div>
           </form>
         </article>
-        <p v-if="!items.length" class="empty-note">这里还没有记忆。系统不会从普通对话里偷偷建立你的画像。</p>
-      </section>
-      <p v-if="error" class="error-note" role="alert">{{ error }}</p>
-      <p v-if="notice" class="saved-note" role="status">{{ notice }}</p>
-      <form v-if="composerOpen" class="memory-create" @submit.prevent="createMemory">
-        <label>标题<input v-model="createDraft.title" maxlength="100" placeholder="这条记忆叫什么" /></label><label>内容<textarea
-          v-model="createDraft.content"
-          maxlength="500"
-          placeholder="只写你明确希望系统记住的内容"
-        ></textarea>
-        </label>
-        <div>
-          <label>使用范围<select v-model="createDraft.scope">
-            <option value="all_ai">所有允许的 AI 任务</option>
-            <option value="journey">仅 Journey</option>
-            <option value="recovery">仅 Recovery</option>
-            <option value="support">仅现实支持</option>
-          </select></label><label>保留天数<input v-model.number="createDraft.days" type="number" min="1" max="3650" /></label>
-        </div>
-        <button type="submit" data-testid="memory-create-save" :disabled="busyId === 'create'">确认并保存</button><button type="button" @click="composerOpen = false">取消</button>
-      </form>
-      <button
-        v-if="memoryAllowed && !composerOpen"
-        class="memory-primary"
-        data-testid="memory-create-open"
-        @click="composerOpen = true"
-      >
-        保存一条我确认的记忆<span aria-hidden="true">✦</span>
-      </button>
-    </main>
+      </div>
+
+      <div v-else class="empty-surface">
+        <p class="empty-note">这里还没有记忆记录。系统不会从日常对话中收集你的个人画像。</p>
+      </div>
+    </section>
   </section>
 </template>
 
 <style scoped>
 .memory-page {
-  display: grid;
-  align-content: start;
-  overflow-x: hidden;
-  padding: 0 22px 40px;
-  background: #eee7dc;
-  color: #28382e;
-}
-.memory-hero {
-  position: relative;
-  min-height: 162px;
-  margin: 0 -22px;
-  width: calc(100% + 44px);
-  max-width: none;
-  padding: 22px 24px 16px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 244, 218, 0.08), rgba(30, 42, 53, 0.18)),
-    url('../assets/goodnight/illustrations/night-scene.png') center/cover;
-  color: #fdf8ee;
-  text-align: center;
-}
-.memory-hero::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 35px;
-  background: linear-gradient(transparent, #eee7dc);
-  content: '';
-  pointer-events: none;
-}
-.memory-hero > * {
-  position: relative;
-  z-index: 1;
-}
-.memory-hero > button {
-  position: absolute;
-  left: 24px;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  min-height: 34px;
-  border: 0;
-  border-radius: 50%;
-  padding: 0;
-  background: #f5eedf;
-  color: #4f6251;
-}
-.memory-hero h1 {
-  margin: 54px 0 4px;
-  color: #fffaf0;
-  font:
-    600 29px/1.2 Georgia,
-    'Noto Serif SC',
-    serif;
-  letter-spacing: 0;
-}
-.memory-hero p {
-  margin: 0;
-  color: rgba(255, 250, 240, 0.82);
-  font-size: 11px;
-}
-.memory-paper {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  gap: 8px;
-  margin-top: -7px;
-  border: 1px solid rgba(81, 98, 71, 0.16);
-  border-radius: 20px;
-  padding: 11px 15px 13px;
-  background: rgba(255, 251, 244, 0.97);
-  box-shadow: 0 13px 30px rgba(48, 57, 41, 0.1);
-}
-.memory-trust {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 4px 7px;
-  justify-self: center;
-  border-radius: 999px;
-  padding: 7px 13px;
-  background: #eef0df;
-  color: #607154;
-  font-size: 10px;
-}
-.memory-trust span {
-  grid-row: 1/3;
-}
-.memory-trust small {
-  font-size: 8px;
-  color: #81877c;
-}
-.memory-list {
-  display: grid;
-  gap: 7px;
-}
-.memory-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 25px;
-  gap: 9px;
-  border: 1px solid rgba(86, 105, 74, 0.12);
-  border-radius: 14px;
-  padding: 10px 10px 8px;
-  background: #fffdf8;
-}
-.memory-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #e6ead9;
-  color: #587052;
-  font-size: 17px;
-}
-.memory-main h2 {
-  margin: 0;
-  color: #344739;
-  font:
-    600 13px/1.4 Georgia,
-    'Noto Serif SC',
-    serif;
-}
-.memory-main p {
-  margin: 3px 0;
-  color: #535f55;
-  font-size: 10px;
-  line-height: 1.45;
-}
-.memory-main small {
-  display: block;
-  color: #8a8d84;
-  font-size: 8px;
-  line-height: 1.45;
-}
-.usage-note {
-  min-height: 20px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #587253;
-  font: 8px inherit;
-  text-decoration: underline;
-}
-.edit-memory {
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  min-height: 25px;
-  border: 0;
-  border-radius: 50%;
-  padding: 0;
-  background: #edf0e4;
-  color: #5c7055;
-}
-.memory-actions {
-  grid-column: 2/4;
   display: flex;
-  border-top: 1px solid rgba(86, 105, 74, 0.1);
-  padding-top: 6px;
-}
-.memory-actions button {
-  flex: 1;
-  min-height: 24px;
-  border: 0;
-  border-right: 1px solid rgba(86, 105, 74, 0.1);
-  background: transparent;
-  color: #687466;
-  font-family: inherit;
-  font-size: 9px;
-}
-.memory-actions button:last-child {
-  border-right: 0;
-}
-.memory-edit {
-  grid-column: 1/4;
-  display: grid;
-  gap: 5px;
-  border-top: 1px solid rgba(86, 105, 74, 0.1);
-  padding-top: 7px;
-}
-.memory-edit input,
-.memory-edit textarea,
-.memory-edit select,
-.memory-create input,
-.memory-create textarea,
-.memory-create select {
+  flex-direction: column;
+  gap: 12px;
   box-sizing: border-box;
   width: 100%;
-  min-height: 31px;
-  border: 1px solid rgba(86, 105, 74, 0.15);
-  border-radius: 8px;
-  padding: 6px 8px;
-  background: #fff;
-  color: #304135;
-  font-family: inherit;
-  font-size: 10px;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
 }
-.memory-edit textarea,
-.memory-create textarea {
-  min-height: 55px;
-  resize: none;
-}
-.memory-edit > div,
-.memory-create > div {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 5px;
-}
-.memory-edit > button,
-.memory-create > button {
-  min-height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: #dfe7d6;
-  color: #405c41;
-}
-.memory-off,
-.memory-create {
-  display: grid;
-  gap: 7px;
-  border-radius: 13px;
-  padding: 11px;
-  background: #f3eee1;
-}
-.memory-off p {
-  margin: 0;
-  color: #747b72;
-  font-size: 10px;
-}
-.memory-off button {
-  justify-self: start;
-  border: 0;
-  border-radius: 999px;
-  padding: 6px 12px;
-  background: #637c57;
-  color: #fff;
-  font-family: inherit;
-  font-size: 10px;
-}
-.memory-create label {
-  display: grid;
-  gap: 3px;
-  color: #606c5d;
-  font-size: 9px;
-}
-.memory-primary {
+
+.memory-header {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  min-height: 42px;
+  padding: 8px 4px 4px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
-  background: #3e6149;
-  color: #fff;
-  font-family: inherit;
-  font-size: 12px;
+  background: transparent;
+  color: var(--gn-muted);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
 }
-.state-note,
-.error-note,
-.saved-note,
-.empty-note {
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.memory-title {
   margin: 0;
-  border-radius: 10px;
-  padding: 9px;
-  font-size: 10px;
-  line-height: 1.5;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
 }
-.state-note,
-.empty-note {
-  background: #f5f1e7;
-  color: #747c72;
+
+.memory-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
 }
-.error-note {
-  background: #fff0ec;
+
+.memory-status-strip {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+}
+
+.status-strip-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-strip-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.status-strip-note {
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.permission-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper-warm);
+}
+
+.notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.notice-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gn-muted);
+  line-height: 1.4;
+}
+
+.notice-btn {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.status-msg {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.status-msg.error {
   color: var(--gn-danger);
 }
-.saved-note {
-  background: #e8efe0;
-  color: #476447;
+
+.status-msg.success {
+  color: var(--gn-leaf-deep);
 }
+
+.status-msg.info {
+  color: var(--gn-muted);
+}
+
+/* Forms */
+.form-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+}
+
+.form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.form-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.form-close-btn {
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+  color: var(--gn-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gn-muted);
+}
+
+.form-input,
+.form-textarea,
+.form-select {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 8px 10px;
+  background: var(--gn-bg);
+  color: var(--gn-ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.form-textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-cancel {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-submit {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-submit:disabled {
+  opacity: 0.6;
+}
+
+/* Create button bar */
+.create-bar {
+  display: flex;
+}
+
+.create-btn {
+  width: 100%;
+  min-height: 42px;
+  border: 1px dashed var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.create-btn:active {
+  background: var(--gn-paper-warm);
+}
+
+/* Group section & Records */
+.group-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.section-label {
+  padding: 8px 4px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gn-muted);
+}
+
+.records-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.record-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+}
+
+.record-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.record-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.record-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  line-height: 1.3;
+}
+
+.status-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--gn-line);
+  color: var(--gn-muted);
+}
+
+.status-badge.active {
+  color: var(--gn-leaf-deep);
+  background: var(--gn-leaf-soft);
+  border-color: transparent;
+}
+
+.edit-memory {
+  border: 0;
+  background: transparent;
+  color: var(--gn-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.record-content {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gn-text);
+  line-height: 1.5;
+}
+
+.record-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 11px;
+  color: var(--gn-muted);
+}
+
+.meta-sep {
+  color: var(--gn-line);
+}
+
+.disclosure-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.usage-note {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--gn-leaf-deep);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.disclosure-text {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--gn-muted);
+  line-height: 1.4;
+  background: var(--gn-paper-warm);
+  padding: 6px 10px;
+  border-radius: var(--gn-radius-small);
+}
+
+.record-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--gn-line);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.action-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--gn-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.action-link:hover,
+.action-link:active {
+  color: var(--gn-ink);
+}
+
+.action-link.action-danger {
+  color: var(--gn-danger);
+  margin-left: auto;
+}
+
+.edit-inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--gn-line);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.empty-surface {
+  padding: 24px 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  text-align: center;
+}
+
+.empty-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+  line-height: 1.5;
+}
+
 @media (max-width: 374px) {
   .memory-page {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-  .memory-hero {
-    margin-right: -14px;
-    margin-left: -14px;
-  }
-  .memory-card {
-    grid-template-columns: 34px minmax(0, 1fr) 24px;
-    padding-right: 8px;
-    padding-left: 8px;
+    padding-right: 12px;
+    padding-left: 12px;
   }
 }
 </style>
