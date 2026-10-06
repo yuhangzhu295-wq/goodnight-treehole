@@ -670,7 +670,7 @@ export function generateBenchmarkStoreData(targetCount: number) {
   };
 }
 
-async function seedIsolatedDatabase(prisma: PrismaClient, storeData: any) {
+export async function seedIsolatedDatabase(prisma: PrismaClient, storeData: any) {
   const date = (d: any) => (d ? new Date(d) : new Date());
 
   // 1. Users, Admins, Privacy, AI Providers, System Config
@@ -1110,11 +1110,9 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.max(0, Math.min(sorted.length - 1, index))];
 }
 
-export interface OperationBenchmarkResult {
-  operation: string;
-  endpoint: string;
-  datasetSize: number;
-  actualDbRows: number;
+export interface OperationModeMetric {
+  mode: 'A' | 'B';
+  modeLabel: string;
   sampleCount: number;
   successfulSamples: number;
   failedSamples: number;
@@ -1136,7 +1134,18 @@ export interface OperationBenchmarkResult {
     others: number;
   };
   sampleStatementList?: string[];
+  allSampleStatementLists?: string[][];
+}
+
+export interface OperationBenchmarkResult {
+  operation: string;
+  endpoint: string;
+  datasetSize: number;
+  actualDbRows: number;
   natureOfOperation: string;
+  isAiTriggering: boolean;
+  modeA: OperationModeMetric;
+  modeB: OperationModeMetric;
 }
 
 export interface DatasetBenchmarkResult {
@@ -1182,14 +1191,14 @@ async function runSingleWriterBenchmarks(
       endpoint: 'POST /api/v1/journeys',
       nature: 'Direct DB write: LifeJourney + SituationSnapshot + JourneyUpdate + AIJob (queued)',
       isAiTriggering: true,
-      execute: (idx: number) =>
+      execute: (idx: number, mode: string) =>
         request(server)
           .post('/api/v1/journeys')
           .set('x-goodnight-user-id', 'user_demo')
           .send({
-            title: `基准测试旅程 ${idx}`,
+            title: `基准测试旅程 ${mode} ${idx}`,
             domain: '工作',
-            content: `测试创建新旅程内容 ${idx}，这是一段用于基准测试的详尽描述。`,
+            content: `测试创建新旅程内容 ${mode} ${idx}，这是一段用于基准测试的详尽描述。`,
             intensity: 5,
           }),
     },
@@ -1198,14 +1207,14 @@ async function runSingleWriterBenchmarks(
       endpoint: 'POST /api/v1/journeys (high-risk)',
       nature: 'Direct DB write: LifeJourney + SituationSnapshot + JourneyUpdate + SafetyEvent + AIJob (queued)',
       isAiTriggering: true,
-      execute: (idx: number) =>
+      execute: (idx: number, mode: string) =>
         request(server)
           .post('/api/v1/journeys')
           .set('x-goodnight-user-id', 'user_demo')
           .send({
-            title: `高危安全旅程 ${idx}`,
+            title: `高危安全旅程 ${mode} ${idx}`,
             domain: '其他',
-            content: `我感到极度绝望，想要自伤伤害别人，非常痛苦 ${idx}`,
+            content: `我感到极度绝望，想要自伤伤害别人，非常痛苦 ${mode} ${idx}`,
             intensity: 9,
           }),
     },
@@ -1215,13 +1224,13 @@ async function runSingleWriterBenchmarks(
       nature:
         'Direct DB transaction: Lock User->Journey->Action, CAS OutcomeCheckin, JourneyUpdate, update Action + Journey + FollowUpJob',
       isAiTriggering: false,
-      execute: (idx: number) =>
+      execute: (idx: number, mode: string) =>
         request(server)
           .post(`/api/v1/actions/action_bench_${idx}/checkin`)
           .set('x-goodnight-user-id', 'user_demo')
           .send({
             status: 'completed',
-            reflection: `行动已顺利完成，感觉清晰很多 ${idx}`,
+            reflection: `行动已顺利完成，感觉清晰很多 ${mode} ${idx}`,
             result: '完成了全部步骤',
             intensity: 2,
           }),
@@ -1232,7 +1241,7 @@ async function runSingleWriterBenchmarks(
       nature:
         'Worker delivery: claim FollowUpJob (tx), store.reloadRuntimeState (reads legacy models), create UserNotification',
       isAiTriggering: false,
-      execute: async (idx: number) => {
+      execute: async (idx: number, _mode: string) => {
         const jobId = `followup_worker_bench_${idx}`;
         const deliverResult = await (workerService as any).deliver({
           id: jobId,
@@ -1276,67 +1285,55 @@ async function runSingleWriterBenchmarks(
       nature:
         'Direct DB write: createActionCommitment (Lock User->Journey, create Action + Checkin + Update + FollowUpJob)',
       isAiTriggering: false,
-      execute: (idx: number) =>
+      execute: (idx: number, mode: string) =>
         request(server)
           .post('/api/v1/journeys/journey_bench_0/actions')
           .set('x-goodnight-user-id', 'user_demo')
           .send({
-            title: `基准新增行动承诺 ${idx}`,
-            description: `行动承诺详细描述 ${idx}`,
+            title: `基准新增行动承诺 ${mode} ${idx}`,
+            description: `行动承诺详细描述 ${mode} ${idx}`,
           }),
     },
   ];
 
   for (const op of operations) {
-    console.log(`  -> Benchmarking ${op.name} (${op.endpoint}) across ${ITERATIONS_PER_OP} iterations...`);
-    const successfulDurations: number[] = [];
-    const allDurations: number[] = [];
-    const successfulStatementCounts: number[] = [];
-    const allStatementCounts: number[] = [];
-    const failedIndices: number[] = [];
-    let lastSuccessfulQueries: Array<{ query: string; params?: string }> = [];
-    let errorNotes: string | undefined;
+    console.log(`\n  ================================================================`);
+    console.log(`  Benchmarking ${op.name} (${op.endpoint}) across ${ITERATIONS_PER_OP} iterations`);
+    console.log(`  ================================================================`);
 
-    for (let i = 0; i < ITERATIONS_PER_OP; i++) {
-      // Ensure previous background work has quiesced before recording starts
-      try {
-        await store.flush();
-      } catch {
-        (store as any).persistenceError = undefined;
-      }
-
-      // For AI triggering operations, isolate synchronous business write from background AI completion flushes
-      let origApply: any;
-      if (op.isAiTriggering) {
-        origApply = store.applySituationAnalysisCompletion.bind(store);
-        store.applySituationAnalysisCompletion = async () => {};
-      }
-
-      prisma.startRecording();
-      const t0 = performance.now();
-      const res = await op.execute(i);
-      const t1 = performance.now();
-      const queries = prisma.stopRecording();
-      const durationMs = t1 - t0;
-
-      // Drain background AI work and flushes OUTSIDE the recording window
-      if (op.isAiTriggering) {
-        store.applySituationAnalysisCompletion = origApply;
-        if (res.body?.job?.id) {
-          try {
-            const job = await store.waitForAiJob(res.body.job.id);
-            if (res.body?.journey?.id) {
-              await store.applySituationAnalysisCompletion(
-                res.body.journey.id,
-                'user_demo',
-                job,
-                res.body.journey.updatedAt,
-                res.body.snapshot.updatedAt,
-              );
-            }
-          } catch {
-            // Ignore background AI completion failure during quiescence drain
-          }
+    // Reset helper to ensure clean repeatable database state before each mode
+    const resetOpState = async () => {
+      if (op.name === 'checkinAction') {
+        for (let k = 0; k < ITERATIONS_PER_OP; k++) {
+          await (prisma as any).outcomeCheckin.updateMany({
+            where: { commitmentId: `action_bench_${k}` },
+            data: { status: 'pending', reflection: null, result: null },
+          });
+          await (prisma as any).actionCommitment.updateMany({
+            where: { id: `action_bench_${k}` },
+            data: { status: 'active' },
+          });
+          await (prisma as any).followUpJob.updateMany({
+            where: { userId: 'user_demo', kind: 'action_checkin' },
+            data: { status: 'pending', completedAt: null },
+          });
+        }
+      } else if (op.name === 'deliverFollowUp') {
+        for (let k = 0; k < ITERATIONS_PER_OP; k++) {
+          await (prisma as any).followUpJob.updateMany({
+            where: { id: `followup_worker_bench_${k}` },
+            data: { status: 'pending', completedAt: null },
+          });
+          await (prisma as any).userNotification.deleteMany({
+            where: { id: `notification_followup_worker_bench_${k}` },
+          });
+        }
+      } else if (op.name === 'readNotification (PATCH)') {
+        for (let k = 0; k < ITERATIONS_PER_OP; k++) {
+          await (prisma as any).userNotification.updateMany({
+            where: { id: `notif_bench_${k}` },
+            data: { status: 'unread' },
+          });
         }
       }
       try {
@@ -1344,83 +1341,207 @@ async function runSingleWriterBenchmarks(
       } catch {
         (store as any).persistenceError = undefined;
       }
+    };
 
-      console.log(
-        `    [iter ${i + 1}/${ITERATIONS_PER_OP}] status: ${res.status}, duration: ${durationMs.toFixed(1)} ms, statements: ${queries.length}`,
+    // Helper to run 5 iterations for a specific mode
+    const runMode = async (modeType: 'A' | 'B'): Promise<OperationModeMetric> => {
+      const modeLabel =
+        modeType === 'A' ? 'Mode A (Synchronous Request)' : 'Mode B (Fully Drained Lifecycle)';
+      console.log(`  -> Running ${modeLabel}...`);
+
+      await resetOpState();
+
+      const successfulDurations: number[] = [];
+      const allDurations: number[] = [];
+      const successfulStatementCounts: number[] = [];
+      const allStatementCounts: number[] = [];
+      const failedIndices: number[] = [];
+      const allSampleStatements: string[][] = [];
+      let lastSuccessfulQueries: Array<{ query: string; params?: string }> = [];
+      let errorNotes: string | undefined;
+
+      for (let i = 0; i < ITERATIONS_PER_OP; i++) {
+        // Pre-sample quiescence
+        try {
+          await store.flush();
+        } catch {
+          (store as any).persistenceError = undefined;
+        }
+
+        let origApply: any;
+        if (modeType === 'A' && op.isAiTriggering) {
+          origApply = store.applySituationAnalysisCompletion.bind(store);
+          store.applySituationAnalysisCompletion = async () => {};
+        }
+
+        prisma.startRecording();
+        const t0 = performance.now();
+        const res = await op.execute(i, modeType);
+
+        if (modeType === 'B') {
+          // In Mode B: background work is awaited INSIDE the sample window
+          if (op.isAiTriggering && res.body?.job?.id) {
+            try {
+              const job = await store.waitForAiJob(res.body.job.id);
+              if (res.body?.journey?.id) {
+                await store.applySituationAnalysisCompletion(
+                  res.body.journey.id,
+                  'user_demo',
+                  job,
+                  res.body.journey.updatedAt,
+                  res.body.snapshot.updatedAt,
+                );
+              }
+            } catch {
+              /* ignore background drain error */
+            }
+          }
+          try {
+            await store.flush();
+          } catch {
+            (store as any).persistenceError = undefined;
+          }
+        }
+
+        const t1 = performance.now();
+        const queries = prisma.stopRecording();
+        const durationMs = t1 - t0;
+
+        if (modeType === 'A') {
+          // In Mode A: background work is drained OUTSIDE the sample window
+          if (op.isAiTriggering) {
+            store.applySituationAnalysisCompletion = origApply;
+            if (res.body?.job?.id) {
+              try {
+                const job = await store.waitForAiJob(res.body.job.id);
+                if (res.body?.journey?.id) {
+                  await store.applySituationAnalysisCompletion(
+                    res.body.journey.id,
+                    'user_demo',
+                    job,
+                    res.body.journey.updatedAt,
+                    res.body.snapshot.updatedAt,
+                  );
+                }
+              } catch {
+                /* ignore background drain error */
+              }
+            }
+          }
+          try {
+            await store.flush();
+          } catch {
+            (store as any).persistenceError = undefined;
+          }
+        }
+
+        console.log(
+          `    [${modeType} iter ${i + 1}/${ITERATIONS_PER_OP}] status: ${res.status}, duration: ${durationMs.toFixed(1)} ms, statements: ${queries.length}`,
+        );
+
+        allDurations.push(durationMs);
+        allStatementCounts.push(queries.length);
+        allSampleStatements.push(queries.map((q) => q.query));
+
+        if (res.status >= 500) {
+          failedIndices.push(i);
+          errorNotes = `Iteration ${i + 1} failed (HTTP ${res.status}). Excluded from successful samples.`;
+          console.warn(`    ⚠️ ${errorNotes}`);
+        } else if (res.status >= 400) {
+          throw new Error(`Operation ${op.name} failed with status ${res.status}: ${JSON.stringify(res.body)}`);
+        } else {
+          successfulDurations.push(durationMs);
+          successfulStatementCounts.push(queries.length);
+          lastSuccessfulQueries = queries;
+        }
+      }
+
+      // Pre-sample quiescence before next mode
+      try {
+        await store.flush();
+      } catch {
+        (store as any).persistenceError = undefined;
+      }
+
+      const targetDurations = successfulDurations.length > 0 ? successfulDurations : allDurations;
+      const targetStatementCounts =
+        successfulStatementCounts.length > 0 ? successfulStatementCounts : allStatementCounts;
+
+      const p50 = percentile(targetDurations, 50);
+      const max = Math.max(...targetDurations);
+      const min = Math.min(...targetDurations);
+      const avgStatements = Math.round(
+        targetStatementCounts.reduce((a, b) => a + b, 0) / targetStatementCounts.length,
       );
 
-      allDurations.push(durationMs);
-      allStatementCounts.push(queries.length);
+      // Analyze statement breakdown from the last successful sample
+      const breakdownSource =
+        lastSuccessfulQueries.length > 0 ? lastSuccessfulQueries : prisma.capturedQueries;
+      const selects = breakdownSource.filter((q) => q.query.startsWith('SELECT')).length;
+      const upserts = breakdownSource.filter((q) => q.query.includes('ON CONFLICT')).length;
+      const inserts = breakdownSource.filter(
+        (q) => q.query.startsWith('INSERT INTO') && !q.query.includes('ON CONFLICT'),
+      ).length;
+      const updates = breakdownSource.filter((q) => q.query.startsWith('UPDATE')).length;
+      const deletes = breakdownSource.filter((q) => q.query.startsWith('DELETE FROM')).length;
+      const transactionControl = breakdownSource.filter(
+        (q) => q.query === 'BEGIN' || q.query === 'COMMIT' || q.query === 'ROLLBACK',
+      ).length;
+      const others =
+        breakdownSource.length - (selects + upserts + inserts + updates + deletes + transactionControl);
 
-      if (res.status >= 500) {
-        failedIndices.push(i);
-        errorNotes = `Iteration ${i + 1} failed (HTTP ${res.status}). Excluded from successful samples.`;
-        console.warn(`    ⚠️ ${errorNotes}`);
-      } else if (res.status >= 400) {
-        throw new Error(`Operation ${op.name} failed with status ${res.status}: ${JSON.stringify(res.body)}`);
-      } else {
-        successfulDurations.push(durationMs);
-        successfulStatementCounts.push(queries.length);
-        lastSuccessfulQueries = queries;
+      // Detailed sample 1 vs steady-state trace check
+      if (allSampleStatements.length >= 2 && allSampleStatements[0].length !== allSampleStatements[1].length) {
+        console.log(
+          `    [Trace Audit] Outlier in Sample 1 (${allSampleStatements[0].length} stmts vs Sample 2 ${allSampleStatements[1].length} stmts):`,
+        );
+        const extraQueries = allSampleStatements[0].filter((q) => !allSampleStatements[1].includes(q));
+        console.log(`      Extra queries count: ${extraQueries.length}`);
+        for (const eq of extraQueries.slice(0, 5)) {
+          console.log(`      -> ${eq.slice(0, 100)}...`);
+        }
       }
-    }
 
-    // Ensure store is completely quiet before the next operation starts
-    try {
-      await store.flush();
-    } catch {
-      (store as any).persistenceError = undefined;
-    }
+      return {
+        mode: modeType,
+        modeLabel,
+        sampleCount: ITERATIONS_PER_OP,
+        successfulSamples: successfulDurations.length,
+        failedSamples: failedIndices.length,
+        durationsMs: allDurations.map((d) => Number(d.toFixed(1))),
+        p50Ms: Number(p50.toFixed(1)),
+        maxMs: Number(max.toFixed(1)),
+        minMs: Number(min.toFixed(1)),
+        sqlStatementsAvg: avgStatements,
+        sqlStatementsPerSample: allStatementCounts,
+        failedSampleIndices: failedIndices,
+        errorNotes,
+        statementBreakdown: {
+          selects,
+          upserts,
+          inserts,
+          updates,
+          deletes,
+          transactionControl,
+          others,
+        },
+        sampleStatementList: breakdownSource.map((q) => q.query.slice(0, 100)),
+        allSampleStatementLists: allSampleStatements.map((stmts) => stmts.map((q) => q.slice(0, 100))),
+      };
+    };
 
-    const targetDurations = successfulDurations.length > 0 ? successfulDurations : allDurations;
-    const targetStatementCounts = successfulStatementCounts.length > 0 ? successfulStatementCounts : allStatementCounts;
-
-    const p50 = percentile(targetDurations, 50);
-    const max = Math.max(...targetDurations);
-    const min = Math.min(...targetDurations);
-    const avgStatements = Math.round(targetStatementCounts.reduce((a, b) => a + b, 0) / targetStatementCounts.length);
-
-    // Analyze statement breakdown from the last successful sample
-    const breakdownSource = lastSuccessfulQueries.length > 0 ? lastSuccessfulQueries : prisma.capturedQueries;
-    const selects = breakdownSource.filter((q) => q.query.startsWith('SELECT')).length;
-    const upserts = breakdownSource.filter((q) => q.query.includes('ON CONFLICT')).length;
-    const inserts = breakdownSource.filter(
-      (q) => q.query.startsWith('INSERT INTO') && !q.query.includes('ON CONFLICT'),
-    ).length;
-    const updates = breakdownSource.filter((q) => q.query.startsWith('UPDATE')).length;
-    const deletes = breakdownSource.filter((q) => q.query.startsWith('DELETE FROM')).length;
-    const transactionControl = breakdownSource.filter(
-      (q) => q.query === 'BEGIN' || q.query === 'COMMIT' || q.query === 'ROLLBACK',
-    ).length;
-    const others = breakdownSource.length - (selects + upserts + inserts + updates + deletes + transactionControl);
+    const modeA = await runMode('A');
+    const modeB = await runMode('B');
 
     results.push({
       operation: op.name,
       endpoint: op.endpoint,
       datasetSize,
       actualDbRows,
-      sampleCount: ITERATIONS_PER_OP,
-      successfulSamples: successfulDurations.length,
-      failedSamples: failedIndices.length,
-      durationsMs: allDurations.map((d) => Number(d.toFixed(1))),
-      p50Ms: Number(p50.toFixed(1)),
-      maxMs: Number(max.toFixed(1)),
-      minMs: Number(min.toFixed(1)),
-      sqlStatementsAvg: avgStatements,
-      sqlStatementsPerSample: allStatementCounts,
-      failedSampleIndices: failedIndices,
-      errorNotes,
-      statementBreakdown: {
-        selects,
-        upserts,
-        inserts,
-        updates,
-        deletes,
-        transactionControl,
-        others,
-      },
-      sampleStatementList: breakdownSource.map((q) => q.query.slice(0, 100)),
       natureOfOperation: op.nature,
+      isAiTriggering: op.isAiTriggering,
+      modeA,
+      modeB,
     });
   }
 
@@ -1670,24 +1791,26 @@ export async function runBenchmark() {
   }
 
   // Print readable summary tables
-  console.log('\n================================================================');
-  console.log('AFTER MIGRATION BENCHMARK RESULTS SUMMARY');
-  console.log('================================================================');
+  console.log('\n==================================================================================================================');
+  console.log('AFTER MIGRATION BENCHMARK RESULTS SUMMARY (MODE A vs MODE B)');
+  console.log('==================================================================================================================');
   console.log(
-    '| Operation | Target Size | Actual Rows | Samples | p50 (ms) | max (ms) | SQL Statements (Avg) | Status |',
+    '| Operation                 | Scale N | Mode | p50 (ms) | max (ms) | SQL Stmts (Avg) | Statements per Sample   | Status |',
   );
   console.log(
-    '|-----------|-------------|-------------|---------|----------|----------|----------------------|--------|',
+    '|---------------------------|---------|------|----------|----------|-----------------|-------------------------|--------|',
   );
   for (const ds of datasetResults) {
     for (const op of ds.operations) {
-      const statusStr =
-        op.failedSamples > 0
-          ? `${op.successfulSamples}/${op.sampleCount} ok`
-          : `${op.sampleCount}/${op.sampleCount} ok`;
-      console.log(
-        `| ${op.operation.padEnd(25)} | ${String(ds.datasetSize).padEnd(11)} | ${String(ds.actualDbRows).padEnd(11)} | ${String(op.sampleCount).padEnd(7)} | ${String(op.p50Ms).padEnd(8)} | ${String(op.maxMs).padEnd(8)} | ${String(op.sqlStatementsAvg).padEnd(20)} | ${statusStr.padEnd(6)} |`,
-      );
+      for (const m of [op.modeA, op.modeB]) {
+        const statusStr =
+          m.failedSamples > 0
+            ? `${m.successfulSamples}/${m.sampleCount} ok`
+            : `${m.sampleCount}/${m.sampleCount} ok`;
+        console.log(
+          `| ${op.operation.padEnd(25)} | ${String(ds.datasetSize).padEnd(7)} | ${m.mode.padEnd(4)} | ${String(m.p50Ms).padEnd(8)} | ${String(m.maxMs).padEnd(8)} | ${String(m.sqlStatementsAvg).padEnd(15)} | ${JSON.stringify(m.sqlStatementsPerSample).padEnd(23)} | ${statusStr.padEnd(6)} |`,
+        );
+      }
     }
   }
 
