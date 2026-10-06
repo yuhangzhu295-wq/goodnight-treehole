@@ -117,11 +117,13 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="goodnight-page recovery-final">
-    <header class="recovery-hero">
-      <div class="recovery-brand">♧ 晚安树洞</div>
-      <h1>今天，生活回来一点了吗？</h1>
-      <p>我们只看生活有没有慢慢回来，不评价你。</p>
+  <section class="goodnight-page recovery-page">
+    <header class="recovery-header">
+      <button class="back-btn" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
+      <div class="header-titles">
+        <h1 class="recovery-title">生活恢复记录</h1>
+        <p class="recovery-subtitle">记录日常生活基本指标，持续观察恢复进展</p>
+      </div>
     </header>
     <section v-if="privacyBlocked" class="privacy-gate" data-testid="recovery-privacy-gate">
       <h2>先由你决定要不要保存</h2>
@@ -131,10 +133,10 @@ onMounted(load);
     <template v-else>
       <p v-if="error" class="error-note">{{ error }}</p>
       <section class="recovery-paper">
-        <h2>⌁ 今天的我</h2>
+        <h2>今日指标记录</h2>
         <article v-for="field in fields" :key="field.key" class="signal-row">
           <div>
-            <span aria-hidden="true">{{ field.icon }}</span><strong>{{ field.label }}</strong>
+            <span class="signal-icon" aria-hidden="true">{{ field.icon }}</span><strong>{{ field.label }}</strong>
           </div>
           <fieldset>
             <legend class="sr-only">{{ field.label }}</legend>
@@ -145,11 +147,11 @@ onMounted(load);
         </article>
       </section>
       <section class="change-note">
-        <label for="recovery-summary">今天有什么值得被看见的小变化？</label><textarea
+        <label for="recovery-summary">今日变化与备注（可选）</label><textarea
           id="recovery-summary"
           v-model="summary"
           maxlength="500"
-          placeholder="哪怕只是一点点，也很重要……"
+          placeholder="记录今天状态或日常细节…"
         ></textarea>
       </section>
       <button class="recovery-save" data-testid="recovery-save" :disabled="saving" @click="save">
@@ -160,15 +162,14 @@ onMounted(load);
         <p>{{ latestChange }}</p>
       </section>
       <section v-if="stableComparison" class="stable-comparison">
-        <h2>只和清醒时的我比较</h2>
+        <h2>与稳定期参考比对</h2>
         <p>{{ stableComparison }}</p>
       </section>
       <section class="recent-days">
-        <h2>⌁ 最近几天</h2>
+        <h2>最近记录</h2>
         <p v-if="!recent.length" class="empty">还没有恢复记录。今天可以先留下第一条。</p>
         <article v-for="item in recent" :key="item.id">
-          <span class="day-scene" aria-hidden="true">☾</span>
-          <div>
+          <div class="recent-body">
             <strong>{{ dayLabel(item.createdAt) }}</strong>
             <p>{{ visibleSignals(item) }}</p>
             <small v-if="item.summary">{{ item.summary }}</small>
@@ -181,226 +182,325 @@ onMounted(load);
 </template>
 
 <style scoped>
-.recovery-final {
-  display: grid;
-  gap: 10px;
+.recovery-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow-x: hidden;
-  padding: 0 18px calc(112px + env(safe-area-inset-bottom));
-  background: #f7f1e7;
-  color: #293a2e;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
 }
-.recovery-hero {
-  min-height: 148px;
-  margin: 0 -18px;
-  padding: 20px 24px 22px;
-  background:
-    linear-gradient(180deg, rgba(18, 40, 57, 0.25), rgba(19, 41, 55, 0.78)),
-    url('../assets/goodnight/peer/peer-night-hero.png') center 52% / cover;
-  color: #fff;
+
+.recovery-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 4px 4px;
 }
-.recovery-brand {
-  font-size: 12px;
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
 }
-.recovery-hero h1 {
-  max-width: 330px;
-  margin: 24px 0 5px;
-  font:
-    600 26px/1.25 Georgia,
-    'Noto Serif SC',
-    serif;
-  letter-spacing: 0;
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
-.recovery-hero p {
+
+.recovery-title {
   margin: 0;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 12px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
 }
+
+.recovery-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
 .recovery-paper,
 .change-note,
 .privacy-gate,
 .recent-change,
 .stable-comparison,
 .recent-days {
-  border: 1px solid rgba(86, 105, 74, 0.15);
-  border-radius: 20px;
-  background: rgba(255, 252, 247, 0.95);
-  box-shadow: 0 10px 25px rgba(54, 62, 44, 0.06);
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
 }
+
 .recovery-paper {
-  padding: 12px 14px;
+  padding: 14px 16px;
 }
+
 .recovery-paper h2,
 .recent-days h2,
 .recent-change h2,
 .stable-comparison h2 {
-  margin: 0 0 6px;
-  font:
-    600 15px Georgia,
-    'Noto Serif SC',
-    serif;
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gn-ink);
 }
+
 .signal-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 174px;
+  grid-template-columns: minmax(0, 1fr) 176px;
   gap: 8px;
   align-items: center;
-  min-height: 48px;
-  border-bottom: 1px solid rgba(86, 105, 74, 0.1);
+  min-height: 44px;
+  border-bottom: 1px solid var(--gn-line);
+  padding: 6px 0;
 }
+
 .signal-row:last-child {
   border-bottom: 0;
 }
+
 .signal-row > div {
   display: flex;
-  gap: 7px;
   align-items: center;
+  gap: 8px;
 }
-.signal-row > div > span {
+
+.signal-icon {
   display: grid;
   place-items: center;
-  width: 27px;
-  height: 27px;
-  border-radius: 50%;
-  background: #eef0df;
-  color: #667657;
+  width: 22px;
+  height: 22px;
+  color: var(--gn-leaf);
+  font-size: 14px;
 }
+
 .signal-row strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
+  color: var(--gn-ink);
 }
+
 .signal-row fieldset {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
   border: 0;
   margin: 0;
   padding: 0;
 }
+
 .signal-row label {
-  display: grid;
-  gap: 2px;
-  justify-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   cursor: pointer;
+  min-height: 30px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
 }
+
+.signal-row label:has(input:checked) {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 500;
+}
+
 .signal-row input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: #607955;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
+
 .signal-row label span {
-  font-size: 9px;
-  color: #868b82;
+  font-size: 11px;
 }
+
 .change-note {
-  display: grid;
-  gap: 7px;
-  padding: 12px 14px;
-  background: rgba(246, 230, 192, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
 }
+
 .change-note label {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gn-ink);
 }
+
 .change-note textarea {
   box-sizing: border-box;
   min-height: 64px;
   width: 100%;
   resize: none;
-  border: 1px solid rgba(86, 105, 74, 0.16);
-  border-radius: 10px;
-  padding: 10px;
-  background: #fffdf8;
-  font: 12px/1.6 inherit;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 10px 12px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
 }
+
 .recovery-save {
-  min-height: 44px;
-  border: 0;
-  border-radius: 999px;
-  background: #3e644a;
+  min-height: 40px;
+  border: 1px solid var(--gn-leaf);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
   color: #fff;
   font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
 }
+
 .recovery-save:disabled {
-  opacity: 0.65;
+  opacity: 0.6;
+  cursor: wait;
 }
+
 .recent-change,
 .stable-comparison {
-  padding: 11px 14px;
+  padding: 14px 16px;
 }
+
 .recent-change p,
 .stable-comparison p {
   margin: 0;
-  color: #707a6d;
-  font-size: 11px;
-  line-height: 1.55;
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
+
 .recent-days {
-  padding: 12px 14px;
+  padding: 14px 16px;
 }
+
 .recent-days article {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 12px;
-  gap: 9px;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  min-height: 55px;
-  border-top: 1px solid rgba(86, 105, 74, 0.1);
+  min-height: 46px;
+  padding: 8px 0;
+  border-top: 1px solid var(--gn-line);
 }
-.day-scene {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #ecebdc;
-  color: #6a795b;
+
+.recent-days article:first-of-type {
+  border-top: 1px solid var(--gn-line);
 }
-.recent-days article strong {
-  font-size: 11px;
+
+.recent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
-.recent-days article p,
-.recent-days article small {
-  display: block;
-  margin: 2px 0;
-  color: #777f74;
-  font-size: 9px;
+
+.recent-body strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.recent-body p {
+  margin: 0;
+  color: var(--gn-muted);
+  font-size: 12px;
   line-height: 1.4;
 }
+
+.recent-body small {
+  color: var(--gn-ink-soft);
+  font-size: 11px;
+}
+
 .recent-days article em {
   font-style: normal;
-  color: #899083;
+  color: var(--gn-muted);
+  font-size: 18px;
 }
+
 .empty,
 .error-note {
   margin: 0;
-  color: #7a8277;
-  font-size: 12px;
-  line-height: 1.6;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
+
 .error-note {
   color: var(--gn-danger);
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
 }
+
 .privacy-gate {
-  margin-top: 10px;
-  padding: 24px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
+
 .privacy-gate h2 {
   margin: 0;
-  font:
-    600 20px Georgia,
-    'Noto Serif SC',
-    serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gn-ink);
 }
+
 .privacy-gate p {
-  color: #748071;
-  line-height: 1.65;
+  margin: 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
+
 .privacy-gate button {
-  min-height: 42px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 22px;
-  background: #3e644a;
+  align-self: flex-start;
+  min-height: 36px;
+  border: 1px solid var(--gn-leaf);
+  border-radius: var(--gn-radius-small);
+  padding: 0 16px;
+  background: var(--gn-leaf);
   color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
 }
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -408,20 +508,15 @@ onMounted(load);
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+
 @media (max-width: 374px) {
-  .recovery-final {
-    padding-right: 12px;
+  .recovery-page {
     padding-left: 12px;
+    padding-right: 12px;
   }
-  .recovery-hero {
-    margin-right: -12px;
-    margin-left: -12px;
-  }
+
   .signal-row {
     grid-template-columns: minmax(0, 1fr) 156px;
-  }
-  .signal-row strong {
-    font-size: 11px;
   }
 }
 </style>

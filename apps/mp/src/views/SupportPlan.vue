@@ -136,7 +136,7 @@ async function save() {
     const response = await api.put<any>('/api/v1/me/support-plan', { title: '我的低谷预案', plan: { ...draft } });
     currentId.value = response.item.id;
     updatedAt.value = response.item.updatedAt;
-    savedNotice.value = '低谷预案已经保存。下一次难受时，不必从头想。';
+    savedNotice.value = '低谷预案已保存。';
   } catch (cause: any) {
     error.value = cause?.message ?? '低谷预案没有保存成功';
   } finally {
@@ -149,10 +149,12 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page support-plan-page">
-    <header class="support-hero">
-      <div class="support-brand"><span aria-hidden="true">♧</span> 晚安树洞</div>
-      <h1>我的低谷预案</h1>
-      <p>下次我很难受的时候，希望你这样陪我。</p>
+    <header class="support-header">
+      <button class="back-btn" type="button" aria-label="返回" @click="router.back()">‹</button>
+      <div class="header-titles">
+        <h1 class="support-title">我的低谷预案</h1>
+        <p class="support-subtitle">提前设置低谷期的应对策略与现实支持方式</p>
+      </div>
     </header>
     <p v-if="loading" class="state-note">正在读取你保存的预案…</p>
     <form v-else class="plan-paper" @submit.prevent="save">
@@ -160,7 +162,7 @@ onMounted(load);
         <div class="section-head">
           <b>{{ section.number }}</b>
           <div>
-            <h2>{{ section.title }} <span aria-hidden="true">⌁</span></h2>
+            <h2>{{ section.title }}</h2>
             <p>{{ section.note }}</p>
           </div>
         </div>
@@ -260,7 +262,7 @@ onMounted(load);
       <p v-if="error" class="error-note" role="alert">{{ error }}</p>
       <p v-if="savedNotice" class="saved-note" role="status">{{ savedNotice }}</p>
       <button class="save-plan" data-testid="support-plan-save" :disabled="saving" type="submit">
-        {{ saving ? '正在保存…' : '保存我的低谷预案' }}<span aria-hidden="true">✦</span>
+        {{ saving ? '正在保存…' : '保存我的低谷预案' }}
       </button>
       <small v-if="currentId" class="version-note">已保存于 {{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
     </form>
@@ -269,299 +271,316 @@ onMounted(load);
 
 <style scoped>
 .support-plan-page {
-  display: grid;
-  gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow-x: hidden;
-  padding: 0 22px calc(112px + env(safe-area-inset-bottom));
-  background: #efe8dc;
-  color: #24362b;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
 }
-.support-hero {
-  position: relative;
-  min-height: 150px;
-  margin: 0 -22px;
-  width: calc(100% + 44px);
-  max-width: none;
-  padding: 20px 24px 16px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(11, 29, 46, 0.08), rgba(17, 35, 49, 0.55)),
-    url('../assets/goodnight/peer/peer-night-hero.png') center 45% / cover;
-  color: #fff;
+
+.support-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 4px 4px;
 }
-.support-hero::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 46px;
-  background: linear-gradient(transparent, #efe8dc);
-  content: '';
-  pointer-events: none;
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
 }
-.support-brand,
-.support-hero h1,
-.support-hero p {
-  position: relative;
-  z-index: 1;
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
-.support-brand {
-  font-size: 12px;
-}
-.support-hero h1 {
-  margin: 24px 0 4px;
-  font:
-    600 28px/1.2 Georgia,
-    'Noto Serif SC',
-    serif;
-  letter-spacing: 0;
-}
-.support-hero p {
+
+.support-title {
   margin: 0;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 12px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
 }
+
+.support-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
 .plan-paper {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  margin-top: -7px;
-  border: 1px solid rgba(81, 98, 71, 0.16);
-  border-radius: 20px;
-  padding: 8px 17px 12px;
-  background: rgba(255, 251, 244, 0.97);
-  box-shadow: 0 13px 30px rgba(48, 57, 41, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  padding: 16px;
+  background: var(--gn-paper);
 }
-.plan-paper::before {
-  position: absolute;
-  z-index: 0;
-  top: 44px;
-  right: 5px;
-  width: 132px;
-  height: 112px;
-  background: url('../assets/goodnight/illustrations/situation-book-lantern.png') center/cover no-repeat;
-  content: '';
-  opacity: 0.68;
-  mix-blend-mode: multiply;
-  -webkit-mask-image: radial-gradient(ellipse at center, #000 52%, transparent 96%);
-  mask-image: radial-gradient(ellipse at center, #000 52%, transparent 96%);
-  pointer-events: none;
-}
-.plan-paper > * {
-  position: relative;
-  z-index: 1;
-}
+
 .plan-section {
-  display: grid;
-  gap: 7px;
-  padding: 8px 0;
-  border-bottom: 1px dotted rgba(80, 95, 71, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gn-line);
 }
-.plan-section:first-of-type {
-  min-height: 112px;
-}
-.plan-section:first-of-type .choice-wrap {
-  max-width: 220px;
-}
+
 .section-head {
-  display: grid;
-  grid-template-columns: 25px minmax(0, 1fr);
-  gap: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
+
 .section-head b {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: #617553;
-  color: #fff;
-  font-size: 12px;
+  background: var(--gn-paper-warm);
+  border: 1px solid var(--gn-line);
+  color: var(--gn-leaf);
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 1px;
 }
+
+.section-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .section-head h2 {
   margin: 0;
-  font:
-    600 14px/1.35 Georgia,
-    'Noto Serif SC',
-    serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-ink);
 }
-.section-head h2 span {
-  color: #869777;
-}
+
 .section-head p {
-  margin: 2px 0 0;
-  color: #81877f;
-  font-size: 9px;
+  margin: 0;
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
+
 .choice-wrap {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+
 .choice-wrap > button,
 .custom-choice,
 .saved-list button {
-  min-height: 28px;
-  border: 1px solid rgba(86, 105, 74, 0.17);
-  border-radius: 999px;
-  padding: 0 11px;
-  background: #f4f1e7;
-  color: #566451;
-  font: 11px/1 inherit;
-}
-.choice-wrap > button.selected {
-  border-color: #6b835c;
-  background: #e2ead8;
-  color: #315136;
-}
-.custom-choice {
   display: inline-flex;
-  gap: 5px;
   align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 0 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
+
+.choice-wrap > button.selected {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 500;
+}
+
+.custom-choice {
+  gap: 4px;
+}
+
 .custom-choice button {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #8a7466;
+  color: var(--gn-muted);
+  font-size: 14px;
+  cursor: pointer;
 }
+
 .custom-entry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 52px;
-  gap: 5px;
-  min-height: 30px;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 6px;
 }
+
 .custom-entry input,
 .more-support input,
 .more-support textarea {
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid rgba(86, 105, 74, 0.15);
-  border-radius: 8px;
-  padding: 6px 8px;
-  background: #fffdf8;
-  color: #2f4033;
-  font-family: inherit;
-  font-size: 11px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 6px 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
   line-height: 1.4;
 }
+
 .extra-entry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 6px;
 }
-.extra-entry button {
-  min-height: 30px;
-  border: 0;
-  border-radius: 8px;
-  background: #e2e8d8;
-  color: #4c6547;
-  font-family: inherit;
-  font-size: 10px;
-}
+
+.extra-entry button,
 .custom-entry button {
-  min-height: 30px;
-  border: 0;
-  border-radius: 8px;
-  background: #e2e8d8;
-  color: #4c6547;
-  font-family: inherit;
-  font-size: 10px;
-  white-space: nowrap;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
+
 .more-support {
-  margin: 9px 0 2px;
-  border-radius: 11px;
-  background: #f5f1e7;
-  padding: 9px 11px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 10px 12px;
+  background: var(--gn-paper-warm);
 }
+
 .more-support summary {
   cursor: pointer;
-  color: #536a50;
+  color: var(--gn-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.more-support label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--gn-muted);
   font-size: 11px;
 }
-.more-support label {
-  display: grid;
-  gap: 4px;
-  margin-top: 9px;
-  color: #6f786c;
-  font-size: 10px;
-}
+
 .more-support textarea {
   min-height: 52px;
   resize: none;
 }
+
 .saved-list {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 5px;
+  margin-top: 4px;
 }
+
 .saved-list button {
   min-height: 24px;
-  font-size: 9px;
+  font-size: 11px;
 }
+
 .save-plan {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  margin-top: 9px;
-  border: 0;
-  border-radius: 999px;
-  background: #3e6048;
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 6px;
+  border: 1px solid var(--gn-leaf);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
   color: #fff;
-  font: 13px inherit;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
 }
+
 .save-plan:disabled {
-  opacity: 0.62;
+  opacity: 0.6;
+  cursor: wait;
 }
+
 .safety-link {
-  justify-self: center;
-  margin-top: 7px;
+  display: block;
+  margin-top: 10px;
   border: 0;
   background: transparent;
-  color: #61715e;
-  font: 10px inherit;
+  color: var(--gn-leaf-deep);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
   text-decoration: underline;
 }
+
 .state-note,
 .error-note,
 .saved-note {
-  margin: 12px 0;
-  border-radius: 10px;
-  padding: 10px;
-  font-size: 11px;
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.4;
 }
+
 .state-note {
-  background: #fffaf1;
+  background: var(--gn-paper);
+  color: var(--gn-muted);
 }
+
 .error-note {
-  background: #fff0ec;
+  background: var(--gn-paper);
   color: var(--gn-danger);
 }
+
 .saved-note {
-  background: #e8efe0;
-  color: #476447;
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
 }
+
 .version-note {
   display: block;
-  margin: 5px 0 0;
-  color: #96978e;
+  color: var(--gn-muted);
   text-align: center;
-  font-size: 8px;
+  font-size: 11px;
 }
+
 @media (max-width: 374px) {
   .support-plan-page {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-  .support-hero {
-    margin-right: -14px;
-    margin-left: -14px;
-  }
-  .plan-paper {
-    padding-right: 13px;
-    padding-left: 13px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 }
 </style>

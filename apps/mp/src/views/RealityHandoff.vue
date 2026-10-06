@@ -71,14 +71,478 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page handoff-page">
-    <header class="handoff-hero"><button aria-label="返回" @click="router.back()"><AppIcon name="back" /></button><AppIcon class="handoff-moon" name="moon" :size="23" /><h1>帮我告诉现实中的一个人</h1><span>如果你愿意，我们可以把求助的话整理得更容易说出口。</span></header>
-    <section class="handoff-card" data-testid="reality-support-card"><h2>现实求助卡</h2><p class="step-title">1 <strong>你想告诉谁？</strong></p><div class="choice-grid"><button v-for="item in recipients" :key="item" :class="{ selected: recipient === item }" @click="selectRecipient(item)">{{ item }}</button></div><p class="step-title">2 <strong>你希望 TA 怎么帮你？</strong></p><div class="choice-grid need-grid"><button v-for="item in needs" :key="item" :class="{ selected: need === item }" @click="selectNeed(item)">{{ item }}</button></div><div class="card-preview"><p>为你生成的求助话术预览</p><textarea v-if="editing" v-model="cardText" maxlength="1000" aria-label="编辑求助卡" /><blockquote v-else>{{ generatedText }}</blockquote></div><div class="card-actions"><button class="primary-button" :disabled="busy" data-testid="handoff-save" @click="saveCard">{{ saved ? '保存这一版求助卡' : '生成并保存求助卡' }}</button><button class="outline-button" :disabled="!saved" data-testid="handoff-copy" @click="copyCard">复制这张求助卡</button><button class="text-button" :disabled="!saved || busy" data-testid="handoff-mark-shared" @click="markShared">我已经告诉 TA 了</button><button class="text-button" @click="editing = !editing">{{ editing ? '完成编辑' : '我自己改一下' }}</button></div><small class="privacy-note">只保存你确认过的内容，系统不会自动联系任何人。</small></section>
-    <p v-if="status" class="status" role="status">{{ status }}</p><p v-if="error" class="error-text" role="alert">{{ error }}</p>
-    <button class="contacts-trigger" type="button" @click="contactSheet = true"><AppIcon name="people" :size="18" /><span>管理信任联系人</span><AppIcon name="arrow" :size="18" /></button>
-    <Teleport to="body"><div v-if="contactSheet" class="contact-mask" @click.self="contactSheet = false"><section class="contacts-sheet" data-testid="trusted-contacts-sheet"><span class="sheet-handle" /><header><div><h2>信任联系人</h2><p>只保存在你的支持卡里，不会自动联系任何人。</p></div><button class="sheet-close" type="button" aria-label="关闭" @click="contactSheet = false">×</button></header><div v-if="contacts.length" class="contact-list"><article v-for="person in contacts" :key="person.id"><strong>{{ person.nickname }}</strong><span>{{ person.relation || '联系人' }} · {{ person.contactHint }}</span></article></div><p v-else class="muted">还没有保存联系人。</p><div class="contact-form"><input v-model="contactForm.nickname" placeholder="称呼" /><input v-model="contactForm.relation" placeholder="关系" /><input v-model="contactForm.contactHint" placeholder="联系方式提示" /><button class="outline-button" :disabled="busy" @click="saveContact">保存联系人</button></div></section></div></Teleport>
+    <header class="handoff-header">
+      <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
+        <AppIcon name="back" :size="20" />
+      </button>
+      <div class="header-titles">
+        <h1 class="handoff-title">现实求助支持</h1>
+        <p class="handoff-subtitle">整理向信任的人求助的话术，不自动发送，由你决定是否沟通</p>
+      </div>
+    </header>
+
+    <section class="handoff-panel" data-testid="reality-support-card">
+      <h2 class="panel-title">求助文本生成</h2>
+      <div class="step-group">
+        <label class="step-label">1. 求助对象</label>
+        <div class="choice-grid">
+          <button
+            v-for="item in recipients"
+            :key="item"
+            type="button"
+            :class="{ selected: recipient === item }"
+            @click="selectRecipient(item)"
+          >
+            {{ item }}
+          </button>
+        </div>
+      </div>
+
+      <div class="step-group">
+        <label class="step-label">2. 希望获得的支持方式</label>
+        <div class="choice-grid need-grid">
+          <button
+            v-for="item in needs"
+            :key="item"
+            type="button"
+            :class="{ selected: need === item }"
+            @click="selectNeed(item)"
+          >
+            {{ item }}
+          </button>
+        </div>
+      </div>
+
+      <div class="preview-group">
+        <label class="preview-label">求助文本预览</label>
+        <textarea v-if="editing" v-model="cardText" maxlength="1000" aria-label="编辑求助卡" />
+        <blockquote v-else class="preview-text">{{ generatedText }}</blockquote>
+      </div>
+
+      <div class="action-buttons">
+        <button class="primary-button" :disabled="busy" data-testid="handoff-save" type="button" @click="saveCard">
+          {{ saved ? '保存这一版求助卡' : '生成并保存求助卡' }}
+        </button>
+        <button class="outline-button" :disabled="!saved" data-testid="handoff-copy" type="button" @click="copyCard">
+          复制求助文本
+        </button>
+        <button class="ghost-button" :disabled="!saved || busy" data-testid="handoff-mark-shared" type="button" @click="markShared">
+          我已向对方说明
+        </button>
+        <button class="ghost-button" type="button" @click="editing = !editing">
+          {{ editing ? '完成编辑' : '手动修改文本' }}
+        </button>
+      </div>
+      <small class="privacy-note">只保存你确认的内容，系统不会自动联系任何人。</small>
+    </section>
+
+    <p v-if="status" class="status-note" role="status">{{ status }}</p>
+    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+
+    <button class="contacts-trigger" type="button" @click="contactSheet = true">
+      <AppIcon name="people" :size="18" />
+      <span>管理信任联系人</span>
+      <AppIcon name="arrow" :size="18" />
+    </button>
+
+    <Teleport to="body">
+      <div v-if="contactSheet" class="contact-mask" @click.self="contactSheet = false">
+        <section class="contacts-sheet" data-testid="trusted-contacts-sheet">
+          <header class="sheet-header">
+            <div>
+              <h2>信任联系人</h2>
+              <p>仅用于个人求助参考，系统不会自动联系任何人。</p>
+            </div>
+            <button class="sheet-close" type="button" aria-label="关闭" @click="contactSheet = false">×</button>
+          </header>
+          <div v-if="contacts.length" class="contact-list">
+            <article v-for="person in contacts" :key="person.id">
+              <strong>{{ person.nickname }}</strong>
+              <span>{{ person.relation || '联系人' }} · {{ person.contactHint }}</span>
+            </article>
+          </div>
+          <p v-else class="muted-note">还没有保存联系人。</p>
+          <div class="contact-form">
+            <input v-model="contactForm.nickname" placeholder="称呼" />
+            <input v-model="contactForm.relation" placeholder="关系" />
+            <input v-model="contactForm.contactHint" placeholder="联系方式提示" />
+            <button class="primary-button" :disabled="busy" type="button" @click="saveContact">保存联系人</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </section>
 </template>
 
 <style scoped>
-.handoff-page{display:grid;gap:12px;padding:0 14px calc(36px + env(safe-area-inset-bottom));background:#f4efe4}.handoff-hero{position:relative;box-sizing:border-box;min-height:142px;height:142px;margin:0 -14px;padding:18px 22px;overflow:hidden;background:radial-gradient(circle at 72% 70%,rgba(232,170,122,.42),transparent 25%),linear-gradient(165deg,#102030,#263b49 53%,#74645b)}.handoff-hero::after{position:absolute;right:-10px;bottom:-22px;width:186px;height:186px;background:url('../assets/goodnight/tree-top-cutout.png') right bottom/contain no-repeat;opacity:.34;content:'';filter:brightness(.7);pointer-events:none}.handoff-hero>*{position:relative;z-index:1}.handoff-hero button{display:grid;place-items:center;width:34px;min-width:34px;height:34px;min-height:34px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:50%;background:rgba(255,255,255,.08);color:#fff;cursor:pointer}.handoff-hero h1{max-width:340px;margin:0 0 5px;color:#fffaf2;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:24px;line-height:1.25}.handoff-hero span{display:block;max-width:320px;color:rgba(255,250,240,.8);font-size:13px;line-height:1.55}.handoff-card{display:grid;gap:8px;margin-top:-8px;border-radius:24px;background:#fffdf8;padding:15px;box-shadow:0 16px 32px rgba(34,43,34,.1)}.handoff-card h2{margin:0;color:#4d6541;text-align:center;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:22px}.step-title{margin:2px 0 0;color:#71806a;font-size:13px}.step-title strong{margin-left:7px;color:#40563b;font-size:16px}.choice-grid{display:flex;flex-wrap:wrap;gap:6px}.choice-grid button{min-height:36px;border:1px solid rgba(95,127,62,.18);border-radius:12px;background:#fffdf8;padding:6px 10px;color:#4d6545;font:inherit;cursor:pointer}.choice-grid:not(.need-grid) button{flex:0 0 calc(25% - 6px)}.choice-grid button.selected{border-color:#496c49;background:#496c49;color:#fff}.need-grid button{flex:1 1 calc(33.333% - 6px);min-height:44px;padding-inline:7px;text-align:left;font-size:13px}.card-preview{position:relative;min-height:132px;overflow:hidden;border-radius:16px;background:linear-gradient(135deg,#faf4df,#f1ead8);padding:11px 102px 11px 13px}.card-preview::after{position:absolute;right:-5px;bottom:-8px;width:112px;height:118px;background:url('../assets/goodnight/illustrations/handoff-phone-scene.png') right bottom/contain no-repeat;content:'';opacity:.58;pointer-events:none;mix-blend-mode:multiply}.card-preview>*{position:relative;z-index:1}.card-preview p{margin:0 0 7px;color:#70805f;font-size:12px}.card-preview blockquote{margin:0;color:#45533f;font-size:14px;line-height:1.65;white-space:pre-wrap}.card-preview textarea{width:100%;min-height:124px;border:1px solid rgba(95,127,62,.18);border-radius:12px;background:#fffdf8;padding:9px;color:#3e4e3c;font:inherit;line-height:1.6;resize:none}.card-actions{display:grid;gap:7px}.primary-button,.outline-button,.text-button{min-height:47px;border-radius:999px;padding:9px 13px;font:inherit;cursor:pointer}.primary-button{border:0;background:#496d49;color:#fff}.outline-button{border:1px solid rgba(95,127,62,.25);background:transparent;color:#4b6846}.text-button{border:0;background:transparent;color:#5c7452}.privacy-note{color:#8a9086;text-align:center}.status{margin:0;border-radius:13px;background:#eaf0e2;padding:10px;color:#506a48;line-height:1.5}.error-text{margin:0;color:var(--gn-danger)}.contacts-trigger{display:grid;grid-template-columns:22px minmax(0,1fr) 20px;align-items:center;gap:8px;width:100%;min-height:47px;border:1px solid rgba(95,127,62,.18);border-radius:16px;background:rgba(255,253,247,.8);padding:10px 13px;color:#4a6543;text-align:left;font:inherit;cursor:pointer}.contacts-trigger>svg:last-child{justify-self:end}.contact-mask{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(16,28,34,.45);padding:0 12px}.contacts-sheet{position:relative;width:min(430px,100%);max-height:78vh;overflow:auto;border-radius:26px 26px 0 0;background:#fffaf1;padding:26px 18px calc(22px + env(safe-area-inset-bottom));box-shadow:0 -18px 46px rgba(0,0,0,.24)}.sheet-handle{position:absolute;top:10px;left:50%;width:44px;height:4px;border-radius:999px;background:#d8dad1;transform:translateX(-50%)}.contacts-sheet header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.contacts-sheet h2{margin:0;color:#405b3d;font-family:"Songti SC","Noto Serif SC",serif;font-size:22px}.contacts-sheet header p{margin:5px 0 0;color:#7a8379;font-size:12px;line-height:1.5}.sheet-close{display:grid;place-items:center;width:30px;height:30px;min-height:30px;border:0;border-radius:50%;background:#edf1e4;color:#405c3d;font-size:20px;cursor:pointer}.contact-list{display:grid;gap:8px;margin-top:13px}.contact-list article{display:grid;gap:4px;border-bottom:1px solid rgba(95,127,62,.12);padding:9px 0}.contact-list span{color:#7b8379;font-size:12px}.contact-form{display:grid;gap:8px;margin-top:15px}.contact-form input{width:100%;min-height:42px;border:1px solid rgba(95,127,62,.18);border-radius:11px;background:#fffdf8;padding:9px;color:#334233;font:inherit}.contact-form button{width:100%}.muted{color:#7b8379;font-size:13px}
+.handoff-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
+}
+
+.handoff-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 4px 4px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.handoff-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
+}
+
+.handoff-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
+.handoff-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  padding: 16px;
+  background: var(--gn-paper);
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.step-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.choice-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.choice-grid button {
+  min-height: 34px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  padding: 6px 12px;
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.choice-grid:not(.need-grid) button {
+  flex: 1 1 calc(33.333% - 6px);
+}
+
+.need-grid button {
+  flex: 1 1 calc(50% - 6px);
+  text-align: left;
+  line-height: 1.35;
+}
+
+.choice-grid button.selected {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
+}
+
+.preview-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gn-muted);
+}
+
+.preview-text {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.preview-group textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 108px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  padding: 10px 12px;
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.primary-button,
+.outline-button,
+.ghost-button {
+  min-height: 40px;
+  border-radius: var(--gn-radius-small);
+  padding: 0 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+
+.primary-button {
+  border: 1px solid var(--gn-leaf);
+  background: var(--gn-leaf);
+  color: #fff;
+}
+
+.outline-button {
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+}
+
+.ghost-button {
+  border: 0;
+  background: transparent;
+  color: var(--gn-muted);
+}
+
+.primary-button:disabled,
+.outline-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.privacy-note {
+  color: var(--gn-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.status-note,
+.error-note {
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.status-note {
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
+}
+
+.error-note {
+  background: var(--gn-paper);
+  color: var(--gn-danger);
+}
+
+.contacts-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 10px 14px;
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.contacts-trigger span {
+  flex: 1;
+  text-align: left;
+}
+
+.contact-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 16px;
+}
+
+.contacts-sheet {
+  box-sizing: border-box;
+  width: min(380px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 20px;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheet-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.sheet-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--gn-muted);
+  line-height: 1.4;
+}
+
+.sheet-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.contact-list article {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--gn-line);
+  padding-bottom: 8px;
+}
+
+.contact-list strong {
+  font-size: 13px;
+  color: var(--gn-ink);
+}
+
+.contact-list span {
+  color: var(--gn-muted);
+  font-size: 12px;
+}
+
+.muted-note {
+  margin: 12px 0 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+}
+
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.contact-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  padding: 8px 10px;
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+@media (max-width: 374px) {
+  .handoff-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
 </style>

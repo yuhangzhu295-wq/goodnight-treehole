@@ -47,7 +47,7 @@ const mainMode = computed<'no-journey' | 'empty' | 'recommendation' | 'accepted'
   if (activeAction.value) return 'accepted';
   return recommendation.value ? 'recommendation' : 'empty';
 });
-const actionDescription = computed(() => activeAction.value?.description || '先完成一个最小的版本，做到就够了。');
+const actionDescription = computed(() => activeAction.value?.description || '按计划完成当前行动即可。');
 
 function shortDifficulty(value?: string) {
   return value === 'tiny' ? '低' : value === 'easy' ? '轻' : value === 'moderate' ? '适中' : '';
@@ -55,10 +55,10 @@ function shortDifficulty(value?: string) {
 
 function followUpMessage(action: ActionRecord | null) {
   const dueAt = action?.reminderAt ?? action?.dueAt ?? primaryFollowUp.value?.dueAt;
-  if (!dueAt || Number.isNaN(Date.parse(dueAt))) return '明晚，我会回来问你，后来怎么样了。';
+  if (!dueAt || Number.isNaN(Date.parse(dueAt))) return '明晚系统将跟进执行情况。';
   const date = new Date(dueAt);
   const time = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date).replace('/', '月').replace(' ', '日 ');
-  return `${time}，我会回来问你，后来怎么样了。`;
+  return `${time}，系统将跟进执行情况。`;
 }
 
 async function load() {
@@ -89,7 +89,7 @@ async function waitForJob<T extends Record<string, unknown>>(jobId: string) {
       return task;
     }
   }
-  throw new Error('整理这一步花的时间有点久，请稍后再试');
+  throw new Error('行动建议生成超时，请稍后重试');
 }
 
 async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
@@ -107,7 +107,7 @@ async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
     const task = await waitForJob<Record<string, unknown>>(queued.job.id);
     const structured = task.structured ?? {};
     const title = typeof structured.title === 'string' ? structured.title : '';
-    if (!title.trim()) throw new Error('没有形成可以确认的小行动');
+    if (!title.trim()) throw new Error('没有生成可确认的行动');
     recommendation.value = {
       title,
       why: typeof structured.why === 'string' ? structured.why : undefined,
@@ -117,7 +117,7 @@ async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
       difficulty: typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty) ? structured.difficulty as ActionRecommendation['difficulty'] : undefined,
       dueInDays: typeof structured.dueInDays === 'number' ? structured.dueInDays : 1,
     };
-    if (mode === 'smaller') smallerNotice.value = '已经换成一个更小的版本，可以只做开头那一下。';
+    if (mode === 'smaller') smallerNotice.value = '已切换为更小颗粒度的行动。';
   } catch (cause: any) {
     error.value = cause?.message ?? '行动建议暂时不可用';
   } finally {
@@ -140,7 +140,7 @@ async function acceptTonightAction() {
     recommendation.value = null;
     await load();
   } catch (cause: any) {
-    error.value = cause?.message ?? '这一步没有保存成功';
+    error.value = cause?.message ?? '行动未能保存，请重试';
   } finally {
     planning.value = false;
   }
@@ -159,12 +159,12 @@ async function completeAction() {
   try {
     await api.post(`/api/v1/actions/${activeAction.value.id}/checkin`, {
       status: 'completed',
-      reflection: completionReflection.value.trim() || '我完成了今天约定的小一步。',
+      reflection: completionReflection.value.trim() || '已完成约定行动。',
     });
     completionSheetOpen.value = false;
     await load();
   } catch (cause: any) {
-    error.value = cause?.message ?? '这次回顾没有保存成功';
+    error.value = cause?.message ?? '记录未能保存，请重试';
   } finally {
     completing.value = false;
   }
@@ -196,7 +196,7 @@ async function chooseBarrier(barrier: ActionBarrier) {
     if (!missedRecorded.value) {
       await api.post(`/api/v1/actions/${missedAction.value.id}/checkin`, {
         status: 'missed',
-        reflection: '这一步今天没有做到，我想先找一个更现实的版本。',
+        reflection: '行动未完成，调整为更可执行的方案。',
         barrier,
       });
       missedRecorded.value = true;
@@ -205,7 +205,7 @@ async function chooseBarrier(barrier: ActionBarrier) {
     const task = await waitForJob<Record<string, unknown>>(response.job.id);
     const structured = task.structured ?? {};
     const title = typeof structured.title === 'string' ? structured.title : '';
-    if (!title.trim()) throw new Error('没有形成更小的一步');
+    if (!title.trim()) throw new Error('未能生成替代行动');
     adaptiveResult.value = {
       title,
       description: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : task.result || '',
@@ -216,7 +216,7 @@ async function chooseBarrier(barrier: ActionBarrier) {
       adaptationReason: barrier,
     };
   } catch (cause: any) {
-    error.value = cause?.message ?? '没能生成更小的一步';
+    error.value = cause?.message ?? '未能生成调整行动';
   } finally {
     adapting.value = false;
   }
@@ -239,7 +239,7 @@ async function confirmAdaptiveAction() {
     closeAdaptive(true);
     await load();
   } catch (cause: any) {
-    error.value = cause?.message ?? '新的行动保存失败';
+    error.value = cause?.message ?? '新行动保存失败';
   } finally {
     adapting.value = false;
   }
@@ -309,10 +309,10 @@ async function submitFollowUp() {
     const result = followUpResult.value === 'partial' ? `部分完成：${followUpReflection.value.trim() || '只做了一部分'}` : followUpResult.value === 'completed' ? '完成' : '未完成';
     await api.post(`/api/v1/actions/${action.id}/checkin`, { status, reflection: followUpReflection.value.trim(), result });
     followUpOpen.value = false;
-    followUpNotice.value = '已经记下来了，谢谢你回来告诉我。';
+    followUpNotice.value = '已记录本次跟进结果。';
     await load();
   } catch (cause: any) {
-    error.value = cause?.message ?? '这次回访没有保存成功';
+    error.value = cause?.message ?? '跟进结果保存失败';
   } finally {
     followUpBusy.value = false;
   }
@@ -338,7 +338,7 @@ function applyIntentFromRoute() {
     return;
   }
   if (intent === 'NOTHING_NOW') {
-    intentNotice.value = '今天不解决，也是一种照顾。你可以随时回来。';
+    intentNotice.value = '暂不处理，可随时返回继续。';
   }
   if (route.query.followUp) openFollowUp();
 }
@@ -353,10 +353,10 @@ async function saveCooldown() {
   error.value = '';
   try {
     await api.post('/api/v1/cooldowns', { title: cooldownTitle.value.trim(), hours: 24 });
-    shortcutNotice.value = '已经替你先放一晚。';
+    shortcutNotice.value = '已暂存，冷静期后可重新查看。';
     cooldownTitle.value = '';
   } catch (cause: any) {
-    error.value = cause?.message ?? '这句话暂时没能放进去';
+    error.value = cause?.message ?? '暂存失败，请重试';
   } finally {
     shortcutBusy.value = false;
   }
@@ -368,10 +368,10 @@ async function saveDecision() {
   error.value = '';
   try {
     await api.post('/api/v1/decisions', { journeyId: currentJourney.value?.id, question: decisionQuestion.value.trim(), options: [] });
-    shortcutNotice.value = '这个决定已经先替你留住。';
+    shortcutNotice.value = '决定已暂存到保险箱。';
     decisionQuestion.value = '';
   } catch (cause: any) {
-    error.value = cause?.message ?? '这个决定暂时没能保存';
+    error.value = cause?.message ?? '决定保存失败，请重试';
   } finally {
     shortcutBusy.value = false;
   }
@@ -400,17 +400,18 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
   />
 
   <section v-else class="page goodnight-page action-page">
-    <header class="action-hero">
-      <div class="hero-topline"><span class="brand-mark">晚安树洞</span></div>
-      <h1>今晚，只做这一件事</h1>
-      <p>不需要证明自己，只要向现实迈出一小步。</p>
+    <header class="action-header">
+      <div class="header-titles">
+        <h1 class="action-title">行动清单</h1>
+        <p class="action-subtitle">查看当前行动、到期状态与跟进记录</p>
+      </div>
     </header>
 
     <p v-if="error" class="error-text" role="alert">{{ error }}</p>
     <p v-if="intentNotice" class="intent-note" role="status" data-testid="action-intent-note">{{ intentNotice }}</p>
     <p v-if="smallerNotice" class="intent-note" role="status" data-testid="action-smaller-note">{{ smallerNotice }}</p>
     <p v-if="followUpNotice" class="intent-note" role="status" data-testid="action-followup-note">{{ followUpNotice }}</p>
-    <p v-if="loading" class="loading-note">正在读取今晚的行动...</p>
+    <p v-if="loading" class="loading-note">正在读取行动数据...</p>
 
     <main v-else class="action-content">
       <button
@@ -422,8 +423,8 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
       >
         <span class="followup-dot" aria-hidden="true"></span>
         <span>
-          <strong>回来看看：{{ followUpTarget.title }}</strong>
-          <small>{{ followUpMessage(followUpTarget) }} 现在告诉我结果就好。</small>
+          <strong>跟进待办：{{ followUpTarget.title }}</strong>
+          <small>{{ followUpMessage(followUpTarget) }} 请确认完成状态。</small>
         </span>
       </button>
       <AiDegradationNotice :notice="aiNotice" />
@@ -446,7 +447,7 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
 
       <ActionFollowupStrip
         v-if="mainMode === 'recommendation' || mainMode === 'accepted'"
-        :message="mainMode === 'accepted' ? followUpMessage(activeAction) : '接受后，明晚我会回来问你，后来怎么样了。'"
+        :message="mainMode === 'accepted' ? followUpMessage(activeAction) : '接受后，系统将于明晚跟进执行情况。'"
         @open="router.push('/pages/notifications/index')"
       />
 
@@ -457,15 +458,15 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
       <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="followup-title" data-testid="action-followup-sheet">
         <span class="sheet-handle" aria-hidden="true" />
         <button class="close-sheet" aria-label="关闭回访" :disabled="followUpBusy" @click="followUpOpen = false">×</button>
-        <h2 id="followup-title">后来怎么样了？</h2>
+        <h2 id="followup-title">行动结果跟进</h2>
         <p>{{ followUpTarget?.title }}</p>
         <div class="followup-choices" role="radiogroup" aria-label="结果">
           <button type="button" :aria-pressed="followUpResult === 'completed'" data-testid="followup-completed" @click="followUpResult = 'completed'">完成了</button>
           <button type="button" :aria-pressed="followUpResult === 'partial'" data-testid="followup-partial" @click="followUpResult = 'partial'">做了一部分</button>
           <button type="button" :aria-pressed="followUpResult === 'missed'" data-testid="followup-missed" @click="followUpResult = 'missed'">没有完成</button>
         </div>
-        <textarea v-model="followUpReflection" maxlength="800" placeholder="写一句就好，也可以留空。" />
-        <button class="sheet-primary" :disabled="followUpBusy" data-testid="followup-submit" @click="submitFollowUp">{{ followUpBusy ? '正在保存...' : '记下这次结果' }}</button>
+        <textarea v-model="followUpReflection" maxlength="800" placeholder="记录执行情况或备注（可选）" />
+        <button class="sheet-primary" :disabled="followUpBusy" data-testid="followup-submit" @click="submitFollowUp">{{ followUpBusy ? '正在保存...' : '保存跟进结果' }}</button>
       </section>
     </div>
 
@@ -473,9 +474,9 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
       <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="completion-title">
         <span class="sheet-handle" aria-hidden="true" />
         <button class="close-sheet" aria-label="关闭回顾" @click="completionSheetOpen = false">×</button>
-        <h2 id="completion-title">后来怎么样？</h2>
-        <p>写一句就好，也可以留空。完成已经是一件很具体的事。</p>
-        <textarea v-model="completionReflection" maxlength="800" placeholder="这一小步带来了什么变化？" />
+        <h2 id="completion-title">完成记录</h2>
+        <p>记录执行备注（可选）。</p>
+        <textarea v-model="completionReflection" maxlength="800" placeholder="记录执行备注或体会（可选）" />
         <button class="sheet-primary" :disabled="completing" data-testid="action-complete-submit" @click="completeAction">{{ completing ? '正在保存...' : '保存这次回顾' }}</button>
       </section>
     </div>
@@ -486,15 +487,15 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
         <button class="close-sheet" aria-label="关闭" @click="closeShortcutSheet">×</button>
         <template v-if="shortcutSheet === 'cooldown'">
           <h2>先别发出去</h2>
-          <p>把想说的话先留在这里，明天再决定要不要发送。</p>
-          <input v-model="cooldownTitle" maxlength="120" placeholder="想先留住的一句话" />
-          <button class="sheet-primary" :disabled="shortcutBusy || !cooldownTitle.trim()" @click="saveCooldown">{{ shortcutBusy ? '正在保存...' : '先放一晚' }}</button>
+          <p>暂存待发内容，设置冷静期后再处理。</p>
+          <input v-model="cooldownTitle" maxlength="120" placeholder="输入暂存内容" />
+          <button class="sheet-primary" :disabled="shortcutBusy || !cooldownTitle.trim()" @click="saveCooldown">{{ shortcutBusy ? '正在保存...' : '确认暂存' }}</button>
         </template>
         <template v-else>
           <h2>一个重要决定</h2>
-          <p>先把问题留住，不急着在此刻作答。</p>
-          <input v-model="decisionQuestion" maxlength="300" placeholder="这个决定现在最让你为难的是什么？" />
-          <button class="sheet-primary" :disabled="shortcutBusy || !decisionQuestion.trim()" @click="saveDecision">{{ shortcutBusy ? '正在保存...' : '先留在这里' }}</button>
+          <p>先记录待决事项，冷静期后再作评估。</p>
+          <input v-model="decisionQuestion" maxlength="300" placeholder="待决事项或核心疑问" />
+          <button class="sheet-primary" :disabled="shortcutBusy || !decisionQuestion.trim()" @click="saveDecision">{{ shortcutBusy ? '正在保存...' : '暂存决定' }}</button>
         </template>
         <p v-if="shortcutNotice" class="shortcut-notice">{{ shortcutNotice }}</p>
       </section>
@@ -503,30 +504,334 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
 </template>
 
 <style scoped>
-.action-page { box-sizing:border-box; width:100%; min-height:820px; max-width:430px; margin:0 auto; background:#f8f4ea; color:#263c31; padding:0 16px calc(138px + env(safe-area-inset-bottom)); }
-.action-hero { position:relative; min-height:178px; margin:0 -16px; overflow:hidden; background:radial-gradient(circle at 78% 66%, rgba(235,177,124,.5), transparent 29%), linear-gradient(154deg,#17293a,#263b49 54%,#7a655b); padding:calc(15px + env(safe-area-inset-top)) 28px 18px; color:#fffaf0; }
-.action-hero::before { position:absolute; top:-2px; right:0; width:188px; height:178px; background:url('../assets/goodnight/illustrations/action-night-corner.png') right top/cover no-repeat; content:''; opacity:.9; pointer-events:none; mask-image:linear-gradient(90deg,transparent 0,#000 36%); -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 36%); }
-.action-hero::after { position:absolute; right:88px; top:45px; width:106px; height:106px; border-radius:50%; background:radial-gradient(circle,rgba(245,202,142,.18),transparent 68%); content:''; filter:blur(4px); pointer-events:none; }
-.hero-topline,.action-hero h1,.action-hero > p { position:relative; z-index:1; }.hero-topline { display:flex; justify-content:space-between; color:rgba(255,249,236,.72); font-size:13px; }.brand-mark { font-weight:650; letter-spacing:.03em; }.action-hero h1 { max-width:320px; margin:27px 0 6px; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; font-size:28px; font-weight:650; letter-spacing:0; line-height:1.28; }.action-hero > p { max-width:290px; margin:0; color:rgba(255,249,237,.84); font-size:14px; line-height:1.55; }
-.followup-entry { display:grid; grid-template-columns:12px minmax(0,1fr); align-items:center; gap:10px; width:100%; margin-bottom:8px; border:1px solid rgba(95,127,62,.22); border-radius:18px; background:linear-gradient(120deg,#eef3e6,#fbf8ef); padding:13px 14px; color:#3f5a3c; text-align:left; font:inherit; cursor:pointer; box-shadow:0 7px 16px rgba(44,58,42,.06); } .followup-entry strong { display:block; font-size:14px; line-height:1.4; } .followup-entry small { display:block; margin-top:3px; color:#6d7a68; font-size:11px; line-height:1.45; } .followup-dot { width:10px; height:10px; border-radius:50%; background:var(--gn-green); } .followup-choices { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:10px 0; } .followup-choices button { min-height:40px; border:1px solid rgba(95,127,62,.22); border-radius:12px; background:#fffefa; color:#4b6247; font:inherit; font-size:13px; cursor:pointer; } .followup-choices button[aria-pressed='true'] { border-color:var(--gn-green); background:#e8efdd; color:var(--gn-green-dark); font-weight:600; }
-.intent-note { margin:12px 4px 0; border-radius:14px; background:#eef3e6; padding:12px; color:#4e6a49; font-size:13px; line-height:1.55; }
-.action-content { display:grid; gap:8px; margin-top:-8px; position:relative; z-index:2; }.loading-note,.error-text { margin:20px 4px; color:#687566; }.error-text { color:var(--gn-danger); }
-.sheet-backdrop { position:fixed; z-index:20; inset:0; display:flex; align-items:flex-end; justify-content:center; background:rgba(16,28,34,.48); padding:16px; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }.completion-sheet,.shortcut-sheet { position:relative; box-sizing:border-box; width:min(100%, 430px); border-radius:28px 28px 20px 20px; background:#fffdf7; padding:28px 20px 20px; box-shadow:0 -14px 36px rgba(14,26,33,.2); }.sheet-handle { position:absolute; top:10px; left:50%; width:44px; height:4px; border-radius:999px; background:#d9dbd0; transform:translateX(-50%); }.close-sheet { position:absolute; top:18px; right:16px; display:grid; width:30px; height:30px; place-items:center; border:0; border-radius:50%; background:#f3f1e8; color:#5d6b5b; font:inherit; font-size:22px; line-height:1; cursor:pointer; }.completion-sheet h2,.shortcut-sheet h2 { margin:8px 0 8px; font-family:"Songti SC", "Noto Serif SC", "Microsoft YaHei", serif; color:#2d4434; font-size:24px; font-weight:650; }.completion-sheet p,.shortcut-sheet p { margin:0; color:#737d70; font-size:14px; line-height:1.65; }.completion-sheet textarea,.shortcut-sheet input { box-sizing:border-box; width:100%; margin-top:18px; border:1px solid rgba(101,122,91,.2); border-radius:17px; background:#fbf9f1; padding:13px; color:#2e4034; font:inherit; line-height:1.55; resize:none; }.completion-sheet textarea { min-height:108px; }.shortcut-sheet input { min-height:50px; }.sheet-primary { width:100%; min-height:50px; margin-top:13px; border:1px solid #436b52; border-radius:999px; background:#436b52; color:#fffdf6; font:inherit; font-size:15px; cursor:pointer; }.sheet-primary:disabled { cursor:wait; opacity:.64; }.shortcut-notice { margin-top:12px !important; color:#527151 !important; text-align:center; }
-@media (max-width:374px) { .action-page { padding-inline:12px; }.action-hero { margin-inline:-12px; padding-inline:24px; min-height:170px; }.action-hero h1 { margin-top:24px; font-size:26px; }.sheet-backdrop { padding-inline:10px; } }
-@media (max-width:390px) {
-  .action-page { padding-bottom:calc(126px + env(safe-area-inset-bottom)); }
-  .action-hero { min-height:170px; padding-top:calc(14px + env(safe-area-inset-top)); padding-bottom:16px; }
-  .action-hero h1 { margin-top:24px; font-size:26px; }
-  .action-content { gap:8px; }
-  :deep(.action-paper) { padding:17px 17px 14px; }
-  :deep(.action-paper .paper-label) { margin-bottom:8px; }
-  :deep(.action-paper .action-title) { font-size:24px; line-height:1.3; }
-  :deep(.action-paper .paper-copy) { margin-top:9px; font-size:14px; line-height:1.52; }
-  :deep(.action-paper .action-meta) { margin-top:9px; }
-  :deep(.action-paper .completion-note) { margin-top:9px; }
-  :deep(.action-paper .card-actions) { margin-top:12px; }
-  :deep(.action-paper .primary-cta), :deep(.action-paper .secondary-cta) { min-height:43px; }
-  :deep(.shortcut-card) { min-height:78px; padding-top:7px; }
-  :deep(.shortcut-icon) { width:27px; height:27px; }
+.action-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
 }
-.sheet-backdrop{z-index:40}</style>
+
+.action-header {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 4px 12px;
+}
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.action-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
+}
+
+.action-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
+.followup-entry {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 8px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 12px 14px;
+  color: var(--gn-ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.followup-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gn-leaf);
+}
+
+.followup-entry strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--gn-ink);
+}
+
+.followup-entry small {
+  display: block;
+  margin-top: 2px;
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.followup-choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.followup-choices button {
+  min-height: 38px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.followup-choices button[aria-pressed='true'] {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
+}
+
+.intent-note {
+  margin: 8px 0;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 10px 14px;
+  color: var(--gn-ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.action-content {
+  display: grid;
+  gap: 10px;
+}
+
+.loading-note,
+.error-text {
+  margin: 16px 4px;
+  font-size: 13px;
+  color: var(--gn-muted);
+}
+
+.error-text {
+  color: var(--gn-danger);
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 16px;
+}
+
+.completion-sheet,
+.shortcut-sheet {
+  position: relative;
+  box-sizing: border-box;
+  width: min(360px, 100%);
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 20px;
+}
+
+.sheet-handle {
+  display: none;
+}
+
+.close-sheet {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.completion-sheet h2,
+.shortcut-sheet h2 {
+  margin: 0;
+  font-family: var(--gn-font-body);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.completion-sheet p,
+.shortcut-sheet p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+  line-height: 1.45;
+}
+
+.completion-sheet textarea,
+.shortcut-sheet input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  padding: 10px 12px;
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.completion-sheet textarea {
+  min-height: 96px;
+}
+
+.shortcut-sheet input {
+  min-height: 42px;
+}
+
+.sheet-primary {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 14px;
+  border: 1px solid var(--gn-leaf);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sheet-primary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.shortcut-notice {
+  margin-top: 10px !important;
+  color: var(--gn-leaf-deep) !important;
+  font-size: 12px !important;
+  text-align: center;
+}
+
+:deep(.action-paper) {
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 16px;
+}
+
+:deep(.action-paper::after) {
+  display: none;
+}
+
+:deep(.paper-label) {
+  color: var(--gn-muted);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+:deep(.action-paper h2) {
+  font-family: var(--gn-font-body);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--gn-ink);
+}
+
+:deep(.action-paper .paper-copy) {
+  color: var(--gn-ink-soft);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+:deep(.action-paper .completion-note) {
+  color: var(--gn-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+:deep(.action-paper .primary-cta) {
+  border: 1px solid var(--gn-leaf);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
+  color: #fff;
+  font-weight: 500;
+}
+
+:deep(.action-paper .secondary-cta) {
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+}
+
+:deep(.action-paper .timeline-link) {
+  color: var(--gn-leaf);
+}
+
+:deep(.followup-strip) {
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+}
+
+:deep(.followup-icon) {
+  background: var(--gn-paper-warm);
+  color: var(--gn-leaf);
+}
+
+:deep(.shortcut-card) {
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+}
+
+:deep(.shortcut-icon) {
+  background: var(--gn-paper-warm);
+  color: var(--gn-leaf);
+}
+
+@media (max-width: 374px) {
+  .action-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+</style>

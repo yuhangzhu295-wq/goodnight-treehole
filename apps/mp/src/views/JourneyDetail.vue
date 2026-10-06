@@ -35,11 +35,11 @@ const chronologicalUpdates = computed(() => [...(detail.value?.updates ?? [])].s
 const sceneCopy = computed(() => {
   const journeyTitle = detail.value?.journey.title || '这段经历';
   const copy: Record<FlowStep, { title: string; subtitle: string }> = {
-    confirm: { title: '我理解的是这些，对吗？', subtitle: '先确认一下，我们再继续。' },
-    temperature: { title: '今晚现在有多难受？', subtitle: '先不分析，只感受一下此刻。' },
-    intent: { title: '你现在最需要什么？', subtitle: '不一定马上解决，先选最贴近你此刻的一种。' },
-    stabilize: { title: '我先接住你', subtitle: '今晚先不用解决，我们先让这一刻轻一点。' },
-    timeline: { title: journeyTitle, subtitle: '先看见发生了什么，再慢慢往前走。' },
+    confirm: { title: '确认以下记录是否准确', subtitle: '核对确认后继续后续流程。' },
+    temperature: { title: '当前感受强度如何？', subtitle: '记录当前状态，暂不做分析。' },
+    intent: { title: '当前最需要的支持方式？', subtitle: '选择最符合当前需要的一项。' },
+    stabilize: { title: '情绪平复支持', subtitle: '暂时放下问题，先平复当前情绪。' },
+    timeline: { title: journeyTitle, subtitle: '回顾事件经过与后续进展记录。' },
   };
   return copy[flowStep.value];
 });
@@ -209,17 +209,19 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
           data-testid="journey-graduate-start"
           :disabled="busy"
           @click="requestGraduate"
-        >走完了，结束这段旅程</button>
+        >
+          走完了，结束这段旅程
+        </button>
       </template>
     </template>
     <p v-if="graduateNotice" class="journey-notice" role="status" data-testid="journey-graduate-notice">{{ graduateNotice }}</p>
     <div v-if="graduateOpen" class="archive-confirm-mask" data-testid="journey-graduate-sheet">
-      <section class="archive-confirm-card" role="dialog" aria-modal="true" aria-labelledby="journey-graduate-title">
+      <section class="archive-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="journey-graduate-title">
         <template v-if="graduateStep === 'confirm'">
           <h2 id="journey-graduate-title">结束这段旅程？</h2>
           <p>你已经完成了 {{ completedActions }} 个小行动。结束不会删除任何记录，之后仍然可以在归档里回看。</p>
           <div>
-            <button :disabled="busy" @click="graduateOpen = false">再陪一会儿</button>
+            <button :disabled="busy" @click="graduateOpen = false">暂不结束</button>
             <button class="archive-confirm-primary" data-testid="journey-graduate-confirm" :disabled="busy" @click="confirmGraduate">确认结束</button>
           </div>
         </template>
@@ -235,11 +237,11 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
       </section>
     </div>
     <div v-if="archiveConfirmationOpen" class="archive-confirm-mask" data-testid="journey-archive-confirm">
-      <section class="archive-confirm-card" role="dialog" aria-modal="true" aria-labelledby="journey-archive-title">
+      <section class="archive-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="journey-archive-title">
         <h2 id="journey-archive-title">归档这段旅程？</h2>
         <p>归档会完整保留发生过的事、行动与后来记录。它不会公开，也不会删除任何内容。</p>
         <div>
-          <button :disabled="busy" @click="archiveConfirmationOpen = false">继续陪伴</button>
+          <button :disabled="busy" @click="archiveConfirmationOpen = false">暂不归档</button>
           <button class="archive-confirm-primary" data-testid="journey-archive-confirm-action" :disabled="busy" @click="archiveJourney">确认归档</button>
         </div>
       </section>
@@ -248,7 +250,154 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
 </template>
 
 <style scoped>
-.journey-error{margin:0;border-radius:14px;background:#fff0ed;padding:11px 13px;color:#ad4b41;font-size:14px}.loading-note{margin:0;border-radius:18px;background:rgba(255,253,247,.92);padding:28px 16px;color:#69745f;text-align:center}.graduate-trigger { width: 100%; min-height: 40px; margin-top: 8px; border: 1px solid var(--gn-green); border-radius: 999px; background: transparent; color: var(--gn-green-dark); font: inherit; font-size: 13px; cursor: pointer; } .graduate-choices { display: grid; gap: 8px; margin-top: 6px; } .graduate-choices button { min-height: 40px; border: 1px solid var(--gn-border); border-radius: 999px; background: #fffdf8; color: var(--gn-green-dark); font: inherit; font-size: 13px; cursor: pointer; } .graduate-choices button:first-child { border-color: var(--gn-green); background: var(--gn-green); color: #fff; }
-.journey-notice { margin: 10px 0 0; border-radius: 14px; background: #eef3e6; padding: 12px; color: #4e6a49; font-size: 13px; line-height: 1.55; }
-.archive-trigger{display:block;width:calc(100% - 24px);min-height:38px;margin:3px auto 0;border:0;border-radius:999px;background:transparent;box-shadow:none;color:#75866b;font:inherit;font-size:13px;cursor:pointer}.archive-trigger:disabled{opacity:.55;cursor:wait}.archive-confirm-mask{position:fixed;z-index:50;inset:0;display:grid;place-items:end center;padding:20px;background:rgba(26,37,31,.34);backdrop-filter:blur(2px)}.archive-confirm-card{width:min(430px,100%);padding:21px 20px calc(21px + env(safe-area-inset-bottom));border-radius:24px 24px 16px 16px;background:#fffdf7;box-shadow:0 18px 48px rgba(26,37,31,.2)}.archive-confirm-card h2{margin:0;color:#40523e;font-size:19px}.archive-confirm-card p{margin:9px 0 18px;color:#697368;font-size:13px;line-height:1.68}.archive-confirm-card>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}.archive-confirm-card button{min-height:43px;border:1px solid rgba(92,117,75,.2);border-radius:12px;background:#f5f6ee;color:#5f7354;font:inherit;cursor:pointer}.archive-confirm-card .archive-confirm-primary{border:0;background:#5f7f3e;color:#fff}.archive-confirm-card button:disabled{opacity:.55;cursor:wait}
+.journey-error {
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  padding: 10px 14px;
+  color: var(--gn-danger);
+  font-size: 13px;
+}
+
+.loading-note {
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  padding: 24px 16px;
+  color: var(--gn-muted);
+  text-align: center;
+  font-size: 14px;
+}
+
+.graduate-trigger {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 8px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.graduate-choices {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.graduate-choices button {
+  min-height: 38px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.graduate-choices button:first-child {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf);
+  color: #fff;
+  font-weight: 500;
+}
+
+.journey-notice {
+  margin: 10px 0 0;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  padding: 10px 14px;
+  color: var(--gn-leaf-deep);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.archive-trigger {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  margin: 8px auto 0;
+  border: 0;
+  background: transparent;
+  color: var(--gn-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.archive-trigger:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.archive-confirm-mask {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.archive-confirm-dialog {
+  box-sizing: border-box;
+  width: min(360px, 100%);
+  padding: 20px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+}
+
+.archive-confirm-dialog h2 {
+  margin: 0;
+  color: var(--gn-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.archive-confirm-dialog p {
+  margin: 8px 0 16px;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.archive-confirm-dialog > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.archive-confirm-dialog button {
+  min-height: 38px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.archive-confirm-dialog .archive-confirm-primary {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf);
+  color: #fff;
+  font-weight: 500;
+}
+
+.archive-confirm-dialog button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
 </style>

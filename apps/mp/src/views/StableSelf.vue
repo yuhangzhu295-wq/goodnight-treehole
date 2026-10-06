@@ -123,7 +123,7 @@ async function save() {
     const response = await api.put<any>('/api/v1/me/stable-self', { profile: { ...profile } });
     currentId.value = response.item.id;
     updatedAt.value = response.item.updatedAt;
-    saved.value = '这张提醒卡已经保存。以后只和你自己的稳定状态比较。';
+    saved.value = '稳定状态参考已保存。';
   } catch (cause: any) {
     error.value = cause?.message ?? '提醒卡没有保存成功';
   } finally {
@@ -136,17 +136,20 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page stable-self-page">
-    <header class="stable-hero">
-      <button aria-label="返回" @click="router.back()"><AppIcon name="back" :size="18" /></button>
-      <div class="stable-brand"><span aria-hidden="true">♧</span> 晚安树洞</div>
-      <h1>清醒时候的我</h1>
-      <p>在你清醒的时候，先替难受的自己留下一点方向。</p>
+    <header class="stable-header">
+      <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
+        <AppIcon name="back" :size="20" />
+      </button>
+      <div class="header-titles">
+        <h1 class="stable-title">清醒时候的我</h1>
+        <p class="stable-subtitle">记录状态良好时的习惯与支持锚点，供低谷期参考</p>
+      </div>
     </header>
     <p v-if="loading" class="state-note">正在读取你的提醒卡…</p>
     <form v-else class="stable-paper" @submit.prevent="save">
       <section class="stable-section stable-description">
         <div class="section-title">
-          <span aria-hidden="true">⌁</span><b>1</b>
+          <b>1</b>
           <h2>我想变成什么样的人</h2>
         </div>
         <textarea
@@ -157,7 +160,7 @@ onMounted(load);
       </section>
       <section class="stable-section">
         <div class="section-title">
-          <span aria-hidden="true">⌁</span><b>2</b>
+          <b>2</b>
           <h2>当我快失控时，请先提醒我</h2>
         </div>
         <div class="stable-choices">
@@ -189,7 +192,7 @@ onMounted(load);
       </section>
       <section class="stable-section">
         <div class="section-title">
-          <span aria-hidden="true">⌁</span><b>3</b>
+          <b>3</b>
           <h2>对我重要的人和事</h2>
         </div>
         <div class="stable-choices">
@@ -252,7 +255,7 @@ onMounted(load);
       </details>
       <section class="stable-section reminder-section">
         <div class="section-title">
-          <span aria-hidden="true">⌁</span><b>4</b>
+          <b>4</b>
           <h2>一句把我拉回现实的话</h2>
         </div>
         <textarea
@@ -264,7 +267,7 @@ onMounted(load);
       <p v-if="error" class="error-note" role="alert">{{ error }}</p>
       <p v-if="saved" class="saved-note" role="status">{{ saved }}</p>
       <button class="stable-save" data-testid="stable-self-save" :disabled="saving" type="submit">
-        {{ saving ? '正在保存…' : '保存这张提醒卡' }}<span aria-hidden="true">✦</span>
+        {{ saving ? '正在保存…' : '保存稳定参考卡' }}
       </button>
       <small v-if="currentId" class="version-note">最近保存：{{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
     </form>
@@ -273,284 +276,296 @@ onMounted(load);
 
 <style scoped>
 .stable-self-page {
-  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow-x: hidden;
-  padding: 0 22px 42px;
-  background: #eee7dc;
-  color: #26382c;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
 }
-.stable-hero {
-  position: relative;
-  min-height: 151px;
-  margin: 0 -22px;
-  padding: 20px 24px 15px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(12, 29, 45, 0.12), rgba(17, 35, 50, 0.5)),
-    url('../assets/goodnight/peer/peer-night-hero.png') center 47% / cover;
-  color: #fff;
-}
-.stable-hero::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 35px;
-  background: linear-gradient(transparent, #eee7dc);
-  content: '';
-  pointer-events: none;
-}
-.stable-hero > * {
-  position: relative;
-  z-index: 1;
-}
-.stable-hero > button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 50%;
-  padding: 0;
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
-}
-.stable-brand {
-  position: absolute;
-  top: 26px;
-  left: 60px;
-  font-size: 12px;
-}
-.stable-hero h1 {
-  margin: 19px 0 5px;
-  font:
-    600 28px/1.2 Georgia,
-    'Noto Serif SC',
-    serif;
-  letter-spacing: 0;
-}
-.stable-hero p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
-}
-.stable-paper {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  margin-top: -7px;
-  border: 1px solid rgba(81, 98, 71, 0.16);
-  border-radius: 20px;
-  padding: 8px 17px 12px;
-  background: rgba(255, 251, 244, 0.97);
-  box-shadow: 0 13px 30px rgba(48, 57, 41, 0.1);
-}
-.stable-paper::before {
-  position: absolute;
-  z-index: 0;
-  top: 42px;
-  right: 4px;
-  width: 133px;
-  height: 145px;
-  background: url('../assets/goodnight/illustrations/situation-book-lantern.png') center/cover no-repeat;
-  content: '';
-  opacity: 0.65;
-  mix-blend-mode: multiply;
-  -webkit-mask-image: radial-gradient(ellipse, #000 50%, transparent 96%);
-  mask-image: radial-gradient(ellipse, #000 50%, transparent 96%);
-  pointer-events: none;
-}
-.stable-paper > * {
-  position: relative;
-  z-index: 1;
-}
-.stable-section {
-  display: grid;
+
+.stable-header {
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
-  padding: 11px 0;
-  border-bottom: 1px dotted rgba(80, 95, 71, 0.23);
+  padding: 8px 4px 4px;
 }
-.stable-description {
-  min-height: 156px;
-  padding-right: 104px;
-}
-.section-title {
-  display: grid;
-  grid-template-columns: 17px 24px minmax(0, 1fr);
-  gap: 7px;
+
+.back-btn {
+  display: flex;
   align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  cursor: pointer;
+  flex-shrink: 0;
 }
-.section-title > span {
-  color: #66815e;
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
+
+.stable-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
+}
+
+.stable-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
+.stable-paper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  padding: 16px;
+  background: var(--gn-paper);
+}
+
+.stable-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .section-title b {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: #e7eadc;
-  color: #556d50;
-  font-size: 12px;
+  background: var(--gn-paper-warm);
+  border: 1px solid var(--gn-line);
+  color: var(--gn-leaf);
+  font-size: 11px;
+  font-weight: 600;
 }
+
 .section-title h2 {
   margin: 0;
-  font:
-    600 13px/1.4 Georgia,
-    'Noto Serif SC',
-    serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-ink);
 }
+
 .stable-section textarea {
   box-sizing: border-box;
   width: 100%;
   min-height: 72px;
   resize: none;
-  border: 1px solid rgba(86, 105, 74, 0.15);
-  border-radius: 8px;
-  padding: 9px;
-  background: rgba(255, 253, 248, 0.78);
-  color: #304135;
-  font: 11px/1.6 inherit;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 10px 12px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
 }
-.stable-description textarea {
-  min-height: 100px;
-}
+
 .stable-choices,
 .saved-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+
 .stable-choices > button,
 .stable-choices > span,
 .saved-tags button {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  border: 1px solid rgba(86, 105, 74, 0.15);
-  border-radius: 999px;
-  padding: 0 11px;
-  background: #f2f0e5;
-  color: #53634f;
-  font: 10px inherit;
+  min-height: 30px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 0 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
+
 .stable-choices > button.selected {
-  border-color: #6e845f;
-  background: #e2ead8;
-  color: #315136;
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 500;
 }
+
 .stable-choices > span {
   gap: 4px;
 }
+
 .stable-choices > span button {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #86756e;
+  color: var(--gn-muted);
+  font-size: 14px;
+  cursor: pointer;
 }
+
 .stable-add {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 6px;
 }
+
 .stable-add input,
 .daily-outline input {
   box-sizing: border-box;
   width: 100%;
-  min-height: 30px;
-  border: 1px solid rgba(86, 105, 74, 0.15);
-  border-radius: 8px;
-  padding: 5px 8px;
-  background: #fffdf8;
-  font: 11px inherit;
+  min-height: 34px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 6px 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
 }
+
 .stable-add button {
-  border: 0;
-  border-radius: 8px;
-  background: #e2e8d8;
-  color: #4c6547;
-  font: 10px inherit;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
+
 .daily-outline {
-  margin: 9px 0 0;
-  border-radius: 11px;
-  padding: 9px 11px;
-  background: #f4f0e5;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 10px 12px;
+  background: var(--gn-paper-warm);
 }
+
 .daily-outline summary {
   cursor: pointer;
-  color: #536a50;
-  font-size: 10px;
+  color: var(--gn-ink);
+  font-size: 13px;
+  font-weight: 500;
 }
+
 .daily-outline label {
-  display: grid;
-  gap: 3px;
-  margin-top: 7px;
-  color: #72796e;
-  font-size: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--gn-muted);
+  font-size: 11px;
 }
+
 .saved-tags {
   margin-top: 4px;
 }
+
 .saved-tags button {
-  min-height: 23px;
-  font-size: 9px;
+  min-height: 24px;
+  font-size: 11px;
 }
+
+.reminder-section {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
 .reminder-section textarea {
-  min-height: 54px;
+  min-height: 60px;
 }
+
 .stable-save {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  margin-top: 9px;
-  border: 0;
-  border-radius: 999px;
-  background: #3d6048;
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 6px;
+  border: 1px solid var(--gn-leaf);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
   color: #fff;
-  font: 13px inherit;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
 }
+
 .stable-save:disabled {
-  opacity: 0.62;
+  opacity: 0.6;
+  cursor: wait;
 }
+
 .state-note,
 .error-note,
 .saved-note {
-  margin: 12px 0;
-  border-radius: 10px;
-  padding: 10px;
-  font-size: 11px;
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.4;
 }
+
 .state-note {
-  background: #fffaf1;
+  background: var(--gn-paper);
+  color: var(--gn-muted);
 }
+
 .error-note {
-  background: #fff0ec;
+  background: var(--gn-paper);
   color: var(--gn-danger);
 }
+
 .saved-note {
-  background: #e8efe0;
-  color: #476447;
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
 }
+
 .version-note {
   display: block;
-  margin-top: 5px;
-  color: #97978f;
+  color: var(--gn-muted);
   text-align: center;
-  font-size: 8px;
+  font-size: 11px;
 }
+
 @media (max-width: 374px) {
   .stable-self-page {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-  .stable-hero {
-    margin-right: -14px;
-    margin-left: -14px;
-  }
-  .stable-description {
-    padding-right: 88px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 }
 </style>
