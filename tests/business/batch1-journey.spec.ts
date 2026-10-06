@@ -785,6 +785,22 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         },
       });
 
+      // Insert PeerExperience in PostgreSQL (PeerExperience is database-authoritative since Batch 2)
+      await freshPrisma.peerExperience.create({
+        data: {
+          id: peerExpId,
+          userId,
+          journeyId,
+          title: '同路经验',
+          domain: '生活',
+          stage: 'graduated',
+          content: '内容',
+          tags: [],
+          status: 'published',
+          consentedAt: new Date(),
+        },
+      });
+
       // 2. Trigger a legacy flush simulating another API instance running saveRelationalRuntimeState
       // with in-memory records pointing to journeyId, while lifeJourneys is NOT loaded in that instance
       const testState = {

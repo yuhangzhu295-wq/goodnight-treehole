@@ -114,9 +114,14 @@ describe('Peer Support Network second-stage loop', () => {
       .set('x-goodnight-user-id', owner)
       .send({ status: 'connected' })
       .expect(201);
-    const active = await request(server)
+    await request(server)
       .post(`/api/v1/peer-matches/${match.id}/consent`)
       .set('x-goodnight-user-id', owner)
+      .send({})
+      .expect(201);
+    const active = await request(server)
+      .post(`/api/v1/peer-matches/${match.id}/consent`)
+      .set('x-goodnight-user-id', requester)
       .send({})
       .expect(201);
     return {
@@ -288,7 +293,10 @@ describe('Peer Support Network second-stage loop', () => {
     expect(accepted.body.conversation).toBeNull();
     await request(server).post(`/api/v1/peer-conversations/${match!.id}/messages`).set('x-goodnight-user-id', requester).send({ content: '还是不能说话。' }).expect(404);
 
-    const active = await request(server).post(`/api/v1/peer-matches/${match!.id}/consent`).set('x-goodnight-user-id', owner).send({}).expect(201);
+    const firstConsent = await request(server).post(`/api/v1/peer-matches/${match!.id}/consent`).set('x-goodnight-user-id', owner).send({}).expect(201);
+    expect(firstConsent.body.conversation).toBeNull();
+
+    const active = await request(server).post(`/api/v1/peer-matches/${match!.id}/consent`).set('x-goodnight-user-id', requester).send({}).expect(201);
     expect(active.body.conversation.matchId).toBe(match!.id);
     expect(active.body.conversation.consentAcceptedAt).toBeTruthy();
 
@@ -404,18 +412,21 @@ describe('Peer Support Network second-stage loop', () => {
       expect.objectContaining({ matchId: match.id, reporterUserId: requester, reportReason: '这是一次用于验证真实举报链路的反馈。', messageCount: 2 }),
     ]));
 
-    const memoryConversation = store.peerConversations.find((item) => item.matchId === match.id);
-    expect(memoryConversation).toBeTruthy();
-    const persistedStartsAt = new Date(Date.now() - 73 * 60 * 60 * 1_000).toISOString();
-    const persistedExpiresAt = new Date(Date.now() - 1_000).toISOString();
-    memoryConversation!.startsAt = persistedStartsAt;
-    memoryConversation!.expiresAt = persistedExpiresAt;
-    await (store as any).persistAndFlush();
+    const persistedStartsAt = new Date(Date.now() - 73 * 60 * 60 * 1_000);
+    const persistedExpiresAt = new Date(Date.now() - 1_000);
+    await prisma.peerConversation.update({
+      where: { matchId: match.id },
+      data: {
+        startsAt: persistedStartsAt,
+        expiresAt: persistedExpiresAt,
+      },
+    });
     const preReloadConversation = await prisma.peerConversation.findUnique({ where: { matchId: match.id } });
-    expect(preReloadConversation?.startsAt.getTime()).toBe(new Date(persistedStartsAt).getTime());
-    expect(preReloadConversation?.expiresAt.getTime()).toBe(new Date(persistedExpiresAt).getTime());
+    expect(preReloadConversation?.startsAt.getTime()).toBe(persistedStartsAt.getTime());
+    expect(preReloadConversation?.expiresAt.getTime()).toBe(persistedExpiresAt.getTime());
     await store.reloadRuntimeState();
-    expect(store.peerConversations.find((item) => item.matchId === match.id)?.expiresAt).toBe(persistedExpiresAt);
+    const reloadedConv = await prisma.peerConversation.findUnique({ where: { matchId: match.id } });
+    expect(reloadedConv?.expiresAt.toISOString()).toBe(persistedExpiresAt.toISOString());
 
     const expired = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', requester).expect(200);
     const closed = expired.body.items.find((item: { matchId: string }) => item.matchId === match.id);
@@ -430,7 +441,9 @@ describe('Peer Support Network second-stage loop', () => {
     await request(server).post(`/api/v1/peer-conversations/${match.id}/feedback`).set('x-goodnight-user-id', requester).send({ feedback: 'helpful', note: '这段同行让我先把消息留在草稿里。', shareLater: true }).expect(201);
 
     const persisted = await prisma.peerConversation.findUnique({ where: { matchId: match.id }, include: { messages: true } });
-    expect(persisted).toMatchObject({ status: 'closed', closedReason: 'expired', reporterUserId: requester, feedback: 'helpful' });
+    expect(persisted).toMatchObject({ status: 'closed', closedReason: 'expired', feedback: 'helpful' });
+    const persistedReport = await prisma.peerReport.findFirst({ where: { conversationId: persisted!.id } });
+    expect(persistedReport).toMatchObject({ reporterUserId: requester });
     expect(persisted?.messages).toHaveLength(2);
     expect(await prisma.peerExperience.findFirst({ where: { userId: requester, status: 'pending_review', title: '这段同行之后，我慢慢走了一点出来' } })).toBeTruthy();
   }, 20_000);
@@ -481,6 +494,7 @@ describe('Peer Support Network second-stage loop', () => {
     await request(server).patch(`/api/v1/peer-matches/${closedMatch.id}`).set('x-goodnight-user-id', requester).send({ status: 'requested', requestReason: '想在结束时留下感谢。' }).expect(200);
     await request(server).post(`/api/v1/peer-matches/${closedMatch.id}/respond`).set('x-goodnight-user-id', owner).send({ status: 'connected' }).expect(201);
     await request(server).post(`/api/v1/peer-matches/${closedMatch.id}/consent`).set('x-goodnight-user-id', owner).send({}).expect(201);
+    await request(server).post(`/api/v1/peer-matches/${closedMatch.id}/consent`).set('x-goodnight-user-id', requester).send({}).expect(201);
     await request(server).post(`/api/v1/peer-conversations/${closedMatch.id}/close`).set('x-goodnight-user-id', requester).send({}).expect(201);
     await request(server).post(`/api/v1/peer-conversations/${closedMatch.id}/messages`).set('x-goodnight-user-id', requester).send({ content: '结束后不能再发。' }).expect(400);
     await request(server).post(`/api/v1/peer-conversations/${closedMatch.id}/messages`).set('x-goodnight-user-id', owner).send({ content: '结束后不能再发。' }).expect(400);
@@ -488,6 +502,7 @@ describe('Peer Support Network second-stage loop', () => {
     await request(server).patch(`/api/v1/peer-matches/${activeBlockMatch.id}`).set('x-goodnight-user-id', requester).send({ status: 'requested', requestReason: '想验证随时退出的边界。' }).expect(200);
     await request(server).post(`/api/v1/peer-matches/${activeBlockMatch.id}/respond`).set('x-goodnight-user-id', owner).send({ status: 'connected' }).expect(201);
     await request(server).post(`/api/v1/peer-matches/${activeBlockMatch.id}/consent`).set('x-goodnight-user-id', owner).send({}).expect(201);
+    await request(server).post(`/api/v1/peer-matches/${activeBlockMatch.id}/consent`).set('x-goodnight-user-id', requester).send({}).expect(201);
     const blockedConversation = await request(server).post(`/api/v1/peer-conversations/${activeBlockMatch.id}/block`).set('x-goodnight-user-id', requester).send({}).expect(201);
     expect(blockedConversation.body).toMatchObject({ item: { status: 'closed', closedReason: 'blocked' }, match: { status: 'blocked' } });
     await request(server).post(`/api/v1/peer-conversations/${activeBlockMatch.id}/messages`).set('x-goodnight-user-id', requester).send({ content: '拉黑后不能再发。' }).expect(400);
