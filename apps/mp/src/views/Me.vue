@@ -33,52 +33,49 @@ const intensityChange = computed(() => {
 const primaryEntries = computed(() => [
   {
     title: '生活恢复',
-    note: recovery.value.length ? `已经留下 ${recovery.value.length} 次生活记录` : '看看生活有没有回来一点',
+    note: recovery.value.length ? `已记录 ${recovery.value.length} 次状态` : '记录日常恢复状态',
     icon: '◒',
     testId: 'entry-recovery',
     route: '/pages/recovery/index',
   },
   {
     title: '我的低谷预案',
-    note: supportPlan.value ? '已经准备好一张现实支持说明书' : '提前留下真正有用的支持方式',
+    note: supportPlan.value ? '已保存应对支持说明' : '提前设置应对支持方式',
     icon: '✦',
     testId: 'entry-support-plan',
     route: '/pages/support-plan/index',
   },
   {
     title: '清醒时候的我',
-    note: '只和自己状态稳定时的样子比较',
+    note: '稳定状态的参考记录',
     icon: '⌁',
     testId: 'entry-stable-self',
     route: '/pages/stable-self/index',
   },
   {
     title: 'AI 记得什么',
-    note: '查看、编辑或停止系统使用有限记忆',
+    note: '查看与管理系统记忆',
     icon: '◉',
     testId: 'entry-memory',
     route: '/pages/memory/index',
   },
   {
     title: '写给未来的我',
-    note: futureMessages.value.length ? `有 ${futureMessages.value.length} 封话留给以后` : '给下一次难受的自己留一句话',
+    note: futureMessages.value.length ? `已保存 ${futureMessages.value.length} 条寄语` : '保存写给以后的留言',
     icon: '◇',
     testId: 'entry-future-self',
     route: '/pages/future-self/index',
   },
   {
     title: '决定保险箱',
-    note: '让重要决定先安静一会儿',
+    note: '暂存重要决定',
     icon: '▣',
     testId: 'entry-decision',
     route: '/pages/decision/index',
   },
-  // The tool pages (情绪拆解 / 情绪工具) had no inbound control anywhere in the app, so the
-  // whole area was reachable only by typing a URL (product audit ISSUE-004). This is the
-  // entry point; the tool index lists the individual tools.
   {
     title: '情绪小工具',
-    note: '把一大团情绪拆成能处理的几小步',
+    note: '结构化拆解与应对工具',
     icon: '✂',
     testId: 'entry-tool-index',
     route: '/pages/tool/index',
@@ -86,32 +83,35 @@ const primaryEntries = computed(() => [
 ]);
 
 const archiveEntries = [
-  { title: '日记与回信', note: '过去写下的内容', icon: '▤', testId: 'entry-diary', route: '/pages/diary/index' },
-  { title: '我的回信', note: '看看曾经收到的温柔回应', icon: '✉', testId: 'entry-letter-list', route: '/pages/letter/list' },
-  { title: '我的收藏', note: '保存下来、想再读一次的话', icon: '♡', testId: 'entry-favorite', route: '/pages/favorite/index' },
-  { title: '情绪月报', note: '从真实记录里回看这个月', icon: '▥', testId: 'entry-report', route: '/pages/me/month-report' },
+  { title: '日记与回信', note: '过去记录的内容', icon: '▤', testId: 'entry-diary', route: '/pages/diary/index' },
+  { title: '我的回信', note: '过去收到的回信', icon: '✉', testId: 'entry-letter-list', route: '/pages/letter/list' },
+  { title: '我的收藏', note: '收藏的日记与回信', icon: '♡', testId: 'entry-favorite', route: '/pages/favorite/index' },
+  { title: '情绪月报', note: '月度记录与分析', icon: '▥', testId: 'entry-report', route: '/pages/me/month-report' },
   {
     title: '旅程归档',
-    note: '回看已经走过的过程',
+    note: '已结束的旅程记录',
     icon: '⌁',
     testId: 'entry-journey-archive',
     route: '/pages/archive/index',
   },
   {
     title: '隐私与数据',
-    note: '决定什么可以被记住和使用',
+    note: '数据使用与存储设置',
     icon: '▧',
     testId: 'entry-privacy',
     route: '/pages/settings/privacy',
   },
   {
     title: '帮助与反馈',
-    note: '遇到问题时告诉我们',
+    note: '常见问题与问题反馈',
     icon: '?',
     testId: 'entry-feedback',
     route: '/pages/help/feedback',
   },
 ];
+
+const recordEntries = computed(() => archiveEntries.slice(0, 5));
+const settingEntries = computed(() => archiveEntries.slice(5));
 
 async function clearMyData() {
   if (clearing.value) return;
@@ -156,86 +156,220 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="goodnight-page self-page">
-    <header class="self-hero">
-      <div class="self-brand"><span aria-hidden="true">♧</span>晚安树洞</div>
-      <h1>我的旅程</h1>
-      <p>看看你这段时间，是怎么慢慢走过来的。</p>
+  <section class="goodnight-page me-page">
+    <header class="me-header">
+      <h1 class="me-title">我的旅程</h1>
+      <p class="me-subtitle">记录与恢复进展</p>
     </header>
-    <p v-if="loadError" class="self-error">{{ loadError }}</p>
-    <article v-if="currentJourney" class="journey-focus" data-testid="me-current-journey">
-      <div class="journey-label"><span aria-hidden="true">⌁</span>正在经历</div>
+
+    <p v-if="loadError" class="me-error">{{ loadError }}</p>
+
+    <!-- Profile Row -->
+    <div
+      class="profile-row"
+      data-testid="me-user-card"
+      role="button"
+      tabindex="0"
+      @click="router.push('/pages/me/profile')"
+    >
+      <div class="avatar-box">
+        <span class="avatar-text">{{ (profile?.nickname || '旅')[0] }}</span>
+      </div>
+      <div class="profile-info">
+        <strong class="profile-name">{{ profile?.nickname || '晚安旅人' }}</strong>
+        <span class="profile-desc">{{ profile?.anonymousCode || '个人主页' }}</span>
+      </div>
+      <span class="row-arrow" aria-hidden="true">›</span>
+    </div>
+
+    <!-- Stats Row -->
+    <section class="stats-strip" aria-label="真实变化">
+      <div class="stat-unit">
+        <span class="stat-num">{{ activeActions }}</span>
+        <span class="stat-label">现实行动</span>
+      </div>
+      <div class="stat-sep" aria-hidden="true"></div>
+      <div class="stat-unit">
+        <span class="stat-num">{{ completedActions }}</span>
+        <span class="stat-label">行动结果</span>
+      </div>
+      <div class="stat-sep" aria-hidden="true"></div>
+      <div class="stat-unit">
+        <span class="stat-num">{{ archivedCount }}</span>
+        <span class="stat-label">走过的路</span>
+      </div>
+    </section>
+
+    <!-- Current Journey -->
+    <section v-if="currentJourney" class="journey-item" data-testid="me-current-journey">
+      <div class="journey-header">
+        <span class="journey-tag">正在经历</span>
+        <span class="journey-meta">{{ currentJourney.journey.domain }} · {{ currentJourney.journey.stage }}</span>
+      </div>
       <div class="journey-main">
-        <span class="journey-scene" aria-hidden="true"></span>
-        <div>
-          <h2>{{ currentJourney.journey.title }}</h2>
-          <p>{{ currentJourney.journey.domain }} · {{ currentJourney.journey.stage }}</p>
-          <small v-if="intensityChange">主观强度变化</small><strong v-if="intensityChange" class="intensity-change">{{ intensityChange.from }} <i>→</i> {{ intensityChange.to }}</strong>
-          <small v-else>这段经历正在被好好保存</small>
+        <h2 class="journey-title">{{ currentJourney.journey.title }}</h2>
+        <div v-if="intensityChange" class="journey-intensity">
+          <span>主观强度变化</span>
+          <strong class="intensity-values">{{ intensityChange.from }} <i>→</i> {{ intensityChange.to }}</strong>
         </div>
+        <div v-else class="journey-note">状态记录已保存</div>
       </div>
       <button
+        class="journey-btn"
         data-testid="entry-current-journey"
+        type="button"
         @click="router.push(`/pages/journey/detail?id=${currentJourney.journey.id}`)"
       >
         继续看看
       </button>
-    </article>
-    <article v-else class="journey-focus journey-empty" data-testid="me-current-journey-empty">
-      <div class="journey-label"><span aria-hidden="true">⌁</span>现在的旅程</div>
-      <h2>这里还没有正在走的 Journey</h2>
-      <p>需要的时候，从“今晚”写下正在发生的事。</p>
-      <button data-testid="entry-start-journey" @click="router.push('/pages/tonight/index')">回到今晚</button>
-    </article>
-    <section class="reality-metrics" aria-label="真实变化">
-      <article>
-        <span>现实行动</span><strong>{{ activeActions }}</strong><small>正在进行</small>
-      </article>
-      <article>
-        <span>行动结果</span><strong>{{ completedActions }}</strong><small>已经回看</small>
-      </article>
-      <article>
-        <span>走过的路</span><strong>{{ archivedCount }}</strong><small>已归档</small>
-      </article>
     </section>
-    <button class="support-status" data-testid="me-support-status" @click="router.push('/pages/support-plan/index')">
-      <div><span aria-hidden="true">✦</span><strong>我的现实支持</strong></div>
-      <p>{{ supportPlan ? '低谷预案已经准备好，下一次不必从头想。' : '低谷预案还没有准备，之后可以慢慢补上。' }}</p>
-    </button>
-    <section class="self-menu" aria-label="长期恢复入口">
+    <section v-else class="journey-item journey-empty" data-testid="me-current-journey-empty">
+      <div class="journey-header">
+        <span class="journey-tag">当前旅程</span>
+      </div>
+      <div class="journey-main">
+        <h2 class="journey-title">暂无进行中的旅程</h2>
+        <p class="journey-desc">需要时可从今晚记录日常与想法。</p>
+      </div>
       <button
-        v-for="entry in primaryEntries"
-        :key="entry.testId"
-        :data-testid="entry.testId"
-        @click="router.push(entry.route)"
+        class="journey-btn"
+        data-testid="entry-start-journey"
+        type="button"
+        @click="router.push('/pages/tonight/index')"
       >
-        <span class="self-menu-icon" aria-hidden="true">{{ entry.icon }}</span><span><strong>{{ entry.title }}</strong><small>{{ entry.note }}</small></span><em aria-hidden="true">›</em>
+        回到今晚
       </button>
     </section>
-    <section class="past-records">
-      <h2>过去的记录</h2>
-      <div class="self-menu compact">
+
+    <!-- Support Status -->
+    <button
+      class="support-row"
+      data-testid="me-support-status"
+      type="button"
+      @click="router.push('/pages/support-plan/index')"
+    >
+      <span class="support-icon" aria-hidden="true">✦</span>
+      <span class="support-text">
+        <strong class="support-title">我的现实支持</strong>
+        <span class="support-note">{{ supportPlan ? '已配置低谷应对预案，随时可查看。' : '尚未配置低谷预案，建议提前设置。' }}</span>
+      </span>
+      <span class="row-arrow" aria-hidden="true">›</span>
+    </button>
+
+    <!-- Group 1: 功能与工具 -->
+    <section class="group-section">
+      <div class="section-label">功能与工具</div>
+      <div class="group-surface">
         <button
-          v-for="entry in archiveEntries"
+          v-for="entry in primaryEntries"
           :key="entry.testId"
+          class="group-row"
           :data-testid="entry.testId"
+          type="button"
           @click="router.push(entry.route)"
         >
-          <span class="self-menu-icon" aria-hidden="true">{{ entry.icon }}</span><span><strong>{{ entry.title }}</strong><small>{{ entry.note }}</small></span><em aria-hidden="true">›</em>
+          <span class="row-icon" aria-hidden="true">{{ entry.icon }}</span>
+          <span class="row-body">
+            <strong class="row-title">{{ entry.title }}</strong>
+            <small class="row-note">{{ entry.note }}</small>
+          </span>
+          <span class="row-arrow" aria-hidden="true">›</span>
         </button>
       </div>
     </section>
-    <section class="data-cleanup" aria-label="清理个人记录">
+
+    <!-- Group 2: 历史记录 -->
+    <section class="group-section">
+      <div class="section-label">历史记录</div>
+      <div class="group-surface">
+        <button
+          v-for="entry in recordEntries"
+          :key="entry.testId"
+          class="group-row"
+          :data-testid="entry.testId"
+          type="button"
+          @click="router.push(entry.route)"
+        >
+          <span class="row-icon" aria-hidden="true">{{ entry.icon }}</span>
+          <span class="row-body">
+            <strong class="row-title">{{ entry.title }}</strong>
+            <small class="row-note">{{ entry.note }}</small>
+          </span>
+          <span class="row-arrow" aria-hidden="true">›</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Group 3: 设置与支持 -->
+    <section class="group-section">
+      <div class="section-label">设置与支持</div>
+      <div class="group-surface">
+        <button
+          v-for="entry in settingEntries"
+          :key="entry.testId"
+          class="group-row"
+          :data-testid="entry.testId"
+          type="button"
+          @click="router.push(entry.route)"
+        >
+          <span class="row-icon" aria-hidden="true">{{ entry.icon }}</span>
+          <span class="row-body">
+            <strong class="row-title">{{ entry.title }}</strong>
+            <small class="row-note">{{ entry.note }}</small>
+          </span>
+          <span class="row-arrow" aria-hidden="true">›</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Data Cleanup -->
+    <section class="cleanup-section" aria-label="清理个人记录">
       <p v-if="clearMessage" class="cleanup-message" role="status">{{ clearMessage }}</p>
-      <button class="cleanup-trigger" data-testid="btn-clear-data" type="button" @click="clearConfirmOpen = true">清理我的记录</button>
-      <div v-if="clearConfirmOpen" class="cleanup-confirm" data-testid="clear-confirm-panel" role="alertdialog" aria-modal="true" aria-labelledby="clear-confirm-title">
-        <div>
-          <h2 id="clear-confirm-title">确定清理个人记录？</h2>
-          <p>这会从服务端删除你的日记、回信和收藏，无法恢复。</p>
-        </div>
-        <div class="cleanup-actions">
-          <button data-testid="btn-clear-cancel" type="button" :disabled="clearing" @click="clearConfirmOpen = false">暂不清理</button>
-          <button data-testid="btn-clear-confirm" class="cleanup-confirm-action" type="button" :disabled="clearing" @click="clearMyData">{{ clearing ? '正在清理…' : '确认清理' }}</button>
+      <div class="group-surface">
+        <button
+          class="cleanup-trigger"
+          data-testid="btn-clear-data"
+          type="button"
+          @click="clearConfirmOpen = true"
+        >
+          清理我的记录
+        </button>
+      </div>
+
+      <div
+        v-if="clearConfirmOpen"
+        class="dialog-backdrop"
+        @click.self="clearConfirmOpen = false"
+      >
+        <div
+          class="dialog-box"
+          data-testid="clear-confirm-panel"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="clear-confirm-title"
+        >
+          <h2 id="clear-confirm-title" class="dialog-title">确定清理个人记录？</h2>
+          <p class="dialog-desc">这会从服务端删除你的日记、回信和收藏，无法恢复。</p>
+          <div class="dialog-actions">
+            <button
+              class="dialog-btn dialog-cancel"
+              data-testid="btn-clear-cancel"
+              type="button"
+              :disabled="clearing"
+              @click="clearConfirmOpen = false"
+            >
+              暂不清理
+            </button>
+            <button
+              class="dialog-btn dialog-confirm"
+              data-testid="btn-clear-confirm"
+              type="button"
+              :disabled="clearing"
+              @click="clearMyData"
+            >
+              {{ clearing ? '正在清理…' : '确认清理' }}
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -243,343 +377,466 @@ onMounted(load);
 </template>
 
 <style scoped>
-.self-page {
-  display: grid;
+.me-page {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   overflow-x: hidden;
-  padding: 0 16px calc(108px + env(safe-area-inset-bottom));
-  background: #f7f1e7;
-  color: #26382b;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
 }
-.self-hero {
-  position: relative;
-  min-height: 178px;
-  margin: 0 -16px;
-  padding: 22px 24px 28px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(10, 31, 49, 0.26), rgba(15, 39, 54, 0.72)),
-    url('../assets/goodnight/peer/peer-night-hero.png') center 44% / cover no-repeat;
-  color: #fff;
+
+.me-header {
+  padding: 8px 4px 4px;
 }
-.self-hero::after {
-  position: absolute;
-  right: -12px;
-  bottom: -15px;
-  width: 165px;
-  height: 100px;
-  content: '';
-  background: url('../assets/goodnight/illustrations/timeline-tree-scene.png') center/contain no-repeat;
-  opacity: 0.64;
-  pointer-events: none;
-}
-.self-brand {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-}
-.self-hero h1 {
-  position: relative;
-  z-index: 1;
-  margin: 25px 0 5px;
-  font:
-    600 32px/1.2 Georgia,
-    'Noto Serif SC',
-    serif;
-  letter-spacing: 0;
-}
-.self-hero p {
-  position: relative;
-  z-index: 1;
+
+.me-title {
   margin: 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.84);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
 }
-.self-error {
+
+.me-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
+.me-error {
   margin: 0;
-  padding: 10px;
-  border-radius: 10px;
-  background: #fff1ee;
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
   color: var(--gn-danger);
-}
-.journey-focus {
-  display: grid;
-  gap: 10px;
-  margin-top: -27px;
-  z-index: 2;
-  padding: 17px;
-  border: 1px solid rgba(88, 104, 72, 0.17);
-  border-radius: 22px;
-  background: rgba(255, 252, 246, 0.96);
-  box-shadow: 0 14px 32px rgba(39, 55, 40, 0.12);
-}
-.journey-label {
-  display: flex;
-  gap: 8px;
-  align-items: center;
   font-size: 13px;
-  color: #53694f;
 }
-.journey-main {
-  display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
-  gap: 14px;
+
+.profile-row {
+  display: flex;
   align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  cursor: pointer;
 }
-.journey-scene {
-  width: 84px;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: url('../assets/goodnight/illustrations/timeline-home-scene.png') center/cover no-repeat;
+
+.profile-row:active {
+  background: var(--gn-paper-warm);
 }
-.journey-main h2,
-.journey-empty h2 {
-  margin: 0;
-  font:
-    600 19px/1.35 Georgia,
-    'Noto Serif SC',
-    serif;
+
+.avatar-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  flex-shrink: 0;
 }
-.journey-main p,
-.journey-empty p {
-  margin: 4px 0 10px;
-  color: #7d8478;
-  font-size: 12px;
-}
-.journey-main small {
-  display: block;
-  color: #8c8c7f;
-  font-size: 11px;
-}
-.intensity-change {
-  display: block;
-  margin-top: 3px;
-  color: #a27e47;
+
+.avatar-text {
   font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
 }
-.intensity-change i {
-  font-style: normal;
-  color: #7c8b78;
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
 }
-.journey-focus button {
-  justify-self: end;
-  min-height: 36px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 20px;
-  background: #3f624a;
-  color: #fff;
-  font: inherit;
+
+.profile-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  line-height: 1.3;
 }
-.journey-empty {
-  padding: 20px;
+
+.profile-desc {
+  font-size: 12px;
+  color: var(--gn-muted);
+  margin-top: 2px;
+  line-height: 1.3;
 }
-.journey-empty button {
-  justify-self: start;
+
+.stats-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 12px 8px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
 }
-.reality-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.reality-metrics article {
-  display: grid;
-  place-items: center;
-  min-height: 86px;
-  padding: 9px 4px;
-  border: 1px solid rgba(88, 104, 72, 0.14);
-  border-radius: 15px;
-  background: rgba(255, 252, 247, 0.9);
+
+.stat-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
   text-align: center;
 }
-.reality-metrics span,
-.reality-metrics small {
-  font-size: 10px;
-  color: #7d8478;
+
+.stat-num {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  line-height: 1.2;
 }
-.reality-metrics strong {
-  font-size: 24px;
-  font-weight: 500;
-  color: #536e50;
+
+.stat-label {
+  font-size: 11px;
+  color: var(--gn-muted);
+  margin-top: 3px;
 }
-.support-status {
-  display: block;
-  width: 100%;
-  border: 0;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(223, 230, 211, 0.78);
-  color: inherit;
-  text-align: left;
-  font: inherit;
+
+.stat-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--gn-line);
 }
-.support-status div {
+
+.journey-item {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
 }
-.support-status p {
-  margin: 6px 0 0;
-  color: #667263;
+
+.journey-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.journey-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gn-leaf-deep);
+  background: var(--gn-leaf-soft);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.journey-meta {
   font-size: 12px;
-  line-height: 1.55;
+  color: var(--gn-muted);
 }
-.self-menu {
-  display: grid;
-  gap: 7px;
-}
-.self-menu button {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 16px;
-  gap: 10px;
-  align-items: center;
-  min-height: 60px;
-  border: 1px solid rgba(88, 104, 72, 0.13);
-  border-radius: 14px;
-  padding: 8px 12px;
-  background: rgba(255, 252, 247, 0.92);
-  color: #293b2e;
-  text-align: left;
-  font: inherit;
-}
-.self-menu-icon {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: #e5eadb;
-  color: #587054;
-}
-.self-menu button > span:nth-child(2) {
-  display: grid;
+
+.journey-main {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
 }
-.self-menu strong {
+
+.journey-title {
+  margin: 0;
   font-size: 15px;
   font-weight: 600;
+  color: var(--gn-ink);
+  line-height: 1.35;
 }
-.self-menu small {
-  font-size: 10px;
-  color: #858b82;
-}
-.self-menu em {
-  font-size: 22px;
-  font-style: normal;
-  color: #788476;
-}
-.past-records h2 {
-  margin: 3px 0 9px;
-  font:
-    600 16px Georgia,
-    'Noto Serif SC',
-    serif;
-}
-.self-menu.compact button {
-  min-height: 53px;
-  grid-template-columns: 34px minmax(0, 1fr) 16px;
-}
-.self-menu.compact .self-menu-icon {
-  width: 30px;
-  height: 30px;
-}
-.data-cleanup {
-  display: grid;
-  gap: 9px;
-  padding: 4px 0 14px;
-}
-.cleanup-trigger {
-  min-height: 48px;
-  border: 1px solid rgba(202, 93, 79, 0.42);
-  border-radius: 14px;
-  background: rgba(255, 247, 244, 0.92);
-  color: #bc5548;
-  font: inherit;
-}
-.cleanup-message {
+
+.journey-desc {
   margin: 0;
-  padding: 9px 11px;
-  border-radius: 12px;
-  background: #edf4e5;
-  color: #4e6d44;
   font-size: 12px;
+  color: var(--gn-muted);
+  line-height: 1.4;
+}
+
+.journey-intensity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.intensity-values {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-leaf);
+}
+
+.intensity-values i {
+  font-style: normal;
+  color: var(--gn-muted);
+  font-weight: 400;
+}
+
+.journey-note {
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.journey-btn {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.support-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  text-align: left;
+  cursor: pointer;
+}
+
+.support-row:active {
+  background: var(--gn-paper-warm);
+}
+
+.support-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 15px;
+  color: var(--gn-gold);
+  flex-shrink: 0;
+}
+
+.support-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.support-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gn-ink);
+  line-height: 1.3;
+}
+
+.support-note {
+  font-size: 12px;
+  color: var(--gn-muted);
+  margin-top: 2px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.section-label {
+  padding: 8px 4px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gn-muted);
+}
+
+.group-surface {
+  background: var(--gn-paper);
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  overflow: hidden;
+}
+
+.group-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--gn-ink);
+  cursor: pointer;
+}
+
+.group-row + .group-row {
+  border-top: 1px solid var(--gn-line);
+}
+
+.group-row:active {
+  background: var(--gn-paper-warm);
+}
+
+.row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 12px;
+  font-size: 15px;
+  color: var(--gn-muted);
+  flex-shrink: 0;
+}
+
+.row-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.row-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gn-ink);
+  line-height: 1.3;
+}
+
+.row-note {
+  font-size: 12px;
+  color: var(--gn-muted);
+  margin-top: 2px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-arrow {
+  margin-left: 8px;
+  font-size: 18px;
+  color: var(--gn-muted);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.cleanup-section {
+  margin-top: 4px;
+}
+
+.cleanup-trigger {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--gn-danger);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+}
+
+.cleanup-trigger:active {
+  background: var(--gn-paper-warm);
+}
+
+.cleanup-message {
+  margin: 0 0 8px;
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dialog-box {
+  box-sizing: border-box;
+  width: min(340px, 100%);
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  padding: 20px;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  line-height: 1.35;
+}
+
+.dialog-desc {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted);
   line-height: 1.5;
 }
-.cleanup-confirm {
-  position: fixed;
-  bottom: calc(84px + env(safe-area-inset-bottom));
-  left: 50%;
-  z-index: 30;
-  display: grid;
-  gap: 12px;
-  width: min(398px, calc(100vw - 32px));
-  padding: 15px;
-  border: 1px solid rgba(202, 93, 79, 0.24);
-  border-radius: 16px;
-  background: rgba(255, 251, 248, 0.98);
-  box-shadow: 0 12px 26px rgba(75, 54, 45, 0.1);
-  transform: translateX(-50%);
-}
-.cleanup-confirm h2,
-.cleanup-confirm p {
-  margin: 0;
-}
-.cleanup-confirm h2 {
-  font-size: 16px;
-}
-.cleanup-confirm p {
-  margin-top: 5px;
-  color: #72766e;
-  font-size: 12px;
-  line-height: 1.55;
-}
-.cleanup-actions {
+
+.dialog-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 18px;
 }
-.cleanup-actions button {
-  min-height: 39px;
-  border: 1px solid rgba(88, 104, 72, 0.19);
-  border-radius: 11px;
-  background: #fffdf7;
-  color: #53694f;
-  font: inherit;
+
+.dialog-btn {
+  min-height: 38px;
+  border-radius: var(--gn-radius-small);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
   font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
 }
-.cleanup-actions .cleanup-confirm-action {
-  border-color: #bc5548;
-  background: #bc5548;
+
+.dialog-btn:disabled {
+  opacity: 0.5;
+}
+
+.dialog-confirm {
+  border-color: var(--gn-danger);
+  background: var(--gn-danger);
   color: #fff;
 }
-.cleanup-actions button:disabled {
-  opacity: 0.62;
-}
+
 @media (max-width: 374px) {
-  .self-page {
+  .me-page {
     padding-right: 12px;
     padding-left: 12px;
   }
-  .self-hero {
-    margin-right: -12px;
-    margin-left: -12px;
-  }
-  .journey-main {
-    grid-template-columns: 72px minmax(0, 1fr);
-  }
-  .journey-scene {
-    width: 70px;
-  }
-  .reality-metrics article {
-    min-height: 80px;
-  }
-  .self-menu button {
-    padding-right: 9px;
-    padding-left: 9px;
-  }
-}
-.self-hero::after {
-  display: none;
 }
 </style>
