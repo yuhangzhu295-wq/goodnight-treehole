@@ -1071,7 +1071,7 @@ export class Batch1PersistenceService {
         structuredResult: params.structuredResult === undefined ? Prisma.JsonNull : params.structuredResult,
         errorMessage: params.errorMessage ?? null,
         durationMs: params.durationMs ?? 0,
-        retryCount: params.retryCount ?? 0,
+        retryCount: params.retryCount !== undefined ? params.retryCount : existing.retryCount,
         fallbackUsed: params.fallbackUsed ?? false,
         ...(providerId ? { providerId } : {}),
         ...(params.modelName !== undefined ? { modelName: params.modelName } : {}),

@@ -5689,6 +5689,7 @@ export class StoreService implements OnModuleInit {
     promptSummary: string;
     simulatePrimaryFail?: boolean;
     simulateBackupFail?: boolean;
+    retryCount?: number;
   }) {
     const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
     const route =
@@ -5715,7 +5716,7 @@ export class StoreService implements OnModuleInit {
       promptVersion: route?.promptVersion,
       result: '',
       durationMs: 0,
-      retryCount: 0,
+      retryCount: input.retryCount ?? 0,
       traceJson: [
         {
           at: now(),
@@ -5747,6 +5748,7 @@ export class StoreService implements OnModuleInit {
         status: 'queued',
         promptSummary: job.promptSummary,
         promptVersion: job.promptVersion,
+        retryCount: job.retryCount,
         traceJson: job.traceJson,
         createdAt: job.createdAt,
       });

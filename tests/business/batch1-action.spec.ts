@@ -1441,4 +1441,126 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       await freshPrisma.$disconnect();
     }
   });
+
+  it('P0-CheckinOwner discriminating test: POST /actions/:id/checkin enforces caller ownership, positive control, and anonymous fallback', async () => {
+    const server = app.getHttpServer();
+    const store = app.get(StoreService);
+    const userA = store.getDemoUserId();
+    const userB = 'user_guest';
+    const journeyAId = `act_own_ja_${Date.now()}`;
+    const journeyBId = `act_own_jb_${Date.now()}`;
+    const actionAId = `act_own_a_${Date.now()}`;
+    const actionBId = `act_own_b_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // 1. Ensure userB exists in DB
+      await freshPrisma.user.upsert({
+        where: { id: userB },
+        create: {
+          id: userB,
+          openid: `openid_${userB}`,
+          nickname: 'User B Guest',
+          anonymousCode: `code_${userB}`,
+          status: 'normal',
+          createdAt: new Date(),
+        },
+        update: {},
+      });
+
+      // 2. Create User A's journey and action
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyAId,
+          userId: userA,
+          title: 'User A 行动旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actionAId,
+          journeyId: journeyAId,
+          userId: userA,
+          title: 'User A 私有行动',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 3. Create User B's journey and action
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyBId,
+          userId: userB,
+          title: 'User B 行动旅程',
+          domain: '工作',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actionBId,
+          journeyId: journeyBId,
+          userId: userB,
+          title: 'User B 私有行动',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // --- Cross-user write: User B attempting to check in User A's action -> MUST return 404 ---
+      const crossCheckinRes = await request(server)
+        .post(`/api/v1/actions/${actionAId}/checkin`)
+        .set('x-goodnight-user-id', userB)
+        .send({ status: 'completed', reflection: '越权打卡尝试' });
+      expect(crossCheckinRes.status).toBe(404);
+      expect(crossCheckinRes.body.message).toContain('行动不存在');
+
+      // Verify in DB that actionA has NOT been modified by User B
+      const actionABefore = await freshPrisma.actionCommitment.findUnique({ where: { id: actionAId } });
+      expect(actionABefore?.status).toBe('active');
+
+      // --- Positive control: Legitimate owner checks in own action -> 200/201 with completed checkin ---
+      const ownerCheckinRes = await request(server)
+        .post(`/api/v1/actions/${actionAId}/checkin`)
+        .set('x-goodnight-user-id', userA)
+        .send({ status: 'completed', reflection: '合法所有者打卡成功' });
+      expect([200, 201]).toContain(ownerCheckinRes.status);
+      expect(ownerCheckinRes.body.checkin.status).toBe('completed');
+      expect(ownerCheckinRes.body.checkin.reflection).toBe('合法所有者打卡成功');
+
+      const actionAAfter = await freshPrisma.actionCommitment.findUnique({ where: { id: actionAId } });
+      expect(actionAAfter?.status).toBe('completed');
+
+      // Positive control for User B checking in User B's action
+      const userBCheckinRes = await request(server)
+        .post(`/api/v1/actions/${actionBId}/checkin`)
+        .set('x-goodnight-user-id', userB)
+        .send({ status: 'completed', reflection: 'User B 打卡成功' });
+      expect([200, 201]).toContain(userBCheckinRes.status);
+      expect(userBCheckinRes.body.checkin.status).toBe('completed');
+
+      // --- Anonymous case: with no x-goodnight-user-id header at all ---
+      // Behavior rule: The runtime defaults anonymous callers to demoUserId ('user_demo').
+      // Therefore, checking in an action owned by userB with NO header evaluates as user_demo -> MUST return 404!
+      // It must never mistakenly update userB's action.
+      const anonCheckinB = await request(server)
+        .post(`/api/v1/actions/${actionBId}/checkin`)
+        .send({ status: 'completed', reflection: '匿名冒名打卡尝试' });
+      expect(anonCheckinB.status).toBe(404);
+      expect(anonCheckinB.body.message).toContain('行动不存在');
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });

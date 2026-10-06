@@ -3013,6 +3013,7 @@ export class AdminController {
       taskType: job.taskType,
       style: job.style,
       promptSummary: job.promptSummary,
+      retryCount: job.retryCount + 1,
     });
     retry.retryCount = job.retryCount + 1;
     if (DIRECT_DB_MODELS.AIJob) {

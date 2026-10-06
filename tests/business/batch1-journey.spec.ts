@@ -1076,4 +1076,214 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       await checkPrisma.$disconnect();
     }
   });
+
+  it('8. Discriminating test: GET /journeys/:id, /fingerprint, /timeline, /actions and POST /journeys/:id/actions enforce caller ownership, positive controls, and anonymous fallback', async () => {
+    const server = app.getHttpServer();
+    const store = app.get(StoreService);
+    const userA = store.getDemoUserId();
+    const userB = 'user_guest';
+    const journeyAId = `j_owner_a_${Date.now()}`;
+    const journeyBId = `j_owner_b_${Date.now()}`;
+    const snapAId = `snap_owner_a_${Date.now()}`;
+    const snapBId = `snap_owner_b_${Date.now()}`;
+    const upAId = `up_owner_a_${Date.now()}`;
+    const upBId = `up_owner_b_${Date.now()}`;
+    const actAId = `act_owner_a_${Date.now()}`;
+    const actBId = `act_owner_b_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // 1. Ensure User B exists in DB
+      await freshPrisma.user.upsert({
+        where: { id: userB },
+        create: {
+          id: userB,
+          openid: `openid_${userB}`,
+          nickname: 'User B Guest',
+          anonymousCode: `code_${userB}`,
+          status: 'normal',
+          createdAt: new Date(),
+        },
+        update: {},
+      });
+
+      // 2. Create User A's journey and child rows
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyAId,
+          userId: userA,
+          title: 'User A专属旅程',
+          domain: '生活',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      await freshPrisma.situationSnapshot.create({
+        data: {
+          id: snapAId,
+          journeyId: journeyAId,
+          facts: ['User A私密事实'],
+          feelings: ['真实感受'],
+          needs: [],
+          constraints: [],
+          risks: [],
+          confidence: 'user_confirmed',
+          domain: '生活',
+        },
+      });
+      await freshPrisma.journeyUpdate.create({
+        data: {
+          id: upAId,
+          journeyId: journeyAId,
+          userId: userA,
+          kind: 'created',
+          content: 'User A时间线更新',
+          createdAt: new Date(),
+        },
+      });
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actAId,
+          journeyId: journeyAId,
+          userId: userA,
+          title: 'User A行动项',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 3. Create User B's journey and child rows
+      await freshPrisma.lifeJourney.create({
+        data: {
+          id: journeyBId,
+          userId: userB,
+          title: 'User B专属旅程',
+          domain: '工作',
+          status: 'active',
+          stage: 'acting',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      await freshPrisma.situationSnapshot.create({
+        data: {
+          id: snapBId,
+          journeyId: journeyBId,
+          facts: ['User B私密事实'],
+          feelings: ['User B感受'],
+          needs: [],
+          constraints: [],
+          risks: [],
+          confidence: 'user_confirmed',
+          domain: '工作',
+        },
+      });
+      await freshPrisma.journeyUpdate.create({
+        data: {
+          id: upBId,
+          journeyId: journeyBId,
+          userId: userB,
+          kind: 'created',
+          content: 'User B时间线更新',
+          createdAt: new Date(),
+        },
+      });
+      await freshPrisma.actionCommitment.create({
+        data: {
+          id: actBId,
+          journeyId: journeyBId,
+          userId: userB,
+          title: 'User B行动项',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // --- Cross-user read: User B attempting to read User A's journey resources -> MUST 404 ---
+      const bReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', userB);
+      expect(bReadJ.status).toBe(404);
+      expect(bReadJ.body.message).toContain('旅程不存在或无权访问');
+
+      const bReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', userB);
+      expect(bReadFp.status).toBe(404);
+      expect(bReadFp.body.message).toContain('旅程不存在或无权访问');
+
+      const bReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', userB);
+      expect(bReadTl.status).toBe(404);
+      expect(bReadTl.body.message).toContain('旅程不存在或无权访问');
+
+      const bReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', userB);
+      expect(bReadAct.status).toBe(404);
+      expect(bReadAct.body.message).toContain('旅程不存在或无权访问');
+
+      // --- Cross-user write: User B attempting to create action on User A's journey -> MUST 404 ---
+      const bWriteAct = await request(server)
+        .post(`/api/v1/journeys/${journeyAId}/actions`)
+        .set('x-goodnight-user-id', userB)
+        .send({ title: '非法跨用户行动' });
+      expect(bWriteAct.status).toBe(404);
+      expect(bWriteAct.body.message).toContain('旅程不存在或无权访问');
+
+      // --- Positive control: Legitimate owner gets 200/201 on all routes ---
+      const aReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', userA);
+      expect(aReadJ.status).toBe(200);
+      expect(aReadJ.body.item.journey.id).toBe(journeyAId);
+      expect(aReadJ.body.item.snapshot.facts).toContain('User A私密事实');
+
+      const aReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', userA);
+      expect(aReadFp.status).toBe(200);
+      expect(aReadFp.body.item.journey.id).toBe(journeyAId);
+
+      const aReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', userA);
+      expect(aReadTl.status).toBe(200);
+      expect(aReadTl.body.items.some((u: any) => u.id === upAId)).toBe(true);
+
+      const aReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', userA);
+      expect(aReadAct.status).toBe(200);
+      expect(aReadAct.body.items.some((a: any) => a.id === actAId)).toBe(true);
+
+      const aWriteAct = await request(server)
+        .post(`/api/v1/journeys/${journeyAId}/actions`)
+        .set('x-goodnight-user-id', userA)
+        .send({ title: '合法所有者行动' });
+      expect(aWriteAct.status).toBe(201);
+      expect(aWriteAct.body.item.title).toBe('合法所有者行动');
+
+      // Positive control for User B accessing their own journey
+      const bReadOwnJ = await request(server).get(`/api/v1/journeys/${journeyBId}`).set('x-goodnight-user-id', userB);
+      expect(bReadOwnJ.status).toBe(200);
+      expect(bReadOwnJ.body.item.journey.id).toBe(journeyBId);
+
+      // --- Anonymous case: with no x-goodnight-user-id header at all ---
+      // Behavior rule: The runtime defaults anonymous callers to demoUserId ('user_demo').
+      // Therefore, accessing journeyA (owned by demo user) succeeds (200),
+      // while accessing journeyB (owned by user_guest) MUST return 404 (never silently leaked to anonymous caller).
+      const anonReadA = await request(server).get(`/api/v1/journeys/${journeyAId}`);
+      expect(anonReadA.status).toBe(200);
+
+      const anonReadB = await request(server).get(`/api/v1/journeys/${journeyBId}`);
+      expect(anonReadB.status).toBe(404);
+      expect(anonReadB.body.message).toContain('旅程不存在或无权访问');
+
+      const anonFpB = await request(server).get(`/api/v1/journeys/${journeyBId}/fingerprint`);
+      expect(anonFpB.status).toBe(404);
+
+      const anonTlB = await request(server).get(`/api/v1/journeys/${journeyBId}/timeline`);
+      expect(anonTlB.status).toBe(404);
+
+      const anonActB = await request(server).get(`/api/v1/journeys/${journeyBId}/actions`);
+      expect(anonActB.status).toBe(404);
+
+      const anonWriteB = await request(server)
+        .post(`/api/v1/journeys/${journeyBId}/actions`)
+        .send({ title: '匿名写入尝试' });
+      expect(anonWriteB.status).toBe(404);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });

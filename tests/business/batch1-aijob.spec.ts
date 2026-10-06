@@ -1187,4 +1187,70 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       await freshPrisma.$disconnect();
     }
   });
+
+  it('11. Discriminating test: Admin POST /ai/jobs/:id/retry awaits asynchronous commit and creates retried job with incremented retryCount', async () => {
+    const server = app.getHttpServer();
+    const store = app.get(StoreService);
+    const testUserId = store.getDemoUserId();
+    const originalJobId = `job_orig_retry_${Date.now()}`;
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      // 1. Ensure provider exists in DB
+      await freshPrisma.aIProvider.upsert({
+        where: { id: 'provider_template' },
+        create: {
+          id: 'provider_template',
+          name: '模板提供方',
+          type: 'template',
+          baseUrl: 'local://template',
+          modelName: 'safe-template',
+          providerKind: 'template',
+          usageTags: [],
+        },
+        update: {},
+      });
+
+      // 2. Create original AI job directly in PostgreSQL
+      await freshPrisma.aIJob.create({
+        data: {
+          id: originalJobId,
+          userId: testUserId,
+          contentId: `content_${originalJobId}`,
+          contentType: 'Situation',
+          jobType: '处境分析',
+          taskType: 'situation_analysis',
+          style: 'rational',
+          providerId: 'provider_template',
+          modelName: 'safe-template',
+          status: 'failed',
+          promptSummary: '重试前失败任务',
+          retryCount: 0,
+          durationMs: 150,
+          traceJson: [],
+          createdAt: new Date(),
+        },
+      });
+
+      // 3. Admin calls retry via API: POST /api/admin/v1/ai/jobs/:id/retry
+      // This MUST await awaitJobCommit(retry.id) internally so updateJobRetryCount does not race
+      const retryRes = await request(server)
+        .post(`/api/admin/v1/ai/jobs/${originalJobId}/retry`)
+        .set('Authorization', auth(adminToken))
+        .expect(201);
+
+      expect(retryRes.body.jobId).toBeDefined();
+      const newJobId = retryRes.body.jobId;
+      expect(retryRes.body.item.retryCount).toBe(1);
+
+      // 4. Verify in PostgreSQL that the retried row exists with incremented retryCount = 1
+      const retriedDbJob = await freshPrisma.aIJob.findUnique({ where: { id: newJobId } });
+      expect(retriedDbJob).not.toBeNull();
+      expect(retriedDbJob?.id).toBe(newJobId);
+      expect(retriedDbJob?.retryCount).toBe(1);
+      expect(retriedDbJob?.userId).toBe(testUserId);
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+  });
 });

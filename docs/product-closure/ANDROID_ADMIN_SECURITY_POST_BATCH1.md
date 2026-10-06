@@ -15,7 +15,10 @@ During verification of the migrated storage surfaces, two genuine migration-caus
 
 ### Defect 1: Admin AI Job Retry 500 Race Condition (`AIJob`)
 - **Root Cause**: In Batch 1 Sub-batch C, AIJob writes moved from synchronous in-memory store flushes to asynchronous PostgreSQL transactions (`queueAiJob` tracked in `pendingJobCommits`). In `AdminController.retryJob` (`apps/api/src/controllers.ts:3012`), `this.batch1Persistence.updateJobRetryCount(retry.id, retry.retryCount)` was called immediately after `queueAiJob` without awaiting `awaitJobCommit(retry.id)`. The database update attempted to modify a row that had not yet finished its initial `INSERT`, throwing `PrismaClientKnownRequestError: Record to update not found` (HTTP 500).
-- **Fix**: Added `await this.store.awaitJobCommit(retry.id);` prior to `updateJobRetryCount` in `AdminController.retryJob`.
+- **Fix**:
+  1. In `AdminController.retryJob`: added `await this.store.awaitJobCommit(retry.id);` prior to `updateJobRetryCount`.
+  2. In `StoreService.queueAiJob` (`apps/api/src/store.service.ts`): allowed `retryCount?: number` to be passed into `queueAiJob` and forwarded into `createAiJob`, ensuring the row is created with the correct retry count from the outset.
+  3. In `Batch1PersistenceService.updateJobTerminal` (`apps/api/src/batch1-persistence.service.ts:1074`): preserved `existing.retryCount` when `params.retryCount` is undefined (`retryCount: params.retryCount !== undefined ? params.retryCount : existing.retryCount`), preventing subsequent terminal updates from resetting the retry count to 0.
 - **Evidence**:
   - *Before*: `POST /api/admin/v1/ai/jobs/:id/retry` returned `500 Internal Server Error` with `Record to update not found`.
   - *After*: `POST /api/admin/v1/ai/jobs/:id/retry` returns `201 Created` with new queued job ID (`job_ce5ba5e64b`), persisted in PostgreSQL with `retryCount = 1`.
@@ -29,7 +32,37 @@ During verification of the migrated storage surfaces, two genuine migration-caus
 
 ---
 
-## 2. Verification Matrix
+## 2. Discriminating Regression Tests & Mutation Proofs
+
+To prevent these defects from returning, dedicated discriminating tests were added to the permanent regression test suite, accompanied by mutation testing where each fix was temporarily reverted to prove test sensitivity.
+
+### 2.1 Test Implementations Added
+
+1. **`tests/business/batch1-journey.spec.ts:1080` (Test 8)**:
+   - **Cross-user read**: As `user_guest`, calls `GET /journeys/:id`, `GET /journeys/:id/fingerprint`, `GET /journeys/:id/timeline`, and `GET /journeys/:id/actions` on a journey owned by `user_demo` -> all assert **404 Not Found** (`"旅程不存在或无权访问"`).
+   - **Cross-user write**: As `user_guest`, calls `POST /journeys/:id/actions` on `user_demo`'s journey -> asserts **404 Not Found**.
+   - **Positive controls**: As `user_demo` (owner), the same read routes return **200 OK** with real journey/snapshot/action data, and `POST /actions` returns **201 Created**. User B reading their own journey returns **200 OK**.
+   - **Anonymous case**: Requests with no `x-goodnight-user-id` header resolve to the anonymous demo session (`user_demo`). Asserted that accessing `user_demo`'s journey succeeds (200), whereas accessing `user_guest`'s journey without a header returns **404 Not Found** across all read and write endpoints, guaranteeing that private user data is never leaked to unauthenticated callers.
+
+2. **`tests/business/batch1-action.spec.ts:1447` (P0-CheckinOwner)**:
+   - **Cross-user write**: As `user_guest`, calls `POST /api/v1/actions/:id/checkin` on `user_demo`'s action -> asserts **404 Not Found** (`"行动不存在"`), and confirms in PostgreSQL that the action remains `active`.
+   - **Positive controls**: As `user_demo` (owner), `POST /actions/:id/checkin` succeeds (200/201), commits the reflection, and transitions the action to `completed`. User B checking in User B's action succeeds.
+   - **Anonymous case**: Calling `POST /actions/:id/checkin` on an action owned by `user_guest` with no header evaluates as `user_demo` and returns **404 Not Found**.
+
+3. **`tests/business/batch1-aijob.spec.ts:1193` (Test 11)**:
+   - **AI Retry Commit & Race Check**: Admin calls `POST /api/admin/v1/ai/jobs/:id/retry` with admin token on a failed job (`retryCount: 0`). Asserts response **201 Created**, returns `jobId`, and verifies in PostgreSQL that the newly created job row exists with incremented `retryCount: 1`.
+
+### 2.2 Mutation Testing Observations
+
+| Mutation Under Test | Modification Applied | Observed Test Failure | Restoration Result |
+|---|---|---|---|
+| **Mutation 1**: Journey Read Header Forwarding | Reverted `GET /journeys/:id` in `controllers.ts:378` to unpatched `journey(id)` without header forwarding | `tests/business/batch1-journey.spec.ts:1208`<br>`AssertionError: expected 200 to be 404`<br>(User B reading User A's journey incorrectly returned 200) | Restored header forwarding -> **PASS** (13/13 tests) |
+| **Mutation 2**: Action Check-in Header Forwarding | Reverted `POST /actions/:id/checkin` in `controllers.ts:526` to unpatched without header forwarding | `tests/business/batch1-action.spec.ts:1526`<br>`AssertionError: expected 201 to be 404`<br>(User B checking in User A's action incorrectly returned 201) | Restored header forwarding -> **PASS** (16/16 tests) |
+| **Mutation 3**: AI Job Retry Commit Await | Removed `await this.store.awaitJobCommit(retry.id)` in `controllers.ts:3019` | `tests/business/batch1-aijob.spec.ts:1240`<br>`Error: expected 201 "Created", got 500 "Internal Server Error"`<br>`PrismaClientKnownRequestError: Record to update not found` | Restored `awaitJobCommit` -> **PASS** (11/11 tests) |
+
+---
+
+## 3. Verification Matrix
 
 | # | Domain | Verification Item | Target Models | Execution Surface | Concrete Action / Command | Observed Result | Status | Raw Evidence Reference |
 |---|---|---|---|---|---|---|---|---|
@@ -48,112 +81,42 @@ During verification of the migrated storage surfaces, two genuine migration-caus
 | 13 | Security Boundary | Archiving Consent Enforcement | `LifeJourney`, `PrivacySetting` | API | `PUT /settings/privacy` (`allowJourneyArchiveRetention=false`) -> `PATCH /journeys/:id` (`status='archived'`) | Request refused with **HTTP 403 Forbidden**: `"请先在隐私设置中允许保留旅程归档"`. Unconsented archiving strictly prevented. | **PASS** | Response HTTP 403, error message verified, DB status unchanged |
 | 14 | Security Boundary | Notification Ownership Isolation | `UserNotification` | API | Direct DB insert `notifA` (`user_demo`) and `notifB` (`user_guest`) -> `GET /notifications` as `user_guest` -> `PATCH /notifications/:notifA/read` as `user_guest` | `user_guest` list only contains `notifB`, zero traces of `notifA`. Marking `notifA` as read as `user_guest` returns **HTTP 404** Not Found. | **PASS** | DB query confirms `notifA` remained unread; HTTP 404 returned |
 | 15 | Security Boundary | Safety Event Reads are Admin-Only | `SafetyEvent` | API | `GET /api/admin/v1/safety/events` (unauthenticated / forged token) & `GET /api/v1/safety/events` | Unauthenticated -> **HTTP 401**. Forged token -> **HTTP 401**. Public path -> **HTTP 404**. Only valid admin token returns 200. | **PASS** | HTTP 401 / 401 / 404 recorded |
-| 16 | Security Boundary | Action Commitment & Check-In Ownership | `ActionCommitment`, `OutcomeCheckin` | API | `POST /api/v1/actions/:id/checkin` as `user_guest` on `user_demo` action | Request refused with **HTTP 404** Not Found (`"行动承诺不存在或无权访问"`). Cross-user check-in blocked. | **PASS** | Response HTTP 404 recorded, outcome checkin unmutated |
+| 16 | Security Boundary | Action Commitment & Check-In Ownership | `ActionCommitment`, `OutcomeCheckin` | API | `POST /api/v1/actions/:id/checkin` as `user_guest` on `user_demo` action | Request refused with **HTTP 404** Not Found (`"行动不存在"`). Cross-user check-in blocked. | **PASS** | Response HTTP 404 recorded, outcome checkin unmutated |
 
 ---
 
-## 3. Raw Evidence & Database Query Verification
+## 4. Full Suite Re-Verification & Baseline Comparison
 
-### 3.1 Database Aggregate Consistency
-SQL executed against container `goodnight-treehole-postgres-1` (port `15432`) at snapshot:
-```sql
-SELECT 'TotalJourneys' AS metric, COUNT(*) FROM "LifeJourney"
-UNION ALL
-SELECT 'ActiveJourneys', COUNT(*) FROM "LifeJourney" WHERE status = 'active'
-UNION ALL
-SELECT 'ActiveActions', COUNT(*) FROM "ActionCommitment" WHERE status = 'active'
-UNION ALL
-SELECT 'DueCheckins', COUNT(*) FROM "OutcomeCheckin" WHERE status = 'pending'
-UNION ALL
-SELECT 'HighRiskSafety', COUNT(*) FROM "SafetyEvent" WHERE level = 'high'
-UNION ALL
-SELECT 'UnreadNotifications', COUNT(*) FROM "UserNotification" WHERE status = 'unread';
-```
-Returned:
-```
-       metric        | count 
----------------------+-------
- TotalJourneys       |   101
- ActiveJourneys      |    92
- ActiveActions       |     5
- DueCheckins         |     5
- HighRiskSafety      |    32
- UnreadNotifications |    31
-```
-Admin API `/api/admin/v1/dashboard/overview` returned:
-```json
-{
-  "journeySummary": {
-    "total": 101,
-    "active": 92,
-    "actions": 5,
-    "dueCheckins": 5,
-    "safetyEvents": 32,
-    "unreadNotifications": 31
-  }
-}
-```
-**Variance**: 0 across all six aggregate metrics.
+### 4.1 Batch 1 Specs + Persistence Durability
+Command executed under isolated test database leases (`scripts/test-runner.ts`):
+- `tests/business/batch1-action.spec.ts`: **16 passed / 0 failed** (16)
+- `tests/business/batch1-aijob.spec.ts`: **11 passed / 0 failed** (11)
+- `tests/business/batch1-journey.spec.ts`: **13 passed / 0 failed** (13)
+- `tests/business/batch1-safetyevent.spec.ts`: **5 passed / 0 failed** (5)
+- `tests/business/batch1-usernotification.spec.ts`: **6 passed / 0 failed** (6)
+- `tests/business/persistence-durability.spec.ts`: **2 passed / 0 failed** (2)
+**Total Batch 1 Pass Rate**: **53 passed / 0 failed (53)**.
 
-### 3.2 AuditLog Survival (D1 Guarantee)
-After handling safety event `safety_handle_1791252324391`:
-```sql
-SELECT id, "adminUserId", action, "resourceType", "resourceId", "createdAt" 
-FROM "AuditLog" 
-WHERE "resourceId" = 'safety_handle_1791252324391';
-```
-Returned:
-```
-        id        | adminUserId |        action        | resourceType |           resourceId           |        createdAt        
-------------------+-------------+----------------------+--------------+--------------------------------+-------------------------
- audit_f75d311fa8 | admin_1     | SAFETY_EVENT_HANDLE  | SafetyEvent  | safety_handle_1791252324391    | 2026-10-06 02:05:24.402
-```
-Subsequent state persists and memory flushes did NOT delete this row, confirming absence sweeps remain disabled for `AuditLog`.
+### 4.2 Full Business Suite Baseline Comparison
+Command: `pnpm test:business` (28 spec files, per-file database lease isolation).
+- **Result**: 20 passed, 8 failed (87 passed tests, 9 failed tests).
+- **Comparison with `docs/architecture/TEST_BASELINE_FAILURES.md`**:
+  The baseline recorded 12 failed tests across 10 files. The current suite has 9 failed tests across 8 files.
+  - Three previously failing baseline tests now pass:
+    1. `first-batch-core-loop.spec.ts` (pauses ordinary routing for safety event, persists real-world handoff): **PASS**
+    2. `persistence-durability.spec.ts` (Defect 1: PATCH /api/v1/journeys/:id persists title/summary): **PASS**
+    3. `goodnight-2-incremental.spec.ts` (delivers overdue follow-up through Redis/BullMQ): **PASS**
+  - The remaining 9 failing tests are all in the pre-existing baseline failing set caused by empty `DAPI_API_KEY` (`AI_LIVE_BLOCKED_EXTERNAL`). Zero new failures were introduced.
+- **Deadlock (`40P01`) Count**: Exactly **1** across the entire 28-file run, matching the intentional mutation test in `tests/business/batch1-action.spec.ts:1208` (`P0-Lock mutation check: inverting lock order between Action and Journey reproduces 40P01 deadlock`). Zero deadlocks occurred in business paths.
 
-### 3.3 Safety Event Detachment on Journey Archive
-After deleting archived journey `journey_f3f64d5147`:
-```sql
-SELECT id, "userId", title FROM "LifeJourney" WHERE id = 'journey_f3f64d5147';
--- (0 rows)
-
-SELECT id, "userId", "journeyId", level, status FROM "SafetyEvent" WHERE id = 'safety_422cb70b9b';
---        id         |  userId   | journeyId | level | status 
--- ------------------+-----------+-----------+-------+--------
---  safety_422cb70b9b| user_demo |           | high  | open
-```
-The parent `LifeJourney` was deleted, but `SafetyEvent` survived with `journeyId IS NULL`.
+### 4.3 Static Checks
+- `pnpm typecheck`: Clean across all five workspace packages (`apps/api`, `apps/admin`, `apps/mp`, `packages/shared-types`, `packages/api-sdk`).
+- `pnpm lint`: Clean (0 errors, 9 existing warnings).
 
 ---
 
-## 4. UI Screenshot Registry
+## 5. Scope & Blocked External Status
 
-All visual artifacts are saved in `artifacts/verification/screenshots/`:
-- `01_mp_journey_detail.png` — Mini-Program Journey Detail page rendering confirmed facts and needs.
-- `02_mp_safety_support.png` — Mini-Program Safety Support page (`/pages/safety/index`) on high-risk journey.
-- `03_admin_safety_events.png` — Admin Back Office Safety Events table (`/safety/events`) displaying open event.
-- `04_mp_action_center.png` — Mini-Program Action Center (`/pages/action/index`) rendering completed action.
-- `05_mp_notifications_list.png` — Mini-Program Notification Center (`/pages/notifications/index`) showing unread card.
-- `06_mp_notif_target_deep_link.png` — Target Journey Detail page navigated via notification card click.
-- `07_mp_ai_degradation_notice.png` — Mini-Program Journey Detail page rendering `AiDegradationNotice` with `☂`.
-- `08_admin_journeys_list.png` — Admin Journeys table (`/experience/journeys`) with search filter.
-- `09_admin_journey_detail_drawer.png` — Admin Journey detail drawer showing snapshot & updates.
-- `10_admin_actions_list.png` — Admin Actions table (`/experience/actions`).
-- `11_admin_checkins_list.png` — Admin Check-ins table (`/experience/checkins`).
-- `12_admin_safety_handled.png` — Admin Safety Events table showing handled event.
-- `13_admin_ai_jobs_list.png` — Admin AI Jobs table (`/ai/jobs`) with task list and execution metrics.
-- `14_admin_ai_jobs_retry.png` — Admin AI Jobs detail drawer after initiating retry.
-- `15_admin_notifications.png` — Admin Notifications table (`/experience/notifications`).
-- `16_admin_dashboard_aggregates.png` — Admin Dashboard (`/dashboard`) displaying aggregate metrics matching PostgreSQL.
-- `android-tonight-home.png` — Android Pixel 7 Emulator displaying initial TonightHome.
-- `android-tonight-home-active.png` — Android Pixel 7 Emulator displaying TonightHome with active journey.
-- `android-notifications-page.png` — Android Pixel 7 Emulator displaying Notification Center.
-- `android-journey-detail.png` — Android Pixel 7 Emulator displaying Journey Detail via deep link.
-
----
-
-## 5. Scope Statement & Blocked External Items
-
-- **Device Verification**: Verified on real running Android Emulator `emulator-5554` (Pixel 7 API 34, Google APIs Play Store x86_64). No physical USB Android device was attached (`PHYSICAL_ANDROID_BLOCKED_NO_DEVICE`).
-- **Live AI Generation**: `DAPI_API_KEY` is empty (`AI_LIVE_BLOCKED_EXTERNAL`). Verified that all models degrade gracefully to documented safe template fallbacks with clear user notices rather than reporting fake model successes.
-- **Unit & Business Regression Suite**: 48/48 Batch 1 tests passed (`batch1-usernotification`: 6/6, `batch1-safetyevent`: 5/5, `batch1-aijob`: 10/10, `batch1-journey`: 12/12, `batch1-action`: 15/15). Core support loop passed 2/2 (`first-batch-core-loop.spec.ts`).
-- **Typecheck & Lint**: `pnpm typecheck` passed (0 errors across 5 workspace packages); `pnpm lint` passed (0 errors).
+- **Device Verification**: Exercised on real running Android Emulator `emulator-5554` (Pixel 7 API 34). No physical USB Android hardware was attached (`PHYSICAL_ANDROID_BLOCKED_NO_DEVICE`).
+- **Live Remote AI**: `DAPI_API_KEY` is empty (`AI_LIVE_BLOCKED_EXTERNAL`). Verified that all models degrade gracefully to documented safe template fallbacks with clear user notices rather than reporting fake model successes.
+- **Code Changes**: Restricted strictly to the minimal fixes in `apps/api/src/controllers.ts`, `apps/api/src/store.service.ts`, `apps/api/src/batch1-persistence.service.ts`, and the regression tests in `tests/business/`. No modifications to `apps/mp` visuals, `prisma/schema.prisma`, existing migrations, or transaction timeouts.
