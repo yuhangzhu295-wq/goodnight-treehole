@@ -2210,6 +2210,15 @@ export class StoreService implements OnModuleInit {
     if (this.persistenceError) throw new Error(this.persistenceError);
   }
 
+  private pendingAiCompletions: Set<Promise<any>> = new Set();
+
+  async drainPendingAiCompletions(): Promise<void> {
+    while (this.pendingAiCompletions.size > 0) {
+      const copy = [...this.pendingAiCompletions];
+      await Promise.allSettled(copy);
+    }
+  }
+
   async persistAndFlush() {
     this.persist();
     await this.flush();
@@ -3006,7 +3015,7 @@ export class StoreService implements OnModuleInit {
       mood: this.inferMood(content),
       style: 'rational',
     });
-    void this.waitForAiJob(job.id)
+    const completionPromise: Promise<void> = this.waitForAiJob(job.id)
       .then(async (completed) => {
         await this.applySituationAnalysisCompletion(
           journey.id,
@@ -3016,7 +3025,11 @@ export class StoreService implements OnModuleInit {
           created.snapshot.updatedAt,
         );
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingAiCompletions.delete(completionPromise);
+      });
+    this.pendingAiCompletions.add(completionPromise);
 
     return {
       journey: created.journey,
@@ -3595,7 +3608,7 @@ export class StoreService implements OnModuleInit {
       mood: this.inferMood(source),
       style: 'rational',
     });
-    void this.waitForAiJob(job.id)
+    const completionPromise: Promise<void> = this.waitForAiJob(job.id)
       .then(async (completed) => {
         await this.applySituationAnalysisCompletion(
           journeyId,
@@ -3605,7 +3618,11 @@ export class StoreService implements OnModuleInit {
           updatedSnapshot.updatedAt,
         );
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingAiCompletions.delete(completionPromise);
+      });
+    this.pendingAiCompletions.add(completionPromise);
     return { job, snapshot: updatedSnapshot };
   }
 
@@ -5624,7 +5641,7 @@ export class StoreService implements OnModuleInit {
     letter.aiJobId = job.id;
     letter.generationStatus = job.status;
     this.persist();
-    void this.waitForAiJob(job.id)
+    const completionPromise: Promise<void> = this.waitForAiJob(job.id)
       .then((completed) => {
         const target = this.letters.find((item) => item.id === letter.id);
         if (!target) return;
@@ -5637,7 +5654,11 @@ export class StoreService implements OnModuleInit {
         }
         this.persist();
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingAiCompletions.delete(completionPromise);
+      });
+    this.pendingAiCompletions.add(completionPromise);
     return { letter, job };
   }
 

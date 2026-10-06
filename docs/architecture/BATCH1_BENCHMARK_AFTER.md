@@ -102,55 +102,47 @@ Every operation is evaluated like-for-like: Mode A is compared strictly against 
 
 The empirical comparison above corrects the earlier non-like-for-like presentation identified by the `final-gate` review. Four specific honesty qualifications govern these numbers:
 
-1. **True Like-for-Like Speedups on `createJourney`**:
-   - The former headline claim ("72,862 ms → 15.4 ms, 99.98%") compared a **fully drained legacy lifecycle** (Mode B) against a **synchronous direct request** (Mode A).
-   - Under rigorous like-for-like evaluation at scale $N=12,600$:
-     - **Mode A (Synchronous Request)**: BEFORE required **25,360 statements** (2 full store flushes in flight) taking **33,692.0 ms**. AFTER executes **6 statements** taking **11.5 ms**. The true synchronous request speedup is **2,929.7x** (99.97% reduction).
-     - **Mode B (Fully Drained Lifecycle)**: BEFORE required **50,800 statements** (all 5 AI lifecycle flushes) taking **73,811.4 ms**. AFTER executes **21 statements** (direct DB transaction + AI job completion update) taking **186.1 ms**. The true fully-drained lifecycle speedup is **396.6x** (99.75% reduction).
-   - Both modes demonstrate complete statement-count flatness ($O(1)$) across database scales ($N=1,007$ vs $N=12,607$), but the speedup numbers are reported honestly per mode rather than conflated.
+	1. **True Like-for-Like Speedups on `createJourney` and Mode B Scope Boundary**:
+	   - The former headline claim ("72,862 ms → 15.4 ms, 99.98%") compared a **fully drained legacy lifecycle** (Mode B) against a **synchronous direct request** (Mode A).
+	   - Under rigorous like-for-like evaluation at scale $N=12,600$:
+	     - **Mode A (Synchronous Request)**: BEFORE required **25,360 statements** (2 full store flushes in flight) taking **33,692.0 ms**. AFTER executes **6 statements** taking **11.5 ms**. The true synchronous request speedup is **2,929.7x** (99.97% reduction).
+	     - **Mode B (Measured Benchmark Window)**: BEFORE required **50,800 statements** (all 5 AI lifecycle flushes) taking **73,811.4 ms**. AFTER executes **21 statements** taking **186.1 ms**. The measured window speedup is **396.6x** (99.75% reduction).
+	   - **Explicit Scope Boundary on Mode B Lifecycle**: In the AFTER benchmark artifacts, the 21-statement trace captures the synchronous journey creation transaction (6 statements) plus AIJob submission, transition to running, and terminal CAS execution to succeeded (15 statements). However, `createJourney` installed an asynchronous fire-and-forget completion callback (`applySituationAnalysisCompletion`) to apply extracted facts/feelings to the situation snapshot. Because `store.flush()` only awaits `persistQueue` and does not await un-invoked callbacks, Mode B did not capture the subsequent `UPDATE "SituationSnapshot"` or `UPDATE "LifeJourney"` writes. Therefore, the 186.1 ms figure represents the measured window (request + AIJob completion), **not a fully drained lifecycle for that operation**. The architecture has now added `store.drainPendingAiCompletions()` to ensure background AI callbacks can be explicitly drained and quiesced.
+	   - Both modes demonstrate complete statement-count flatness ($O(1)$) across database scales ($N=1,007$ vs $N=12,607$), but the speedup numbers are reported honestly per mode rather than conflated.
 
-2. **Empirical Correction of `deliverFollowUp` Baseline**:
-   - In previous drafts, BEFORE `deliverFollowUp` was estimated as `~12,694 statements` and `~15,500 ms` based on the assumption that every operation triggered a full table flush.
-   - Empirical measurement on `5de2d0e` proves this assumption was **incorrect**: `FollowUpWorkerService.deliver` in the old architecture executed a worker claim write followed by `store.reloadRuntimeState()` (43 `SELECT * FROM <table_name>` queries) without enqueuing a flush. It issued **53 statements** taking **146.4 ms** (p50).
-   - In AFTER, `deliverFollowUp` issues **48 statements** (steady-state) taking **66.0 ms** (p50).
-   - The true performance improvement at $N=12,600$ is **2.2x** (Mode A) and **4.0x** (Mode B), **NOT 99.5%**.
-   - Furthermore, as noted in §3.4, `deliverFollowUp`'s statement count is flat, but its **data volume read across the network remains $O(N_{\text{legacy}})$** because `reloadRuntimeState()` still performs full-table scans for the remaining 35 unmigrated models.
+	2. **Empirical Correction of `deliverFollowUp` Baseline**:
+	   - In previous drafts, BEFORE `deliverFollowUp` was estimated as `~12,694 statements` and `~15,500 ms` based on the assumption that every operation triggered a full table flush.
+	   - Empirical measurement on `5de2d0e` proves this assumption was **incorrect**: `FollowUpWorkerService.deliver` in the old architecture executed a worker claim write followed by `store.reloadRuntimeState()` (43 `SELECT * FROM <table_name>` queries) without enqueuing a flush. It issued **53 statements** taking **146.4 ms** (p50).
+	   - In AFTER, `deliverFollowUp` issues **48 statements** (steady-state) taking **66.0 ms** (p50).
+	   - The true performance improvement at $N=12,600$ is **2.2x** (Mode A) and **4.0x** (Mode B), **NOT 99.5%**.
+	   - Furthermore, as noted in §3.4, `deliverFollowUp`'s statement count is flat, but its **data volume read across the network remains $O(N_{\text{legacy}})$** because `reloadRuntimeState()` still performs full-table scans for the remaining 35 unmigrated models.
 
-3. **In-Memory Reads vs. Direct Relational Database Reads**:
-   - In the BEFORE architecture, `readNotifications` and `readJourneyDetail` executed **0 SQL statements** because they read directly from in-memory JavaScript arrays (`this.store.notifications`, `this.store.journeyDetail`), yielding latencies of **1.7–8.4 ms**.
-   - In the AFTER architecture, reads are direct PostgreSQL queries: `readNotifications` executes **1 statement** (indexed by `userId`), and `readJourneyDetail` executes **5 statements** (LifeJourney + SituationSnapshot + JourneyUpdate + ActionCommitment + OutcomeCheckin). Latencies are **7.8–10.0 ms**.
-   - Direct database reads carry a modest **1.3–6.0 ms network and query execution overhead** compared to reading in-memory heap variables. This trade-off is intentional and necessary: in-memory reads were process-local and corrupted multi-instance concurrency; database reads ensure multi-instance ACID consistency and zero-loss crash durability.
+	3. **In-Memory Reads vs. Direct Relational Database Reads**:
+	   - In the BEFORE architecture, `readNotifications` and `readJourneyDetail` executed **0 SQL statements** because they read directly from in-memory JavaScript arrays (`this.store.notifications`, `this.store.journeyDetail`), yielding latencies of **1.7–8.4 ms**.
+	   - In the AFTER architecture, reads are direct PostgreSQL queries: `readNotifications` executes **1 statement** (indexed by `userId`), and `readJourneyDetail` executes **5 statements** (LifeJourney + SituationSnapshot + JourneyUpdate + ActionCommitment + OutcomeCheckin). Latencies are **7.8–10.0 ms**.
+	   - Direct database reads carry a modest **1.3–6.0 ms network and query execution overhead** compared to reading in-memory heap variables. This trade-off is intentional and necessary: in-memory reads were process-local and corrupted multi-instance concurrency; database reads ensure multi-instance ACID consistency and zero-loss crash durability.
 
-4. **Per-Sample Query Trace Audit for `deliverFollowUp` Sample 1**:
-   - Gate finding: _"attributing the 27 extra statement events to 'connection handshakes' is not established by per-sample traces — only the last successful sample's statement list is retained."_
-   - In this benchmark, query traces were retained for every sample across both scales (`allSampleStatementLists`).
-   - Comparing Sample 1 (75 queries) against Sample 2 (48 queries) on the newly provisioned 12,600-row database shows the exact difference:
-     ```
-     [Trace Audit] Outlier in Sample 1 (75 stmts vs Sample 2 48 stmts):
-       Extra queries count: 27
-       -> SELECT 1...
-     ```
-   - The 27 extra queries were exclusively `SELECT 1` queries executed by the Prisma query engine connection pool during initial pool ramp-up and socket health verification on the fresh database connection pool. Once warm, all subsequent samples (2, 3, 4, 5) executed exactly 48 statements.
+	4. **Per-Sample Query Trace Audit for `deliverFollowUp` Sample 1**:
+	   - Gate finding: _"attributing the 27 extra statement events to 'connection handshakes' is not established by per-sample traces — only the last successful sample's statement list is retained."_
+	   - In this benchmark, query traces were retained for every sample across both scales (`allSampleStatementLists`).
+	   - Comparing Sample 1 (75 queries) against Sample 2 (48 queries) on the newly provisioned 12,600-row database shows the exact difference:
+	     ```
+	     [Trace Audit] Outlier in Sample 1 (75 stmts vs Sample 2 48 stmts):
+	       Extra queries count: 27
+	       -> SELECT 1...
+	     ```
+	   - The 27 extra queries were exclusively `SELECT 1` queries executed by the Prisma query engine connection pool during initial pool ramp-up and socket health verification on the fresh database connection pool. Once warm, all subsequent samples (2, 3, 4, 5) executed exactly 48 statements.
 
-2. **`createJourney` (N=12,600)**:
-   - Sample breakdown: `[7, 6, 6, 6, 6]`.
-   - **Steady-state**: Exactly **6 statements** across samples 2–5.
-   - **Sample 1 (7 statements)**: Included 1 extra statement from asynchronous `AIJob` initial commit query overlap before quiescence isolation fully locked. Overall average: 6.2 (rounded to 6).
-
-3. **`createJourneyHighRisk`**:
-   - N=1,000: `[8, 8, 7, 7, 7]`. Steady-state is **7 statements**; samples 1–2 captured 1 additional query during initial `SafetyEvent` metadata verification.
-   - N=12,600: `[7, 8, 7, 8, 7]`. Steady-state is **7 statements** (samples 2 & 4 captured 8 statements). Overall average: 7.4 (rounded to 7).
-
-4. **`checkinAction`**:
-   - N=1,000: `[16, 15, 15, 15, 15]`. Steady-state is **15 statements** (sample 1 had 1 extra lock verification query). Overall average: 15.2 (rounded to 15).
-   - N=12,600: `[15, 15, 15, 15, 15]`. Exactly **15 statements** across all 5 samples.
-
-5. **`readNotifications`**, **`readJourneyDetail`**, **`readNotification` (PATCH)**, and **`writeAction` (POST)**:
-   - Zero outliers across all samples at both scales:
-     - `readNotifications`: exactly `[1, 1, 1, 1, 1]` at 1k and 12.6k.
-     - `readJourneyDetail`: exactly `[5, 5, 5, 5, 5]` at 1k and 12.6k.
-     - `readNotification` (PATCH): exactly `[5, 5, 5, 5, 5]` at 1k and 12.6k.
-     - `writeAction` (POST): exactly `[11, 11, 11, 11, 11]` at 1k and 12.6k.
+	5. **Sample Distribution for Remaining Operations**:
+	   - **`createJourney` (N=12,600)**: Sample breakdown: `[7, 6, 6, 6, 6]`. Steady-state is exactly **6 statements** across samples 2–5. Sample 1 (7 statements) included 1 extra statement from asynchronous `AIJob` initial commit query overlap before quiescence isolation fully locked. Overall average: 6.2 (rounded to 6).
+	   - **`createJourneyHighRisk`**: $N=1,000$: `[7, 7, 7, 8, 7]`; $N=12,600$: `[7, 7, 7, 7, 8]`. Steady-state is **7 statements** across samples.
+	   - **`checkinAction`**: $N=1,000$: `[15, 15, 15, 15, 15]`; $N=12,600$: `[15, 15, 15, 15, 15]`. Exactly **15 statements** across all 5 samples at both scales.
+	   - **`readNotifications`**, **`readJourneyDetail`**, **`readNotification` (PATCH)**, and **`writeAction` (POST)**:
+	     - Zero outliers across all samples at both scales:
+	       - `readNotifications`: exactly `[1, 1, 1, 1, 1]` at 1k and 12.6k.
+	       - `readJourneyDetail`: exactly `[5, 5, 5, 5, 5]` at 1k and 12.6k.
+	       - `readNotification` (PATCH): exactly `[5, 5, 5, 5, 5]` at 1k and 12.6k.
+	       - `writeAction` (POST): exactly `[11, 11, 11, 11, 11]` at 1k and 12.6k.
 
 ---
 

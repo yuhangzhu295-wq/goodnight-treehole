@@ -773,7 +773,60 @@ async function deleteAbsent(model: any, ids: string[]) {
   await model.deleteMany(ids.length ? { where: { id: { notIn: ids } } } : {});
 }
 
-export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeData): Promise<void> {
+function fkUpdate<K extends string>(
+  key: K,
+  value: unknown,
+  validIds: Set<string>,
+): Record<K, string | null> | Record<string, never> {
+  if (value === undefined) return {} as Record<string, never>;
+  if (value === null) return { [key]: null } as Record<K, string | null>;
+  const resolved = typeof value === 'string' && validIds.has(value) ? value : null;
+  return { [key]: resolved } as Record<K, string | null>;
+}
+
+async function resolveAiJobForCreate(
+  candidateJobId: unknown,
+  jobIds: Set<string>,
+  tx: DbClient,
+): Promise<string | null> {
+  if (typeof candidateJobId !== 'string' || !candidateJobId) return null;
+  if (jobIds.has(candidateJobId)) return candidateJobId;
+  if (DIRECT_DB_MODELS.AIJob) {
+    const dbJob = await tx.aIJob.findUnique({ where: { id: candidateJobId }, select: { id: true } });
+    if (dbJob) {
+      jobIds.add(dbJob.id);
+      return dbJob.id;
+    }
+  }
+  return null;
+}
+
+async function resolveAiJobForUpdate(
+  candidateJobId: unknown,
+  jobIds: Set<string>,
+  tx: DbClient,
+): Promise<{ aiJobId?: string | null }> {
+  if (candidateJobId === undefined) return {};
+  if (candidateJobId === null) return { aiJobId: null };
+  if (typeof candidateJobId === 'string') {
+    if (jobIds.has(candidateJobId)) return { aiJobId: candidateJobId };
+    if (DIRECT_DB_MODELS.AIJob) {
+      const dbJob = await tx.aIJob.findUnique({ where: { id: candidateJobId }, select: { id: true } });
+      if (dbJob) {
+        jobIds.add(dbJob.id);
+        return { aiJobId: dbJob.id };
+      }
+    }
+    return { aiJobId: null };
+  }
+  return { aiJobId: null };
+}
+
+export async function saveRelationalRuntimeState(
+  db: DbClient,
+  state: RuntimeData,
+  options?: { _onInTransaction?: () => Promise<void> },
+): Promise<void> {
   const users = asArray(state.users);
   if (!users.length) throw new Error('Relational persistence requires at least one user');
   const providerMap = new Map(
@@ -948,6 +1001,11 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal'),
           },
         });
+      }
+      if (options?._onInTransaction) {
+        await options._onInTransaction();
+      }
+      for (const item of users) {
         const privacy = state.privacySettings?.[item.id] ?? {};
         await tx.privacySetting.upsert({
           where: { userId: item.id },
@@ -1230,7 +1288,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             },
             update: {
               journeyId: item.journeyId,
-              commitmentId,
+              ...fkUpdate('commitmentId', item.commitmentId, commitmentIds),
               userId: item.userId,
               status: valid(item.status, ['pending', 'completed', 'missed'] as const, 'pending'),
               reflection: item.reflection ?? null,
@@ -1273,7 +1331,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             title: item.title,
             domain: item.domain,
             stage: item.stage,
@@ -1322,7 +1380,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             updatedAt: date(item.updatedAt),
           },
           update: {
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             score: Number(item.score ?? 0),
             reasons: json(item.reasons ?? []),
             stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
@@ -1381,7 +1439,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             riskLevel: item.riskLevel ?? 'low',
             riskScore: Number(item.riskScore ?? 0),
             status: item.status ?? 'active',
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
           },
         });
       for (const item of asArray(state.posts))
@@ -1393,7 +1451,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             userId: item.userId,
             emotion: item.emotion,
             content: item.content,
-            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'),
+            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
             status: item.status ?? 'active',
             reviewStatus: valid(
               item.reviewStatus,
@@ -1413,7 +1471,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             userId: item.userId,
             emotion: item.emotion,
             content: item.content,
-            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PUBLIC'),
+            visibility: valid(item.visibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
             status: item.status ?? 'active',
             reviewStatus: valid(
               item.reviewStatus,
@@ -1424,7 +1482,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             replyCount: Number(item.replyCount ?? 0),
             favoriteCount: Number(item.favoriteCount ?? 0),
             reportCount: Number(item.reportCount ?? 0),
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             publishedAt: item.publishedAt ? date(item.publishedAt) : null,
           },
         });
@@ -1550,23 +1608,20 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           });
       }
       for (const item of asArray(state.letters)) {
-        const sourceMoodId = moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null;
+        const sourceMoodId = item.sourceMoodId ? (moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null) : null;
         const legacySourceMoodId = item.sourceMoodId && !sourceMoodId ? item.sourceMoodId : null;
-        let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
-        if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
-          const existingLetter = await tx.letter.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
-          if (existingLetter?.aiJobId) {
-            if (jobIds.has(existingLetter.aiJobId)) {
-              aiJobId = existingLetter.aiJobId;
-            } else {
-              const dbJob = await tx.aIJob.findUnique({ where: { id: existingLetter.aiJobId }, select: { id: true } });
-              if (dbJob) {
-                aiJobId = dbJob.id;
-                jobIds.add(dbJob.id);
-              }
-            }
-          }
-        }
+        const initialAiJobId = await resolveAiJobForCreate(item.aiJobId, jobIds, tx);
+
+        const moodFkUpdate = (() => {
+          if (item.sourceMoodId === undefined) return {};
+          if (item.sourceMoodId === null) return { sourceMoodId: null, legacySourceMoodId: null };
+          const resolved =
+            typeof item.sourceMoodId === 'string' && moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null;
+          const legacyResolved = typeof item.sourceMoodId === 'string' && !resolved ? item.sourceMoodId : null;
+          return { sourceMoodId: resolved, legacySourceMoodId: legacyResolved };
+        })();
+        const aiJobFkUpdate = await resolveAiJobForUpdate(item.aiJobId, jobIds, tx);
+
         await tx.letter.upsert({
           where: { id: item.id },
           create: {
@@ -1579,7 +1634,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             content: item.content,
             status: item.status ?? 'unread',
             savedToDiary: Boolean(item.savedToDiary),
-            aiJobId,
+            aiJobId: initialAiJobId,
             generationStatus: item.generationStatus ?? null,
             favorite: Boolean(item.favorite),
             likeCount: Number(item.likeCount ?? 0),
@@ -1587,14 +1642,13 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            sourceMoodId,
-            legacySourceMoodId,
+            ...moodFkUpdate,
             style: item.style,
             title: item.title,
             content: item.content,
             status: item.status ?? 'unread',
             savedToDiary: Boolean(item.savedToDiary),
-            aiJobId,
+            ...aiJobFkUpdate,
             generationStatus: item.generationStatus ?? null,
             favorite: Boolean(item.favorite),
             likeCount: Number(item.likeCount ?? 0),
@@ -1602,8 +1656,8 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
         });
       }
       for (const item of asArray(state.diaries)) {
-        const moodId = moodIds.has(item.moodId) ? item.moodId : null;
-        const letterId = letterIds.has(item.letterId) ? item.letterId : null;
+        const moodId = item.moodId ? (moodIds.has(item.moodId) ? item.moodId : null) : null;
+        const letterId = item.letterId ? (letterIds.has(item.letterId) ? item.letterId : null) : null;
         await tx.diary.upsert({
           where: { id: item.id },
           create: {
@@ -1621,9 +1675,9 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            moodId,
-            letterId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('moodId', item.moodId, moodIds),
+            ...fkUpdate('letterId', item.letterId, letterIds),
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             emotion: item.emotion,
             content: item.content,
             hasLetter: Boolean(item.hasLetter),
@@ -1634,22 +1688,14 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
       }
       for (const item of asArray(state.replies)) {
         const candidateJobId =
-          item.aiJobId ?? (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null);
-        let aiJobId = jobIds.has(candidateJobId) ? candidateJobId : null;
-        if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
-          const existingReply = await tx.reply.findUnique({ where: { id: item.id }, select: { aiJobId: true } });
-          if (existingReply?.aiJobId) {
-            if (jobIds.has(existingReply.aiJobId)) {
-              aiJobId = existingReply.aiJobId;
-            } else {
-              const dbJob = await tx.aIJob.findUnique({ where: { id: existingReply.aiJobId }, select: { id: true } });
-              if (dbJob) {
-                aiJobId = dbJob.id;
-                jobIds.add(dbJob.id);
-              }
-            }
-          }
-        }
+          item.aiJobId !== undefined
+            ? item.aiJobId
+            : String(item.id).startsWith('reply_job_')
+              ? String(item.id).slice('reply_'.length)
+              : undefined;
+        const initialAiJobId = await resolveAiJobForCreate(candidateJobId, jobIds, tx);
+        const aiJobFkUpdate = await resolveAiJobForUpdate(candidateJobId, jobIds, tx);
+
         await tx.reply.upsert({
           where: { id: item.id },
           create: {
@@ -1662,7 +1708,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'),
             riskLevel: item.riskLevel ?? 'low',
             likeCount: Number(item.likeCount ?? 0),
-            aiJobId,
+            aiJobId: initialAiJobId,
             createdAt: date(item.createdAt),
           },
           update: {
@@ -1674,7 +1720,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             status: valid(item.status, ['pending_review', 'published', 'blocked'] as const, 'pending_review'),
             riskLevel: item.riskLevel ?? 'low',
             likeCount: Number(item.likeCount ?? 0),
-            aiJobId,
+            ...aiJobFkUpdate,
           },
         });
       }
@@ -1698,7 +1744,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             question: item.question,
             options: json(item.options ?? []),
             criteria: json(item.criteria ?? []),
@@ -1726,7 +1772,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null,
+            ...fkUpdate('decisionId', item.decisionId, decisionIds),
             title: item.title,
             reason: item.reason ?? null,
             releaseAt: date(item.releaseAt),
@@ -1750,7 +1796,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             recipient: item.recipient,
             channel: item.channel,
             summary: item.summary,
@@ -1796,7 +1842,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             contextType: item.contextType ?? null,
             contextRefId: item.contextRefId ?? null,
             contextLabel: item.contextLabel ?? null,
@@ -1820,7 +1866,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             title: item.title,
             plan: json(item.plan ?? {}),
             active: item.active !== false,
@@ -1859,7 +1905,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             category: item.category,
             title: item.title ?? item.category ?? '有限记忆',
             content: item.content,
@@ -1884,7 +1930,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
             summary: item.summary,
             signals: json(item.signals ?? {}),
           },
@@ -1909,7 +1955,7 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             },
             update: {
               userId: item.userId,
-              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
               level: item.level,
               source: item.source,
               action: item.action,
@@ -1922,39 +1968,24 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           });
       }
       for (const item of asArray(state.agentDecisionLogs)) {
-        let aiJobId = jobIds.has(item.aiJobId) ? item.aiJobId : null;
-        if (!aiJobId && DIRECT_DB_MODELS.AIJob && item.id) {
-          const existingLog = await tx.agentDecisionLog.findUnique({
-            where: { id: item.id },
-            select: { aiJobId: true },
-          });
-          if (existingLog?.aiJobId) {
-            if (jobIds.has(existingLog.aiJobId)) {
-              aiJobId = existingLog.aiJobId;
-            } else {
-              const dbJob = await tx.aIJob.findUnique({ where: { id: existingLog.aiJobId }, select: { id: true } });
-              if (dbJob) {
-                aiJobId = dbJob.id;
-                jobIds.add(dbJob.id);
-              }
-            }
-          }
-        }
+        const initialAiJobId = await resolveAiJobForCreate(item.aiJobId, jobIds, tx);
+        const aiJobFkUpdate = await resolveAiJobForUpdate(item.aiJobId, jobIds, tx);
+
         await tx.agentDecisionLog.upsert({
           where: { id: item.id },
           create: {
             id: item.id,
             userId: item.userId,
             journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            aiJobId,
+            aiJobId: initialAiJobId,
             taskType: item.taskType,
             decision: json(item.decision ?? {}),
             createdAt: date(item.createdAt),
           },
           update: {
             userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            aiJobId,
+            ...fkUpdate('journeyId', item.journeyId, journeyIds),
+            ...aiJobFkUpdate,
             taskType: item.taskType,
             decision: json(item.decision ?? {}),
           },
@@ -1999,7 +2030,9 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
             }
           }
           let targetJourneyId: string | null = existing.journeyId;
-          if (item.journeyId && item.journeyId !== existing.journeyId) {
+          if (item.journeyId === null) {
+            targetJourneyId = null;
+          } else if (item.journeyId && item.journeyId !== existing.journeyId) {
             if (journeyIds.has(item.journeyId)) {
               targetJourneyId = item.journeyId;
             } else {
@@ -2328,8 +2361,8 @@ export async function saveRelationalRuntimeState(db: DbClient, state: RuntimeDat
           },
           update: {
             conversationId: item.conversationId,
-            experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null,
-            matchId: item.matchId ?? null,
+            ...fkUpdate('experienceId', item.experienceId, peerExperienceIdSet),
+            ...(item.matchId !== undefined ? { matchId: item.matchId ?? null } : {}),
             reporterUserId: item.reporterUserId,
             reason: item.reason,
             status: item.status ?? 'open',

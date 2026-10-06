@@ -1380,18 +1380,9 @@ async function runSingleWriterBenchmarks(
 
         if (modeType === 'B') {
           // In Mode B: background work is awaited INSIDE the sample window
-          if (op.isAiTriggering && res.body?.job?.id) {
+          if (op.isAiTriggering) {
             try {
-              const job = await store.waitForAiJob(res.body.job.id);
-              if (res.body?.journey?.id) {
-                await store.applySituationAnalysisCompletion(
-                  res.body.journey.id,
-                  'user_demo',
-                  job,
-                  res.body.journey.updatedAt,
-                  res.body.snapshot.updatedAt,
-                );
-              }
+              await store.drainPendingAiCompletions();
             } catch {
               /* ignore background drain error */
             }
@@ -1411,21 +1402,10 @@ async function runSingleWriterBenchmarks(
           // In Mode A: background work is drained OUTSIDE the sample window
           if (op.isAiTriggering) {
             store.applySituationAnalysisCompletion = origApply;
-            if (res.body?.job?.id) {
-              try {
-                const job = await store.waitForAiJob(res.body.job.id);
-                if (res.body?.journey?.id) {
-                  await store.applySituationAnalysisCompletion(
-                    res.body.journey.id,
-                    'user_demo',
-                    job,
-                    res.body.journey.updatedAt,
-                    res.body.snapshot.updatedAt,
-                  );
-                }
-              } catch {
-                /* ignore background drain error */
-              }
+            try {
+              await store.drainPendingAiCompletions();
+            } catch {
+              /* ignore background drain error */
             }
           }
           try {

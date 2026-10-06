@@ -111,9 +111,9 @@ To discharge the gate's requirement, controlled two-instance, shared-database ra
 6. **Restart / Reload State Safety (Test 7)**:
    - **Race**: Instance A commits a new journey; Instance B executes `store.reloadRuntimeState()` and subsequent `persistAndFlush()`.
    - **Outcome**: **HOLDS**. Reload only reads PostgreSQL, and absence sweeps for migrated models are absent, so Instance B's flush does not revert or delete rows committed by Instance A.
-7. **Stale-Snapshot Foreign-Key Omission (Test 8 — Finding & Limitation)**:
-   - **Scenario**: Legacy model `Mood` has `journeyId = null` when Instance B loads state. Instance A (or direct write) sets a valid `journeyId`. Instance B subsequently flushes.
-   - **Outcome**: **DEFECT CONFIRMED FOR UNMIGRATED MODELS**. The legacy mapper writes `journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null`. Because `item.journeyId` was absent in Instance B's stale in-memory snapshot, Instance B's flush silently overwrites the valid database foreign key with `NULL`. This defect affects all 13 unmigrated models with `journeyId` relations (`Mood`, `Post`, `Diary`, `DecisionRecord`, `PeerExperience`, `PeerMatch`, etc.) and proves that true application-wide multi-instance safety is impossible until those models are migrated.
+7. **Stale-Snapshot Foreign-Key Preservation (Test 8 — Resolved)**:
+   - **Scenario**: Legacy model `Mood` has `journeyId = null` when Instance B loads state. Instance A (or direct write) sets a valid `journeyId`. Instance B subsequently flushes a snapshot where `journeyId` was omitted (`undefined`).
+   - **Outcome**: **RESOLVED**. The legacy mapper now distinguishes snapshot omission (`undefined`, which omits the FK column from update, keeping the database committed value) from explicit detach (`null`, which clears the FK) across all 12 unmigrated models with `journeyId` relations (`Mood`, `Post`, `Diary`, `PeerExperience`, `PeerMatch`, `DecisionRecord`, `RealityHandoff`, `MessageToFutureSelf`, `PersonalSupportPlan`, `MemoryItem`, `RecoverySnapshot`, `AgentDecisionLog`), while `FollowUpJob` retains its existing-row preservation path. Test 8 proves that the valid committed foreign key survives stale snapshot flushes, and also verifies explicit detach and valid update.
 
 ---
 

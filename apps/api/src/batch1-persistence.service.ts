@@ -567,7 +567,11 @@ export class Batch1PersistenceService {
     });
   }
 
-  async markNotificationRead(notificationId: string, userId: string): Promise<{ item: UserNotification }> {
+  async markNotificationRead(
+    notificationId: string,
+    userId: string,
+    options?: { _onBeforeUpdate?: () => Promise<void> },
+  ): Promise<{ item: UserNotification }> {
     const existing = await this.prisma.userNotification.findFirst({
       where: { id: notificationId, userId },
     });
@@ -576,6 +580,9 @@ export class Batch1PersistenceService {
     }
     if (existing.status === 'read') {
       return { item: mapUserNotificationRow(existing) };
+    }
+    if (options?._onBeforeUpdate) {
+      await options._onBeforeUpdate();
     }
     const now = new Date();
     await this.prisma.userNotification.updateMany({
@@ -704,22 +711,32 @@ export class Batch1PersistenceService {
     payload?: any;
     status?: 'open' | 'handled';
     createdAt?: Date | string;
+    _onInFlight?: () => Promise<void>;
   }): Promise<SafetyEventRecord> {
     const eventId = params.id ?? `safety_${crypto.randomBytes(5).toString('hex')}`;
-    const row = await this.prisma.safetyEvent.create({
-      data: {
-        id: eventId,
-        userId: params.userId,
-        journeyId: params.journeyId ?? null,
-        level: params.level,
-        source: params.source,
-        action: params.action,
-        payload: params.payload === undefined ? Prisma.JsonNull : params.payload,
-        status: params.status ?? 'open',
-        createdAt: params.createdAt ? new Date(params.createdAt) : new Date(),
-      },
-    });
-    return mapSafetyEventRow(row);
+    const insertRow = async (client: any) => {
+      const row = await client.safetyEvent.create({
+        data: {
+          id: eventId,
+          userId: params.userId,
+          journeyId: params.journeyId ?? null,
+          level: params.level,
+          source: params.source,
+          action: params.action,
+          payload: params.payload === undefined ? Prisma.JsonNull : params.payload,
+          status: params.status ?? 'open',
+          createdAt: params.createdAt ? new Date(params.createdAt) : new Date(),
+        },
+      });
+      if (params._onInFlight) {
+        await params._onInFlight();
+      }
+      return mapSafetyEventRow(row);
+    };
+
+    return params._onInFlight
+      ? await this.prisma.$transaction(insertRow)
+      : await insertRow(this.prisma);
   }
 
   async handleSafetyEvent(
@@ -1551,6 +1568,7 @@ export class Batch1PersistenceService {
       payload?: Record<string, unknown>;
       _failDuringSafetyEvent?: boolean;
     };
+    _onBeforeCommit?: () => Promise<void>;
   }): Promise<{
     journey: LifeJourneyRecord;
     snapshot: SituationSnapshotRecord;
@@ -1625,6 +1643,10 @@ export class Batch1PersistenceService {
             createdAt: new Date(params.journey.createdAt),
           },
         });
+      }
+
+      if (params._onBeforeCommit) {
+        await params._onBeforeCommit();
       }
 
       return {

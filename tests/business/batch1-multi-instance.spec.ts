@@ -261,8 +261,12 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         },
       });
 
-      // 2. Instance A creates high-risk SafetyEvent attached to the journey
-      const createdSafety = await harness.persistenceA.createSafetyEvent({
+      // Interleaving 1: SafetyEvent creation in-flight overlaps deleteJourneyArchive in-flight
+      // Instance A inserts SafetyEvent in transaction and holds lock while Instance B starts deleteJourneyArchive.
+      let safetyInFlight = false;
+      let archiveStarted = false;
+
+      const creationPromise = harness.persistenceA.createSafetyEvent({
         id: safetyEventId,
         userId: testUserId,
         journeyId,
@@ -270,18 +274,34 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         source: 'crisis_hotline',
         action: 'EMERGENCY_SUPPORT',
         payload: { triggeredBy: 'high_distress_intent' },
+        _onInFlight: async () => {
+          safetyInFlight = true;
+          const start = Date.now();
+          while (!archiveStarted && Date.now() - start < 150) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        },
       });
-      expect(createdSafety.id).toBe(safetyEventId);
 
-      // 3. Instance B executes deleteJourneyArchive to archive and delete the journey
-      const deleteRes = await harness.persistenceB.deleteJourneyArchive({
+      // Wait until Instance A is in-flight holding its transaction
+      const startWait = Date.now();
+      while (!safetyInFlight && Date.now() - startWait < 150) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      archiveStarted = true;
+
+      // Instance B executes deleteJourneyArchive concurrently while Instance A is in-flight
+      const archivePromise = harness.persistenceB.deleteJourneyArchive({
         journeyId,
         userId: testUserId,
         archiveRoute: `/pages/journey/detail?id=${journeyId}`,
       });
+
+      const [createdSafety, deleteRes] = await Promise.all([creationPromise, archivePromise]);
+      expect(createdSafety.id).toBe(safetyEventId);
       expect(deleteRes.deletedJourneyId).toBe(journeyId);
 
-      // 4. Assert from independent client:
+      // Assert from independent client:
       // - The SafetyEvent MUST SURVIVE in the database
       const safetyRow = await harness.db.safetyEvent.findUnique({ where: { id: safetyEventId } });
       expect(safetyRow).not.toBeNull();
@@ -295,21 +315,59 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       const journeyRow = await harness.db.lifeJourney.findUnique({ where: { id: journeyId } });
       expect(journeyRow).toBeNull();
 
-      // 5. Assert concurrency protection: attempting to create a new SafetyEvent referencing
-      // the deleted journey cannot attach to a non-existent journey (foreign key constraint is enforced)
-      const postDeleteEventId = `safety_post_del_${Date.now()}`;
-      await expect(
-        harness.persistenceA.createSafetyEvent({
-          id: postDeleteEventId,
+      // Interleaving 2: Reverse race where deleteJourneyArchive is holding the lock in-flight
+      // and creation attempts to attach to the in-flight deleted journey.
+      const journey2Id = `journey_safety_race2_${Date.now()}`;
+      await harness.db.lifeJourney.create({
+        data: {
+          id: journey2Id,
           userId: testUserId,
-          journeyId,
-          level: 'high',
-          source: 'crisis_hotline',
-          action: 'POST_DELETE_ATTEMPT',
-        }),
-      ).rejects.toThrow();
+          title: '安全事件锁内删除测试旅程',
+          domain: '生活',
+          status: 'completed',
+          stage: 'graduated',
+          visibility: 'PRIVATE',
+        },
+      });
 
-      // Ensure no dangling safety record was created pointing to the deleted journey
+      let archiveLocked = false;
+      let attemptStarted = false;
+
+      const lockedArchivePromise = harness.persistenceB.deleteJourneyArchive({
+        journeyId: journey2Id,
+        userId: testUserId,
+        archiveRoute: `/pages/journey/detail?id=${journey2Id}`,
+        _onLockedJourney: async () => {
+          archiveLocked = true;
+          const start = Date.now();
+          while (!attemptStarted && Date.now() - start < 150) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        },
+      });
+
+      // Wait until archive lock is held
+      const startLockWait = Date.now();
+      while (!archiveLocked && Date.now() - startLockWait < 150) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      attemptStarted = true;
+
+      const postDeleteEventId = `safety_post_del_${Date.now()}`;
+      const racingCreationPromise = harness.persistenceA.createSafetyEvent({
+        id: postDeleteEventId,
+        userId: testUserId,
+        journeyId: journey2Id,
+        level: 'high',
+        source: 'crisis_hotline',
+        action: 'POST_DELETE_ATTEMPT',
+      });
+
+      // Creation racing against in-flight deletion either rejects with FK violation or fails to attach
+      const [archiveRes2, creationErr] = await Promise.allSettled([lockedArchivePromise, racingCreationPromise]);
+      expect(archiveRes2.status).toBe('fulfilled');
+      expect(creationErr.status).toBe('rejected');
+
       const postDeleteRow = await harness.db.safetyEvent.findUnique({ where: { id: postDeleteEventId } });
       expect(postDeleteRow).toBeNull();
     });
@@ -339,19 +397,40 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         payload: { actionId: 'action_race_followup' },
       };
 
-      // 2. Deliver on Instance A
+      // 2. Initial delivery on Instance A
       const deliveryRes = await (harness.workerA as any).deliver(jobPayload);
       expect(deliveryRes.status).toBe('delivered');
 
-      // 3. Mark read on Instance B
-      const readRes = await harness.persistenceB.markNotificationRead(notificationId, testUserId);
+      // 3. Concurrent race: Worker delivery retry on Instance A racing mark-read on Instance B with mid-operation barrier
+      let deliveryAtBarrier = false;
+      let readAtBarrier = false;
+
+      const retryDeliveryPromise = (harness.workerA as any).deliver({
+        ...jobPayload,
+        _onBeforeNotificationWrite: async () => {
+          deliveryAtBarrier = true;
+          const start = Date.now();
+          while (!readAtBarrier && Date.now() - start < 150) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        },
+      });
+
+      const markReadPromise = harness.persistenceB.markNotificationRead(notificationId, testUserId, {
+        _onBeforeUpdate: async () => {
+          readAtBarrier = true;
+          const start = Date.now();
+          while (!deliveryAtBarrier && Date.now() - start < 150) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        },
+      });
+
+      const [retryRes, readRes] = await Promise.all([retryDeliveryPromise, markReadPromise]);
+      expect(retryRes.status).toBe('delivered');
       expect(readRes.item.status).toBe('read');
 
-      // 4. Duplicate delivery retry on Instance A (or concurrent second worker)
-      const duplicateDelivery = await (harness.workerA as any).deliver(jobPayload);
-      expect(duplicateDelivery.status).toBe('delivered');
-
-      // 5. Assert from independent client:
+      // 4. Assert from independent client:
       // - Exactly one notification exists for this notificationId
       const notificationRows = await harness.db.userNotification.findMany({
         where: { id: notificationId },
@@ -404,9 +483,12 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         ],
       };
 
-      // Concurrently run:
-      // Instance A: migrated transaction createJourneyWithSnapshotAndUpdate
-      // Instance B: full legacy flush saveRelationalRuntimeState
+      let writeHoldingLock = false;
+      let flushHoldingLock = false;
+
+      // Concurrently run with barrier:
+      // Instance A: migrated transaction createJourneyWithSnapshotAndUpdate holding lock
+      // Instance B: full legacy flush saveRelationalRuntimeState holding lock
       const migratedWritePromise = harness.persistenceA.createJourneyWithSnapshotAndUpdate({
         journey: {
           id: journeyId,
@@ -441,11 +523,27 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
           content: '竞争测试更新记录',
           createdAt: new Date().toISOString(),
         },
+        _onBeforeCommit: async () => {
+          writeHoldingLock = true;
+          const start = Date.now();
+          while (!flushHoldingLock && Date.now() - start < 150) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        },
       });
 
       const legacyFlushPromise = saveRelationalRuntimeState(
         new PrismaClient({ datasources: { db: { url: harness.dbUrl } } }),
         staleState as any,
+        {
+          _onInTransaction: async () => {
+            flushHoldingLock = true;
+            const start = Date.now();
+            while (!writeHoldingLock && Date.now() - start < 150) {
+              await new Promise((r) => setTimeout(r, 10));
+            }
+          },
+        },
       );
 
       // Await both: must not throw 40P01 deadlock
@@ -470,13 +568,16 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
   });
 
   describe('Flow 6: Restart and reload state safety', () => {
-    it('7. An instance reloading its runtime store does not revert or delete a row committed by another instance', async () => {
+    it('7. An instance reloading its runtime store during an open commit window does not revert or delete a row committed by another instance', async () => {
       const journeyId = `journey_reload_test_${Date.now()}`;
       const snapshotId = `snapshot_reload_test_${Date.now()}`;
       const updateId = `update_reload_test_${Date.now()}`;
 
-      // 1. Instance A commits a migrated journey to the database
-      const createRes = await harness.persistenceA.createJourneyWithSnapshotAndUpdate({
+      let commitWindowOpen = false;
+      let reloadCompletedDuringWindow = false;
+
+      // 1. Instance A starts committing a migrated journey with _onBeforeCommit barrier
+      const createPromise = harness.persistenceA.createJourneyWithSnapshotAndUpdate({
         journey: {
           id: journeyId,
           userId: testUserId,
@@ -510,13 +611,31 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
           content: '重载测试更新记录',
           createdAt: new Date().toISOString(),
         },
+        _onBeforeCommit: async () => {
+          commitWindowOpen = true;
+          // Hold the transaction open while Instance B performs its reload
+          const start = Date.now();
+          while (!reloadCompletedDuringWindow && Date.now() - start < 150) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        },
       });
+
+      // Wait until Instance A's commit window is demonstrably open
+      const startWait = Date.now();
+      while (!commitWindowOpen && Date.now() - startWait < 150) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      // 2. Instance B reloads its runtime state (reads PostgreSQL) DURING Instance A's open commit window
+      await harness.storeB.reloadRuntimeState();
+      reloadCompletedDuringWindow = true;
+
+      // Await Instance A commit
+      const createRes = await createPromise;
       expect(createRes.journey.id).toBe(journeyId);
 
-      // 2. Instance B reloads its runtime state (reads PostgreSQL)
-      await harness.storeB.reloadRuntimeState();
-
-      // 3. Instance B triggers a full legacy flush with its in-memory snapshot
+      // 3. Instance B triggers a full legacy flush with its in-memory snapshot (which missed the uncommitted row)
       await harness.storeB.persistAndFlush();
 
       // 4. Assert from independent client:
@@ -532,21 +651,33 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
   });
 
   describe('Blocker 2: The stale-snapshot foreign-key case for unmigrated models', () => {
-    it('8. Demonstrates defect: unmigrated legacy row with valid DB journeyId is nulled when a stale instance flushes', async () => {
+    it('8. Distinguishes snapshot omission (survives) from explicit detach (null) for unmigrated legacy relations', async () => {
       const journeyId = `journey_fk_test_${Date.now()}`;
+      const journey2Id = `journey_fk_test2_${Date.now()}`;
       const moodId = `mood_fk_test_${Date.now()}`;
 
-      // 1. Seed a valid LifeJourney in DB
-      await harness.db.lifeJourney.create({
-        data: {
-          id: journeyId,
-          userId: testUserId,
-          title: '外键验证测试旅程',
-          domain: '生活',
-          status: 'active',
-          stage: 'clarifying',
-          visibility: 'PRIVATE',
-        },
+      // 1. Seed valid LifeJourneys in DB
+      await harness.db.lifeJourney.createMany({
+        data: [
+          {
+            id: journeyId,
+            userId: testUserId,
+            title: '外键验证测试旅程',
+            domain: '生活',
+            status: 'active',
+            stage: 'clarifying',
+            visibility: 'PRIVATE',
+          },
+          {
+            id: journey2Id,
+            userId: testUserId,
+            title: '外键切换测试旅程',
+            domain: '生活',
+            status: 'active',
+            stage: 'clarifying',
+            visibility: 'PRIVATE',
+          },
+        ],
       });
 
       // 2. Seed an unmigrated legacy model row (Mood) in DB with journeyId = null
@@ -579,18 +710,29 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       const dbMoodBeforeFlush = await harness.db.mood.findUnique({ where: { id: moodId } });
       expect(dbMoodBeforeFlush?.journeyId).toBe(journeyId);
 
-      // 5. Now Instance B (whose in-memory snapshot still has journeyId = undefined) flushes
+      // 5. Stale snapshot case (undefined): Instance B flushes with mood.journeyId = undefined.
+      // The committed foreign key in PostgreSQL MUST SURVIVE.
       await harness.storeB.persistAndFlush();
 
-      // 6. Assert what actually happens from independent client:
-      // The mapper writes `journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null`.
-      // Because item.journeyId was absent/undefined in Instance B's stale snapshot,
-      // the foreign key in PostgreSQL was SILENTLY NULLED!
       const dbMoodAfterFlush = await harness.db.mood.findUnique({ where: { id: moodId } });
       expect(dbMoodAfterFlush).not.toBeNull();
+      expect(dbMoodAfterFlush?.journeyId).toBe(journeyId);
 
-      // DEFECT CONFIRMED: journeyId was nulled from journeyId -> null
-      expect(dbMoodAfterFlush?.journeyId).toBeNull();
+      // 6. Explicit detach case (null): Instance B explicitly detaches by setting journeyId = null.
+      // The update must write NULL to PostgreSQL.
+      inMemoryMoodB!.journeyId = null as any;
+      await harness.storeB.persistAndFlush();
+
+      const dbMoodAfterDetach = await harness.db.mood.findUnique({ where: { id: moodId } });
+      expect(dbMoodAfterDetach?.journeyId).toBeNull();
+
+      // 7. Explicit update case (string): Instance B sets a valid journeyId.
+      // The update must write the referenced journeyId.
+      inMemoryMoodB!.journeyId = journey2Id;
+      await harness.storeB.persistAndFlush();
+
+      const dbMoodAfterUpdate = await harness.db.mood.findUnique({ where: { id: moodId } });
+      expect(dbMoodAfterUpdate?.journeyId).toBe(journey2Id);
     });
   });
 });

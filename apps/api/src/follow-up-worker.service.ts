@@ -23,7 +23,14 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     this.worker.on('error', (error) => console.error(`[follow-up-worker] ${error.message}`));
   }
 
-  private async deliver(input: { id: string; kind: string; userId: string; journeyId?: string; payload?: Record<string, unknown> }) {
+  private async deliver(input: {
+    id: string;
+    kind: string;
+    userId: string;
+    journeyId?: string;
+    payload?: Record<string, unknown>;
+    _onBeforeNotificationWrite?: () => Promise<void>;
+  }) {
     const notificationId = 'notification_' + input.id;
     const privacy = await this.prisma.privacySetting.findUnique({ where: { userId: input.userId } });
     const futureNotificationsAllowed = input.kind !== 'FUTURE_SELF' || privacy?.allowFutureSelfNotifications === true;
@@ -73,6 +80,9 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (futureNotificationsAllowed) {
+      if (input._onBeforeNotificationWrite) {
+        await input._onBeforeNotificationWrite();
+      }
       const message = this.notificationCopy(input.kind, input.payload);
       await this.prisma.userNotification.createMany({
         data: [{
