@@ -3175,15 +3175,15 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async fingerprint(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async fingerprint(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journey.id);
     if (!snapshot) throw new NotFoundException('经历指纹不存在');
     return { journey, snapshot };
   }
 
-  async setJourneyIntent(journeyId: string, intent: SupportIntent) {
-    const journey = await this.requireJourney(journeyId);
+  async setJourneyIntent(journeyId: string, intent: SupportIntent, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     const validIntents: SupportIntent[] = [
       'JUST_LISTEN',
       'FIND_PEOPLE',
@@ -3419,13 +3419,13 @@ export class StoreService implements OnModuleInit {
     return { deletedJourneyId: journeyId, removedExportCount: exportAssets.length };
   }
 
-  async journeyActions(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async journeyActions(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     return await this.batch1Persistence.listActionsForJourney(journey.id);
   }
 
-  async journeyTimeline(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async journeyTimeline(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     return await this.batch1Persistence.listUpdatesForJourney(journey.id);
   }
 
@@ -3721,8 +3721,9 @@ export class StoreService implements OnModuleInit {
       adaptationReason?: ActionBarrier;
       attemptNumber?: number;
     },
+    requestedUserId?: string,
   ) {
-    const journey = await this.requireJourney(journeyId);
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     const dueAt = this.optionalDate(input.dueAt, '完成时间') ?? new Date(Date.now() + 24 * 3_600_000).toISOString();
     const reminderAt = this.optionalDate(input.reminderAt, '提醒时间');
     const title = this.text(input.title, '行动标题', 120);
@@ -3767,15 +3768,16 @@ export class StoreService implements OnModuleInit {
       outcome?: Partial<JourneyOutcome>;
       _failDuringTransaction?: boolean;
     },
+    requestedUserId?: string,
   ) {
-    const demoUserId = this.getDemoUserId();
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
     const resultText = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
     const intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
 
     const result = await this.batch1Persistence.checkinAction({
       actionId,
-      userId: demoUserId,
+      userId,
       status: input.status,
       reflection,
       result: resultText,

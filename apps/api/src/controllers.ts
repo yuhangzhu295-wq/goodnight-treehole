@@ -376,19 +376,23 @@ export class PublicController {
   }
 
   @Get('journeys/:id')
-  async journey(@Param('id') id: string) {
-    return { item: await this.store.journeyDetail(id) };
+  async journey(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { item: await this.store.journeyDetail(id, runtimeUserId(userId)) };
   }
 
   @Get('journeys/:id/fingerprint')
-  async journeyFingerprint(@Param('id') id: string) {
-    return { item: await this.store.fingerprint(id) };
+  async journeyFingerprint(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { item: await this.store.fingerprint(id, runtimeUserId(userId)) };
   }
 
   @Patch('journeys/:id/intent')
-  async journeyIntent(@Param('id') id: string, @Body() body: { intent?: SupportIntent }) {
+  async journeyIntent(
+    @Param('id') id: string,
+    @Body() body: { intent?: SupportIntent },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
     if (!body.intent) throw new BadRequestException('请选择你现在最需要的支持');
-    return await this.store.setJourneyIntent(id, body.intent);
+    return await this.store.setJourneyIntent(id, body.intent, runtimeUserId(userId));
   }
 
   @Patch('journeys/:id')
@@ -491,18 +495,19 @@ export class PublicController {
   async createAction(
     @Param('id') id: string,
     @Body() body: { title?: string; description?: string; dueAt?: string; reminderAt?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.createActionCommitment(id, body);
+    return await this.store.createActionCommitment(id, body, runtimeUserId(userId));
   }
 
   @Get('journeys/:id/actions')
-  async journeyActions(@Param('id') id: string) {
-    return { items: await this.store.journeyActions(id) };
+  async journeyActions(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.journeyActions(id, runtimeUserId(userId)) };
   }
 
   @Get('journeys/:id/timeline')
-  async journeyTimeline(@Param('id') id: string) {
-    return { items: await this.store.journeyTimeline(id) };
+  async journeyTimeline(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.journeyTimeline(id, runtimeUserId(userId)) };
   }
 
   @Patch('journeys/:id/status')
@@ -534,8 +539,9 @@ export class PublicController {
       barrier?: ActionBarrier;
       outcome?: Record<string, unknown>;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.checkinAction(id, body);
+    return await this.store.checkinAction(id, body, runtimeUserId(userId));
   }
 
   @Post('actions/:id/checkins')
@@ -550,8 +556,9 @@ export class PublicController {
       barrier?: ActionBarrier;
       outcome?: Record<string, unknown>;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.checkinAction(id, body);
+    return await this.store.checkinAction(id, body, runtimeUserId(userId));
   }
 
   @Get('peers')
@@ -3009,6 +3016,7 @@ export class AdminController {
     });
     retry.retryCount = job.retryCount + 1;
     if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(retry.id);
       await this.batch1Persistence.updateJobRetryCount(retry.id, retry.retryCount);
     }
     this.store.audit(admin.id, 'AI_JOB_RETRY', 'AIJob', retry.id, { retryOf: job.id }, retry);
