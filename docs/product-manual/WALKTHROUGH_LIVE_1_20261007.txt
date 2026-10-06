@@ -1,0 +1,253 @@
+==============================================================================
+ 晚安树洞 — 完整业务流走查 (live dev stack)
+==============================================================================
+
+
+########## 主线 A：今晚 — 夜里打开 App 做什么 ##########
+
+[ 1] A 今晚 | 我的 → 隐私设置 /pages/settings/privacy
+     action : 开启走查需要的隐私开关（默认是关的）
+     result : PASS - HTTP 200
+
+[ 2] A 今晚 | 隐私设置（user_guest）
+     action : 给第二个用户也开启匿名分享与同路人匹配
+     result : PASS - HTTP 200
+
+[ 3] A 今晚 | 今晚首页 /pages/tonight/index
+     action : 打开 App 看到首页
+     result : PASS - HTTP 200; journey=有进行中的旅程 activeActions=0 latestLetter=letter_1d1cebb07f
+
+[ 4] A 今晚 | 写下来 /pages/mood/create
+     action : 选择情绪 + 写下今晚发生了什么 + 提交
+     result : PASS - HTTP 201; moodId={"mood":{"id":"mood_0c5e1601c9","userId":"user_demo","emotion":"疲惫","content":"今天加班到很晚，脑子还在转，睡不着。","riskLevel":"low","riskScore":0.08,"statu…
+
+[ 5] A 今晚 | 今天的信 /pages/letter/index
+     action : 打开今天的信
+     result : PASS - HTTP 200; letter=letter_b9b4fd5c3e title=给今晚的你
+
+[ 6] A 今晚 | 今天的信 → 已读
+     action : 读信（标记已读）
+     result : PASS - HTTP 200
+
+[ 7] A 今晚 | 今天的信 → 收藏到日记
+     action : 把信存进日记本
+     result : PASS - HTTP 201
+
+
+########## 主线 B：旅程 → 行动计划 → 打卡 ##########
+
+[ 8] B 旅程 | 今晚首页 → 开始整理 /pages/journey/detail
+     action : 创建旅程（同时写入处境快照 + 时间线）
+     result : PASS - HTTP 201; journeyId=journey_6a1458bd72 stage=clarifying
+
+[ 9] B 旅程 | 旅程详情 → 我想…（意图选择）
+     action : 选择"先走一小步"
+     result : PASS - HTTP 200; intent=NEXT_STEP
+
+[10] B 旅程 | 旅程详情 → 处境确认
+     action : 确认系统整理的处境（确认后 AI 不能再改写）
+     result : PASS - HTTP 200; confidence=user_confirmed
+
+[11] B 旅程 | 旅程详情 → 生成行动计划
+     action : 让 AI 给一个可执行的小步骤
+     result : PASS - HTTP 201; job=job_32f5a7ed14 status=queued
+
+[12] B 旅程 | 旅程详情 → 添加行动承诺
+     action : 创建一条行动承诺（ActionCommitment + 待办打卡）
+     result : PASS - HTTP 201; actionId=action_1b5982d7eb status=active
+
+[13] B 旅程 | 行动中心 /pages/action/index → 打卡
+     action : 打卡并写下实际发生了什么
+     result : PASS - HTTP 201; checkin=checkin_3322337522 status=completed
+
+[14] B 旅程 | 旅程详情 → 时间线
+     action : 查看旅程进展
+     result : PASS - HTTP 200; updates=3
+
+[15] B 旅程 | 旅程详情 → 追加进展
+     action : 自己补一条进展记录
+     result : PASS - HTTP 201
+
+
+########## 主线 C：安全路径（高风险内容）##########
+
+[16] C 安全 | 今晚首页 → 开始整理
+     action : 写下高风险内容（触发安全路径）
+     result : PASS - HTTP 201; journeyId=journey_9a91c20487; stage=clarifying
+
+[17] C 安全 | 安全支持 /pages/safety/index
+     action : 查看安全支持页（应显示求助资源）
+     result : PASS - HTTP 200; stage=?
+
+[18] C 安全 | 安全支持 → 我知道了
+     action : 确认看到安全提示
+     result : PASS - HTTP 201
+
+
+########## 主线 D：同路人 — 匿名互助 ##########
+
+[19] D 同路人 | 同路人 /pages/peers/index → 分享经历
+     action : 匿名分享自己的经历（user_guest）
+     result : PASS - HTTP 201; experienceId=experience_8a3d80c2f0 status=?
+
+[20] D 同路人 | 后台 /login
+     action : 管理员登录
+     result : PASS - HTTP 201; token=已获取
+
+[21] D 同路人 | 后台 → 同路人经历审核
+     action : 审核通过（发布）
+     result : PASS - HTTP 200
+
+[22] D 同路人 | 旅程详情 → 找同路人
+     action : 寻找相似经历的人
+     result : PASS - HTTP 201; matches=1 matchId=peer_match_eeff87e09e
+
+[23] D 同路人 | 同路人 → 发起请求
+     action : 向对方发出聊天请求
+     result : PASS - HTTP 200
+
+[24] D 同路人 | 同路人请求 /pages/peer/requests
+     action : 经历发布者接受请求（status=connected）
+     result : PASS - HTTP 201
+
+[25] D 同路人 | 双向同意 /pages/peer/consent
+     action : 确认匿名边界并开启对话（72 小时）
+     result : PASS - HTTP 201
+
+[26] D 同路人 | 对话 /pages/peer/conversation
+     action : 发送一条消息
+     result : PASS - HTTP 201
+
+[27] D 同路人 | 对话 → 结束对话
+     action : 结束这段对话
+     result : PASS - HTTP 201
+
+
+########## 主线 E：工具箱 ##########
+
+[28] E 工具 | 工具 /pages/tool/index
+     action : 打开工具箱
+     result : PASS - HTTP 200; tools=9
+
+[29] E 工具 | 情绪拆解 /pages/tool/decompose
+     action : 输入一段话，让 AI 拆解
+     result : PASS - HTTP 201; taskId=job_938b0b1b37 status=queued
+
+[30] E 工具 | 情绪拆解 → 等待结果
+     action : 轮询 AI 任务结果（无 DAPI key，应为兜底）
+     result : PASS - HTTP 200; status=? fallbackUsed=?
+
+[31] E 工具 | 情绪拆解 → 保存
+     action : 把结果存进日记
+     result : PASS - HTTP 201
+
+
+########## 主线 F：我的 — 个人中心 ##########
+
+[32] F 我的 | 我的 → 日记本 /pages/diary/index
+     action : 查看日记列表
+     result : PASS - HTTP 200; diaries=12
+
+[33] F 我的 | 我的 → 本月回顾 /pages/report/month
+     action : 查看本月报告
+     result : PASS - HTTP 200
+
+[34] F 我的 | 我的 → 归档 /pages/archive/index
+     action : 查看归档的旅程
+     result : PASS - HTTP 200; archived=0
+
+[35] F 我的 | 我的 → 收藏 /pages/favorite/index
+     action : 查看收藏
+     result : PASS - HTTP 200; favorites=2
+
+[36] F 我的 | 我的 → 隐私设置 /pages/settings/privacy
+     action : 查看隐私开关
+     result : PASS - HTTP 200; {"defaultVisibility":"PRIVATE","allowAnonymousPublic":true,"allowHumanReplies":true,"allowMonthlyReportShare":true,"allo…
+
+[37] F 我的 | 我的 → 记忆中心 /pages/memory/index
+     action : 查看 AI 能记住的内容
+     result : PASS - HTTP 200; memories=0
+
+[38] F 我的 | 我的 → 决定保险箱 /pages/decision/index
+     action : 把决定先锁起来（冷静期）
+     result : PASS - HTTP 201; decisionId=decision_b0247a2f2a status=draft
+
+[39] F 我的 | 我的 → 清醒时的你 /pages/future-self/index
+     action : 给未来的自己留一句话
+     result : PASS - HTTP 201
+
+[40] F 我的 | 我的 → 恢复 /pages/recovery/index
+     action : 查看恢复记录
+     result : PASS - HTTP 200
+
+[41] F 我的 | 我的 → 支持计划 /pages/support-plan/index
+     action : 查看自己的支持计划
+     result : PASS - HTTP 200
+
+[42] F 我的 | 我的 → 稳定的我 /pages/stable-self/index
+     action : 查看稳定自我描述
+     result : PASS - HTTP 200
+
+[43] F 我的 | 通知中心 /pages/notifications/index
+     action : 查看通知（打卡提醒等）
+     result : PASS - HTTP 200; notifications=2
+
+
+########## 主线 G：后台管理 ##########
+
+[44] G 后台 | 后台 /dashboard
+     action : 查看总览大盘
+     result : PASS - HTTP 200; {"item":{"todayUsers":2,"todayPosts":5,"pendingReviews":0,"journeySummary":{"total":9,"active":9,"actions":0,"dueCheckins":0,"peer…
+
+[45] G 后台 | 后台 /experience/journeys
+     action : 查看旅程列表（含搜索/分页）
+     result : PASS - HTTP 200; total=9
+
+[46] G 后台 | 后台 /experience/actions
+     action : 查看行动列表
+     result : PASS - HTTP 200; total=4
+
+[47] G 后台 | 后台 /experience/checkins
+     action : 查看打卡列表
+     result : PASS - HTTP 200; total=4
+
+[48] G 后台 | 后台 /safety/events
+     action : 查看安全事件列表（含触发原文）
+     result : PASS - HTTP 200; total=1 首条status=handled
+
+[49] G 后台 | 后台 → 安全事件 → 处理
+     action : 处理一条安全事件（status=handled，写审计日志）
+     result : PASS - HTTP 200
+
+[50] G 后台 | 后台 → 审计日志
+     action : 确认处理动作留下了审计记录
+     result : PASS - HTTP 200; total=11
+
+[51] G 后台 | 后台 /users
+     action : 查看用户列表
+     result : PASS - HTTP 200; total=2
+
+[52] G 后台 | 后台 /ai/jobs
+     action : 查看 AI 任务队列
+     result : PASS - HTTP 200; total=20
+
+
+########## 安全边界抽查 ##########
+
+[53] 安全 | 任意页（越权访问）
+     action : user_guest 读 user_demo 的旅程（应 404）
+     result : PASS - HTTP 404
+
+[54] 安全 | 后台（无 token）
+     action : 不带管理员令牌访问后台（应 401）
+     result : PASS - HTTP 401
+
+
+==============================================================================
+  走查完成：共 54 步 — PASS 54 / FAIL 0 / INFO 0
+==============================================================================
+
+关键实体 id：
+  journeyId(正常)=journey_6a1458bd72  journeyId(高风险)=journey_9a91c20487
+  actionId=action_1b5982d7eb  moodId=undefined  letterId=letter_b9b4fd5c3e
+  experienceId=experience_8a3d80c2f0  matchId=peer_match_eeff87e09e  decisionId=decision_b0247a2f2a
