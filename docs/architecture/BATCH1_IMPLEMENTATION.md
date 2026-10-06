@@ -297,33 +297,39 @@ Key empirical findings:
 
 ## Open items this report does not close
 
-- **No multi-instance verification has been run.** `BATCH1_MULTI_INSTANCE_SAFE` is **NOT CLAIMED
-  and remains UNVERIFIED**. `recoverInterruptedAiJobs` still marks every `queued`/`running` job failed
-  on boot without instance scoping (inherited behaviour, deliberately deferred to the multi-instance phase),
-  and the `followUpJobs` mirror limitation noted under D is the same class of issue.
-- **Distributed concurrency under multi-client network load is unmeasured.** Single-instance
-  concurrent coroutines pass with 100% success across 1, 5, and 10 concurrent transactions (0 pool
-  exhaustion, 0 lost updates, p50: 22.0–127.3 ms), but multi-node distributed barrier races remain
-  untested.
-- **D/E were reviewed by a different model than A/B/C, and then re-reviewed on request.** The
-  `code-reviewer` model was quota-exhausted, so `architecture-reviewer` did the first pass and
-  `final-gate` did the four follow-ups. That mix found eleven blocking defects — including an
-  ownership bypass on `PATCH /journeys/:id` that no test exercised — so the coverage was real.
-  The reviewer model for D/E still differs from the one that reviewed A/B/C, which is recorded
-  here rather than hidden.
+- **Multi-instance safety is proven for two `AIJob` paths only.** Boot recovery and the
+  terminal-state CAS race were exercised with two independent instances against one database.
+  **No cross-instance Journey, Action, Checkin, SafetyEvent or notification flow was raced against
+  a competing legacy flush**, so the earlier "all eight models are multi-instance safe" wording was
+  wrong and has been withdrawn from `BATCH1_MULTI_INSTANCE.md`. Application-wide safety is absent
+  for the two reasons that remain outside this batch: the `followUpJobs` mirror is a second read
+  input, and 35 models are still process-local.
+- **The stale-snapshot foreign-key case is untested.** The guards close the *empty-array* failure —
+  the round's founding hard gate — but a legacy row whose database `journeyId` is valid while its
+  stale snapshot omits the field can still be nulled by a competing flush. That case has no test.
+- **The benchmark's latency comparison is not like-for-like.** The `BEFORE` figures include the
+  drained AI lifecycle and its five flushes; the `AFTER` recording stops at the HTTP operation. The
+  statement-count flatness is the real result; the latency ratios are not yet comparable. See the
+  warning box in `BATCH1_BENCHMARK_AFTER.md`.
+- **Distributed concurrency under multi-client network load is unmeasured.** Single-process
+  coroutines pass 1/5/10 concurrent with 0 lost updates and 0 pool exhaustion.
+- **CI does not verify the baseline identity.** The full-suite job is `continue-on-error` and its
+  label no longer claims a baseline match, but a failing-set diff against
+  `TEST_BASELINE_FAILURES.md` is still required before CI can catch a new regression.
+- **D/E were reviewed by different models than A/B/C.** `code-reviewer` was quota-exhausted, so
+  `architecture-reviewer` did the first pass and `final-gate` the follow-ups. That mix found eleven
+  blocking defects, so the coverage was real — but the reviewer model differs, which is recorded
+  rather than hidden.
 - **The lock-hierarchy rule is a live architectural constraint.** Every future transaction that
-  writes `LifeJourney`, or inserts a row whose foreign key references `User` or `LifeJourney`,
-  must acquire `User` → `LifeJourney` locks first, and multi-row locks must be taken in
-  deterministic id order. This is stated in `BATCH1_DESIGN.md` under D3 with its mechanism and
-  lifetime, and it should be re-derived when the legacy flush is retired.
-- **The cleanup-lock concurrency test is not a controlled race.** It dispatches two conflicting
-  cleanups with `Promise.allSettled` but has no barrier proving both held competing locks
-  simultaneously, so it could pass with sequential execution. The mutation evidence (removing
-  the sort or the parent lock reproduces a deadlock) is stronger than the test alone; tightening
-  the test with a barrier is follow-up work.
-- **Remaining phases** — the peer mega-spec split, GitHub CI, clean dev-DB rebuild, load and
-  concurrency gates, Android/Admin/Security regression, live AI, and the final gate.
+  writes `LifeJourney`, or inserts a row whose foreign key references `User` or `LifeJourney`, must
+  acquire `User` → `LifeJourney` locks first, with multi-row locks in deterministic id order. It is
+  stated in `BATCH1_DESIGN.md` under D3 and must be re-derived when the legacy flush is retired.
 
-`PERSISTENCE_BATCH1_STABLE` is **not** claimed because `BATCH1_MULTI_INSTANCE_SAFE` is unproven
-and `QA_ALL_PASS` is blocked by `AI_LIVE_BLOCKED_EXTERNAL`. All empirical measurements and structural
-proofs for the eight migrated models are fully established.
+**The final gate returned `PERSISTENCE_BATCH1_REJECTED`** — see `BATCH1_FINAL_GATE.md`. The
+rejection concerns the *strength of the stated guarantees*, not the reality of the improvement: the
+statement-count flatness is measured and real, but the multi-instance claim covers two paths rather
+than eight models, the latency comparison is not like-for-like, the stale-snapshot FK case is
+untested, and CI cannot yet distinguish a new failure from a known one.
+
+`PERSISTENCE_BATCH1_STABLE` is **not** claimed, and neither is "all eight models are
+multi-instance safe". `QA_ALL_PASS` is separately blocked by `AI_LIVE_BLOCKED_EXTERNAL`.

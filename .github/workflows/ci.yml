@@ -104,8 +104,9 @@ jobs:
               echo "- **Status**: PASSED (all tests in full business suite passed)" >> $GITHUB_STEP_SUMMARY
               ;;
             failure)
-              echo "- **Status**: COMPLETED_WITH_KNOWN_BASELINE_FAILURES" >> $GITHUB_STEP_SUMMARY
-              echo "- **Note**: The full business suite completed execution and its results are published honestly. Known failures correspond to pre-existing baseline failures documented in \`docs/architecture/TEST_BASELINE_FAILURES.md\`." >> $GITHUB_STEP_SUMMARY
+              echo "- **Status**: COMPLETED_WITH_FAILURES_BASELINE_IDENTITY_NOT_VERIFIED" >> $GITHUB_STEP_SUMMARY
+              echo "- **Note**: The full business suite completed and its results are published. This label does **not** assert that the failures are the known baseline set — the workflow does not currently diff the failing-test identity, so it cannot distinguish a pre-existing failure from a new regression here." >> $GITHUB_STEP_SUMMARY
+              echo "- **Required follow-up**: add a machine-checked failing-set diff against \`docs/architecture/TEST_BASELINE_FAILURES.md\` so a new failure fails this job. Tracked in \`docs/architecture/BATCH1_FINAL_GATE.md\`." >> $GITHUB_STEP_SUMMARY
               ;;
             skipped|cancelled)
               echo "::error::Full business suite was skipped or cancelled! Workflow cannot claim success when a required execution step was omitted."

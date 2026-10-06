@@ -8,9 +8,11 @@ Architectural definition, empirical proof, and boundary specification for multi-
 
 The multi-instance position of the application following the Batch 1 persistence migration must be stated with precision and without hedging:
 
-> **The eight migrated models (`LifeJourney`, `SituationSnapshot`, `JourneyUpdate`, `ActionCommitment`, `OutcomeCheckin`, `SafetyEvent`, `UserNotification`, `AIJob`) are multi-instance safe. The application as a whole is NOT multi-instance safe.**
+> **Multi-instance safety is proven for two `AIJob` paths only — boot recovery and the terminal-state CAS race — and the application as a whole is NOT multi-instance safe.**
+>
+> An earlier version of this document claimed that all eight migrated models are multi-instance safe. The `final-gate` reviewer rejected that claim (`BATCH1_FINAL_GATE.md`), and it was right to: the two-instance test exercises `AIJob` recovery and a terminal race, and **no cross-instance Journey, Action, Checkin, SafetyEvent or notification flow has been raced against a competing legacy flush**. A proof for two paths is not a proof for eight models. What is established per model is the *mechanism* — direct writes, conditional/CAS updates, and the lock-root hierarchy — which is necessary but not sufficient, because the migrated models still share a database with 35 models whose stale snapshots can overwrite them.
 
-Batch 1 removed in-memory store authority, legacy upserts, and absence sweeps for these eight models, binding their state exclusively to PostgreSQL interactive transactions and row-level locks. However, full application multi-instance readiness is blocked by architectural boundaries that deliberately remain outside Batch 1 scope.
+Batch 1 removed in-memory store authority, legacy upserts, and absence sweeps for these eight models, binding their state exclusively to PostgreSQL interactive transactions and row-level locks. However, full application multi-instance readiness is blocked by architectural boundaries that deliberately remain outside Batch 1 scope, and the per-model cross-instance proofs have not been run.
 
 ---
 

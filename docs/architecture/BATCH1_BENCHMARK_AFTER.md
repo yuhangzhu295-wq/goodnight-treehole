@@ -70,6 +70,16 @@ Measurements were conducted on two isolated PostgreSQL databases provisioned on 
 
 \* _Outlier note on `deliverFollowUp` at N=12,600: Sample 1 produced 75 statements due to first-call warm-up / pool connection handshakes on the freshly leased 12.6k database; samples 2–5 settled immediately into the exact 48-statement steady state. See §2.2 for the complete per-sample audit._
 
+> ### ⚠ The latency comparison in this table is NOT like-for-like
+>
+> **The `BEFORE` and `AFTER` latency columns measure different amounts of work and must not be read as a single speed-up.** The `BEFORE` figures come from the original benchmark, which drained the AI lifecycle and its five flushes as part of the measured window. The `AFTER` recording stops at the HTTP operation and drains AI work *afterwards*, outside the sample. So `createJourney` "72,862 ms → 15.4 ms" compares a fully drained legacy lifecycle against a synchronous request — not two measurements of the same thing.
+>
+> The `final-gate` reviewer rejected the round partly on this basis (`BATCH1_FINAL_GATE.md`). The **statement-count** flatness in this table is real and is the headline result; the **latency** ratios are not yet comparable and must not be quoted as a reduction until both architectures are measured on the same basis — synchronous-request and fully-drained, recorded separately for each.
+>
+> Two further qualifications on the same benchmark, both raised by the gate:
+> - The attribution of the 27 extra statements in the first `deliverFollowUp` sample to "connection handshakes" is **not established by per-sample traces** — only the last successful sample's statement list is retained, so the cause is inferred rather than shown.
+> - `deliverFollowUp`'s constant statement count is **not** constant read volume: its 42 `SELECT`s re-read every unmigrated table in full, so the data transferred still scales with the unmigrated row count.
+
 ### 2.2 Per-Sample Audits and Outlier Investigation
 
 To ensure complete methodology discipline and prevent masking variance behind collapsed averages, every operation's `sqlStatementsPerSample` array across both scales was audited:
