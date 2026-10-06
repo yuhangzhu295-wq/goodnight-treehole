@@ -3,27 +3,401 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 
-const route = useRoute(); const router = useRouter(); const matchId = computed(() => String(route.query.matchId ?? ''));
-const feedback = ref('helpful'); const note = ref(''); const noteOpen = ref(false); const busy = ref(false); const error = ref(''); const complete = ref(false);
+const route = useRoute();
+const router = useRouter();
+const matchId = computed(() => String(route.query.matchId ?? ''));
+const feedback = ref('helpful');
+const note = ref('');
+const noteOpen = ref(false);
+const busy = ref(false);
+const error = ref('');
+const complete = ref(false);
 const conversation = ref<any>(null);
+
 const messageCount = computed(() => conversation.value?.messages?.length ?? 0);
 const startedLabel = computed(() => {
   const source = conversation.value?.startsAt;
   return source ? new Date(source).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '刚刚';
 });
-async function loadConversation() { try { const response = await api.get<{ items: any[] }>('/api/v1/peer-conversations'); conversation.value = response.items.find((item) => item.matchId === matchId.value) ?? null; } catch { conversation.value = null; } }
-async function save(shareLater: boolean) { if (!matchId.value) return; busy.value = true; error.value = ''; try { await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/feedback`, { feedback: feedback.value, note: note.value, shareLater }); complete.value = true; } catch (cause: any) { error.value = cause?.message ?? '这份感受暂时没有保存成功'; } finally { busy.value = false; } }
+
+async function loadConversation() {
+  try {
+    const response = await api.get<{ items: any[] }>('/api/v1/peer-conversations');
+    conversation.value = response.items.find((item) => item.matchId === matchId.value) ?? null;
+  } catch {
+    conversation.value = null;
+  }
+}
+
+async function save(shareLater: boolean) {
+  if (!matchId.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/feedback`, {
+      feedback: feedback.value,
+      note: note.value,
+      shareLater,
+    });
+    complete.value = true;
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这份感受暂时没有保存成功';
+  } finally {
+    busy.value = false;
+  }
+}
+
 onMounted(loadConversation);
 </script>
 
 <template>
   <section class="goodnight-page peer-graduation-page">
-    <header class="graduation-hero"><span>晚安树洞 · 匿名同路</span><h1>这段路，<br>你已经走过来了</h1><p>谢谢你们认真守住边界，也照顾了当时的自己。</p></header>
-    <article v-if="conversation" class="journey-summary"><p>这段同行</p><div><span><i>◌</i><b>{{ messageCount }}</b><small>条真诚消息</small></span><span><i>⌛</i><b>72</b><small>小时安全边界</small></span><span><i>⌁</i><b>{{ startedLabel }}</b><small>开始同行</small></span></div></article>
-    <article class="graduate-card"><p class="share-hint">如果分享，别人会这样看见你</p><div class="story-preview"><div><p class="kicker">匿名同行已结束</p><h2>刚走过的一段路</h2><p>把感受写下来，让后来的人知道：慢慢走，也是一种前进。</p></div><div class="lantern" aria-hidden="true">✦</div></div><div class="feelings" aria-label="这段同行的感受"><button v-for="option in [{ value: 'helpful', label: '有被接住' }, { value: 'unchanged', label: '没什么变化' }, { value: 'uncomfortable', label: '有点不舒服' }]" :key="option.value" :class="{ selected: feedback === option.value }" @click="feedback = option.value">{{ option.label }}</button></div><button class="note-toggle" type="button" :aria-expanded="noteOpen" @click="noteOpen = !noteOpen">{{ noteOpen ? '收起这句话' : '想留下一句话（可选）' }}</button><label v-if="noteOpen">想留下的一句话<textarea v-model="note" maxlength="500" placeholder="只会在你明确选择匿名分享后，作为后来的一部分。" /></label><p v-if="complete" class="success-note">已经收好这份感受。谢谢你认真地走完这一段。</p><button class="share" :disabled="busy || complete" @click="save(true)">{{ busy ? '正在保存…' : '愿意匿名分享' }}</button><button class="later" :disabled="busy || complete" @click="save(false)">{{ complete ? '已完成' : '以后再说' }}</button><button class="back" @click="router.push('/pages/peers/index')">先不分享</button></article><p v-if="error" class="error-note">{{ error }}</p>
+    <header class="peer-header">
+      <div class="header-titles">
+        <h1 class="peer-title">同行结束</h1>
+        <p class="peer-subtitle">感谢遵守匿名边界，这段同行已告一段落</p>
+      </div>
+    </header>
+
+    <section v-if="conversation" class="stats-strip" aria-label="同行数据总结">
+      <div class="stat-unit">
+        <span class="stat-num">{{ messageCount }}</span>
+        <span class="stat-label">交流消息</span>
+      </div>
+      <div class="stat-sep" aria-hidden="true"></div>
+      <div class="stat-unit">
+        <span class="stat-num">72h</span>
+        <span class="stat-label">时间边界</span>
+      </div>
+      <div class="stat-sep" aria-hidden="true"></div>
+      <div class="stat-unit">
+        <span class="stat-num">{{ startedLabel }}</span>
+        <span class="stat-label">开启时间</span>
+      </div>
+    </section>
+
+    <section class="feedback-panel">
+      <div class="preview-box">
+        <span class="preview-badge">同行总结</span>
+        <h2 class="preview-title">刚走过的一段路</h2>
+        <p class="preview-desc">按自己的节奏走，也是一种前进。留下反馈可帮助我们持续改进匿名同行机制。</p>
+      </div>
+
+      <div class="feelings-group" aria-label="这段同行的感受">
+        <span class="field-label">本次交流的体验</span>
+        <div class="feelings-row">
+          <button
+            v-for="option in [
+              { value: 'helpful', label: '有帮助' },
+              { value: 'unchanged', label: '没有变化' },
+              { value: 'uncomfortable', label: '有点不适' },
+            ]"
+            :key="option.value"
+            type="button"
+            :class="['btn-feeling', { selected: feedback === option.value }]"
+            @click="feedback = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <button
+        class="note-toggle"
+        type="button"
+        :aria-expanded="noteOpen"
+        @click="noteOpen = !noteOpen"
+      >
+        {{ noteOpen ? '收起留言' : '留下一句话（可选）' }}
+      </button>
+
+      <label v-if="noteOpen" class="note-field">
+        <span>想留下的一句话</span>
+        <textarea
+          v-model="note"
+          maxlength="500"
+          placeholder="只会在你明确选择匿名分享后，作为后来的一部分。"
+        />
+      </label>
+
+      <p v-if="complete" class="success-note">已保存本次反馈。感谢你认真走过这一程。</p>
+
+      <div class="action-stack">
+        <button
+          class="btn-primary"
+          :disabled="busy || complete"
+          type="button"
+          @click="save(true)"
+        >
+          {{ busy ? '正在保存…' : '愿意匿名分享' }}
+        </button>
+        <button
+          class="btn-secondary"
+          :disabled="busy || complete"
+          type="button"
+          @click="save(false)"
+        >
+          {{ complete ? '已完成' : '以后再说' }}
+        </button>
+        <button
+          class="btn-text"
+          type="button"
+          @click="router.push('/pages/peers/index')"
+        >
+          先不分享
+        </button>
+      </div>
+    </section>
+
+    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
   </section>
 </template>
 
 <style scoped>
-.peer-graduation-page{display:grid;align-content:start;gap:12px;padding:0 16px 142px;background:linear-gradient(180deg,#1b343b 0 219px,#fbf8ef 219px)}.graduation-hero{position:relative;min-height:203px;overflow:hidden;padding:25px 12px;color:#f8f1da}.graduation-hero::after{position:absolute;right:-2px;bottom:-2px;width:238px;height:179px;background:url('../assets/goodnight/peer/peer-night-hero.png') right bottom/auto 179px no-repeat;content:'';opacity:.94;pointer-events:none;-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 39%,#000);mask-image:linear-gradient(90deg,transparent 0%,#000 39%,#000)}.graduation-hero>*{position:relative;z-index:1}.graduation-hero span,.kicker{font-size:11px;letter-spacing:.06em}.graduation-hero h1{max-width:260px;margin:25px 0 8px;font-family:var(--gn-font-display);font-size:31px;line-height:1.13}.graduation-hero p{max-width:252px;margin:0;color:#d9e2d2;font-size:12px;line-height:1.6}.journey-summary{display:grid;gap:9px;margin-top:-25px;border:1px solid rgba(255,255,255,.42);border-radius:20px;background:rgba(255,253,248,.96);box-shadow:var(--gn-shadow-card);padding:13px 10px}.journey-summary>p{margin:0 5px;color:var(--gn-green-dark);font-size:15px;font-weight:700}.journey-summary>div{display:grid;grid-template-columns:repeat(3,1fr)}.journey-summary span{display:grid;justify-items:center;gap:2px;min-width:0;padding:0 4px;border-right:1px solid var(--gn-border)}.journey-summary span:last-child{border-right:0}.journey-summary i{height:15px;color:#788b62;font-size:14px;font-style:normal}.journey-summary b{min-width:0;color:var(--gn-green-dark);font-family:var(--gn-font-display);font-size:21px;font-weight:400;white-space:nowrap}.journey-summary small{color:var(--gn-subtext);font-size:10px;line-height:1.35;text-align:center}.graduate-card{display:grid;gap:9px;border:1px solid rgba(177,157,115,.23);border-radius:22px;background:#fffdf8;box-shadow:var(--gn-shadow-card);padding:14px;text-align:left}.share-hint{margin:0;color:#68745e;font-size:11px}.share-hint::before{display:inline-block;margin-right:6px;color:var(--gn-green);content:'⌁'}.story-preview{display:grid;grid-template-columns:minmax(0,1fr) 69px;align-items:center;gap:9px;border-radius:16px;background:linear-gradient(135deg,#f5efe2,#fffdf6);padding:11px}.story-preview>div:first-child{min-width:0}.kicker{margin:0;color:var(--gn-green)}.graduate-card h2{margin:4px 0;color:var(--gn-text);font-size:18px}.story-preview p:not(.kicker){margin:0;color:var(--gn-subtext);font-size:11px;line-height:1.52}.lantern{display:grid;place-items:center;width:60px;height:60px;border:1px solid rgba(178,147,91,.24);border-radius:50% 50% 45% 45%;background:radial-gradient(circle at 50% 45%,#fff8da 0 19%,#ead8af 20% 35%,#dfc58e 36% 40%,transparent 41%),#eee3c9;color:#90723c;font-size:22px}.feelings{display:flex;flex-wrap:wrap;gap:7px}.feelings button{min-height:32px;border:1px solid var(--gn-border);border-radius:999px;background:#fffef9;color:var(--gn-subtext);padding:0 10px;font:inherit;font-size:12px;cursor:pointer}.feelings button.selected{border-color:var(--gn-green);background:var(--gn-green-light);color:var(--gn-green-dark)}.note-toggle{width:auto!important;justify-self:start;min-height:24px!important;border:0!important;background:transparent!important;color:var(--gn-green-dark);padding:0!important;font-size:11px!important;text-decoration:underline;text-underline-offset:3px}.graduate-card label{display:grid;gap:6px;color:var(--gn-text);font-size:12px}.graduate-card textarea{box-sizing:border-box;width:100%;min-height:64px;resize:none;border:1px solid var(--gn-border);border-radius:13px;background:#fffef9;padding:9px;color:var(--gn-text);font:inherit;font-size:12px;line-height:1.55}.graduate-card>button{width:100%;min-height:40px;border:0;border-radius:999px;font:inherit;font-size:13px;cursor:pointer}.share{background:var(--gn-green);color:#fff}.later{border:1px solid var(--gn-border)!important;background:#fffdf8;color:var(--gn-green-dark)}.back{background:transparent;color:var(--gn-subtext)}.success-note{margin:0;color:var(--gn-green);font-size:12px;line-height:1.55}.error-note{margin:0;color:var(--gn-danger);text-align:center}
+.peer-graduation-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
+}
+
+.peer-header {
+  padding: 8px 4px 4px;
+}
+
+.peer-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
+}
+
+.peer-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
+.stats-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 12px 8px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+}
+
+.stat-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+.stat-num {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gn-ink);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--gn-muted);
+}
+
+.stat-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--gn-line);
+}
+
+.feedback-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+}
+
+.preview-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+}
+
+.preview-badge {
+  align-self: flex-start;
+  padding: 2px 7px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.preview-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.preview-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+  line-height: 1.5;
+}
+
+.feelings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.feelings-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-feeling {
+  flex: 1;
+  min-height: 36px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-feeling.selected {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
+}
+
+.note-toggle {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--gn-leaf-deep);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+  text-decoration: underline;
+}
+
+.note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--gn-ink);
+}
+
+.note-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  resize: none;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--gn-ink);
+  line-height: 1.5;
+}
+
+.success-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-primary {
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-leaf);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  min-height: 38px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  color: var(--gn-ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+}
+
+.btn-text {
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--gn-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.error-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  color: var(--gn-danger);
+  font-size: 13px;
+}
 </style>

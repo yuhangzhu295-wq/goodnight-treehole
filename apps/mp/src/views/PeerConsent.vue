@@ -3,22 +3,406 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 
-const route = useRoute(); const router = useRouter(); const matchId = computed(() => String(route.query.matchId ?? ''));
-const loading = ref(true); const busy = ref(false); const error = ref(''); const match = ref<any>(null);
-async function load() { loading.value = true; try { match.value = (await api.get<any>('/api/v1/peer-requests')).items.find((item: any) => item.id === matchId.value) ?? null; } catch (cause: any) { error.value = cause?.message ?? '会话前信息没有加载成功'; } finally { loading.value = false; } }
-async function consent() { if (!matchId.value) return; busy.value = true; error.value = ''; try { const response = await api.post<{ conversation: { matchId: string } }>(`/api/v1/peer-matches/${encodeURIComponent(matchId.value)}/consent`, {}); await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(response.conversation.matchId)}`); } catch (cause: any) { error.value = cause?.message ?? '暂时无法开启会话'; } finally { busy.value = false; } }
+const route = useRoute();
+const router = useRouter();
+const matchId = computed(() => String(route.query.matchId ?? ''));
+const loading = ref(true);
+const busy = ref(false);
+const error = ref('');
+const match = ref<any>(null);
+
+async function load() {
+  loading.value = true;
+  try {
+    match.value = (await api.get<any>('/api/v1/peer-requests')).items.find((item: any) => item.id === matchId.value) ?? null;
+  } catch (cause: any) {
+    error.value = cause?.message ?? '会话前信息没有加载成功';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function consent() {
+  if (!matchId.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const response = await api.post<{ conversation: { matchId: string } }>(
+      `/api/v1/peer-matches/${encodeURIComponent(matchId.value)}/consent`,
+      {},
+    );
+    await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(response.conversation.matchId)}`);
+  } catch (cause: any) {
+    error.value = cause?.message ?? '暂时无法开启会话';
+  } finally {
+    busy.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
 <template>
   <section class="goodnight-page peer-consent-page">
-    <header class="consent-hero"><button aria-label="返回请求" @click="router.back()">‹</button><div><span>匿名同路</span><h1>开始前，先确认边界</h1></div></header>
+    <header class="peer-header">
+      <button class="back-btn" aria-label="返回请求" type="button" @click="router.back()">‹</button>
+      <div class="header-titles">
+        <h1 class="peer-title">确认同行边界</h1>
+        <p class="peer-subtitle">开启最长 72 小时对话前的规则确认</p>
+      </div>
+    </header>
+
     <p v-if="loading" class="state-note">正在确认这段同行…</p>
-    <article v-else class="consent-card"><div class="people"><span class="person-one" aria-hidden="true"></span><i>匿名同行</i><span class="person-two" aria-hidden="true"></span></div><h2>开始前，给彼此一点边界</h2><p>你将以匿名身份进入一段限时会话。没有头像、昵称、联系方式或任何可识别信息。</p><ul class="boundary-rules"><li><b>◌</b><span><strong>不展示真实身份</strong><small>彼此匿名，安心倾听。</small></span></li><li><b>◷</b><span><strong>最长 72 小时后结束</strong><small>时间有限，更容易照顾自己。</small></span></li><li><b>⌁</b><span><strong>不交换联系方式</strong><small>专注当下，不带走任何负担。</small></span></li><li><b>◇</b><span><strong>你可以随时结束</strong><small>也可以举报或停止匹配。</small></span></li></ul><p class="draft-note">AI 只能帮你整理草稿，内容不会自动发送。</p><label class="confirm-row"><input type="checkbox" checked disabled><span>我理解并愿意遵守这些匿名边界。</span></label><button :disabled="busy || !match" @click="consent">{{ busy ? '正在开启…' : '同意并开始同行' }}</button><button class="later" :disabled="busy" @click="router.push('/pages/peer/requests')">我想再想想</button></article>
-    <p v-if="error" class="error-note">{{ error }}</p>
+
+    <section v-else class="consent-panel">
+      <div class="participant-strip">
+        <div class="participant-box">
+          <div class="avatar-box">
+            <span class="avatar-text">我</span>
+          </div>
+          <span class="participant-label">我</span>
+        </div>
+        <span class="connection-line">匿名同行</span>
+        <div class="participant-box">
+          <div class="avatar-box">
+            <span class="avatar-text">同</span>
+          </div>
+          <span class="participant-label">同路人</span>
+        </div>
+      </div>
+
+      <h2 class="panel-title">开启对话前的四项边界</h2>
+      <p class="panel-desc">你将以匿名身份进入限时会话。彼此不会显示头像、昵称或联系方式。</p>
+
+      <ul class="boundary-rules">
+        <li>
+          <span class="rule-icon" aria-hidden="true">1</span>
+          <div class="rule-body">
+            <strong>不展示真实身份</strong>
+            <small>彼此完全匿名，不涉及真实姓名、账号或位置。</small>
+          </div>
+        </li>
+        <li>
+          <span class="rule-icon" aria-hidden="true">2</span>
+          <div class="rule-body">
+            <strong>最长 72 小时后结束</strong>
+            <small>限时会话，到期后自动关闭，减轻社交负担。</small>
+          </div>
+        </li>
+        <li>
+          <span class="rule-icon" aria-hidden="true">3</span>
+          <div class="rule-body">
+            <strong>不交换联系方式</strong>
+            <small>专注讨论当前处境与经验，不带走私人联系。</small>
+          </div>
+        </li>
+        <li>
+          <span class="rule-icon" aria-hidden="true">4</span>
+          <div class="rule-body">
+            <strong>可以随时结束</strong>
+            <small>支持随时退出会话、提交反馈或停止匹配。</small>
+          </div>
+        </li>
+      </ul>
+
+      <p class="draft-note">AI 仅用于整理草稿，内容需经你本人确认后发出。</p>
+
+      <label class="confirm-row">
+        <input type="checkbox" checked disabled>
+        <span>我已知晓并遵守上述匿名同行边界。</span>
+      </label>
+
+      <div class="consent-actions">
+        <button
+          class="btn-primary"
+          :disabled="busy || !match"
+          type="button"
+          @click="consent"
+        >
+          {{ busy ? '正在开启…' : '同意并开始同行' }}
+        </button>
+        <button
+          class="btn-secondary"
+          :disabled="busy"
+          type="button"
+          @click="router.push('/pages/peer/requests')"
+        >
+          我想再想想
+        </button>
+      </div>
+    </section>
+
+    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
   </section>
 </template>
 
 <style scoped>
-.peer-consent-page{display:grid;align-content:start;gap:10px;padding:0 16px 142px;background:linear-gradient(180deg,#213c40 0 165px,#fbf8ef 165px)}.consent-hero{position:relative;display:grid;grid-template-columns:40px 1fr;align-items:start;gap:10px;min-height:151px;overflow:hidden;color:#f8f1dc}.consent-hero button{position:relative;z-index:1;width:34px;height:34px;margin-top:19px;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:transparent;color:#fff;font-size:27px;line-height:1;cursor:pointer}.consent-hero div{position:relative;z-index:1;padding-top:24px}.consent-hero span{font-size:12px}.consent-hero h1{margin:8px 0 0;font-family:var(--gn-font-display);font-size:26px;font-weight:400;line-height:1.2}.consent-hero::after{position:absolute;right:-7px;bottom:-5px;width:216px;height:142px;background:url('../assets/goodnight/peer/peer-night-hero.png') right bottom/auto 142px no-repeat;content:'';opacity:.93;pointer-events:none;-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 36%,#000);mask-image:linear-gradient(90deg,transparent 0%,#000 36%,#000)}.consent-card{display:grid;gap:8px;margin-top:-11px;border:1px solid var(--gn-border);border-radius:23px;background:#fffdf7;box-shadow:var(--gn-shadow-card);padding:15px}.people{position:relative;display:flex;align-items:center;justify-content:center;gap:18px;min-height:47px;overflow:hidden}.people::before{position:absolute;right:34px;bottom:-12px;width:125px;height:67px;background:url('../assets/goodnight/peer/peer-bench-scene.png') right bottom/contain no-repeat;content:'';opacity:.23;pointer-events:none}.people span,.people i{position:relative;z-index:1}.people span{width:32px;height:32px;border:1px solid rgba(95,127,62,.25);border-radius:50%;background:#edf3e7}.people span::before{position:absolute;left:10px;top:6px;width:10px;height:10px;border-radius:50%;background:#7e9966;content:''}.people span::after{position:absolute;left:6px;bottom:4px;width:18px;height:12px;border-radius:12px 12px 6px 6px;background:#7e9966;content:''}.people .person-two{background:#f7eddb}.people .person-two::before,.people .person-two::after{background:#af8a5a}.people i{color:#68745f;font-size:11px;font-style:normal}.consent-card h2{margin:0;color:#344737;font-family:var(--gn-font-display);font-size:18px;font-weight:400;text-align:center}.consent-card>p{margin:0;color:var(--gn-subtext);font-size:12px;line-height:1.55;text-align:center}.boundary-rules{display:grid!important;gap:1px!important;margin:0!important;padding:0!important;border:1px solid var(--gn-border);border-radius:15px;overflow:hidden;list-style:none}.boundary-rules li{display:grid!important;grid-template-columns:26px minmax(0,1fr);gap:7px;align-items:center;padding:7px 9px!important;border-bottom:1px solid var(--gn-border)}.boundary-rules li:last-child{border-bottom:0}.boundary-rules li::before{content:none!important}.boundary-rules b{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:var(--gn-green-light);color:var(--gn-green);font-size:13px}.boundary-rules span{display:grid;gap:1px}.boundary-rules strong{color:var(--gn-text);font-size:12px}.boundary-rules small{color:var(--gn-subtext);font-size:10px;line-height:1.35}.draft-note{padding:7px 9px;border-radius:11px;background:#f5f1e6;color:var(--gn-green-dark)!important;font-size:10px!important;line-height:1.45!important}.confirm-row{display:flex;gap:7px;align-items:start;padding:7px 9px;border-radius:11px;background:#f2f5ea;color:var(--gn-green-dark);font-size:11px;line-height:1.35}.confirm-row input{accent-color:var(--gn-green);margin-top:1px}.consent-card button{min-height:42px;border:0;border-radius:999px;background:var(--gn-green);color:#fff;font:inherit;font-size:13px;cursor:pointer}.consent-card .later{min-height:23px;background:transparent;color:var(--gn-subtext);font-size:11px}.state-note,.error-note{margin:0;color:var(--gn-subtext);text-align:center}.error-note{color:var(--gn-danger)}
+.peer-consent-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
+}
+
+.peer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px 4px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.peer-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gn-ink);
+}
+
+.peer-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--gn-muted);
+}
+
+.state-note {
+  margin: 24px 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.error-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  color: var(--gn-danger);
+  font-size: 13px;
+}
+
+.consent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+}
+
+.participant-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+}
+
+.participant-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.avatar-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+}
+
+.avatar-text {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.participant-label {
+  font-size: 11px;
+  color: var(--gn-muted);
+}
+
+.connection-line {
+  padding: 2px 8px;
+  border-radius: var(--gn-radius-small);
+  border: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  text-align: center;
+}
+
+.panel-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.boundary-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  overflow: hidden;
+}
+
+.boundary-rules li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.boundary-rules li:last-child {
+  border-bottom: 0;
+}
+
+.rule-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rule-body strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.rule-body small {
+  font-size: 12px;
+  color: var(--gn-muted);
+  line-height: 1.4;
+}
+
+.draft-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  border: 1px solid var(--gn-line);
+  color: var(--gn-ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.confirm-row input {
+  accent-color: var(--gn-leaf);
+  margin: 0;
+}
+
+.consent-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-primary {
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-leaf);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  min-height: 36px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper);
+  color: var(--gn-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
 </style>
