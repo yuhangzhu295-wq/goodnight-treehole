@@ -105,8 +105,10 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.OutcomeCheckin
       ? Promise.resolve([])
       : db.outcomeCheckin.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.peerExperience.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.peerMatch.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.PeerExperience
+      ? Promise.resolve([])
+      : db.peerExperience.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.PeerMatch ? Promise.resolve([]) : db.peerMatch.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.peerReputation.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.decisionRecord.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.cooldownItem.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -123,9 +125,11 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.UserNotification
       ? Promise.resolve([])
       : db.userNotification.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.peerConversation.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.peerMessage.findMany({ orderBy: { createdAt: 'asc' } }),
-    db.peerReport.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.PeerConversation
+      ? Promise.resolve([])
+      : db.peerConversation.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.PeerMessage ? Promise.resolve([]) : db.peerMessage.findMany({ orderBy: { createdAt: 'asc' } }),
+    DIRECT_DB_MODELS.PeerReport ? Promise.resolve([]) : db.peerReport.findMany({ orderBy: { createdAt: 'desc' } }),
     db.adminUserNote.findMany({ orderBy: { createdAt: 'desc' } }),
   ]);
   if (!users.length) return undefined;
@@ -513,47 +517,51 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
             createdAt: iso(item.createdAt),
           })),
         }),
-    peerExperiences: peerExperiences.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      journeyId: item.journeyId ?? undefined,
-      title: item.title,
-      domain: item.domain,
-      subDomain: item.subDomain ?? undefined,
-      stage: item.stage,
-      content: item.content,
-      tags: asArray(item.tags).map(String),
-      fingerprintJson: item.fingerprintJson ?? undefined,
-      laterSummary: item.laterSummary ?? undefined,
-      helpfulActions: item.helpfulActions ?? undefined,
-      notHelpfulActions: item.notHelpfulActions ?? undefined,
-      retrospective: item.retrospective ?? undefined,
-      consentedAt: iso(item.consentedAt),
-      status: item.status,
-      reportCount: item.reportCount,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
-    peerMatches: peerMatches.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      journeyId: item.journeyId ?? undefined,
-      peerExperienceId: item.peerExperienceId,
-      score: item.score,
-      reasons: asArray(item.reasons).map(String),
-      stageDistance: item.stageDistance ?? undefined,
-      recoveryLead: item.recoveryLead ?? undefined,
-      trustScore: item.trustScore ?? undefined,
-      fingerprintSimilarity: item.fingerprintSimilarity ?? undefined,
-      scoreBreakdown: item.scoreBreakdown ?? undefined,
-      explanation: item.explanation ?? undefined,
-      requestReason: item.requestReason ?? undefined,
-      requestQuestion: item.requestQuestion ?? undefined,
-      acceptedAt: item.acceptedAt ? iso(item.acceptedAt) : undefined,
-      status: item.status,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
+    peerExperiences: DIRECT_DB_MODELS.PeerExperience
+      ? []
+      : peerExperiences.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          journeyId: item.journeyId ?? undefined,
+          title: item.title,
+          domain: item.domain,
+          subDomain: item.subDomain ?? undefined,
+          stage: item.stage,
+          content: item.content,
+          tags: asArray(item.tags).map(String),
+          fingerprintJson: item.fingerprintJson ?? undefined,
+          laterSummary: item.laterSummary ?? undefined,
+          helpfulActions: item.helpfulActions ?? undefined,
+          notHelpfulActions: item.notHelpfulActions ?? undefined,
+          retrospective: item.retrospective ?? undefined,
+          consentedAt: iso(item.consentedAt),
+          status: item.status,
+          reportCount: item.reportCount,
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
+    peerMatches: DIRECT_DB_MODELS.PeerMatch
+      ? []
+      : peerMatches.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          journeyId: item.journeyId ?? undefined,
+          peerExperienceId: item.peerExperienceId,
+          score: item.score,
+          reasons: asArray(item.reasons).map(String),
+          stageDistance: item.stageDistance ?? undefined,
+          recoveryLead: item.recoveryLead ?? undefined,
+          trustScore: item.trustScore ?? undefined,
+          fingerprintSimilarity: item.fingerprintSimilarity ?? undefined,
+          scoreBreakdown: item.scoreBreakdown ?? undefined,
+          explanation: item.explanation ?? undefined,
+          requestReason: item.requestReason ?? undefined,
+          requestQuestion: item.requestQuestion ?? undefined,
+          acceptedAt: item.acceptedAt ? iso(item.acceptedAt) : undefined,
+          status: item.status,
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
     peerReputations: peerReputations.map((item: any) => ({
       id: item.id,
       userId: item.userId,
@@ -715,48 +723,54 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
             readAt: item.readAt ? iso(item.readAt) : undefined,
           })),
         }),
-    peerConversations: peerConversations.map((item: any) => ({
-      id: item.id,
-      matchId: item.matchId,
-      starterUserId: item.starterUserId,
-      receiverUserId: item.receiverUserId,
-      status: item.status,
-      startsAt: item.startsAt ? iso(item.startsAt) : iso(item.createdAt),
-      consentAcceptedAt: item.consentAcceptedAt ? iso(item.consentAcceptedAt) : undefined,
-      expiresAt: iso(item.expiresAt),
-      createdAt: iso(item.createdAt),
-      closedAt: item.closedAt ? iso(item.closedAt) : undefined,
-      closedReason: item.closedReason ?? undefined,
-      feedback: item.feedback ?? undefined,
-      feedbackNote: item.feedbackNote ?? undefined,
-      reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined,
-      reporterUserId: item.reporterUserId ?? undefined,
-      reportReason: item.reportReason ?? undefined,
-    })),
-    peerMessages: peerMessages.map((item: any) => ({
-      id: item.id,
-      conversationId: item.conversationId,
-      senderUserId: item.senderUserId,
-      content: item.content,
-      authorType: item.authorType,
-      createdAt: iso(item.createdAt),
-      reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined,
-      blockedAt: item.blockedAt ? iso(item.blockedAt) : undefined,
-      piiFlags: asArray(item.piiFlags).map(String),
-    })),
-    peerReports: peerReports.map((item: any) => ({
-      id: item.id,
-      conversationId: item.conversationId,
-      experienceId: item.experienceId ?? undefined,
-      matchId: item.matchId ?? undefined,
-      reporterUserId: item.reporterUserId,
-      reason: item.reason,
-      status: item.status ?? 'open',
-      handledAt: item.handledAt ? iso(item.handledAt) : undefined,
-      handledBy: item.handledBy ?? undefined,
-      note: item.note ?? undefined,
-      createdAt: iso(item.createdAt),
-    })),
+    peerConversations: DIRECT_DB_MODELS.PeerConversation
+      ? []
+      : peerConversations.map((item: any) => ({
+          id: item.id,
+          matchId: item.matchId,
+          starterUserId: item.starterUserId,
+          receiverUserId: item.receiverUserId,
+          status: item.status,
+          startsAt: item.startsAt ? iso(item.startsAt) : iso(item.createdAt),
+          consentAcceptedAt: item.consentAcceptedAt ? iso(item.consentAcceptedAt) : undefined,
+          expiresAt: iso(item.expiresAt),
+          createdAt: iso(item.createdAt),
+          closedAt: item.closedAt ? iso(item.closedAt) : undefined,
+          closedReason: item.closedReason ?? undefined,
+          feedback: item.feedback ?? undefined,
+          feedbackNote: item.feedbackNote ?? undefined,
+          reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined,
+          reporterUserId: item.reporterUserId ?? undefined,
+          reportReason: item.reportReason ?? undefined,
+        })),
+    peerMessages: DIRECT_DB_MODELS.PeerMessage
+      ? []
+      : peerMessages.map((item: any) => ({
+          id: item.id,
+          conversationId: item.conversationId,
+          senderUserId: item.senderUserId,
+          content: item.content,
+          authorType: item.authorType,
+          createdAt: iso(item.createdAt),
+          reportedAt: item.reportedAt ? iso(item.reportedAt) : undefined,
+          blockedAt: item.blockedAt ? iso(item.blockedAt) : undefined,
+          piiFlags: asArray(item.piiFlags).map(String),
+        })),
+    peerReports: DIRECT_DB_MODELS.PeerReport
+      ? []
+      : peerReports.map((item: any) => ({
+          id: item.id,
+          conversationId: item.conversationId,
+          experienceId: item.experienceId ?? undefined,
+          matchId: item.matchId ?? undefined,
+          reporterUserId: item.reporterUserId,
+          reason: item.reason,
+          status: item.status ?? 'open',
+          handledAt: item.handledAt ? iso(item.handledAt) : undefined,
+          handledBy: item.handledBy ?? undefined,
+          note: item.note ?? undefined,
+          createdAt: iso(item.createdAt),
+        })),
     adminUserNotes: adminUserNotes.map((item: any) => ({
       id: item.id,
       userId: item.userId,
@@ -870,15 +884,27 @@ export async function saveRelationalRuntimeState(
   const moodIds = new Set(asArray(state.moods).map((item: any) => item.id));
   const letterIds = new Set(asArray(state.letters).map((item: any) => item.id));
   const fallbackJobIds = new Set(jobs.map((item: any) => item.id));
-  const fallbackJourneyIds = new Set(asArray(state.lifeJourneys).map((item: any) => item.id));
-  const fallbackCommitmentIds = new Set(asArray(state.actionCommitments).map((item: any) => item.id));
+  const fallbackJourneyIds = DIRECT_DB_MODELS.LifeJourney
+    ? new Set<string>()
+    : new Set(asArray(state.lifeJourneys).map((item: any) => item.id));
+  const fallbackCommitmentIds = DIRECT_DB_MODELS.ActionCommitment
+    ? new Set<string>()
+    : new Set(asArray(state.actionCommitments).map((item: any) => item.id));
   const decisionIds = new Set(asArray(state.decisionRecords).map((item: any) => item.id));
-  const peerExperienceIds = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
+  const peerExperienceIds = DIRECT_DB_MODELS.PeerExperience
+    ? new Set<string>()
+    : new Set(asArray(state.peerExperiences).map((item: any) => item.id));
   const userIds = new Set(users.map((item: any) => item.id));
   const adminUserIds = new Set(asArray(state.adminUsers).map((item: any) => item.id));
-  const peerMatchIds = new Set(asArray(state.peerMatches).map((item: any) => item.id));
-  const peerConversationIds = new Set(asArray(state.peerConversations).map((item: any) => item.id));
-  const peerExperienceIdSet = new Set(asArray(state.peerExperiences).map((item: any) => item.id));
+  const peerMatchIds = DIRECT_DB_MODELS.PeerMatch
+    ? new Set<string>()
+    : new Set(asArray(state.peerMatches).map((item: any) => item.id));
+  const peerConversationIds = DIRECT_DB_MODELS.PeerConversation
+    ? new Set<string>()
+    : new Set(asArray(state.peerConversations).map((item: any) => item.id));
+  const peerExperienceIdSet = DIRECT_DB_MODELS.PeerExperience
+    ? new Set<string>()
+    : new Set(asArray(state.peerExperiences).map((item: any) => item.id));
 
   await db.$transaction(
     async (tx: DbClient) => {
@@ -906,10 +932,10 @@ export async function saveRelationalRuntimeState(
       let journeyIds: Set<string>;
       if (DIRECT_DB_MODELS.LifeJourney) {
         const candidateJourneyIds = [
-          ...asArray(state.actionCommitments).map((item: any) => item.journeyId),
-          ...asArray(state.outcomeCheckins).map((item: any) => item.journeyId),
-          ...asArray(state.peerExperiences).map((item: any) => item.journeyId),
-          ...asArray(state.peerMatches).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.ActionCommitment ? [] : asArray(state.actionCommitments).map((item: any) => item.journeyId)),
+          ...(DIRECT_DB_MODELS.OutcomeCheckin ? [] : asArray(state.outcomeCheckins).map((item: any) => item.journeyId)),
+          ...(DIRECT_DB_MODELS.PeerExperience ? [] : asArray(state.peerExperiences).map((item: any) => item.journeyId)),
+          ...(DIRECT_DB_MODELS.PeerMatch ? [] : asArray(state.peerMatches).map((item: any) => item.journeyId)),
           ...asArray(state.moods).map((item: any) => item.journeyId),
           ...asArray(state.posts).map((item: any) => item.journeyId),
           ...asArray(state.diaries).map((item: any) => item.journeyId),
@@ -935,8 +961,8 @@ export async function saveRelationalRuntimeState(
       let commitmentIds: Set<string>;
       if (DIRECT_DB_MODELS.ActionCommitment) {
         const candidateCommitmentIds = [
-          ...asArray(state.outcomeCheckins).map((item: any) => item.commitmentId),
-          ...asArray(state.actionCommitments).map((item: any) => item.parentActionId),
+          ...(DIRECT_DB_MODELS.OutcomeCheckin ? [] : asArray(state.outcomeCheckins).map((item: any) => item.commitmentId)),
+          ...(DIRECT_DB_MODELS.ActionCommitment ? [] : asArray(state.actionCommitments).map((item: any) => item.parentActionId)),
         ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
         const existingDbCommitments = candidateCommitmentIds.length
           ? await tx.actionCommitment.findMany({
@@ -1301,104 +1327,108 @@ export async function saveRelationalRuntimeState(
           });
         }
       }
-      for (const item of asArray(state.peerExperiences))
-        await tx.peerExperience.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            title: item.title,
-            domain: item.domain,
-            stage: item.stage,
-            subDomain: item.subDomain ?? null,
-            content: item.content,
-            tags: json(item.tags ?? []),
-            fingerprintJson: json(item.fingerprintJson),
-            laterSummary: json(item.laterSummary),
-            helpfulActions: json(item.helpfulActions),
-            notHelpfulActions: json(item.notHelpfulActions),
-            retrospective: item.retrospective ?? null,
-            consentedAt: date(item.consentedAt),
-            status: valid(
-              item.status,
-              ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const,
-              'draft',
-            ),
-            reportCount: Number(item.reportCount ?? 0),
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            userId: item.userId,
-            ...fkUpdate('journeyId', item.journeyId, journeyIds),
-            title: item.title,
-            domain: item.domain,
-            stage: item.stage,
-            subDomain: item.subDomain ?? null,
-            content: item.content,
-            tags: json(item.tags ?? []),
-            fingerprintJson: json(item.fingerprintJson),
-            laterSummary: json(item.laterSummary),
-            helpfulActions: json(item.helpfulActions),
-            notHelpfulActions: json(item.notHelpfulActions),
-            retrospective: item.retrospective ?? null,
-            consentedAt: date(item.consentedAt),
-            status: valid(
-              item.status,
-              ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const,
-              'draft',
-            ),
-            reportCount: Number(item.reportCount ?? 0),
-          },
-        });
-      for (const item of asArray(state.peerMatches).filter((item: any) => peerExperienceIds.has(item.peerExperienceId)))
-        await tx.peerMatch.upsert({
-          where: { userId_peerExperienceId: { userId: item.userId, peerExperienceId: item.peerExperienceId } },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            peerExperienceId: item.peerExperienceId,
-            score: Number(item.score ?? 0),
-            reasons: json(item.reasons ?? []),
-            stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
-            recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead),
-            trustScore: item.trustScore == null ? null : Number(item.trustScore),
-            fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity),
-            scoreBreakdown: json(item.scoreBreakdown),
-            explanation: item.explanation ?? null,
-            requestReason: item.requestReason ?? null,
-            requestQuestion: item.requestQuestion ?? null,
-            acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null,
-            status: valid(
-              item.status,
-              ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const,
-              'suggested',
-            ),
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            ...fkUpdate('journeyId', item.journeyId, journeyIds),
-            score: Number(item.score ?? 0),
-            reasons: json(item.reasons ?? []),
-            stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
-            recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead),
-            trustScore: item.trustScore == null ? null : Number(item.trustScore),
-            fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity),
-            scoreBreakdown: json(item.scoreBreakdown),
-            explanation: item.explanation ?? null,
-            requestReason: item.requestReason ?? null,
-            requestQuestion: item.requestQuestion ?? null,
-            acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null,
-            status: valid(
-              item.status,
-              ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const,
-              'suggested',
-            ),
-          },
-        });
+      if (!DIRECT_DB_MODELS.PeerExperience) {
+        for (const item of asArray(state.peerExperiences))
+          await tx.peerExperience.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              title: item.title,
+              domain: item.domain,
+              stage: item.stage,
+              subDomain: item.subDomain ?? null,
+              content: item.content,
+              tags: json(item.tags ?? []),
+              fingerprintJson: json(item.fingerprintJson),
+              laterSummary: json(item.laterSummary),
+              helpfulActions: json(item.helpfulActions),
+              notHelpfulActions: json(item.notHelpfulActions),
+              retrospective: item.retrospective ?? null,
+              consentedAt: date(item.consentedAt),
+              status: valid(
+                item.status,
+                ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const,
+                'draft',
+              ),
+              reportCount: Number(item.reportCount ?? 0),
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              userId: item.userId,
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
+              title: item.title,
+              domain: item.domain,
+              stage: item.stage,
+              subDomain: item.subDomain ?? null,
+              content: item.content,
+              tags: json(item.tags ?? []),
+              fingerprintJson: json(item.fingerprintJson),
+              laterSummary: json(item.laterSummary),
+              helpfulActions: json(item.helpfulActions),
+              notHelpfulActions: json(item.notHelpfulActions),
+              retrospective: item.retrospective ?? null,
+              consentedAt: date(item.consentedAt),
+              status: valid(
+                item.status,
+                ['draft', 'pending_review', 'published', 'hidden', 'rejected'] as const,
+                'draft',
+              ),
+              reportCount: Number(item.reportCount ?? 0),
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.PeerMatch) {
+        for (const item of asArray(state.peerMatches).filter((item: any) => peerExperienceIds.has(item.peerExperienceId)))
+          await tx.peerMatch.upsert({
+            where: { userId_peerExperienceId: { userId: item.userId, peerExperienceId: item.peerExperienceId } },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              peerExperienceId: item.peerExperienceId,
+              score: Number(item.score ?? 0),
+              reasons: json(item.reasons ?? []),
+              stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
+              recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead),
+              trustScore: item.trustScore == null ? null : Number(item.trustScore),
+              fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity),
+              scoreBreakdown: json(item.scoreBreakdown),
+              explanation: item.explanation ?? null,
+              requestReason: item.requestReason ?? null,
+              requestQuestion: item.requestQuestion ?? null,
+              acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null,
+              status: valid(
+                item.status,
+                ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const,
+                'suggested',
+              ),
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
+              score: Number(item.score ?? 0),
+              reasons: json(item.reasons ?? []),
+              stageDistance: item.stageDistance == null ? null : Number(item.stageDistance),
+              recoveryLead: item.recoveryLead == null ? null : Number(item.recoveryLead),
+              trustScore: item.trustScore == null ? null : Number(item.trustScore),
+              fingerprintSimilarity: item.fingerprintSimilarity == null ? null : Number(item.fingerprintSimilarity),
+              scoreBreakdown: json(item.scoreBreakdown),
+              explanation: item.explanation ?? null,
+              requestReason: item.requestReason ?? null,
+              requestQuestion: item.requestQuestion ?? null,
+              acceptedAt: item.acceptedAt ? date(item.acceptedAt) : null,
+              status: valid(
+                item.status,
+                ['suggested', 'requested', 'connected', 'declined', 'blocked'] as const,
+                'suggested',
+              ),
+            },
+          });
+      }
       for (const item of asArray(state.peerReputations))
         await tx.peerReputation.upsert({
           where: { userId: item.userId },
@@ -2096,73 +2126,77 @@ export async function saveRelationalRuntimeState(
             },
           });
       }
-      for (const item of asArray(state.peerConversations).filter(
-        (item: any) =>
-          peerMatchIds.has(item.matchId) && userIds.has(item.starterUserId) && userIds.has(item.receiverUserId),
-      ))
-        await tx.peerConversation.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            matchId: item.matchId,
-            starterUserId: item.starterUserId,
-            receiverUserId: item.receiverUserId,
-            status: item.status ?? 'active',
-            startsAt: date(item.startsAt ?? item.createdAt),
-            consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null,
-            expiresAt: date(item.expiresAt),
-            createdAt: date(item.createdAt),
-            closedAt: item.closedAt ? date(item.closedAt) : null,
-            closedReason: item.closedReason ?? null,
-            feedback: item.feedback ?? null,
-            feedbackNote: item.feedbackNote ?? null,
-            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
-            reporterUserId: item.reporterUserId ?? null,
-            reportReason: item.reportReason ?? null,
-          },
-          update: {
-            matchId: item.matchId,
-            starterUserId: item.starterUserId,
-            receiverUserId: item.receiverUserId,
-            status: item.status ?? 'active',
-            startsAt: date(item.startsAt ?? item.createdAt),
-            consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null,
-            expiresAt: date(item.expiresAt),
-            closedAt: item.closedAt ? date(item.closedAt) : null,
-            closedReason: item.closedReason ?? null,
-            feedback: item.feedback ?? null,
-            feedbackNote: item.feedbackNote ?? null,
-            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
-            reporterUserId: item.reporterUserId ?? null,
-            reportReason: item.reportReason ?? null,
-          },
-        });
-      for (const item of asArray(state.peerMessages).filter(
-        (item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.senderUserId),
-      ))
-        await tx.peerMessage.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            conversationId: item.conversationId,
-            senderUserId: item.senderUserId,
-            content: item.content,
-            authorType: item.authorType ?? 'HUMAN',
-            createdAt: date(item.createdAt),
-            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
-            blockedAt: item.blockedAt ? date(item.blockedAt) : null,
-            piiFlags: json(item.piiFlags ?? []),
-          },
-          update: {
-            conversationId: item.conversationId,
-            senderUserId: item.senderUserId,
-            content: item.content,
-            authorType: item.authorType ?? 'HUMAN',
-            reportedAt: item.reportedAt ? date(item.reportedAt) : null,
-            blockedAt: item.blockedAt ? date(item.blockedAt) : null,
-            piiFlags: json(item.piiFlags ?? []),
-          },
-        });
+      if (!DIRECT_DB_MODELS.PeerConversation) {
+        for (const item of asArray(state.peerConversations).filter(
+          (item: any) =>
+            peerMatchIds.has(item.matchId) && userIds.has(item.starterUserId) && userIds.has(item.receiverUserId),
+        ))
+          await tx.peerConversation.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              matchId: item.matchId,
+              starterUserId: item.starterUserId,
+              receiverUserId: item.receiverUserId,
+              status: item.status ?? 'active',
+              startsAt: date(item.startsAt ?? item.createdAt),
+              consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null,
+              expiresAt: date(item.expiresAt),
+              createdAt: date(item.createdAt),
+              closedAt: item.closedAt ? date(item.closedAt) : null,
+              closedReason: item.closedReason ?? null,
+              feedback: item.feedback ?? null,
+              feedbackNote: item.feedbackNote ?? null,
+              reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+              reporterUserId: item.reporterUserId ?? null,
+              reportReason: item.reportReason ?? null,
+            },
+            update: {
+              matchId: item.matchId,
+              starterUserId: item.starterUserId,
+              receiverUserId: item.receiverUserId,
+              status: item.status ?? 'active',
+              startsAt: date(item.startsAt ?? item.createdAt),
+              consentAcceptedAt: item.consentAcceptedAt ? date(item.consentAcceptedAt) : null,
+              expiresAt: date(item.expiresAt),
+              closedAt: item.closedAt ? date(item.closedAt) : null,
+              closedReason: item.closedReason ?? null,
+              feedback: item.feedback ?? null,
+              feedbackNote: item.feedbackNote ?? null,
+              reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+              reporterUserId: item.reporterUserId ?? null,
+              reportReason: item.reportReason ?? null,
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.PeerMessage) {
+        for (const item of asArray(state.peerMessages).filter(
+          (item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.senderUserId),
+        ))
+          await tx.peerMessage.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              conversationId: item.conversationId,
+              senderUserId: item.senderUserId,
+              content: item.content,
+              authorType: item.authorType ?? 'HUMAN',
+              createdAt: date(item.createdAt),
+              reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+              blockedAt: item.blockedAt ? date(item.blockedAt) : null,
+              piiFlags: json(item.piiFlags ?? []),
+            },
+            update: {
+              conversationId: item.conversationId,
+              senderUserId: item.senderUserId,
+              content: item.content,
+              authorType: item.authorType ?? 'HUMAN',
+              reportedAt: item.reportedAt ? date(item.reportedAt) : null,
+              blockedAt: item.blockedAt ? date(item.blockedAt) : null,
+              piiFlags: json(item.piiFlags ?? []),
+            },
+          });
+      }
       for (const item of asArray(state.favorites))
         await tx.favorite.upsert({
           where: {
@@ -2335,46 +2369,49 @@ export async function saveRelationalRuntimeState(
           tx.actionCommitment,
           asArray(state.actionCommitments).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.peerMessage,
-        asArray(state.peerMessages).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.PeerMessage)
+        await deleteAbsent(
+          tx.peerMessage,
+          asArray(state.peerMessages).map((item: any) => item.id),
+        );
       // Reports are written before their conversations are pruned so the cascade never races the
       // history: a report whose conversation is gone is filtered out here instead.
-      for (const item of asArray(state.peerReports).filter(
-        (item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.reporterUserId),
-      ))
-        await tx.peerReport.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            conversationId: item.conversationId,
-            experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null,
-            matchId: item.matchId ?? null,
-            reporterUserId: item.reporterUserId,
-            reason: item.reason,
-            status: item.status ?? 'open',
-            handledAt: item.handledAt ? date(item.handledAt) : null,
-            handledBy: item.handledBy ?? null,
-            note: item.note ?? null,
-            createdAt: date(item.createdAt),
-          },
-          update: {
-            conversationId: item.conversationId,
-            ...fkUpdate('experienceId', item.experienceId, peerExperienceIdSet),
-            ...(item.matchId !== undefined ? { matchId: item.matchId ?? null } : {}),
-            reporterUserId: item.reporterUserId,
-            reason: item.reason,
-            status: item.status ?? 'open',
-            handledAt: item.handledAt ? date(item.handledAt) : null,
-            handledBy: item.handledBy ?? null,
-            note: item.note ?? null,
-          },
-        });
-      await deleteAbsent(
-        tx.peerReport,
-        asArray(state.peerReports).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.PeerReport) {
+        for (const item of asArray(state.peerReports).filter(
+          (item: any) => peerConversationIds.has(item.conversationId) && userIds.has(item.reporterUserId),
+        ))
+          await tx.peerReport.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              conversationId: item.conversationId,
+              experienceId: peerExperienceIdSet.has(item.experienceId) ? item.experienceId : null,
+              matchId: item.matchId ?? null,
+              reporterUserId: item.reporterUserId,
+              reason: item.reason,
+              status: item.status ?? 'open',
+              handledAt: item.handledAt ? date(item.handledAt) : null,
+              handledBy: item.handledBy ?? null,
+              note: item.note ?? null,
+              createdAt: date(item.createdAt),
+            },
+            update: {
+              conversationId: item.conversationId,
+              ...fkUpdate('experienceId', item.experienceId, peerExperienceIdSet),
+              ...(item.matchId !== undefined ? { matchId: item.matchId ?? null } : {}),
+              reporterUserId: item.reporterUserId,
+              reason: item.reason,
+              status: item.status ?? 'open',
+              handledAt: item.handledAt ? date(item.handledAt) : null,
+              handledBy: item.handledBy ?? null,
+              note: item.note ?? null,
+            },
+          });
+        await deleteAbsent(
+          tx.peerReport,
+          asArray(state.peerReports).map((item: any) => item.id),
+        );
+      }
       for (const item of asArray(state.adminUserNotes).filter(
         (item: any) => userIds.has(item.userId) && adminUserIds.has(item.authorAdminId),
       ))
@@ -2401,23 +2438,26 @@ export async function saveRelationalRuntimeState(
         tx.adminUserNote,
         asArray(state.adminUserNotes).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.peerConversation,
-        asArray(state.peerConversations).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.PeerConversation)
+        await deleteAbsent(
+          tx.peerConversation,
+          asArray(state.peerConversations).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.UserNotification)
         await deleteAbsent(
           tx.userNotification,
           asArray(state.notifications).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.peerMatch,
-        asArray(state.peerMatches).map((item: any) => item.id),
-      );
-      await deleteAbsent(
-        tx.peerExperience,
-        asArray(state.peerExperiences).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.PeerMatch)
+        await deleteAbsent(
+          tx.peerMatch,
+          asArray(state.peerMatches).map((item: any) => item.id),
+        );
+      if (!DIRECT_DB_MODELS.PeerExperience)
+        await deleteAbsent(
+          tx.peerExperience,
+          asArray(state.peerExperiences).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.SituationSnapshot)
         await deleteAbsent(
           tx.situationSnapshot,

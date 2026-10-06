@@ -7,6 +7,11 @@ export const DIRECT_DB_MODELS = {
   JourneyUpdate: 'journeyUpdates',
   ActionCommitment: 'actionCommitments',
   OutcomeCheckin: 'outcomeCheckins',
+  PeerExperience: 'peerExperiences',
+  PeerMatch: 'peerMatches',
+  PeerConversation: 'peerConversations',
+  PeerMessage: 'peerMessages',
+  PeerReport: 'peerReports',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;
