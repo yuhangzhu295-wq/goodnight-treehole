@@ -1,3 +1,4 @@
+/* global console, fetch, setTimeout, process */
 // Full business-flow walkthrough against the RUNNING dev API (127.0.0.1:3000).
 // Prints a step-by-step transcript: which page/button each step corresponds to,
 // the request made, and the observed result.

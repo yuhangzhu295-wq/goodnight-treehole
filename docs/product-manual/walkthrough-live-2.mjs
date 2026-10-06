@@ -1,3 +1,4 @@
+/* global console, fetch, process */
 // Second pass: the remaining feature lines (archive/restore, graduation, square,
 // feedback, trusted contacts, diary CRUD, memory, support plan, stable self).
 const BASE = 'http://127.0.0.1:3000';
