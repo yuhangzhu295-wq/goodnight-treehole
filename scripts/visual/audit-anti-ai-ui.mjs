@@ -6,14 +6,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const VIEWS = 'apps/mp/src/views';
+const COMPONENTS = 'apps/mp/src/components';
 const STYLES = 'apps/mp/src/styles';
+
+// Components carry their own scoped styles and are shared by pages, so a violation
+// inside one is invisible to a views-only scan. Collect both.
+function listVue(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listVue(full));
+    else if (entry.name.endsWith('.vue')) out.push(full);
+  }
+  return out;
+}
+const ALL_VUE = [...listVue(VIEWS), ...listVue(COMPONENTS)];
 const ROOT_STYLE = 'apps/mp/src/styles.scss';
 
 // pages the contract explicitly exempts from HERO_COUNT = 0
 const HERO_EXEMPT = new Set(['TonightHome', 'SafetySupport', 'JourneyDetail']);
 
 function analyze(file) {
-  const src = fs.readFileSync(path.join(VIEWS, file), 'utf8');
+  const src = fs.readFileSync(file, 'utf8');
   const template = src.split('<script')[0] || src;
   const styleMatch = src.match(/<style[^>]*>([\s\S]*?)<\/style>/);
   const style = styleMatch ? styleMatch[1] : '';
@@ -48,10 +62,10 @@ function analyze(file) {
   // I. density proxy: how many repeated list objects are rendered
   const listLoops = count(/v-for=/g, template);
 
-  return { file: file.replace('.vue', ''), heroCount, decorativeImages, cardClasses, cardRule, shadows, gradients, serif, listLoops };
+  return { file: path.basename(file).replace('.vue', '') + (file.includes('components') ? ' [c]' : ''), heroCount, decorativeImages, cardClasses, cardRule, shadows, gradients, serif, listLoops };
 }
 
-const rows = fs.readdirSync(VIEWS).filter((f) => f.endsWith('.vue')).sort().map(analyze);
+const rows = ALL_VUE.sort().map(analyze);
 
 // global styles in tokens.scss & goodnight-theme.scss
 let themeStyle = '';
@@ -121,8 +135,9 @@ console.log('条款 G — AI 腔文案（禁用词命中）');
 console.log('='.repeat(96));
 const BANNED = ['陪你', '慢慢', '温柔', '小小', '接住', '不必证明', '此刻', '系统会帮你', '我理解'];
 const hits = [];
-for (const f of fs.readdirSync(VIEWS).filter((x) => x.endsWith('.vue'))) {
-  const src = fs.readFileSync(path.join(VIEWS, f), 'utf8');
+for (const full of ALL_VUE) {
+  const src = fs.readFileSync(full, 'utf8');
+  const f = path.basename(full);
   const found = BANNED.filter((w) => src.includes(w));
   if (found.length) hits.push({ page: f.replace('.vue', ''), words: found });
 }

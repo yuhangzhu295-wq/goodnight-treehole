@@ -27,11 +27,14 @@ defineEmits<{ select: [key: ShortcutKey] }>();
 
 <style scoped>
 .shortcut-area { margin-top:2px; }
-.shortcut-area > p { margin:0 0 8px 2px; color:#65735d; font-size:12px; }
-.shortcut-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:7px; }
-.shortcut-card { display:grid; min-height:80px; align-content:start; justify-items:center; gap:4px; border:1px solid rgba(117,124,87,.14); border-radius:16px; background:rgba(255,253,246,.84); padding:7px 5px 6px; color:#435640; font:inherit; text-align:center; cursor:pointer; box-shadow:0 7px 16px rgba(55,66,47,.05); }
-.shortcut-icon { display:grid; width:28px; height:28px; place-items:center; border-radius:11px; background:#edf0df; color:#63775a; font-size:15px; }
-strong { font-size:11px; font-weight:650; line-height:1.22; }
-small { color:#849082; font-size:9px; line-height:1.25; }
-@media (max-width:374px) { .shortcut-grid { gap:6px; } .shortcut-card { min-height:88px; padding-inline:4px; } strong { font-size:11px; } small { font-size:9px; } }
+.shortcut-area > p { margin:0 0 8px 2px; color:var(--gn-subtext); font-size:12px; }
+/* Four columns squeezed every label onto two lines at 390px. Two columns keep each
+   label on one line and read as a normal shortcut grid. */
+.shortcut-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; }
+.shortcut-card { display:grid; min-height:56px; grid-template-columns:28px minmax(0, 1fr); align-items:center; gap:9px; border:1px solid var(--gn-line); border-radius:var(--gn-radius-card); background:var(--gn-paper); padding:9px 10px; color:var(--gn-text); font:inherit; text-align:left; cursor:pointer; }
+.shortcut-icon { display:grid; width:28px; height:28px; place-items:center; border-radius:var(--gn-radius-small); background:var(--gn-paper-warm); color:var(--gn-leaf-deep); font-size:15px; }
+.shortcut-card strong, .shortcut-card small { grid-column:2; min-width:0; }
+.shortcut-icon { grid-row:1 / span 2; }
+strong { font-size:13px; font-weight:600; line-height:1.25; }
+small { color:var(--gn-subtext); font-size:11px; line-height:1.3; }
 </style>

@@ -57,6 +57,10 @@ textarea {
 .page {
   position: relative;
   display: grid;
+  /* Pages that set min-height: 100vh on a grid container stretch their rows to fill
+     the viewport, which pushes a short page's content apart and leaves dead space.
+     Packing rows to the top keeps every page's content contiguous. */
+  align-content: start;
   gap: 14px;
 }
 
