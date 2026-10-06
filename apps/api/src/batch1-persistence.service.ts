@@ -570,29 +570,32 @@ export class Batch1PersistenceService {
   async markNotificationRead(
     notificationId: string,
     userId: string,
-    options?: { _onBeforeUpdate?: () => Promise<void> },
+    options?: { _onInTransaction?: () => Promise<void> },
   ): Promise<{ item: UserNotification }> {
-    const existing = await this.prisma.userNotification.findFirst({
-      where: { id: notificationId, userId },
+    return await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.userNotification.findFirst({
+        where: { id: notificationId, userId },
+      });
+      if (!existing) {
+        throw new NotFoundException('提醒不存在');
+      }
+      if (existing.status === 'read') {
+        return { item: mapUserNotificationRow(existing) };
+      }
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "UserNotification" WHERE id = ${notificationId} FOR UPDATE`);
+      if (options?._onInTransaction) {
+        await options._onInTransaction();
+      }
+      const now = new Date();
+      await tx.userNotification.updateMany({
+        where: { id: notificationId, userId, status: { not: 'read' } },
+        data: { status: 'read', readAt: now },
+      });
+      const updated = await tx.userNotification.findUnique({
+        where: { id: notificationId },
+      });
+      return { item: mapUserNotificationRow(updated!) };
     });
-    if (!existing) {
-      throw new NotFoundException('提醒不存在');
-    }
-    if (existing.status === 'read') {
-      return { item: mapUserNotificationRow(existing) };
-    }
-    if (options?._onBeforeUpdate) {
-      await options._onBeforeUpdate();
-    }
-    const now = new Date();
-    await this.prisma.userNotification.updateMany({
-      where: { id: notificationId, userId, status: { not: 'read' } },
-      data: { status: 'read', readAt: now },
-    });
-    const updated = await this.prisma.userNotification.findUnique({
-      where: { id: notificationId },
-    });
-    return { item: mapUserNotificationRow(updated!) };
   }
 
   async upsertPeerNotification(params: {
@@ -711,10 +714,14 @@ export class Batch1PersistenceService {
     payload?: any;
     status?: 'open' | 'handled';
     createdAt?: Date | string;
+    _onBeforeInsert?: () => Promise<void>;
     _onInFlight?: () => Promise<void>;
   }): Promise<SafetyEventRecord> {
     const eventId = params.id ?? `safety_${crypto.randomBytes(5).toString('hex')}`;
     const insertRow = async (client: any) => {
+      if (params._onBeforeInsert) {
+        await params._onBeforeInsert();
+      }
       const row = await client.safetyEvent.create({
         data: {
           id: eventId,
@@ -734,7 +741,7 @@ export class Batch1PersistenceService {
       return mapSafetyEventRow(row);
     };
 
-    return params._onInFlight
+    return params._onInFlight || params._onBeforeInsert
       ? await this.prisma.$transaction(insertRow)
       : await insertRow(this.prisma);
   }
@@ -2092,8 +2099,12 @@ export class Batch1PersistenceService {
     actionIds?: string[];
     archiveRoute: string;
     _failDuringTransaction?: boolean;
+    _onBeforeLock?: () => Promise<void>;
     _onLockedJourney?: () => Promise<void>;
   }): Promise<{ deletedJourneyId: string; deletedActionIds: string[] }> {
+    if (params._onBeforeLock) {
+      await params._onBeforeLock();
+    }
     return await this.prisma.$transaction(async (tx) => {
       // Global lock hierarchy: User -> LifeJourney -> child records
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${params.userId} FOR UPDATE`);

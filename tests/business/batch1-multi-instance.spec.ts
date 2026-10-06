@@ -3,6 +3,48 @@ import { PrismaClient } from '@prisma/client';
 import { createTwoInstanceHarness, type MultiInstanceContext } from './two-instance-harness';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
 
+class StrictBarrier {
+  private parties = new Set<string>();
+  private arrived = new Set<string>();
+  private resolvers = new Map<string, () => void>();
+
+  constructor(names: string[]) {
+    for (const name of names) this.parties.add(name);
+  }
+
+  async enter(name: string, timeoutMs = 2500): Promise<void> {
+    if (!this.parties.has(name)) throw new Error(`Unknown barrier party: ${name}`);
+    this.arrived.add(name);
+    if (this.arrived.size === this.parties.size) {
+      for (const resolve of this.resolvers.values()) {
+        resolve();
+      }
+      this.resolvers.clear();
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.resolvers.delete(name);
+        reject(
+          new Error(
+            `StrictBarrier timeout: "${name}" arrived and waited ${timeoutMs}ms, but expected parties [${[...this.parties].join(', ')}]; arrived: [${[...this.arrived].join(', ')}]`,
+          ),
+        );
+      }, timeoutMs);
+      this.resolvers.set(name, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  assertAllArrived(): void {
+    for (const name of this.parties) {
+      expect(this.arrived.has(name)).toBe(true);
+    }
+  }
+}
+
 describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
   let harness: MultiInstanceContext;
   let testUserId: string;
@@ -262,9 +304,8 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       });
 
       // Interleaving 1: SafetyEvent creation in-flight overlaps deleteJourneyArchive in-flight
-      // Instance A inserts SafetyEvent in transaction and holds lock while Instance B starts deleteJourneyArchive.
-      let safetyInFlight = false;
-      let archiveStarted = false;
+      // StrictBarrier ensures both sides arrive mid-operation; neither can proceed unless both reach the barrier.
+      const barrier1 = new StrictBarrier(['creationInFlight', 'archiveBeforeLock']);
 
       const creationPromise = harness.persistenceA.createSafetyEvent({
         id: safetyEventId,
@@ -275,29 +316,23 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         action: 'EMERGENCY_SUPPORT',
         payload: { triggeredBy: 'high_distress_intent' },
         _onInFlight: async () => {
-          safetyInFlight = true;
-          const start = Date.now();
-          while (!archiveStarted && Date.now() - start < 150) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
+          await barrier1.enter('creationInFlight');
+          // Hold the transaction open briefly so deleteJourneyArchive's lock attempt is blocked
+          await new Promise((r) => setTimeout(r, 40));
         },
       });
 
-      // Wait until Instance A is in-flight holding its transaction
-      const startWait = Date.now();
-      while (!safetyInFlight && Date.now() - startWait < 150) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      archiveStarted = true;
-
-      // Instance B executes deleteJourneyArchive concurrently while Instance A is in-flight
       const archivePromise = harness.persistenceB.deleteJourneyArchive({
         journeyId,
         userId: testUserId,
         archiveRoute: `/pages/journey/detail?id=${journeyId}`,
+        _onBeforeLock: async () => {
+          await barrier1.enter('archiveBeforeLock');
+        },
       });
 
       const [createdSafety, deleteRes] = await Promise.all([creationPromise, archivePromise]);
+      barrier1.assertAllArrived();
       expect(createdSafety.id).toBe(safetyEventId);
       expect(deleteRes.deletedJourneyId).toBe(journeyId);
 
@@ -330,28 +365,16 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         },
       });
 
-      let archiveLocked = false;
-      let attemptStarted = false;
+      const barrier2 = new StrictBarrier(['archiveLocked', 'createStarted']);
 
       const lockedArchivePromise = harness.persistenceB.deleteJourneyArchive({
         journeyId: journey2Id,
         userId: testUserId,
         archiveRoute: `/pages/journey/detail?id=${journey2Id}`,
         _onLockedJourney: async () => {
-          archiveLocked = true;
-          const start = Date.now();
-          while (!attemptStarted && Date.now() - start < 150) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
+          await barrier2.enter('archiveLocked');
         },
       });
-
-      // Wait until archive lock is held
-      const startLockWait = Date.now();
-      while (!archiveLocked && Date.now() - startLockWait < 150) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      attemptStarted = true;
 
       const postDeleteEventId = `safety_post_del_${Date.now()}`;
       const racingCreationPromise = harness.persistenceA.createSafetyEvent({
@@ -361,10 +384,14 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         level: 'high',
         source: 'crisis_hotline',
         action: 'POST_DELETE_ATTEMPT',
+        _onBeforeInsert: async () => {
+          await barrier2.enter('createStarted');
+        },
       });
 
       // Creation racing against in-flight deletion either rejects with FK violation or fails to attach
       const [archiveRes2, creationErr] = await Promise.allSettled([lockedArchivePromise, racingCreationPromise]);
+      barrier2.assertAllArrived();
       expect(archiveRes2.status).toBe('fulfilled');
       expect(creationErr.status).toBe('rejected');
 
@@ -401,32 +428,25 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       const deliveryRes = await (harness.workerA as any).deliver(jobPayload);
       expect(deliveryRes.status).toBe('delivered');
 
-      // 3. Concurrent race: Worker delivery retry on Instance A racing mark-read on Instance B with mid-operation barrier
-      let deliveryAtBarrier = false;
-      let readAtBarrier = false;
+      // 3. Concurrent race: Worker delivery retry on Instance A racing mark-read on Instance B.
+      // StrictBarrier ensures both operations execute INSIDE their respective transactions holding/contending on row locks.
+      const barrier = new StrictBarrier(['deliveryRetryInTx', 'markReadInTx']);
 
       const retryDeliveryPromise = (harness.workerA as any).deliver({
         ...jobPayload,
         _onBeforeNotificationWrite: async () => {
-          deliveryAtBarrier = true;
-          const start = Date.now();
-          while (!readAtBarrier && Date.now() - start < 150) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
+          await barrier.enter('deliveryRetryInTx');
         },
       });
 
       const markReadPromise = harness.persistenceB.markNotificationRead(notificationId, testUserId, {
-        _onBeforeUpdate: async () => {
-          readAtBarrier = true;
-          const start = Date.now();
-          while (!deliveryAtBarrier && Date.now() - start < 150) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
+        _onInTransaction: async () => {
+          await barrier.enter('markReadInTx');
         },
       });
 
       const [retryRes, readRes] = await Promise.all([retryDeliveryPromise, markReadPromise]);
+      barrier.assertAllArrived();
       expect(retryRes.status).toBe('delivered');
       expect(readRes.item.status).toBe('read');
 
@@ -453,6 +473,16 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       // Prepare a stale runtime state snapshot on Instance B
       // Note: DIRECT_DB_MODELS are omitted from this snapshot
       const staleState = {
+        adminUsers: [
+          {
+            id: `admin_race_${Date.now()}`,
+            username: `admin_${Date.now()}`,
+            passwordHash: 'hashed_pw',
+            displayName: 'Admin User',
+            role: 'super_admin',
+            status: 'active',
+          },
+        ],
         users: [
           {
             id: testUserId,
@@ -483,12 +513,9 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         ],
       };
 
-      let writeHoldingLock = false;
-      let flushHoldingLock = false;
+      // StrictBarrier ensures both transactions demonstrably hold locks in PostgreSQL at the same time
+      const barrier = new StrictBarrier(['migratedWriteLocked', 'legacyFlushLocked']);
 
-      // Concurrently run with barrier:
-      // Instance A: migrated transaction createJourneyWithSnapshotAndUpdate holding lock
-      // Instance B: full legacy flush saveRelationalRuntimeState holding lock
       const migratedWritePromise = harness.persistenceA.createJourneyWithSnapshotAndUpdate({
         journey: {
           id: journeyId,
@@ -524,11 +551,7 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
           createdAt: new Date().toISOString(),
         },
         _onBeforeCommit: async () => {
-          writeHoldingLock = true;
-          const start = Date.now();
-          while (!flushHoldingLock && Date.now() - start < 150) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
+          await barrier.enter('migratedWriteLocked');
         },
       });
 
@@ -537,17 +560,14 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         staleState as any,
         {
           _onInTransaction: async () => {
-            flushHoldingLock = true;
-            const start = Date.now();
-            while (!writeHoldingLock && Date.now() - start < 150) {
-              await new Promise((r) => setTimeout(r, 10));
-            }
+            await barrier.enter('legacyFlushLocked');
           },
         },
       );
 
       // Await both: must not throw 40P01 deadlock
       const [writeRes] = await Promise.all([migratedWritePromise, legacyFlushPromise]);
+      barrier.assertAllArrived();
       expect(writeRes.journey.id).toBe(journeyId);
 
       // Assert from independent client:
@@ -573,8 +593,9 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       const snapshotId = `snapshot_reload_test_${Date.now()}`;
       const updateId = `update_reload_test_${Date.now()}`;
 
-      let commitWindowOpen = false;
-      let reloadCompletedDuringWindow = false;
+      // StrictBarriers ensure reload occurs strictly inside Instance A's open commit window
+      const startBarrier = new StrictBarrier(['commitWindowOpen', 'reloadBeforeLoad']);
+      const finishBarrier = new StrictBarrier(['commitWindowHold', 'reloadAfterLoad']);
 
       // 1. Instance A starts committing a migrated journey with _onBeforeCommit barrier
       const createPromise = harness.persistenceA.createJourneyWithSnapshotAndUpdate({
@@ -612,27 +633,24 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
           createdAt: new Date().toISOString(),
         },
         _onBeforeCommit: async () => {
-          commitWindowOpen = true;
-          // Hold the transaction open while Instance B performs its reload
-          const start = Date.now();
-          while (!reloadCompletedDuringWindow && Date.now() - start < 150) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
+          await startBarrier.enter('commitWindowOpen');
+          await finishBarrier.enter('commitWindowHold');
         },
       });
 
-      // Wait until Instance A's commit window is demonstrably open
-      const startWait = Date.now();
-      while (!commitWindowOpen && Date.now() - startWait < 150) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
+      // 2. Instance B reloads its runtime state (reads PostgreSQL) strictly DURING Instance A's open commit window
+      const reloadPromise = harness.storeB.reloadRuntimeState({
+        _onBeforeLoad: async () => {
+          await startBarrier.enter('reloadBeforeLoad');
+        },
+        _onAfterLoad: async () => {
+          await finishBarrier.enter('reloadAfterLoad');
+        },
+      });
 
-      // 2. Instance B reloads its runtime state (reads PostgreSQL) DURING Instance A's open commit window
-      await harness.storeB.reloadRuntimeState();
-      reloadCompletedDuringWindow = true;
-
-      // Await Instance A commit
-      const createRes = await createPromise;
+      const [createRes] = await Promise.all([createPromise, reloadPromise]);
+      startBarrier.assertAllArrived();
+      finishBarrier.assertAllArrived();
       expect(createRes.journey.id).toBe(journeyId);
 
       // 3. Instance B triggers a full legacy flush with its in-memory snapshot (which missed the uncommitted row)

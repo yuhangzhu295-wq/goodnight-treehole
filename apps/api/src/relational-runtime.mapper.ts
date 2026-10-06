@@ -981,6 +981,9 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
+      if (options?._onInTransaction) {
+        await options._onInTransaction();
+      }
       for (const item of users) {
         await tx.user.upsert({
           where: { id: item.id },
@@ -1001,9 +1004,6 @@ export async function saveRelationalRuntimeState(
             status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal'),
           },
         });
-      }
-      if (options?._onInTransaction) {
-        await options._onInTransaction();
       }
       for (const item of users) {
         const privacy = state.privacySettings?.[item.id] ?? {};

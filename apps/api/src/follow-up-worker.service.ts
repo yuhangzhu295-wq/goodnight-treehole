@@ -80,21 +80,23 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (futureNotificationsAllowed) {
-      if (input._onBeforeNotificationWrite) {
-        await input._onBeforeNotificationWrite();
-      }
       const message = this.notificationCopy(input.kind, input.payload);
-      await this.prisma.userNotification.createMany({
-        data: [{
-          id: notificationId,
-          userId: input.userId,
-          type: message.type,
-          title: message.title,
-          body: message.body,
-          targetRoute: message.targetRoute,
-          status: 'unread',
-        }],
-        skipDuplicates: true,
+      await this.prisma.$transaction(async (tx) => {
+        if (input._onBeforeNotificationWrite) {
+          await input._onBeforeNotificationWrite();
+        }
+        await tx.userNotification.createMany({
+          data: [{
+            id: notificationId,
+            userId: input.userId,
+            type: message.type,
+            title: message.title,
+            body: message.body,
+            targetRoute: message.targetRoute,
+            status: 'unread',
+          }],
+          skipDuplicates: true,
+        });
       });
     }
 

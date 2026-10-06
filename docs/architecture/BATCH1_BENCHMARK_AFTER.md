@@ -27,18 +27,19 @@ To measure the exact number of SQL statements issued by PostgreSQL for single bu
 
 ### 1.2 Two Measurement Modes & Quiescence Discipline
 
-To eliminate non-comparable latency figures (such as comparing a synchronous HTTP request against a fully drained background AI lifecycle), the benchmark defines two explicit, strictly controlled measurement modes implemented identically for both the BEFORE (`5de2d0e`) and AFTER (`2117a65`) architectures:
+To eliminate non-comparable latency figures (such as comparing a synchronous HTTP request against a background AI lifecycle), the benchmark defines two explicit measurement modes implemented for both the BEFORE (`5de2d0e`) and AFTER (`2117a65`) architectures:
 
 - **Mode A — Synchronous Request**:
   - **Window**: From request dispatch to HTTP response received (or worker method return).
   - **Isolation**: Any asynchronous background work triggered by the request (e.g., asynchronous AI jobs, background completion flushes, store reloads) is strictly deferred or drained **outside** the sample window.
   - **Quiescence**: The database and in-memory store are completely drained (`await store.flush()`) before the sample window opens and after the sample window closes.
-- **Mode B — Fully Drained Lifecycle**:
-  - **Window**: From request dispatch until all background work and flushes triggered by that request have fully settled and quiesced.
-  - **Isolation**: The sample closes only when nothing remains running on that request's behalf (`await store.waitForAiJob(...)` + `await store.flush()`).
-  - **Quiescence**: Full quiescence is achieved before the recording window closes.
+- **Mode B — Drained Sample Window**:
+  - **Window**: From request dispatch until background AI job processing and store flush complete.
+  - **Scope Distinction & Trace Audit**:
+    - **Fully Drained Operations**: Operations that do not trigger asynchronous background callbacks (`checkinAction`, `deliverFollowUp`, `writeAction`, `readNotification`) execute all writes within their synchronous transaction; their Mode B traces are complete and represent the fully drained operation.
+    - **Measured Window Operations**: For AI-triggering operations (`createJourney`, `createJourneyHighRisk`), Mode B in the retained benchmark artifacts measures the window covering the request plus the AIJob's submission, transition, and terminal CAS execution (21 and 22 statements). Because `createJourney` spawned an asynchronous completion callback (`applySituationAnalysisCompletion`) that was unawaited by `store.flush()`, the retained trace does NOT capture the subsequent `UPDATE "SituationSnapshot"` or `UPDATE "LifeJourney"` writes. For these two operations, Mode B is a **measured window (request + AIJob completion)**, NOT a verified fully drained lifecycle.
 
-For operations that do not trigger asynchronous background lifecycles (e.g. `checkinAction`, `readNotification`, `writeAction`), Mode A and Mode B measure the exact same work (synchronous write + transaction/flush). For AI-triggering operations (`createJourney`, `createJourneyHighRisk`), Mode A measures purely the synchronous user-facing request latency and write cost, while Mode B measures the end-to-end cost of the entire request plus its background AI lifecycle.
+For operations that do not trigger asynchronous background lifecycles (e.g. `checkinAction`, `readNotification`, `writeAction`), Mode A and Mode B measure the exact same work (synchronous write + transaction/flush). For AI-triggering operations (`createJourney`, `createJourneyHighRisk`), Mode A measures purely the synchronous user-facing request latency and write cost, while Mode B measures the measured window covering the request plus its background AI job execution.
 
 ### 1.3 Database Scale and Isolation
 
@@ -64,13 +65,13 @@ Every operation is evaluated like-for-like: Mode A is compared strictly against 
 | Operation | Scale $N$ | Mode | BEFORE Stmts (p50) | AFTER Stmts (p50) | AFTER Published Avg | AFTER Sample Array | BEFORE p50 (ms) | BEFORE max (ms) | AFTER p50 (ms) | AFTER max (ms) | Speedup / Difference |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **createJourney** | 1,000 | **Mode A (Sync)** | 2,159 | **6** | 6 | `[6, 6, 6, 6, 6]` | 2,866.8 | 3,076.2 | **15.9** | 40.7 | **180.3x speedup** (99.4%) |
-| | | **Mode B (Drained)** | 4,397 | **21** | 21 | `[20, 22, 21, 21, 21]` | 5,596.2 | 5,817.4 | **173.2** | 189.6 | **32.3x speedup** (96.9%) |
+| | | **Mode B (Measured Window)** | 4,397 | **21** | 21 | `[20, 22, 21, 21, 21]` | 5,596.2 | 5,817.4 | **173.2** | 189.6 | **32.3x speedup** (96.9%) |
 | | 12,600 | **Mode A (Sync)** | 25,360 | **6** | 6 (6.2) | `[7, 6, 6, 6, 6]` | 33,692.0 | 36,202.0 | **11.5** | 14.8 | **2,929.7x speedup** (99.97%) |
-| | | **Mode B (Drained)** | 50,800 | **21** | 21 | `[22, 21, 21, 21, 21]` | 73,811.4 | 98,631.0 | **186.1** | 189.2 | **396.6x speedup** (99.75%) |
+| | | **Mode B (Measured Window)** | 50,800 | **21** | 21 | `[22, 21, 21, 21, 21]` | 73,811.4 | 98,631.0 | **186.1**\*\* | 189.2 | **396.6x speedup** (99.75%) |
 | **createJourneyHighRisk** | 1,000 | **Mode A (Sync)** | 2,244 | **7** | 7 | `[7, 7, 7, 8, 7]` | 2,870.1 | 2,969.2 | **14.8** | 17.9 | **193.9x speedup** (99.5%) |
-| | | **Mode B (Drained)** | 4,589 | **22** | 22 | `[23, 21, 22, 23, 22]` | 6,058.9 | 6,229.4 | **172.5** | 183.9 | **35.1x speedup** (97.2%) |
+| | | **Mode B (Measured Window)** | 4,589 | **22** | 22 | `[23, 21, 22, 23, 22]` | 6,058.9 | 6,229.4 | **172.5** | 183.9 | **35.1x speedup** (97.2%) |
 | | 12,600 | **Mode A (Sync)** | 25,438 | **7** | 7 (7.2) | `[7, 7, 7, 7, 8]` | 40,265.4 | 59,728.5 | **12.0** | 24.1 | **3,355.5x speedup** (99.97%) |
-| | | **Mode B (Drained)** | 50,992 | **22** | 22 | `[22, 22, 21, 22, 23]` | 74,855.3 | 76,504.0 | **172.8** | 186.6 | **433.2x speedup** (99.77%) |
+| | | **Mode B (Measured Window)** | 50,992 | **22** | 22 | `[22, 22, 21, 22, 23]` | 74,855.3 | 76,504.0 | **172.8** | 186.6 | **433.2x speedup** (99.77%) |
 | **checkinAction** | 1,000 | **Mode A (Sync)** | 1,160 | **15** | 15 | `[15, 15, 15, 15, 15]` | 1,516.7 | 1,547.3 | **19.0** | 30.2 | **79.8x speedup** (98.7%) |
 | | | **Mode B (Drained)** | 1,165 | **15** | 15 | `[15, 15, 15, 15, 15]` | 1,548.2 | 1,606.0 | **17.0** | 17.5 | **91.1x speedup** (98.9%) |
 | | 12,600 | **Mode A (Sync)** | 12,761 | **15** | 15 | `[15, 15, 15, 15, 15]` | 19,136.9 | 21,740.1 | **24.2** | 32.4 | **790.8x speedup** (99.87%) |
@@ -97,6 +98,7 @@ Every operation is evaluated like-for-like: Mode A is compared strictly against 
 | | | **Mode B (Drained)** | 12,805 | **11** | 11 | `[11, 11, 11, 11, 11]` | 24,600.0 | 28,286.3 | **15.4** | 17.0 | **1,597.4x speedup** (99.94%) |
 
 \* _Outlier note on `deliverFollowUp` (Mode A) at N=12,600: Sample 1 executed 75 statements due to Prisma query engine pool initialization queries (`SELECT 1`), followed by exactly 48 steady-state statements in samples 2–5. See §2.2 for the per-sample trace audit._
+\*\* _Scope note on Mode B for `createJourney` (186.1 ms) and `createJourneyHighRisk` (172.8 ms): This figure represents the measured benchmark window covering request dispatch plus AIJob submission and terminal CAS execution, not a verified fully drained lifecycle containing the subsequent asynchronous situation analysis callback writes. See §2.2 for details._
 
 ### 2.2 Methodological Audit & Honesty Qualifications
 
@@ -336,8 +338,8 @@ Machine-readable output artifact: `artifacts/persistence-benchmark-after-results
 2. **Elimination of $N + 93$ Write Amplification**: Write amplification dropped from up to 12,600x down to 1–3x (proportional strictly to the business rows modified by the request).
 3. **True Like-for-Like Latency Reductions**:
    - In **Mode A (synchronous request)** at 12.6k scale: `createJourney` decreased from 33,692.0 ms to 11.5 ms (2,929.7x speedup); `createJourneyHighRisk` from 40,265.4 ms to 12.0 ms (3,355.5x speedup); single-write business requests (`checkinAction`, `readNotification`, `writeAction`) dropped from 19,137–23,210 ms down to 7.7–24.2 ms (790x–2,701x speedup).
-   - In **Mode B (fully drained lifecycle)** at 12.6k scale: `createJourney` end-to-end lifecycle latency decreased from 73,811.4 ms to 186.1 ms (396.6x speedup); `createJourneyHighRisk` from 74,855.3 ms to 172.8 ms (433.2x speedup).
-   - In worker delivery (`deliverFollowUp`): latency at 12.6k decreased from 146.4 ms (Mode A) / 243.1 ms (Mode B) down to 66.0 ms (Mode A) / 61.2 ms (Mode B) (2.2x to 4.0x speedup).
+   - In **Mode B (measured window)** at 12.6k scale: `createJourney` measured window latency (request + AIJob completion) decreased from 73,811.4 ms to 186.1 ms (396.6x speedup); `createJourneyHighRisk` from 74,855.3 ms to 172.8 ms (433.2x speedup). For these two operations, the 186.1 ms and 172.8 ms figures represent the measured window covering request plus AIJob completion, not a verified fully drained lifecycle containing the subsequent situation analysis callback writes (see §2.2).
+   - In worker delivery (`deliverFollowUp`): latency at 12.6k decreased from 146.4 ms (Mode A) / 243.1 ms (Mode B) down to 66.0 ms (Mode A) / 61.2 ms (Mode B) (2.2x to 4.0x speedup), where Mode B fully drains all writes within the transaction.
 4. **Single-Instance Concurrency Resilience**: Single-process coroutines no longer exhaust the PostgreSQL connection pool during reads, achieving 100% success across 1, 5, and 10 concurrent transactions under the row-lock hierarchy.
 5. **Absence Sweep & Full-Flush Elimination**: Zero upserts and zero absence deletes run against the eight migrated models during legacy flushes.
 
@@ -348,3 +350,4 @@ Machine-readable output artifact: `artifacts/persistence-benchmark-after-results
 3. **End-to-End $O(1)$ Worker Delivery I/O Volume**: While `deliverFollowUp` statement count is flat at 48 steady-state statements, the **data volume read** across the wire remains $O(N_{\text{legacy}})$ because `store.reloadRuntimeState()` performs full table scans across all unmigrated models (`Mood`, `Post`, `Reply`, `Letter`, `Diary`, `PeerMatch`, etc.) to synchronize in-memory cache. End-to-end $O(1)$ read volume will only be achieved when those remaining models are migrated in subsequent batches.
 4. **Live AI Inference**: AI tests were evaluated using the local template provider. Live AI provider integration remains unmeasured and blocked by `AI_LIVE_BLOCKED_EXTERNAL`.
 5. **Unmigrated Models**: 35 models remain on the legacy store architecture and still trigger the legacy flush when mutated directly by their own controllers.
+6. **Fully Drained AI Completion Lifecycle in Mode B Artifacts**: While non-AI operations (`checkinAction`, `deliverFollowUp`, `writeAction`, `readNotification`) have fully drained Mode B traces where all writes land within the transaction, the Mode B measurements for `createJourney` (186.1 ms) and `createJourneyHighRisk` (172.8 ms) capture the request plus AIJob completion (up to 21/22 statements), but do NOT contain the situation analysis completion callback writes (`UPDATE "SituationSnapshot"` / `UPDATE "LifeJourney"`). The 186.1 ms figure is a measured window, not a proven full lifecycle.

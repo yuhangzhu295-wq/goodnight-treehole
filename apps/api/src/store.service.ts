@@ -1385,7 +1385,7 @@ export class StoreService implements OnModuleInit {
     await this.flush();
   }
 
-  async reloadRuntimeState() {
+  async reloadRuntimeState(options?: { _onBeforeLoad?: () => Promise<void>; _onAfterLoad?: () => Promise<void> }) {
     // The BullMQ worker calls this after delivering a follow-up. It used to read straight from
     // the database and replace the in-memory state, which silently discarded any mutation made
     // while the read was in flight: observed as a handoff being created (201) and then not
@@ -1394,7 +1394,13 @@ export class StoreService implements OnModuleInit {
     // that happened during the read, closes both windows.
     await this.persistQueue;
     const versionAtStart = this.mutationVersion;
+    if (options?._onBeforeLoad) {
+      await options._onBeforeLoad();
+    }
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
+    if (options?._onAfterLoad) {
+      await options._onAfterLoad();
+    }
     if (persisted && this.mutationVersion === versionAtStart) {
       this.data = persisted;
       this.isolateDirectDbModels(this.data);
