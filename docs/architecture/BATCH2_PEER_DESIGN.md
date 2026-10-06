@@ -13,7 +13,11 @@ The reviewer concluded that bilateral consent cannot be represented without a sc
 
 1. **The master plan requires the invariant.** Batch 2's core invariants state *"只有双方 Consent：conversation 才能 active"* and *"accepted != active"*. A batch that migrates these five models while leaving the invariant unsatisfied cannot claim `PEER_STATE_MACHINE_PASS`, and the plan makes that a precondition for `PERSISTENCE_BATCH2_STABLE`.
 2. **A schema change is not forbidden — only *editing applied migrations* is.** The plan says *"所有已应用migration：immutable"* and *"任何schema变化：新migration"*. A **new** migration is the sanctioned mechanism, so "needs a schema change" is not by itself a reason to exclude the work.
-3. **The product already intends bilateral consent.** The mini-program has a page routed at `/pages/peer/consent` whose title is **"开始前，先确认边界"** and whose primary button is **"同意并开始同行"** — a *bilateral* boundary confirmation. Today only the experience owner reaches it; the requester is explicitly rejected (`store.service.ts:4448–4450`). So this is a defect against the product's own stated design, not a new product decision.
+3. **The product already intends bilateral consent — but not as a working requester flow.** The page at `/pages/peer/consent` is titled **"开始前，先确认边界"** with the button **"同意并开始同行"**, and its rules and acknowledgement are **role-neutral** ("你将以匿名身份进入限时会话", "我已知晓…"; `PeerConsent.vue:74–112,115–130`), so it is usable as the consent screen for *either* participant. The requester's waiting screen states the bilateral requirement outright: `/pages/peer/wait` tells them **both** must confirm the boundary (`PeerMatchWaiting.vue:14–25,53–56,71–74`).
+
+   **Correction (from the rebuttal review) — do not overstate this.** It is *not* a working requester path today: the page loads its match from `/api/v1/peer-requests` (`PeerConsent.vue:14–18`), an owner-only list (`store.service.ts:4478–4489`); the owner reaches it after accepting (`PeerRequests.vue:26–45,123–145`); and the handler assumes the click **starts** a conversation and navigates straight to `conversation.matchId` (`PeerConsent.vue:25–35,115–123`). The requester lands on `/pages/peer/wait`, whose only actions are refresh and return (`PeerMatchWaiting.vue:87–100`). So the justification is *role-neutral copy plus an explicit bilateral promise on the waiting screen* — not an existing requester consent flow. The requester navigation, a pending-state response and the response contract are all part of the work.
+
+   Also: `PeerMatchWaiting.vue:87–100` marks the boundary step as done as soon as the match is `connected`, before either consent exists. That is a false state and must be corrected, not preserved.
 
 **Decision.** Implement bilateral consent in this batch:
 
@@ -28,12 +32,12 @@ If implementing this turns out to require a product-behaviour change beyond addi
 
 The plan specifies `Report → PeerReport create`. The implementation also updates an existing open report on repeat, mutates three denormalized `PeerConversation` pointers, and recomputes `PeerExperience.reportCount` (`store.service.ts:4611–4657`).
 
-**Decision.** Keep the *behaviour* and make the *writes* explicit and narrow, rather than degrading the operator view to satisfy a literal reading of "create only":
+**Decision — the derived-read branch is selected; the write-narrowing alternatives are withdrawn.** Keep the operator behaviour and move every derived value to a read, so the report operation writes exactly one row:
 
-- A repeat report by the same reporter on the same conversation **returns the existing open report**; it does not rewrite it. This removes the rewrite-on-repeat write entirely.
-- `PeerExperience.reportCount` becomes a **database-derived count** over reports, not a denormalized column updated as a side effect of reporting. If the column must stay, it is recomputed inside the same transaction that creates a report, and that recomputation is named in the operation's write set rather than hidden.
-- The three `PeerConversation` latest-report pointers are **retired from the write path**; the operator view reads the report rows. If a denormalized pointer is still needed for an indexed admin query, it is updated in the same transaction and named explicitly.
-- Therefore the operation's declared write set becomes: one `PeerReport` insert, plus (only if the two items above are retained) an explicit same-transaction recomputation. No silent extra writes.
+- A repeat report by the same reporter on the same conversation **returns the existing open report** and writes nothing. (API-contract note: previously a second reason *replaced* the first — `store.service.ts:4615–4635` — and it no longer will.)
+- `PeerExperience.reportCount` is **retired as a write** and becomes a database-derived count over *all* reports regardless of handling status, which is the current rule (`store.service.ts:4647–4657`). **The scorer must be converted with it**: suggestion scoring reads `experience.reportCount === 0` (`store.service.ts:4215–4228`), so retiring the write without changing the scorer silently changes match safety.
+- The three `PeerConversation` latest-report pointers are **retired as writes**; the admin conversation view must stop reading `reportReason` / `reported` / `reportedAt` from those columns (`controllers.ts:2317–2345`; `apps/admin/src/views/TablePage.vue:346–348,839–842`) and derive them from the latest report ordered deterministically by `createdAt` then id, applying its `q` and `reported` filters to the derived values.
+- The report operation's declared write set is therefore **exactly one `PeerReport` insert** (zero on a repeat while an open report exists). If implementation turns out to need a counter or pointer write, that is an **expansion to `PeerReport` + `PeerExperience` and/or `PeerConversation`** and the create-only gate must be renegotiated explicitly — not described as if create-only still held.
 
 ## 0.3 Priority
 
@@ -44,6 +48,74 @@ P2: independently measure, race-test and gate the result.
 Persistence success must not be presented as a pet-presence or visual-experience gate (`BATCH1_FINAL_GATE.md:27–29`).
 
 ---
+
+## 0.4 Amendments required by the rebuttal review (blocking — all resolved here)
+
+The rebuttal review upheld both overrides but listed seven blocking items that must be folded in before implementation. Each is resolved below; where a resolution contradicts an earlier section, **this section governs** and the earlier text is corrected.
+
+### A1 — Reconcile the document with its overrides *(blocking)*
+Statements that still called the consent change out of scope, the report decision outstanding, or that banned `prisma/schema.prisma` / migrations / `apps/mp` have been corrected. The governing statements are §0.1, §0.2 and §6 below.
+
+### A2 — Implementation boundary, expanded *(blocking)*
+In addition to §6.1, Batch 2 may change:
+- `prisma/schema.prisma` — to declare the two consent facts; **applied migrations stay immutable**;
+- **one new** tracked migration directory under `prisma/migrations/`;
+- `apps/mp/src/views/PeerConsent.vue`, `PeerMatchWaiting.vue`, `PeerNetwork.vue` — requester consent, pending state, and navigation;
+- `apps/mp/src/views/PeerRequests.vue` — only if the owner-side pending presentation changes;
+- `apps/admin/src/views/TablePage.vue` — only if the admin response contract is deliberately changed (preferred: keep the field names and change the API's derivation instead);
+- `apps/mp/src/router.ts` — only if a new route is introduced (the consent route already exists).
+
+The blanket bans on schema, new migrations and `apps/mp` are **withdrawn**; the ban on *editing applied migrations* stands.
+
+### A3 — The two consent facts, legacy rows, and the response contract *(blocking)*
+- The two facts live on **`PeerMatch`** as separate timestamps (requester's and owner's). Keeping them on the match means no conversation row exists before activation, preserving today's "no conversation until both consent" semantics.
+- **First consent** commits **only the caller's own `PeerMatch` field** and returns a **pending** response — it must not fabricate an `active` conversation. The requester's UI renders that pending state (this is what `PeerMatchWaiting.vue` gets wrong today).
+- **Second consent** atomically writes **the other `PeerMatch` field plus one `PeerConversation` create** in a single transaction. `startsAt` and the 72-hour deadline are set **once, at activation**.
+- **Duplicate consent** writes neither field nor another conversation, and must not move `startsAt`/`expiresAt`.
+- **Legacy rows** predating the migration have no recorded requester consent and must **not** be represented as having given it. The migration states one rule: existing `active` conversations are **grandfathered** as already-active with the migration's own timestamp (preferred — it does not retroactively break live conversations), or are closed. Choose one and record it.
+- The conversation's own `consentAcceptedAt` records **activation**, not either party's consent.
+
+### A4 — Corrected consent write scope (§3.3) *(blocking)*
+"`PeerMatch` + `PeerConversation` in one transaction" is the **maximum set across the two calls**, not what each call always writes:
+
+| Call | Write set |
+| --- | --- |
+| First consent (either party) | one `PeerMatch` consent field |
+| Second consent (the other party) | the other `PeerMatch` consent field **+** one `PeerConversation` create |
+| Duplicate consent | none |
+| Consent after block/decline/close | none — rejected, no revival |
+
+Notifications follow commit and must never announce activation after only one consent.
+
+### A5 — Reference safety: the omitted-field case *(blocking)*
+§4 notes that `fkUpdate(undefined)` omits the update (`mapper:776–784`). Once all five peer upserts and sweeps are disabled, their peer-to-peer guards can no longer clear a peer FK through a legacy flush — but that is **narrower** than §4 currently claims, because §4 does not enumerate every *other* writer that can change a peer FK. Required before the target verdict:
+- enumerate, per peer FK column, every writer that can change it, including the nullable `PeerReport.experienceId` and the non-FK `matchId` string;
+- for each, distinguish *omitted / no opinion* from *explicit detach* from *supplied and DB-validated reference*;
+- verify the owner/status checks on Batch 1's two peer-FK detaches (`batch1-persistence.service.ts:2124–2130,2210–2217`) and race them against a peer operation holding a previously-read journey reference;
+- add a test where **one instance omits a field while another has committed its value**, then reload and legacy-flush. The empty-array test alone is not sufficient — this is the exact case that took Batch 1 four review rounds to find.
+
+Registration of a model is refused until its row of this matrix and its test exist.
+
+### A6 — Extended consent races *(blocking)*
+Beyond §5's seven categories, the bilateral step adds:
+- owner consents first → requester sees pending → requester consents second → one conversation;
+- requester consents first after acceptance → owner sees pending → owner consents second → one conversation;
+- requester consents twice before the owner: timestamp and deadline unchanged, no conversation;
+- both consent concurrently: exactly one conversation;
+- **consent versus block**, including block after the first fact and before the second — a blocked match must never become active;
+- admin decline/block racing consent: no transition revives a terminal match.
+
+Each result is read from an independent client, on both instances without reload. `PeerMatchWaiting.vue`'s "boundary confirmed" indicator must be tested for the pending state, since it is currently wrong.
+
+### A7 — Report projection and race, specified *(blocking)*
+- Latest-report ordering: deterministic, `createdAt` then id.
+- `reported=true` filtering and the admin `q` search operate on the **derived** values, not the retired columns.
+- Admin response **field names stay** (`reportReason`, `reportedAt`, `reporterUserId`); only their source changes, so `TablePage.vue` needs no change.
+- Repeat-report HTTP shape is unchanged: the route returns `{ item: conversation }` today (`store.service.ts:4643–4644`) and continues to, even though the operation returns the existing report internally.
+- Concurrent same-reporter reports are serialized on the conversation row; the schema has **no** unique constraint for an open `(conversationId, reporterUserId)` (`schema.prisma:837–859`), so the check-and-insert must be serialized explicitly or the invariant escalated.
+
+### A8 — 72-hour wording qualified *(advisory, adopted)*
+A pre-insert database-time check does not by itself prove the transaction **commits** before the deadline. The enforceable rule is: under the conversation lock, compare database time at the guarded insert/transition, and test both orderings around expiry. Do not claim a commit-time guarantee the mechanism does not establish.
 
 ## 0. Scope and blocking conclusion
 
@@ -233,8 +305,10 @@ Tests need strict rendezvous with failure on non-arrival, independent-client fin
 **Permitted Batch 2 files, subject to gate approval:**
 `direct-db-models.ts` (add exactly five entries) · `relational-runtime.mapper.ts` (five-model triple exits; remove peer-only FK-set assumptions) · `store.service.ts` (enumerated peer writers/readers, redaction, projections, archive/fixture compatibility, boot/reload isolation) · `controllers.ts` (enumerated peer/admin routes, awaits, dashboard counts, scoped audit coordination) · `monthly-report.service.ts` (peer counts and available months) · `batch1-persistence.service.ts` (**only** a necessary correction to its existing peer Journey-FK detach) · `app.module.ts` (provider wiring) · **one new** peer repository under `apps/api/src/`, plus targeted peer tests under `tests/business/`.
 
-**Do not change** `prisma/schema.prisma`, migrations, production/development database contents, `apps/mp`, unrelated Journey/Action behaviour, `PeerReputation`/privacy-setting/`AIJob`/`AuditLog`/`UserNotification` ownership, generic worker delivery, fixture/recovery scripts, or transaction timeouts.
+**Do not change** production/development database contents, **applied** migrations (a *new* migration is required and permitted — see §0.4/A2), unrelated Journey/Action behaviour, `PeerReputation`/privacy-setting/`AIJob`/`AuditLog`/`UserNotification` ownership, generic worker delivery, fixture/recovery scripts, or transaction timeouts.
 
-The required bilateral-consent schema/API change must be proposed, reviewed and approved **outside** this boundary first; if declined, the state-machine and stable gates cannot be claimed. Unresolved report denormalisation must be decided explicitly, not hidden behind an extra write in a nominally report-create-only operation.
+`prisma/schema.prisma`, one new tracked migration, and the three peer mini-program views **are in scope** per §0.4/A2 — the earlier blanket ban on them is withdrawn.
+
+The bilateral-consent change is **approved as part of Batch 2** (§0.1, §0.4/A2–A4): it is the missing half of a flow the product already promises. If implementation reveals it needs a product change beyond adding the requester's consent step — removing an existing step, or changing who may initiate — stop and escalate; that would be a genuine product decision. Report denormalisation is resolved in §0.2 and §0.4/A7: derived reads, one report insert, no silent extra writes.
 
 **Review order:** P0 consent and report decisions → reference-safety review gate → one-model-at-a-time triple exit with DB-only read and negative ownership tests → race, multi-instance, PII, SQL-scope and regression evidence. Stop a model's switch on an unconverted array consumer, an unproved FK/deletion path, or a failed invariant. Do not use a writable mirror or a full flush to make a failing test appear to pass.
