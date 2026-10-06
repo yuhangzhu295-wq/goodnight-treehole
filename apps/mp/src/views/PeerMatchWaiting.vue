@@ -3,13 +3,27 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 
-type Match = { id: string; status: string; requestReason?: string; requestQuestion?: string; experience?: { title?: string; domain?: string; tags?: string[] } };
+type Match = {
+  id: string;
+  status: string;
+  requestReason?: string;
+  requestQuestion?: string;
+  acceptedAt?: string;
+  requesterConsentAt?: string;
+  ownerConsentAt?: string;
+  experience?: { title?: string; domain?: string; tags?: string[] };
+};
 const route = useRoute();
 const router = useRouter();
 const matchId = computed(() => String(route.query.matchId ?? ''));
 const match = ref<Match | null>(null);
 const error = ref('');
 let timer: number | undefined;
+
+const isConnected = computed(() => match.value?.status === 'connected');
+const hasRequesterConsented = computed(() => Boolean(match.value?.requesterConsentAt));
+const hasOwnerConsented = computed(() => Boolean(match.value?.ownerConsentAt));
+const bothConsented = computed(() => Boolean(hasRequesterConsented.value && hasOwnerConsented.value));
 
 async function load() {
   try {
@@ -23,6 +37,12 @@ async function load() {
     }
   } catch (cause: any) {
     error.value = cause?.message ?? '等待状态暂时无法更新';
+  }
+}
+
+function goToConsent() {
+  if (matchId.value) {
+    router.push(`/pages/peer/consent?matchId=${encodeURIComponent(matchId.value)}`);
   }
 }
 
@@ -51,9 +71,39 @@ onBeforeUnmount(() => {
     </header>
 
     <section class="status-panel">
-      <span class="status-badge">{{ match?.status === 'connected' ? '对方已同意' : '等待回应中' }}</span>
-      <h2 class="status-heading">{{ match?.status === 'connected' ? '对方愿意开启交流' : '正在等待对方决定' }}</h2>
-      <p class="status-desc">对方可以自主决定是否回应。双方均确认匿名边界后，会话方可正式开启。</p>
+      <span class="status-badge">
+        {{
+          bothConsented
+            ? '会话准备就绪'
+            : hasRequesterConsented
+              ? '等待对方确认边界'
+              : isConnected
+                ? '待确认边界'
+                : '等待回应中'
+        }}
+      </span>
+      <h2 class="status-heading">
+        {{
+          bothConsented
+            ? '双方已确认边界'
+            : hasRequesterConsented
+              ? '你已确认边界，等待对方确认'
+              : isConnected
+                ? '对方已同意，请确认同行边界'
+                : '正在等待对方决定'
+        }}
+      </h2>
+      <p class="status-desc">
+        {{
+          bothConsented
+            ? '双方均已确认匿名边界，会话即将开启。'
+            : hasRequesterConsented
+              ? '你已完成规则确认。对方确认边界后，将自动开启最长 72 小时的匿名会话。'
+              : isConnected
+                ? '对方愿意开启交流。请先确认匿名边界，双方均确认后会话方可正式开启。'
+                : '对方可以自主决定是否回应。双方均确认匿名边界后，会话方可正式开启。'
+        }}
+      </p>
 
       <div class="request-preview">
         <div class="preview-meta">
@@ -69,7 +119,15 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="action-row">
-        <button class="btn-primary" type="button" @click="load">刷新状态</button>
+        <button
+          v-if="isConnected && !hasRequesterConsented"
+          class="btn-primary"
+          type="button"
+          @click="goToConsent"
+        >
+          确认边界
+        </button>
+        <button v-else class="btn-primary" type="button" @click="load">刷新状态</button>
         <button class="btn-secondary" type="button" @click="back">返回同路</button>
       </div>
     </section>
@@ -84,18 +142,21 @@ onBeforeUnmount(() => {
             <small>已留下想聊的原因与具体问题。</small>
           </div>
         </li>
-        <li :class="['step-item', { done: match?.status === 'connected' }]">
+        <li :class="['step-item', { done: isConnected }]">
           <span class="step-num" aria-hidden="true">2</span>
           <div class="step-body">
             <strong>对方自主决定</strong>
             <small>对方可自由决定是否接受或暂不回应。</small>
           </div>
         </li>
-        <li :class="['step-item', { done: match?.status === 'connected' }]">
+        <li :class="['step-item', { done: bothConsented }]">
           <span class="step-num" aria-hidden="true">3</span>
           <div class="step-body">
             <strong>双方确认边界</strong>
-            <small>确认后开启最长 72 小时的匿名会话。</small>
+            <small v-if="bothConsented">双方均已确认边界，正在进入会话。</small>
+            <small v-else-if="hasRequesterConsented">你已确认边界，等待对方确认。</small>
+            <small v-else-if="isConnected">对方已接受，待你确认边界后开启。</small>
+            <small v-else>双方确认后开启最长 72 小时的匿名会话。</small>
           </div>
         </li>
       </ol>

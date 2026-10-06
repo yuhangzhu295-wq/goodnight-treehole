@@ -14,7 +14,13 @@ const match = ref<any>(null);
 async function load() {
   loading.value = true;
   try {
-    match.value = (await api.get<any>('/api/v1/peer-requests')).items.find((item: any) => item.id === matchId.value) ?? null;
+    const [requestsRes, peersRes] = await Promise.allSettled([
+      api.get<any>('/api/v1/peer-requests'),
+      api.get<{ item: { matches: any[] } }>('/api/v1/peers'),
+    ]);
+    const fromRequests = requestsRes.status === 'fulfilled' ? requestsRes.value?.items?.find((item: any) => item.id === matchId.value) : null;
+    const fromPeers = peersRes.status === 'fulfilled' ? peersRes.value?.item?.matches?.find((item: any) => item.id === matchId.value) : null;
+    match.value = fromRequests ?? fromPeers ?? null;
   } catch (cause: any) {
     error.value = cause?.message ?? '会话前信息没有加载成功';
   } finally {
@@ -27,11 +33,15 @@ async function consent() {
   busy.value = true;
   error.value = '';
   try {
-    const response = await api.post<{ conversation: { matchId: string } }>(
+    const response = await api.post<{ conversation?: { matchId: string } | null; pending?: boolean }>(
       `/api/v1/peer-matches/${encodeURIComponent(matchId.value)}/consent`,
       {},
     );
-    await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(response.conversation.matchId)}`);
+    if (response.conversation?.matchId) {
+      await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(response.conversation.matchId)}`);
+    } else {
+      await router.replace(`/pages/peer/wait?matchId=${encodeURIComponent(matchId.value)}`);
+    }
   } catch (cause: any) {
     error.value = cause?.message ?? '暂时无法开启会话';
   } finally {
@@ -125,7 +135,7 @@ onMounted(load);
           class="btn-secondary"
           :disabled="busy"
           type="button"
-          @click="router.push('/pages/peer/requests')"
+          @click="router.back()"
         >
           我想再想想
         </button>
