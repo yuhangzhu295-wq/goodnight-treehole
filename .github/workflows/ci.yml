@@ -94,30 +94,30 @@ jobs:
         continue-on-error: true
         run: pnpm exec tsx scripts/test-runner.ts
 
+      - name: Verify failures against known baseline diff
+        id: baseline_diff
+        run: pnpm exec tsx scripts/check-baseline-failures.ts
+
       - name: Report full business suite results honestly
         if: always()
         run: |
           echo "### Full Business Suite Execution Report" >> $GITHUB_STEP_SUMMARY
-          echo "- **Outcome**: \`${{ steps.full_suite.outcome }}\`" >> $GITHUB_STEP_SUMMARY
-          case "${{ steps.full_suite.outcome }}" in
-            success)
-              echo "- **Status**: PASSED (all tests in full business suite passed)" >> $GITHUB_STEP_SUMMARY
-              ;;
-            failure)
-              echo "- **Status**: COMPLETED_WITH_FAILURES_BASELINE_IDENTITY_NOT_VERIFIED" >> $GITHUB_STEP_SUMMARY
-              echo "- **Note**: The full business suite completed and its results are published. This label does **not** assert that the failures are the known baseline set — the workflow does not currently diff the failing-test identity, so it cannot distinguish a pre-existing failure from a new regression here." >> $GITHUB_STEP_SUMMARY
-              echo "- **Required follow-up**: add a machine-checked failing-set diff against \`docs/architecture/TEST_BASELINE_FAILURES.md\` so a new failure fails this job. Tracked in \`docs/architecture/BATCH1_FINAL_GATE.md\`." >> $GITHUB_STEP_SUMMARY
-              ;;
-            skipped|cancelled)
-              echo "::error::Full business suite was skipped or cancelled! Workflow cannot claim success when a required execution step was omitted."
-              echo "- **Status**: NOT_RUN (${{ steps.full_suite.outcome }})" >> $GITHUB_STEP_SUMMARY
-              exit 1
-              ;;
-            *)
-              echo "::error::Unexpected step outcome: ${{ steps.full_suite.outcome }}"
-              exit 1
-              ;;
-          esac
+          echo "- **Full Suite Execution Outcome**: \`${{ steps.full_suite.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Diff Check Outcome**: \`${{ steps.baseline_diff.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.baseline_diff.outcome }}" = "failure" ]; then
+            echo "- **Status**: FAILED_NEW_REGRESSION" >> $GITHUB_STEP_SUMMARY
+            echo "- **Note**: The full business suite produced test failure(s) not present in \`docs/architecture/TEST_BASELINE_FAILURES.md\`. CI failed on regression." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ "${{ steps.full_suite.outcome }}" = "failure" ]; then
+            echo "- **Status**: COMPLETED_WITH_KNOWN_BASELINE_FAILURES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Note**: The full business suite completed with failures, and the machine-checked diff verified that 100% of the failures match the known baseline in \`docs/architecture/TEST_BASELINE_FAILURES.md\`. No new regressions detected." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.full_suite.outcome }}" = "success" ]; then
+            echo "- **Status**: PASSED (all tests in full business suite passed)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::error::Full business suite was skipped or cancelled! Workflow cannot claim success when a required execution step was omitted."
+            echo "- **Status**: NOT_RUN (${{ steps.full_suite.outcome }})" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
 
       - name: Upload test artifacts
         if: always()

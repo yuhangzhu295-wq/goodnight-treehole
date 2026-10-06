@@ -186,6 +186,11 @@ function resolveSpecFiles(targets: string[]): string[] {
   return [...new Set(files)].sort();
 }
 
+interface FailedTestDetail {
+  title: string;
+  fullName: string;
+}
+
 interface FileRunResult {
   file: string;
   relPath: string;
@@ -194,6 +199,7 @@ interface FileRunResult {
   numPassed: number;
   numFailed: number;
   failedTestTitles: string[];
+  failedTests?: FailedTestDetail[];
   dbName: string;
   timings: {
     dbCreate: number;
@@ -339,6 +345,7 @@ async function main() {
     let numPassed = 0;
     let numFailed = 0;
     const failedTestTitles: string[] = [];
+    const failedTests: FailedTestDetail[] = [];
 
     try {
       // 1. CREATE DATABASE
@@ -421,7 +428,10 @@ async function main() {
               if (Array.isArray(suite.assertionResults)) {
                 for (const test of suite.assertionResults) {
                   if (test.status === 'failed') {
-                    failedTestTitles.push(test.fullName || test.title);
+                    const title = test.title || test.fullName || 'Unknown test';
+                    const fullName = test.fullName || test.title || 'Unknown test';
+                    failedTestTitles.push(fullName);
+                    failedTests.push({ title, fullName });
                   }
                 }
               }
@@ -487,6 +497,7 @@ async function main() {
         numPassed,
         numFailed,
         failedTestTitles,
+        failedTests,
         dbName,
         timings: {
           dbCreate: tCreate,
@@ -549,6 +560,41 @@ async function main() {
   );
 
   console.log(`================================================================================\n`);
+
+  const suiteReportPath = path.resolve(runtimeDir, 'suite-report.json');
+  try {
+    const failures = failedFiles.flatMap((r) =>
+      (r.failedTests || []).map((t) => ({
+        file: r.relPath,
+        title: t.title,
+        fullName: t.fullName,
+      })),
+    );
+    const reportData = {
+      timestamp: new Date().toISOString(),
+      totalDuration,
+      totalFiles: fileResults.length,
+      passedFiles: passedFiles.length,
+      failedFiles: failedFiles.length,
+      totalTests,
+      totalPassed,
+      totalFailed,
+      failures,
+      fileResults: fileResults.map((r) => ({
+        relPath: r.relPath,
+        passed: r.passed,
+        numTests: r.numTests,
+        numPassed: r.numPassed,
+        numFailed: r.numFailed,
+        failedTestTitles: r.failedTestTitles,
+        failedTests: r.failedTests,
+      })),
+    };
+    fs.writeFileSync(suiteReportPath, JSON.stringify(reportData, null, 2), 'utf8');
+    console.log(`[test-runner] Emitted suite report to ${path.relative(repoRoot, suiteReportPath).replace(/\\/g, '/')}`);
+  } catch (err: any) {
+    console.error('[test-runner] Failed to write suite-report.json:', err?.message ?? err);
+  }
 
   process.exit(failedFiles.length === 0 ? 0 : 1);
 }

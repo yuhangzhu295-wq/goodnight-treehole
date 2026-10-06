@@ -27,6 +27,7 @@ describe('GitHub Actions CI Workflow definitions', () => {
     expect(steps).toContain('Lint');
     expect(steps).toContain('Run regression gate (Batch 1 specs + persistence-durability)');
     expect(steps).toContain('Run full business suite');
+    expect(steps).toContain('Verify failures against known baseline diff');
     expect(steps).toContain('Report full business suite results honestly');
   });
 

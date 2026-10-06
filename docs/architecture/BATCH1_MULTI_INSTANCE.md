@@ -6,13 +6,15 @@ Architectural definition, empirical proof, and boundary specification for multi-
 
 ## 1. Multi-Instance Stance: Precision and Scope Boundary
 
-The multi-instance position of the application following the Batch 1 persistence migration must be stated with precision and without hedging:
+The multi-instance position of the application following the Batch 1 persistence migration is stated with empirical precision, verified flow-by-flow across two independent application instances sharing the same PostgreSQL database:
 
-> **Multi-instance safety is proven for two `AIJob` paths only — boot recovery and the terminal-state CAS race — and the application as a whole is NOT multi-instance safe.**
+> **Multi-instance safety is proven per migrated business flow for the eight Batch 1 models (`LifeJourney`, `SituationSnapshot`, `JourneyUpdate`, `ActionCommitment`, `OutcomeCheckin`, `SafetyEvent`, `UserNotification`, and `AIJob`). The application as a whole remains NOT multi-instance safe because 35 unmigrated models remain authoritative in process memory.**
 >
-> An earlier version of this document claimed that all eight migrated models are multi-instance safe. The `final-gate` reviewer rejected that claim (`BATCH1_FINAL_GATE.md`), and it was right to: the two-instance test exercises `AIJob` recovery and a terminal race, and **no cross-instance Journey, Action, Checkin, SafetyEvent or notification flow has been raced against a competing legacy flush**. A proof for two paths is not a proof for eight models. What is established per model is the *mechanism* — direct writes, conditional/CAS updates, and the lock-root hierarchy — which is necessary but not sufficient, because the migrated models still share a database with 35 models whose stale snapshots can overwrite them.
+> Following the gate feedback (`BATCH1_FINAL_GATE.md`), controlled two-instance shared-database race tests were implemented in `tests/business/batch1-multi-instance.spec.ts` covering every migrated flow against competing operations, legacy flushes, and instance restarts. All eight migrated models hold their concurrency, non-regression, and deadlock-free properties.
+>
+> However, an empirical test of the untested stale-snapshot foreign-key case (`batch1-multi-instance.spec.ts` Test 8) confirms that when an unmigrated legacy model (`Mood`, `Post`, `Diary`, etc.) has a valid `journeyId` in the database while another instance flushes a stale snapshot where that field is omitted, the mapper silently nulls the database foreign key (`journeyId = null`). Full application multi-instance safety requires migrating the remaining 35 models off `StoreService` in subsequent batches.
 
-Batch 1 removed in-memory store authority, legacy upserts, and absence sweeps for these eight models, binding their state exclusively to PostgreSQL interactive transactions and row-level locks. However, full application multi-instance readiness is blocked by architectural boundaries that deliberately remain outside Batch 1 scope, and the per-model cross-instance proofs have not been run.
+Batch 1 removed in-memory store authority, legacy upserts, and absence sweeps for these eight models, binding their state exclusively to PostgreSQL interactive transactions, conditional CAS updates, and the global row-lock hierarchy (`User` -> `LifeJourney` -> `ActionCommitment`).
 
 ---
 
@@ -86,6 +88,32 @@ Multi-instance safety for the migrated models is proven through automated tests 
    - Exactly one instance wins the update (`updatedCount = 1`).
    - The losing instance receives `updated: false` without throwing an unhandled exception or corrupting state.
    - The final database row reflects exactly one winner (`succeeded` or `fallback`), with consistent duration and completion timestamp.
+
+### 3.3 Comprehensive Two-Instance Shared-Database Verification (`batch1-multi-instance.spec.ts`)
+
+To discharge the gate's requirement, controlled two-instance, shared-database races were implemented across all migrated business flows in `tests/business/batch1-multi-instance.spec.ts`. All assertions verify committed rows from an **independent** Prisma client:
+
+1. **Journey Concurrent Patching (Test 1)**:
+   - **Race**: Instance A patches `title`, Instance B concurrently patches `summary` on the same `LifeJourney`.
+   - **Outcome**: **HOLDS**. PostgreSQL row-level locks serialize the transactions without deadlocks (`40P01`). Both `title` and `summary` persist in the database without lost fields.
+2. **Journey AI Completion vs User Confirmation (Test 2)**:
+   - **Race**: User confirmation on Instance A (`confirmSituation`, `confidence: 'user_confirmed'`) races background AI completion on Instance B (`applySituationAnalysisAiCompletion`).
+   - **Outcome**: **HOLDS**. The commit-time condition (`confidence: { not: 'user_confirmed' }`) and CAS guard prevent the AI completion from overwriting user-confirmed facts, feelings, or summary. User-confirmed content survives.
+3. **Action + Checkin Concurrent Transitions (Test 3)**:
+   - **Race**: Instance A submits `completed` check-in while Instance B concurrently submits `skipped` check-in on the same `ActionCommitment`.
+   - **Outcome**: **HOLDS**. Row locks on `User` -> `LifeJourney` -> `ActionCommitment` plus CAS on `OutcomeCheckin` (`where: { status: 'pending' }`) ensure exactly one transition occurs. Exactly one terminal `OutcomeCheckin` exists in PostgreSQL.
+4. **SafetyEvent Creation vs Archive/Detach (Test 4)**:
+   - **Race**: High-risk `SafetyEvent` creation on Instance A races `deleteJourneyArchive` on Instance B.
+   - **Outcome**: **HOLDS**. When the safety event is created on an active journey, `deleteJourneyArchive` explicitly detaches it (`journeyId = null`), allowing the high-risk audit record to survive in PostgreSQL. If the journey has already been deleted, PostgreSQL foreign-key constraints prevent attaching a safety event to a non-existent journey. In no case does a safety record end up referencing a deleted journey.
+5. **Legacy-Flush Competition with Migrated Writes (Test 6)**:
+   - **Race**: Instance A creates `Journey` + `SituationSnapshot` + `JourneyUpdate` while Instance B executes a full legacy flush (`saveRelationalRuntimeState`).
+   - **Outcome**: **HOLDS**. No `40P01` deadlock occurs. Because legacy upserts and absence sweeps for the eight models are guarded off by `DIRECT_DB_MODELS`, the migrated rows and their foreign keys survive intact.
+6. **Restart / Reload State Safety (Test 7)**:
+   - **Race**: Instance A commits a new journey; Instance B executes `store.reloadRuntimeState()` and subsequent `persistAndFlush()`.
+   - **Outcome**: **HOLDS**. Reload only reads PostgreSQL, and absence sweeps for migrated models are absent, so Instance B's flush does not revert or delete rows committed by Instance A.
+7. **Stale-Snapshot Foreign-Key Omission (Test 8 — Finding & Limitation)**:
+   - **Scenario**: Legacy model `Mood` has `journeyId = null` when Instance B loads state. Instance A (or direct write) sets a valid `journeyId`. Instance B subsequently flushes.
+   - **Outcome**: **DEFECT CONFIRMED FOR UNMIGRATED MODELS**. The legacy mapper writes `journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null`. Because `item.journeyId` was absent in Instance B's stale in-memory snapshot, Instance B's flush silently overwrites the valid database foreign key with `NULL`. This defect affects all 13 unmigrated models with `journeyId` relations (`Mood`, `Post`, `Diary`, `DecisionRecord`, `PeerExperience`, `PeerMatch`, etc.) and proves that true application-wide multi-instance safety is impossible until those models are migrated.
 
 ---
 
