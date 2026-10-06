@@ -28,6 +28,7 @@ if (!pairs.length) {
 fs.mkdirSync(outDir, { recursive: true });
 
 const base = process.env.MP_BASE_URL ?? 'http://127.0.0.1:5173';
+async function main() {
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const page = await context.newPage();
@@ -45,3 +46,6 @@ for (const pair of pairs) {
 }
 
 await browser.close();
+}
+
+main().catch((error) => { console.error(error); process.exit(1); });
