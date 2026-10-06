@@ -1,88 +1,33 @@
 # BATCH1_FINAL_GATE.md
 
-**Verdict: `PERSISTENCE_BATCH1_REJECTED`** — recorded at HEAD `394539e`.
+**Verdict: `PERSISTENCE_BATCH1_REJECTED`** — re-review at HEAD `cb48c9e` on branch `codex/post-recovery-validation`.
 
-The final gate was run by the `final-gate` reviewer. It declined to accept, and its reasoning is
-reproduced here rather than softened. The reviewer was instructed read-only and therefore could
-not write this file; the orchestrator recorded its verdict and evidence verbatim in substance.
-
-The round's work is not wasted and its central claim is credible — but **the guarantees as stated
-are broader than the evidence supports**, and the gate is right to refuse them. The brief's rule
-that completion must not be declared early applies to this file as much as to any other.
+The work since the previous rejection materially improves the evidence. The result is nevertheless not an unconditional Batch 1 acceptance: the explicit cross-boundary FK-preservation obligation is falsified, several multi-instance claims exceed the interleavings actually tested, and the purported fully drained benchmark window does not demonstrably contain the full AI completion. A passing targeted suite cannot substitute for these properties.
 
 ## §60 conditions, adjudicated
 
 | Condition | Gate status | Evidence and qualification |
 | --- | --- | --- |
-| `BATCH1_FULL_FLUSH_ON_WRITE = false` | **Holds for the eight models** | The registry excludes their hydration and legacy upserts; targeted specs pass. The other models still use the full flush. |
-| `BATCH1_DUAL_WRITER = false` | **Holds at the eight-model flush boundary** | The legacy mapper's writes are guarded off. This does not make the application single-authority across its unmigrated models. |
-| `BATCH1_DELETE_ABSENT = false` | **Holds for the eight models** | Their absence sweeps are guarded off. AuditLog and FollowUpJob sweeps were also removed as compatibility protections, without migrating those models. |
-| `BATCH1_FK_SILENT_CLEARING = false` | **Holds for eight migrated models; Fails for unmigrated models** | `jobIds`, `journeyIds` and `commitmentIds` resolve database candidates inside the flush transaction, closing the empty-array failure. For the eight Batch 1 models, foreign keys are never silently cleared. However, empirical testing in `batch1-multi-instance.spec.ts` Test 8 confirms the untested case: for unmigrated models (`Mood`, `Post`, `Diary`, `DecisionRecord`, `PeerExperience`, etc.), a stale snapshot omitting `journeyId` silently nulls that database field upon legacy flush (`journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null`). The claim is scoped exclusively to the empty-array case and the eight migrated models. |
-| `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE = false` | **Holds for measured synchronous statement counts** | The artifact records `createJourney` samples `[6,6,6,6,6]` at 1,007 rows and `[7,6,6,6,6]` at 12,607; Action and notification paths are likewise flat. The 7 is averaged in and rounded, not discarded. This is a two-scale empirical result, not a proof of end-to-end constant cost. |
-| `BATCH1_CONCURRENCY_PASS` | **Partial** | 1/5/10 single-process coroutine trials report no failures or lost updates, and the lock tests pass. Distributed load and sustained multi-client contention are unmeasured. |
-| `BATCH1_MULTI_INSTANCE_SAFE` | **Proven per migrated flow; Not application-wide** | Controlled two-instance shared-database tests (`batch1-multi-instance.spec.ts` 1–7 and `batch1-aijob.spec.ts` 9–10) now prove multi-instance safety for all eight Batch 1 models across Journey patching, AI completion races, Action checkin CAS, SafetyEvent detachment, UserNotification delivery/read races, legacy-flush competition, and store reload. Application-wide safety is explicitly not claimed due to the 35 unmigrated models and `followUpJobs` in-memory mirror. |
-| `BATCH1_PERSISTENCE_TESTS_PASS` | **Holds for targeted specs; full suite not green** | The reviewer reproduced Action 16/16, AIJob 11/11, Journey 13/13 and durability 2/2 on isolated databases. It did not run all six batch-1 files or the full suite, so the reported `7 failed / 21 passed` files, `8 failed / 97 passed` tests and the exactly-one-`40P01` count remain reported evidence rather than independently reproduced totals. |
-| `DEV_DB_NOT_POLLUTED` | **Supported for test-lease cleanup** | After targeted runs: 0 matching test schemas, 0 matching test databases, 12 applied migrations. Public-table rows were not independently recounted. |
-| `MIGRATION_CLEANROOM_PASS` | **Reported pass; not independently replayed** | The checksum/immutability check passed for all 12 baseline migrations. That is not the same as independently rerunning cleanroom deployment and upgrade preservation. |
+| `BATCH1_FULL_FLUSH_ON_WRITE = false` | **Holds for eight migrated models** | `DIRECT_DB_MODELS` excludes all eight from legacy hydration, upserts, and absence sweeps in `relational-runtime.mapper.ts`. Unmigrated mutations still perform the full flush. |
+| `BATCH1_DUAL_WRITER = false` | **Holds at the eight-model flush boundary** | Legacy upserts of the eight are disabled; the direct persistence service owns those writes. `FollowUpJob` and the 35 remaining legacy models retain their separate compatibility/flush path; this is not an application-wide single-authority claim. |
+| `BATCH1_DELETE_ABSENT = false` | **Holds for eight migrated models** | Their `deleteAbsent` calls are guarded off. The AuditLog and FollowUpJob sweeps were also removed as compatibility measures; this does not migrate either model or restore AuditLog database retention. |
+| `BATCH1_FK_SILENT_CLEARING = false` | **BLOCKED: narrow fix holds, required cross-boundary property fails** | In-transaction database lookups for `jobIds`, `journeyIds`, and `commitmentIds` close the unloaded-array *candidate-present* case. Test 8 of `batch1-multi-instance.spec.ts` independently reproduces a stale `Mood` snapshot with absent `journeyId` clearing a valid committed FK on flush. The same `journeyIds.has(item.journeyId) ? item.journeyId : null` update shape appears on 11 other unmigrated Journey-reference models. Only Mood is empirically exercised; exposure of these 12 follows from mapper inspection. The thirteenth listed model, `FollowUpJob`, instead preserves `existing.journeyId` when the snapshot omits it, so the blanket 13-model defect claim is not accurate. This is not merely a defect *inside* the eight tables: their newly database-authoritative `LifeJourney` is referenced by these live legacy records. `BATCH1_DESIGN.md` explicitly requires preservation of an existing FK unless an explicit detach was committed and says to refuse an ambiguous write. The known counterexample blocks that requirement even though the finding is now honestly disclosed. |
+| `BATCH1_SQL_COST_LINEAR_WITH_DB_SIZE = false` | **Supported for sampled SQL statement counts, not full I/O** | BEFORE/AFTER artifacts each contain five traces per operation and mode at 1,007 and 12,607 rows. Migrated Journey/check-in/notification writes show approximately flat AFTER counts, including `[7,6,6,6,6]` for large-scale synchronous Journey creation. Worker reload still scans legacy tables: flat 48 steady-state statements do not mean constant bytes, latency, or work. |
+| `BATCH1_CONCURRENCY_PASS` | **Partial** | Reported 1/5/10 single-process trials and targeted lock tests have no lost updates; the two-instance tests exercise selected interleavings, not sustained distributed contention or exhaustive schedules. The deliberate lock-inversion `40P01` mutation is not a live-path deadlock. |
+| `BATCH1_MULTI_INSTANCE_SAFE` | **BLOCKED as stated; selected paths supported** | Two real Nest instances share a leased PostgreSQL database, and assertions use a third client. Concurrent distinct-field Journey patches and opposing Action check-ins are useful cross-instance races; AI completion versus confirmation checks final user content and a later rejected completion. AIJob boot and terminal CAS tests add separate evidence. But SafetyEvent test 4 *awaits create before delete*, notification test 5 *awaits delivery, then read, then retry*, and reload test 7 *awaits creation before reload/flush* (no process restart). Test 6 calls both promises without a barrier or proven overlap. These establish sequential ordering/idempotency and observed outcomes, not the advertised creation/deletion, delivery/read, reload-during-commit, or legacy-flush contention races. The acknowledged stale legacy FK and `followUpJobs` mirror also preclude application-wide safety. Narrow to the demonstrated schedules or supply controlled both-order races with independent committed-row assertions. |
+| `BATCH1_PERSISTENCE_TESTS_PASS` | **Targeted pass; full suite not green** | Independently reran `batch1-multi-instance.spec.ts` (8/8) and `batch1-aijob.spec.ts` (11/11) in fresh per-file leased databases. The orchestrator reports `pnpm test:batch1` 61/61; the full suite at `cb48c9e` is reported 8 failed/105 passed tests, 7 failed/22 passed files, with no new baseline failures. This re-review did not rerun the full suite as instructed. Live AI remains `AI_LIVE_BLOCKED_EXTERNAL` because `DAPI_API_KEY` is empty. |
+| `DEV_DB_NOT_POLLUTED` | **Supported for lease cleanup, not independently recounted** | The runner creates a uniquely named database, applies 12 migrations, and drops it on completion; both isolated reruns succeeded and cleaned their leases. The prior zero-leak/public-row-count observations were not independently recounted in this pass. |
+| `MIGRATION_CLEANROOM_PASS` | **Previously reported; not independently replayed here** | Tracked-migration deploy is used by each leased spec; this is not a repeat of the separate cleanroom upgrade/data-preservation verification. Existing 12-migration check and earlier cleanroom report remain reported evidence. |
 
-## The performance qualification — the most important correction
+## Four earlier blockers, reassessed
 
-The removal of row-count-proportional statements on the measured migrated writes is credible, and
-the statement-count flatness is real. But **the advertised `createJourney` 72.9 s → 15.4 ms is not
-like-for-like**: the BEFORE sample drains the AI lifecycle and its five flushes, whereas the AFTER
-recording stops at the HTTP operation and drains AI work afterwards. The two numbers therefore
-measure different amounts of work and must not be presented as a single speed-up.
+1. **Multi-instance proof: not closed at the claimed breadth.** `two-instance-harness.ts` creates two independent applications and an independent reader, which is materially better than a single-process-only test. Test 1 actually starts competing Journey field updates; test 2 starts the AI/user operations together and verifies confirmed content; test 3 starts competing terminal check-ins. AIJob tests 9–10 cover boot non-interference and two-instance terminal CAS. In contrast, tests 4 and 5 have explicit `await` boundaries between the operations described as racing. Test 6 does not control or assert overlap. Test 7 exercises a reload after a commit, not a restart or a reload concurrent with a commit. Passing all eight tests does not convert these schedules into proof for every migrated business flow. The report in `BATCH1_MULTI_INSTANCE.md` and the §5 table in `BATCH1_BENCHMARK_AFTER.md` still say that all eight migrated flows are proven, including these untested races; their application-wide disclaimer does not cure that overstatement.
+2. **Stale FK: diagnosed, not closed.** Test 8 reproduces nulling of a valid database `Mood.journeyId` after another instance flushes a stale, field-omitting snapshot. The in-transaction candidate-id lookup cannot help when the snapshot contains no candidate. Eleven other named consumers are exposed by the same mapping pattern. `FollowUpJob` uses a separate existing-row preservation path, so the purported 13-model confirmed defect is overbroad: one model was reproduced, 11 more share the vulnerable expression, and the thirteenth is not shown to have that defect. A scoped Batch 1 may defer migrating those models, but may not silently corrupt their references to a migrated Journey. This is the exact existing-row rule in `BATCH1_DESIGN.md` lines 43–51 and the Journey per-model gate; it requires a protective semantics change or an explicit revision of the approved acceptance contract. Documenting the defect is not a passing result.
+3. **Latency comparison: corrected, with a remaining Mode B limitation.** The artifacts identify the pre-migration commit `5de2d0e`, use the same operations/scales and five samples, and distinguish synchronous Mode A from drained Mode B. At 12,607 rows, the documented `createJourney` p50s match the artifacts: Mode A 33,692.0 ms versus 11.5 ms; Mode B 73,811.4 ms versus 186.1 ms. The old `deliverFollowUp` path has 53 statements, not ~12,694; its measured 2.2x/4.0x large-scale p50 improvements and the slower DB-backed read paths are disclosed accurately. The AFTER worker's `[75,48,48,48,48]` first-sample outlier contains 27 additional `SELECT 1` events in the retained traces (the exact cause within Prisma is inference, not directly traced). However, in AFTER Mode B `createJourney` the representative 21-statement trace contains AIJob updates but **no `UPDATE "SituationSnapshot"` or `UPDATE "LifeJourney"`** from applying the AI result. `createJourney` installs its own fire-and-forget completion callback; the benchmark additionally calls `applySituationAnalysisCompletion` and `store.flush()`, but catches errors, and `flush()` alone does not await that callback. It has not proved quiescence of the complete lifecycle as defined. Present the 186.1 ms as the measured window, not a verified fully drained AI-completion latency. An additional documentation inconsistency survives: §2.2's later numbered outlier paragraphs still quote old high-risk/check-in sample arrays rather than the current artifacts. These qualifications do not erase the real statement-count improvement.
+4. **CI failing-set identity: substantially closed, with a scope caveat.** `check-baseline-failures.ts` parses the recorded baseline and compares failing file/test names; its five unit tests pass, including a new failure in a previously failing file and a synthetic new spec failure. `ci.yml` runs the comparator after the allowed-to-fail full suite, and the comparator exits 1 on a new recorded identity. This reviewer ran `pnpm check:baseline-diff` after a **targeted** rerun: it returned SUCCESS with zero failures because the runner overwrites `artifacts/runtime/suite-report.json` with the latest run. Thus that invocation does *not* corroborate the orchestrator's earlier full-suite 8-failure comparison. The comparator does not validate `totalFiles`/`fileResults` against the intended suite or fail on an incomplete report with no failure entries (e.g. a file-level execution error). CI's normal full-suite step supplies the appropriate report when completed, but its known-baseline success must be conditioned on that report actually representing the full suite. The reported full-suite identity check is treated as reported evidence, not independently rerun here.
 
-Two further honesty points on the same benchmark: the worker's `[75,48,48,48,48]` samples are
-reported rather than hidden, but attributing the 27 extra statement events to "connection
-handshakes" is not established by per-sample traces — only the last successful sample's statement
-list is retained. And the worker's reload still reads the unmigrated tables in full, so its
-constant statement count is **not** constant read volume.
+## Existing limitations and user-experience gate
 
-## Required to close the gaps
+AIProvider historical-job delete guard, discontinued database-side AuditLog retention, `followUpJobs` in-memory graduation read, local-clock dependence of five-minute AIJob recovery, and the D/E reviewer-model distinction remain disclosed limitations. The live provider path is blocked externally, not passed. No new pet-presence observation or user-facing acceptance test demonstrates that a user feels the pet is really there; persistence and API regression results cannot establish that experiential criterion. This verdict makes **no** pet-presence acceptance claim.
 
-1. **Narrow or prove multi-instance safety.** Either replace the blanket eight-model verdict with
-   path-specific claims, or run controlled two-instance, shared-database races per migrated
-   business flow — including legacy-flush competition, archive/detach, worker delivery, and
-   restart/reload — and check committed rows from an independent client.
-2. **Close the stale-snapshot FK semantics.** Test an existing legacy row whose database
-   `journeyId` is valid while the stale snapshot omits the field, and demonstrate the flush
-   preserves it unless an explicit detach was committed. Cover the legacy consumers, not only
-   snapshots that carry a valid id.
-3. **Make the headline comparison comparable.** Record synchronous-request and fully-drained
-   lifecycle costs separately on both architectures, and retain query traces for **every** sample
-   so the extra statements can be identified before a cause is assigned.
-4. **Make CI check the baseline identity.** `ci.yml` currently allows the full suite to fail and
-   labels the result `COMPLETED_WITH_KNOWN_BASELINE_FAILURES` without verifying *which* tests
-   failed, so it does not actually enforce the baseline-subset property. Publish a machine-checked
-   failing-set diff. Live-AI acceptance needs a configured secret before that path is claimed.
-
-## Disclosed limitations — not resolved properties
-
-The `AIProvider` guard making a provider referenced by any historical AIJob undeletable; the
-discontinued database-side AuditLog retention; the `followUpJobs` in-memory mirror as a second
-read input; and AI recovery's five-minute dependence on the local clock. The D/E reviewer-model
-difference is disclosed. None of these is a hidden defect, and none is closed.
-
-Also noted by the gate: neither the Android/admin regression matrix nor passing API specs
-establish that a user feels a "pet is really there". No pet-presence acceptance evidence was
-identified, and it must not be counted as passed.
-
-## What the round did achieve
-
-Recorded so the rejection is not mistaken for a claim of no progress:
-
-- The eight models are genuinely off the full-table flush, verified in code and by query capture:
-  zero upserts and zero absence-sweep deletes against them during a complete legacy flush.
-- The original silent-FK-clearing failure — the round's founding hard gate — is closed for the
-  empty-array case, with the guards resolving from the database inside the transaction.
-- A reproducible `40P01` deadlock class was found and eliminated, and the fix is proved by a
-  mutation test that reproduces the deadlock when the lock order is inverted, plus races against
-  the real counterparties.
-- Eleven blocking defects were found across five review rounds and fixed with mutation-tested
-  guards, including a cross-user ownership leak and a safety-critical non-atomic SafetyEvent.
-- Test isolation now leases one freshly migrated database per spec file; 672 leaked schemas were
-  removed; the development database was rebuilt cleanly from migrations.
-
-The rejection concerns the **strength of the stated guarantees**, not the reality of the
-improvement.
+The rejection is about the explicit FK-preservation obligation, overstated flow-level multi-instance proof, and the unverified end of the claimed drained lifecycle, **not** a denial of the measured incremental-write gains or of the two independently passing targeted specifications.
