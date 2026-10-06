@@ -1418,10 +1418,34 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         ],
       });
 
+      let res1AcquiredFirst = false;
+      let res2AcquiredFirst = false;
+
       // Concurrently run two cleanup requests with opposite journey orders: [jA, jB] vs [jB, jA]
+      // with a mid-transaction barrier ensuring both hold competing locks if ordering is non-deterministic
       const [res1, res2] = await Promise.allSettled([
-        persistence.deleteJourneysForTestCleanup({ journeyIds: [jA, jB], actionIds: [] }),
-        persistence.deleteJourneysForTestCleanup({ journeyIds: [jB, jA], actionIds: [] }),
+        persistence.deleteJourneysForTestCleanup({
+          journeyIds: [jA, jB],
+          actionIds: [],
+          _onAfterFirstLock: async () => {
+            res1AcquiredFirst = true;
+            const start = Date.now();
+            while (!res2AcquiredFirst && Date.now() - start < 150) {
+              await new Promise((r) => setTimeout(r, 10));
+            }
+          },
+        }),
+        persistence.deleteJourneysForTestCleanup({
+          journeyIds: [jB, jA],
+          actionIds: [],
+          _onAfterFirstLock: async () => {
+            res2AcquiredFirst = true;
+            const start = Date.now();
+            while (!res1AcquiredFirst && Date.now() - start < 150) {
+              await new Promise((r) => setTimeout(r, 10));
+            }
+          },
+        }),
       ]);
 
       const err1 = res1.status === 'rejected' ? String(res1.reason) : '';

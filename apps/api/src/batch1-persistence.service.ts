@@ -2142,6 +2142,7 @@ export class Batch1PersistenceService {
   async deleteJourneysForTestCleanup(params: {
     journeyIds: string[];
     actionIds: string[];
+    _onAfterFirstLock?: () => Promise<void>;
   }): Promise<{ count: number }> {
     if (params.journeyIds.length === 0) return { count: 0 };
     return await this.prisma.$transaction(async (tx) => {
@@ -2150,15 +2151,27 @@ export class Batch1PersistenceService {
         where: { id: { in: params.journeyIds } },
         select: { id: true, userId: true },
       });
-      const distinctUserIds = [...new Set(targetJourneys.map((j) => j.userId))].sort();
+      const journeyUserMap = new Map(targetJourneys.map((j) => [j.id, j.userId]));
+      const userIdsInParamOrder = params.journeyIds.map((id) => journeyUserMap.get(id)).filter(Boolean) as string[];
+      // 1. Lock parent User rows in sorted, deterministic order
+      const distinctUserIds = [...new Set(userIdsInParamOrder)].sort();
+      let firstLockAcquired = false;
       for (const userId of distinctUserIds) {
         await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
+        if (!firstLockAcquired && params._onAfterFirstLock) {
+          firstLockAcquired = true;
+          await params._onAfterFirstLock();
+        }
       }
 
       // 2. Lock LifeJourney rows in sorted, deterministic order
       const sortedJourneyIds = [...new Set(params.journeyIds)].sort();
       for (const journeyId of sortedJourneyIds) {
         await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
+        if (!firstLockAcquired && params._onAfterFirstLock) {
+          firstLockAcquired = true;
+          await params._onAfterFirstLock();
+        }
       }
 
       // 3. Detach relations
