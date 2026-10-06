@@ -17,6 +17,8 @@
     "benchmark:persistence:after": "tsx --tsconfig apps/api/tsconfig.json scripts/persistence-benchmark-after.ts",
     "test": "pnpm qa:all",
     "test:unit": "vitest run tests/unit",
+    "test:batch1": "tsx scripts/test-runner.ts tests/business/batch1-usernotification.spec.ts tests/business/batch1-safetyevent.spec.ts tests/business/batch1-aijob.spec.ts tests/business/batch1-journey.spec.ts tests/business/batch1-action.spec.ts tests/business/persistence-durability.spec.ts",
+    "check:migrations": "tsx scripts/check-migration-immutability.ts",
     "test:business": "tsx scripts/test-runner.ts",
     "test:business:isolated": "tsx scripts/test-runner.ts",
     "test:api": "tsx scripts/test-runner.ts vitest run tests/api",
@@ -139,6 +141,7 @@
     "vite": "^5.4.19",
     "vitest": "^2.1.9",
     "vue-eslint-parser": "^10.4.1",
-    "vue-tsc": "^2.2.10"
+    "vue-tsc": "^2.2.10",
+    "yaml": "^2.9.1"
   }
 }
