@@ -563,6 +563,8 @@ model PeerMatch {
   requestReason    String?
   requestQuestion  String?
   acceptedAt       DateTime?
+  requesterConsentAt DateTime?
+  ownerConsentAt   DateTime?
   conversation     PeerConversation?
   status           PeerMatchStatus @default(suggested)
   createdAt        DateTime        @default(now())
