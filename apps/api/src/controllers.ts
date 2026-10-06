@@ -36,6 +36,7 @@ import type {
 import { normalizeStoreEmotion, StoreService, type AIGenerateInput } from './store.service.js';
 import { MonthlyReportService } from './monthly-report.service.js';
 import { Batch1PersistenceService } from './batch1-persistence.service.js';
+import { PeerPersistenceService } from './peer-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -622,8 +623,8 @@ export class PublicController {
   }
 
   @Get('peer-requests')
-  peerRequests(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.peerRequestList(runtimeUserId(userId)) };
+  async peerRequests(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.peerRequestList(runtimeUserId(userId)) };
   }
 
   @Patch('peer-experiences/:id')
@@ -1898,6 +1899,7 @@ export class AdminController {
   constructor(
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+    @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
   ) {}
 
   private admin(auth?: string) {
@@ -2010,15 +2012,21 @@ export class AdminController {
         active: await this.batch1Persistence.countActiveJourneys(),
         actions: await this.batch1Persistence.countActiveActions(),
         dueCheckins: await this.batch1Persistence.countDueCheckins(),
-        peerExperiences: this.store.peerExperiences.filter((item) => item.status === 'published').length,
+        peerExperiences: DIRECT_DB_MODELS.PeerExperience
+          ? await this.peerPersistence.countPublishedExperiences()
+          : this.store.peerExperiences.filter((item) => item.status === 'published').length,
         safetyEvents: await this.store.countHighRiskSafetyEvents(),
         supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
         followUps: this.store.followUpJobs.filter((item) => ['pending', 'scheduled'].includes(item.status)).length,
         unreadNotifications: await this.store.countUnreadNotifications(),
-        peerRequests: this.store.peerMatches.filter((item) => item.status === 'requested').length,
-        connectedPeerConversations: this.store.peerConversations.filter(
-          (item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now(),
-        ).length,
+        peerRequests: DIRECT_DB_MODELS.PeerMatch
+          ? await this.peerPersistence.countRequestedMatches()
+          : this.store.peerMatches.filter((item) => item.status === 'requested').length,
+        connectedPeerConversations: DIRECT_DB_MODELS.PeerConversation
+          ? await this.peerPersistence.countConnectedConversations()
+          : this.store.peerConversations.filter(
+              (item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now(),
+            ).length,
         recoveryRecords: this.store.recoverySnapshots.length,
       },
       supportIntentDistribution: await this.batch1Persistence.getSupportIntentDistribution(),
@@ -2218,7 +2226,7 @@ export class AdminController {
   }
 
   @Get('peer-experiences')
-  adminPeerExperiences(
+  async adminPeerExperiences(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2226,6 +2234,10 @@ export class AdminController {
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const items = await this.peerPersistence.listExperiencesForAdmin({ q, status });
+      return this.list(items, page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.peerExperiences.filter((item) => {
       const matchesQuery =
@@ -2244,6 +2256,10 @@ export class AdminController {
     @Body() body: { status: 'published' | 'hidden' | 'rejected' },
   ) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const item = await this.peerPersistence.reviewExperience(id, admin.id, body.status);
+      return { item };
+    }
     const item = this.store.peerExperiences.find((experience) => experience.id === id);
     if (!item) throw new NotFoundException('同路经历不存在');
     const before = { ...item };
@@ -2254,7 +2270,7 @@ export class AdminController {
   }
 
   @Get('peer-matches')
-  adminPeerMatches(
+  async adminPeerMatches(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2262,6 +2278,10 @@ export class AdminController {
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      const items = await this.peerPersistence.listMatchesForAdmin({ q, status });
+      return this.list(items, page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.peerMatches.filter((item) => {
       const matchesQuery =
@@ -2315,7 +2335,7 @@ export class AdminController {
   }
 
   @Get('peer-conversations')
-  adminPeerConversations(
+  async adminPeerConversations(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2324,6 +2344,10 @@ export class AdminController {
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const items = await this.peerPersistence.listConversationsForAdmin({ q, status, reported });
+      return this.list(items, page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.peerConversations
       .filter((item) => {
@@ -2390,7 +2414,7 @@ export class AdminController {
   // per conversation. The reporter identity is exposed here on purpose: acting on a report
   // needs it, and this route sits behind AdminAuthGuard. It is never exposed to the peers.
   @Get('peer-reports')
-  peerReports(
+  async peerReports(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
@@ -2398,6 +2422,10 @@ export class AdminController {
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerReport) {
+      const items = await this.peerPersistence.listReportsForAdmin({ q, status });
+      return this.list(items, page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.peerReports
       .filter((report) => {
@@ -2421,6 +2449,12 @@ export class AdminController {
     @Body() body: { status?: 'open' | 'handled'; note?: string },
   ) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerReport) {
+      if (!body?.status || !['open', 'handled'].includes(body.status)) {
+        throw new BadRequestException('处理状态无效');
+      }
+      return await this.peerPersistence.handleReport(id, admin.id, body.status, body.note);
+    }
     const existing = this.store.peerReports.find((report) => report.id === id);
     if (!existing) throw new NotFoundException('举报记录不存在');
     const before = { ...existing };

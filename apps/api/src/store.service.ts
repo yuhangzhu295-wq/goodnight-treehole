@@ -31,6 +31,7 @@ import {
   DEFAULT_AI_JOB_STALENESS_MS,
   isGeneratedJourneyTitle,
 } from './batch1-persistence.service.js';
+import { PeerPersistenceService } from './peer-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -445,6 +446,8 @@ export interface PeerMatchRecord {
   requestReason?: string;
   requestQuestion?: string;
   acceptedAt?: string;
+  requesterConsentAt?: string;
+  ownerConsentAt?: string;
   status: 'suggested' | 'requested' | 'connected' | 'declined' | 'blocked';
   createdAt: string;
   updatedAt: string;
@@ -595,7 +598,7 @@ type PeerConversationRecord = {
   expiresAt: string;
   createdAt: string;
   closedAt?: string;
-  closedReason?: 'closed' | 'expired' | 'blocked';
+  closedReason?: 'closed' | 'expired' | 'blocked' | string;
   feedback?: 'helpful' | 'unchanged' | 'uncomfortable';
   feedbackNote?: string;
   reportedAt?: string;
@@ -1248,6 +1251,8 @@ export class StoreService implements OnModuleInit {
     @Inject(RemoteAiProviderService) private readonly remoteAi: RemoteAiProviderService = new RemoteAiProviderService(),
     @Inject(Batch1PersistenceService)
     private readonly batch1Persistence: Batch1PersistenceService = new Batch1PersistenceService(prisma as any),
+    @Inject(PeerPersistenceService)
+    private readonly peerPersistence: PeerPersistenceService = new PeerPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1362,6 +1367,71 @@ export class StoreService implements OnModuleInit {
         },
         set(_val) {
           throw new Error('StoreData.outcomeCheckins is disabled: OutcomeCheckin is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      delete data.peerExperiences;
+      Object.defineProperty(data, 'peerExperiences', {
+        get() {
+          throw new Error('StoreData.peerExperiences is disabled: PeerExperience is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerExperiences is disabled: PeerExperience is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      delete data.peerMatches;
+      Object.defineProperty(data, 'peerMatches', {
+        get() {
+          throw new Error('StoreData.peerMatches is disabled: PeerMatch is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerMatches is disabled: PeerMatch is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      delete data.peerConversations;
+      Object.defineProperty(data, 'peerConversations', {
+        get() {
+          throw new Error('StoreData.peerConversations is disabled: PeerConversation is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerConversations is disabled: PeerConversation is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      delete data.peerMessages;
+      Object.defineProperty(data, 'peerMessages', {
+        get() {
+          throw new Error('StoreData.peerMessages is disabled: PeerMessage is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerMessages is disabled: PeerMessage is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerReport) {
+      delete data.peerReports;
+      Object.defineProperty(data, 'peerReports', {
+        get() {
+          throw new Error('StoreData.peerReports is disabled: PeerReport is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerReports is disabled: PeerReport is database-authoritative (Batch 2)');
         },
         enumerable: false,
         configurable: true,
@@ -1536,9 +1606,19 @@ export class StoreService implements OnModuleInit {
     return this.data.outcomeCheckins;
   }
   get peerExperiences() {
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      throw new Error(
+        'Direct DB model PeerExperience: store.peerExperiences getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.peerExperiences;
   }
   get peerMatches() {
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      throw new Error(
+        'Direct DB model PeerMatch: store.peerMatches getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.peerMatches;
   }
   get peerReputations() {
@@ -1594,12 +1674,27 @@ export class StoreService implements OnModuleInit {
     return this.data.notifications;
   }
   get peerConversations() {
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      throw new Error(
+        'Direct DB model PeerConversation: store.peerConversations getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.peerConversations;
   }
   get peerMessages() {
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      throw new Error(
+        'Direct DB model PeerMessage: store.peerMessages getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.peerMessages;
   }
   get peerReports() {
+    if (DIRECT_DB_MODELS.PeerReport) {
+      throw new Error(
+        'Direct DB model PeerReport: store.peerReports getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.peerReports;
   }
   get adminUserNotes() {
@@ -1611,8 +1706,15 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.UserNotification) {
       this.data.notifications ??= [];
     }
-    this.data.peerConversations ??= [];
-    this.data.peerMessages ??= [];
+    if (!DIRECT_DB_MODELS.PeerConversation) {
+      this.data.peerConversations ??= [];
+    }
+    if (!DIRECT_DB_MODELS.PeerMessage) {
+      this.data.peerMessages ??= [];
+    }
+    if (!DIRECT_DB_MODELS.PeerReport) {
+      this.data.peerReports ??= [];
+    }
     if (!DIRECT_DB_MODELS.LifeJourney) {
       for (const journey of this.data.lifeJourneys) {
         if (
@@ -2760,6 +2862,8 @@ export class StoreService implements OnModuleInit {
       if (key === 'journeyUpdates' && DIRECT_DB_MODELS.JourneyUpdate) continue;
       if (key === 'actionCommitments' && DIRECT_DB_MODELS.ActionCommitment) continue;
       if (key === 'outcomeCheckins' && DIRECT_DB_MODELS.OutcomeCheckin) continue;
+      if (key === 'peerExperiences' && DIRECT_DB_MODELS.PeerExperience) continue;
+      if (key === 'peerMatches' && DIRECT_DB_MODELS.PeerMatch) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
@@ -2866,8 +2970,11 @@ export class StoreService implements OnModuleInit {
     const followUps = this.followUpJobs
       .filter((item) => item.userId === userId && item.status === 'pending' && Date.parse(item.dueAt) <= Date.now())
       .slice(0, 3);
-    const matches = this.peerMatches
-      .filter((item) => item.userId === userId && !['declined', 'blocked'].includes(item.status))
+    const userMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForUser(userId)
+      : this.peerMatches.filter((item) => item.userId === userId);
+    const matches = userMatches
+      .filter((item) => !['declined', 'blocked'].includes(item.status))
       .slice(0, 3);
     const latestLetter = this.letters.find((item) => item.userId === userId && item.content);
     return {
@@ -3127,8 +3234,12 @@ export class StoreService implements OnModuleInit {
         (item) => !hasJourney(item.journeyId) && !hasAction(item.commitmentId),
       );
     }
-    this.data.peerExperiences = this.data.peerExperiences.filter((item) => !hasJourney(item.journeyId));
-    this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
+    if (!DIRECT_DB_MODELS.PeerExperience) {
+      this.data.peerExperiences = this.data.peerExperiences.filter((item) => !hasJourney(item.journeyId));
+    }
+    if (!DIRECT_DB_MODELS.PeerMatch) {
+      this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
+    }
     this.data.decisionRecords = this.data.decisionRecords.filter(
       (item) =>
         !explicitDecisionIds.has(item.id) &&
@@ -3298,6 +3409,9 @@ export class StoreService implements OnModuleInit {
     const journey = await this.requireJourney(journeyId, userId);
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId);
+    const journeyMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForJourney(journeyId)
+      : this.peerMatches.filter((item) => item.journeyId === journeyId);
     return {
       journey,
       snapshot: snapshot ?? null,
@@ -3305,9 +3419,7 @@ export class StoreService implements OnModuleInit {
       commitments: await this.batch1Persistence.listActionsForJourney(journeyId),
       checkins: await this.batch1Persistence.listCheckinsForJourney(journeyId),
       recovery: this.recoverySnapshots.filter((item) => item.journeyId === journeyId),
-      peerMatches: this.peerMatches
-        .filter((item) => item.journeyId === journeyId)
-        .map((item) => this.peerMatchForUser(item)),
+      peerMatches: journeyMatches.map((item) => this.peerMatchForUser(item)),
     };
   }
 
@@ -3335,7 +3447,15 @@ export class StoreService implements OnModuleInit {
       adjusted: detail.commitments.filter((item) => Boolean(item.parentActionId || item.adaptationReason)).length,
     };
     const linkedMatchIds = new Set(detail.peerMatches.map((item) => item.id));
-    const conversations = this.peerConversations.filter((item) => linkedMatchIds.has(item.matchId));
+    let conversations: PeerConversationRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const convs = await Promise.all(
+        Array.from(linkedMatchIds).map((mid) => this.peerPersistence.getConversationByMatchId(mid)),
+      );
+      conversations = convs.filter((item): item is PeerConversationRecord => Boolean(item));
+    } else {
+      conversations = this.peerConversations.filter((item) => linkedMatchIds.has(item.matchId));
+    }
     const decisions = this.decisionRecords
       .filter((item) => item.userId === userId && item.journeyId === journeyId)
       .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
@@ -3419,8 +3539,8 @@ export class StoreService implements OnModuleInit {
     this.data.diaries = detachJourney(this.data.diaries as Array<any>);
     this.data.moods = detachJourney(this.data.moods as Array<any>);
     this.data.posts = detachJourney(this.data.posts as Array<any>);
-    this.data.peerExperiences = detachJourney(this.data.peerExperiences);
-    this.data.peerMatches = detachJourney(this.data.peerMatches);
+    if (!DIRECT_DB_MODELS.PeerExperience) this.data.peerExperiences = detachJourney(this.data.peerExperiences);
+    if (!DIRECT_DB_MODELS.PeerMatch) this.data.peerMatches = detachJourney(this.data.peerMatches);
     this.data.decisionRecords = detachJourney(this.data.decisionRecords);
     this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
     this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
@@ -3451,15 +3571,20 @@ export class StoreService implements OnModuleInit {
   async journeyPeers(journeyId: string, requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中允许同路人匹配');
-    const matches = this.peerMatches.filter((item) => item.journeyId === journey.id);
+    const matches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForJourney(journey.id)
+      : this.peerMatches.filter((item) => item.journeyId === journey.id);
     const peerExpIds = matches.map((m) => m.peerExperienceId);
-    const peerExps = this.peerExperiences.filter((e) => peerExpIds.includes(e.id));
+    const peerExps = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getExperiencesByIds(peerExpIds)
+      : this.peerExperiences.filter((e) => peerExpIds.includes(e.id));
     const targetJourneyIds = peerExps.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
     const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(targetJourneyIds);
     const checkinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(targetJourneyIds);
+    const peerExpMap = new Map(peerExps.map((e) => [e.id, e]));
     return matches
       .map((item) => {
-        const exp = this.peerExperiences.find((e) => e.id === item.peerExperienceId);
+        const exp = peerExpMap.get(item.peerExperienceId);
         const uCount = exp?.journeyId ? (updateCounts.get(exp.journeyId) ?? 0) : 0;
         const cCount = exp?.journeyId ? (checkinCounts.get(exp.journeyId) ?? 0) : 0;
         return this.peerMatchForUser(item, this.peerExperienceSummary(exp, uCount, cCount));
@@ -3914,9 +4039,11 @@ export class StoreService implements OnModuleInit {
     if (journey.status !== 'completed') throw new BadRequestException('请先完成这段旅程');
     if (decision !== 'willing') return { decision, graduation: await this.graduationSummary(journeyId), draft: null };
     this.privacyAllows(journey.userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名经验分享');
-    const existing = this.peerExperiences.find(
-      (item) => item.journeyId === journeyId && item.userId === journey.userId && item.status === 'pending_review',
-    );
+    const existing = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.findPendingReviewExperienceByJourneyAndUser(journeyId, journey.userId)
+      : this.peerExperiences.find(
+          (item) => item.journeyId === journeyId && item.userId === journey.userId && item.status === 'pending_review',
+        );
     if (existing) return { decision, graduation: await this.graduationSummary(journeyId), draft: existing };
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 6);
@@ -3934,8 +4061,7 @@ export class StoreService implements OnModuleInit {
       .filter(Boolean)
       .join('\n')
       .slice(0, 1600);
-    const draft: PeerExperienceRecord = {
-      id: id('experience'),
+    const draftData = {
       userId: journey.userId,
       journeyId,
       title: this.redactPeerPublicText(journey.title),
@@ -3948,7 +4074,15 @@ export class StoreService implements OnModuleInit {
       helpfulActions: completed,
       notHelpfulActions: [],
       consentedAt: now(),
-      status: 'pending_review',
+      status: 'pending_review' as const,
+    };
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const created = await this.peerPersistence.createExperience(draftData);
+      return { decision, graduation: await this.graduationSummary(journeyId), draft: created };
+    }
+    const draft: PeerExperienceRecord = {
+      ...draftData,
+      id: id('experience'),
       reportCount: 0,
       createdAt: now(),
       updatedAt: now(),
@@ -3970,10 +4104,23 @@ export class StoreService implements OnModuleInit {
     },
     requestedUserId?: string,
   ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const cleanInput = {
+        title: typeof input.title === 'string' && input.title.trim() ? this.redactPeerPublicText(input.title.trim().slice(0, 100)) : undefined,
+        content: typeof input.content === 'string' && input.content.trim() ? this.redactPeerPublicText(input.content.trim().slice(0, 1600)) : undefined,
+        laterSummary: input.laterSummary ? (this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown>) : undefined,
+        helpfulActions: Array.isArray(input.helpfulActions) ? input.helpfulActions.map(String).filter(Boolean).slice(0, 8).map(v => this.redactPeerPublicText(v)) : undefined,
+        notHelpfulActions: Array.isArray(input.notHelpfulActions) ? input.notHelpfulActions.map(String).filter(Boolean).slice(0, 8).map(v => this.redactPeerPublicText(v)) : undefined,
+        retrospective: typeof input.retrospective === 'string' ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000)) : undefined,
+      };
+      const updated = await this.peerPersistence.updateExperience(experienceId, userId, cleanInput);
+      return { item: this.peerExperienceSummary(updated) };
+    }
     const item = this.peerExperiences.find(
       (experience) =>
         experience.id === experienceId &&
-        experience.userId === this.resolveRuntimeUserId(requestedUserId) &&
+        experience.userId === userId &&
         experience.status === 'pending_review',
     );
     if (!item) throw new NotFoundException('待确认的经历不存在');
@@ -4039,8 +4186,7 @@ export class StoreService implements OnModuleInit {
       typeof input.retrospective === 'string'
         ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000))
         : undefined;
-    const item: PeerExperienceRecord = {
-      id: id('experience'),
+    const itemData = {
       userId,
       journeyId: journey?.id,
       title,
@@ -4065,35 +4211,56 @@ export class StoreService implements OnModuleInit {
       notHelpfulActions: values(input.notHelpfulActions),
       retrospective,
       consentedAt: now(),
-      status: 'pending_review',
-      reportCount: 0,
-      createdAt: now(),
-      updatedAt: now(),
+      status: 'pending_review' as const,
     };
-    this.peerExperiences.unshift(item);
-    await this.persistAndFlush();
+    let created: PeerExperienceRecord;
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      created = await this.peerPersistence.createExperience(itemData);
+    } else {
+      created = {
+        ...itemData,
+        id: id('experience'),
+        reportCount: 0,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      this.peerExperiences.unshift(created);
+      await this.persistAndFlush();
+    }
     const updateCount = journey ? await this.batch1Persistence.countUpdatesForJourney(journey.id) : 0;
     const checkinCount = journey ? await this.batch1Persistence.countCheckinsForJourney(journey.id) : 0;
-    return { item: this.peerExperienceSummary(item, updateCount, checkinCount) };
+    return { item: this.peerExperienceSummary(created, updateCount, checkinCount) };
   }
 
   async peerNetwork(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     const privacyEnabled = this.privacySettings[userId]?.allowPeerMatching === true;
     if (!privacyEnabled) return { privacyEnabled: false, experiences: [], matches: [], limited: false };
-    const published = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
+    const published = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getPublishedExperiences(100, userId)
+      : this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
     const topPublished = published.slice(0, 3);
     const journeyIds = topPublished.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
     const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(journeyIds);
     const checkinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(journeyIds);
-    const matches = this.peerMatches
-      .filter((item) => item.userId === userId)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
+    const userMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForUser(userId)
+      : this.peerMatches.filter((item) => item.userId === userId);
+    const topMatches = userMatches.sort((a, b) => b.score - a.score).slice(0, 3);
+    const matchExpIds = topMatches.map((m) => m.peerExperienceId);
+    const matchExps = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getExperiencesByIds(matchExpIds)
+      : this.peerExperiences.filter((e) => matchExpIds.includes(e.id));
+    const matchExpMap = new Map(matchExps.map((e) => [e.id, e]));
+    const matchJourneyIds = matchExps.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
+    const matchUpdateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(matchJourneyIds);
+    const matchCheckinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(matchJourneyIds);
+
+    const matches = topMatches
       .map((match) => {
-        const exp = this.peerExperiences.find((item) => item.id === match.peerExperienceId);
-        const uCount = exp?.journeyId ? (updateCounts.get(exp.journeyId) ?? 0) : 0;
-        const cCount = exp?.journeyId ? (checkinCounts.get(exp.journeyId) ?? 0) : 0;
+        const exp = matchExpMap.get(match.peerExperienceId);
+        const uCount = exp?.journeyId ? (matchUpdateCounts.get(exp.journeyId) ?? 0) : 0;
+        const cCount = exp?.journeyId ? (matchCheckinCounts.get(exp.journeyId) ?? 0) : 0;
         return this.peerMatchForUser(match, this.peerExperienceSummary(exp, uCount, cCount));
       })
       .filter((item) => item.experience);
@@ -4141,7 +4308,9 @@ export class StoreService implements OnModuleInit {
     const experience =
       experienceOverride !== undefined
         ? experienceOverride
-        : this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId));
+        : DIRECT_DB_MODELS.PeerExperience
+          ? undefined
+          : this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId));
     return {
       id: match.id,
       journeyId: match.journeyId,
@@ -4168,7 +4337,13 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  private peerConversationForUser(conversation: PeerConversationRecord, viewerUserId: string) {
+  private async peerConversationForUser(conversation: PeerConversationRecord, viewerUserId: string) {
+    let messages: PeerMessageRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      messages = await this.peerPersistence.getMessagesForConversation(conversation.id);
+    } else {
+      messages = this.peerMessages.filter((message) => message.conversationId === conversation.id);
+    }
     return {
       id: conversation.id,
       matchId: conversation.matchId,
@@ -4179,26 +4354,40 @@ export class StoreService implements OnModuleInit {
       createdAt: conversation.createdAt,
       closedAt: conversation.closedAt,
       closedReason: conversation.closedReason,
-      messages: this.peerMessages
-        .filter((message) => message.conversationId === conversation.id)
-        .map((message) => this.peerMessageForUser(message, viewerUserId)),
+      messages: messages.map((message) => this.peerMessageForUser(message, viewerUserId)),
     };
   }
 
   async suggestPeerMatches(journeyId: string, requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
-    const existing = new Set(
-      this.peerMatches.filter((item) => item.userId === journey.userId).map((item) => item.peerExperienceId),
-    );
-    const candidates = this.peerExperiences.filter(
-      (item) => item.status === 'published' && item.userId !== journey.userId && !existing.has(item.id),
+    const userMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForUser(journey.userId)
+      : this.peerMatches.filter((item) => item.userId === journey.userId);
+    const existing = new Set(userMatches.map((item) => item.peerExperienceId));
+    const allPublished = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getPublishedExperiences()
+      : this.peerExperiences.filter((item) => item.status === 'published');
+    const candidates = allPublished.filter(
+      (item) => item.userId !== journey.userId && !existing.has(item.id),
     );
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journey.id);
     const currentTags = new Set(snapshot?.contextTags ?? []);
     const stageRank: Record<string, number> = { clarifying: 0, planning: 1, acting: 2, recovering: 3, graduated: 4 };
     const currentStage = stageRank[journey.stage] ?? 0;
-    const created = candidates.map((experience) => {
+
+    const candidateReportCounts = new Map<string, number>();
+    if (DIRECT_DB_MODELS.PeerReport) {
+      await Promise.all(
+        candidates.map(async (exp) => {
+          const count = await this.peerPersistence.countReportsForExperience(exp.id);
+          candidateReportCounts.set(exp.id, count);
+        }),
+      );
+    }
+
+    const matchesToCreate: Array<Omit<PeerMatchRecord, 'id' | 'createdAt' | 'updatedAt'>> = [];
+    for (const experience of candidates) {
       const peerSnapshot = experience.fingerprintJson ?? {};
       const peerTags = new Set(experience.tags);
       const sharedTags = [...currentTags].filter((tag) => peerTags.has(tag));
@@ -4216,7 +4405,10 @@ export class StoreService implements OnModuleInit {
       const trustScore = peerOwner
         ? Math.min(1, peerOwner.helpfulCount / Math.max(1, peerOwner.helpfulCount + peerOwner.reportCount))
         : 0.5;
-      const safety = experience.reportCount === 0 ? 1 : 0.2;
+      const expReportCount = DIRECT_DB_MODELS.PeerReport
+        ? (candidateReportCounts.get(experience.id) ?? 0)
+        : experience.reportCount;
+      const safety = expReportCount === 0 ? 1 : 0.2;
       const preference = 0.5;
       const scoreBreakdown = {
         domain: domain * 0.25,
@@ -4238,8 +4430,7 @@ export class StoreService implements OnModuleInit {
         recoveryLead > 0 ? `TA比你早走过约${recoveryLead}个阶段` : 'TA留下了真实的后来记录',
       ];
       const explanation = `${reasons.join('；')}。`;
-      const match: PeerMatchRecord = {
-        id: id('peer_match'),
+      matchesToCreate.push({
         userId: journey.userId,
         journeyId,
         peerExperienceId: experience.id,
@@ -4252,14 +4443,31 @@ export class StoreService implements OnModuleInit {
         scoreBreakdown,
         explanation,
         status: 'suggested',
-        createdAt: now(),
-        updatedAt: now(),
-      };
-      this.peerMatches.unshift(match);
-      return match;
-    });
-    await this.persistAndFlush();
-    return { items: created.map((item) => this.peerMatchForUser(item)).filter((item) => item.experience) };
+      });
+    }
+
+    let created: PeerMatchRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      created = await this.peerPersistence.createMatches(matchesToCreate);
+    } else {
+      for (const m of matchesToCreate) {
+        const row: PeerMatchRecord = {
+          ...m,
+          id: id('peer_match'),
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        this.peerMatches.unshift(row);
+        created.push(row);
+      }
+      await this.persistAndFlush();
+    }
+    const candidateMap = new Map(candidates.map((e) => [e.id, e]));
+    return {
+      items: created
+        .map((item) => this.peerMatchForUser(item, this.peerExperienceSummary(candidateMap.get(item.peerExperienceId))))
+        .filter((item) => item.experience),
+    };
   }
 
   private peerPiiFlags(content: string) {
@@ -4369,6 +4577,30 @@ export class StoreService implements OnModuleInit {
   }
 
   private async expirePeerConversations() {
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const closed = await this.peerPersistence.expireDueConversations();
+      for (const conversation of closed) {
+        const body = '这段匿名同行的 72 小时已经结束。';
+        const route = `/pages/peer/conversation?matchId=${encodeURIComponent(conversation.matchId)}`;
+        await this.peerNotification(
+          conversation.starterUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        );
+        await this.peerNotification(
+          conversation.receiverUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        );
+      }
+      return;
+    }
     const due = this.peerConversations.filter(
       (conversation) => conversation.status === 'active' && Date.parse(conversation.expiresAt) <= Date.now(),
     );
@@ -4382,6 +4614,10 @@ export class StoreService implements OnModuleInit {
   private async requirePeerConversation(matchId: string, requestedUserId?: string) {
     await this.expirePeerConversations();
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const res = await this.peerPersistence.requireConversation(matchId, userId);
+      return { userId, conversation: res.conversation };
+    }
     const conversation = this.peerConversations.find(
       (item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId),
     );
@@ -4399,12 +4635,57 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const currentUserId = this.resolveRuntimeUserId(requestedUserId);
+    const status = input.status;
+
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      if (status === 'requested') {
+        const requestReason = typeof input.requestReason === 'string' ? input.requestReason.trim().slice(0, 280) : '';
+        const requestQuestion =
+          typeof input.requestQuestion === 'string' ? input.requestQuestion.trim().slice(0, 160) : '';
+        const safeReason = requestReason || '我想听听你后来是怎么把这段日子走过去的。';
+        this.assertPeerDraftSafe(`${safeReason}\n${requestQuestion}`);
+
+        const { match, ownerUserId } = await this.peerPersistence.updateMatchRequest(
+          matchId,
+          currentUserId,
+          'requested',
+          safeReason,
+          requestQuestion || undefined,
+        );
+
+        // Commit peer transition first, THEN emit deterministic-id notification (§3.3, §0.4/A4)
+        if (ownerUserId && ownerUserId !== currentUserId) {
+          await this.peerNotification(
+            ownerUserId,
+            'PEER_REQUEST',
+            `request_${match.id}`,
+            '有人想和你聊聊这段经历',
+            '有人看见了你留下的后来，想先问一个小问题。',
+            `/pages/peer/requests?matchId=${encodeURIComponent(match.id)}`,
+          );
+        }
+
+        const exp = await this.peerPersistence.getExperienceById(match.peerExperienceId);
+        return {
+          item: this.peerMatchForUser(match, this.peerExperienceSummary(exp ?? undefined)),
+          conversation: null,
+        };
+      } else {
+        const { match } = await this.peerPersistence.respondMatch(matchId, currentUserId, status);
+        const conv = await this.peerPersistence.getConversationByMatchId(matchId);
+        const exp = await this.peerPersistence.getExperienceById(match.peerExperienceId);
+        return {
+          item: this.peerMatchForUser(match, this.peerExperienceSummary(exp ?? undefined)),
+          conversation: conv ? await this.peerConversationForUser(conv, currentUserId) : null,
+        };
+      }
+    }
+
     const item = this.peerMatches.find((match) => match.id === matchId);
     if (!item) throw new NotFoundException('同路匹配不存在');
     const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
     const isRequester = item.userId === currentUserId;
     const isExperienceOwner = experience?.userId === currentUserId;
-    const status = input.status;
     if (status === 'requested' && (!isRequester || item.status !== 'suggested'))
       throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
     if ((status === 'connected' || status === 'declined') && (!isExperienceOwner || item.status !== 'requested'))
@@ -4437,19 +4718,49 @@ export class StoreService implements OnModuleInit {
     const conversation = this.peerConversations.find((candidate) => candidate.matchId === item.id);
     return {
       item: this.peerMatchForUser(item),
-      conversation: conversation ? this.peerConversationForUser(conversation, currentUserId) : null,
+      conversation: conversation ? await this.peerConversationForUser(conversation, currentUserId) : null,
     };
   }
 
   async startPeerConversation(matchId: string, requestedUserId?: string) {
     const currentUserId = this.resolveRuntimeUserId(requestedUserId);
+
+    if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerConversation) {
+      const result = await this.peerPersistence.consentMatch(matchId, currentUserId);
+      if (result.activated && result.conversation) {
+        // Second consent: both participants consented! Commit done, notify (§0.4/A4, §3.3)
+        await this.peerNotification(
+          result.starterUserId!,
+          'PEER_ACCEPTED',
+          `accepted_${matchId}`,
+          '有人愿意和你聊一会',
+          '双方已确认匿名边界，这段同行现在开始，最多持续 72 小时。',
+          `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`,
+        );
+        return {
+          conversation: await this.peerConversationForUser(result.conversation, currentUserId),
+        };
+      }
+      if (result.conversation) {
+        // Already active
+        return {
+          conversation: await this.peerConversationForUser(result.conversation, currentUserId),
+        };
+      }
+      // First consent: recorded caller's own consent, pending the other party (§0.1, §0.4/A3)
+      return {
+        conversation: null,
+        pending: true,
+      };
+    }
+
     const item = this.peerMatches.find((match) => match.id === matchId);
     if (!item) throw new NotFoundException('同路匹配不存在');
     const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
     if (!experience || experience.userId !== currentUserId || item.status !== 'connected')
       throw new ForbiddenException('只有接受请求的经历发布者可以确认同行边界');
     const existing = this.peerConversations.find((conversation) => conversation.matchId === item.id);
-    if (existing) return { conversation: this.peerConversationForUser(existing, currentUserId) };
+    if (existing) return { conversation: await this.peerConversationForUser(existing, currentUserId) };
     const startsAt = now();
     const conversation: PeerConversationRecord = {
       id: id('peer_conversation'),
@@ -4472,11 +4783,18 @@ export class StoreService implements OnModuleInit {
       `/pages/peer/conversation?matchId=${encodeURIComponent(item.id)}`,
     );
     await this.persistAndFlush();
-    return { conversation: this.peerConversationForUser(conversation, currentUserId) };
+    return { conversation: await this.peerConversationForUser(conversation, currentUserId) };
   }
 
-  peerRequestList(requestedUserId?: string) {
+  async peerRequestList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerExperience) {
+      const matches = await this.peerPersistence.listRequestsForOwner(userId);
+      const expIds = matches.map((m) => m.peerExperienceId);
+      const exps = await this.peerPersistence.getExperiencesByIds(expIds);
+      const expMap = new Map(exps.map((e) => [e.id, e]));
+      return matches.map((m) => this.peerMatchForUser(m, this.peerExperienceSummary(expMap.get(m.peerExperienceId))));
+    }
     return this.peerMatches
       .filter((match) => {
         const isOwner =
@@ -4500,15 +4818,32 @@ export class StoreService implements OnModuleInit {
    * from any request-handling path.
    */
   async peerExperienceDetail(experienceId: string, viewerId?: string) {
-    const experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published');
+    let experience: PeerExperienceRecord | null = null;
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      experience = await this.peerPersistence.getPublishedExperienceById(experienceId);
+      if (!experience && viewerId) {
+        const own = await this.peerPersistence.getExperienceById(experienceId);
+        if (own && own.userId === viewerId) experience = own;
+      }
+    } else {
+      experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published') ?? null;
+    }
     if (!experience) throw new NotFoundException('这段同路经历不存在');
     if (viewerId && experience.userId !== viewerId) {
       if (this.privacySettings[viewerId]?.allowPeerMatching !== true) {
         throw new ForbiddenException('请先在隐私设置中允许同路匹配');
       }
-      const related = this.peerMatches.some(
-        (match) => match.peerExperienceId === experienceId && match.status !== 'declined' && match.userId === viewerId,
-      );
+      let related = false;
+      if (DIRECT_DB_MODELS.PeerMatch) {
+        const matches = await this.peerPersistence.listMatchesForUser(viewerId);
+        related = matches.some(
+          (match) => match.peerExperienceId === experienceId && match.status !== 'declined',
+        );
+      } else {
+        related = this.peerMatches.some(
+          (match) => match.peerExperienceId === experienceId && match.status !== 'declined' && match.userId === viewerId,
+        );
+      }
       if (!related) throw new ForbiddenException('这段同路经历暂不向你开放');
     }
     const journey = experience.journeyId
@@ -4558,13 +4893,28 @@ export class StoreService implements OnModuleInit {
   async conversationList(requestedUserId?: string) {
     await this.expirePeerConversations();
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.peerConversations
-      .filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId))
-      .map((conversation) => this.peerConversationForUser(conversation, userId));
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const conversations = await this.peerPersistence.listConversationsForUser(userId);
+      return await Promise.all(conversations.map((c) => this.peerConversationForUser(c, userId)));
+    }
+    await this.expirePeerConversations();
+    return await Promise.all(
+      this.peerConversations
+        .filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId))
+        .map((conversation) => this.peerConversationForUser(conversation, userId)),
+    );
   }
 
   async sendPeerMessage(matchId: string, content: unknown, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerMessage && DIRECT_DB_MODELS.PeerConversation) {
+      await this.expirePeerConversations();
+      const text = this.text(content, '消息内容', 1000);
+      this.assertPeerDraftSafe(text);
+      const msg = await this.peerPersistence.sendMessage(matchId, userId, text);
+      return { item: this.peerMessageForUser(msg, userId) };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now())
       throw new BadRequestException('这段 72 小时会话已经结束');
     const text = this.text(content, '消息内容', 1000);
@@ -4584,15 +4934,28 @@ export class StoreService implements OnModuleInit {
   }
 
   async requestPeerResponseAssist(matchId: string, content: unknown, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now())
-      throw new BadRequestException('这段 72 小时会话已经结束');
+    let convId = '';
+    let userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const { conversation } = await this.peerPersistence.requireConversation(matchId, userId);
+      if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) {
+        throw new BadRequestException('这段 72 小时会话已经结束');
+      }
+      convId = conversation.id;
+    } else {
+      const res = await this.requirePeerConversation(matchId, requestedUserId);
+      if (res.conversation.status !== 'active' || Date.parse(res.conversation.expiresAt) <= Date.now()) {
+        throw new BadRequestException('这段 72 小时会话已经结束');
+      }
+      convId = res.conversation.id;
+      userId = res.userId;
+    }
     const source = this.text(content, '待整理的回复', 1000);
     this.assertPeerDraftSafe(source);
     const job = this.queueAI({
       taskType: 'peer_response_assist',
       userId,
-      sourceId: conversation.id,
+      sourceId: convId,
       content: source,
       style: 'warm',
       mood: '委屈',
@@ -4602,15 +4965,45 @@ export class StoreService implements OnModuleInit {
   }
 
   async closePeerConversation(matchId: string, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const res = await this.peerPersistence.closeConversation(matchId, userId, 'closed');
+      if (res.wasActive) {
+        const body = '这段匿名同行已经结束，你们不能继续发送消息。';
+        const route = `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`;
+        await this.peerNotification(
+          res.conversation.starterUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${res.conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        );
+        await this.peerNotification(
+          res.conversation.receiverUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${res.conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        );
+      }
+      return { item: await this.peerConversationForUser(res.conversation, userId) };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     await this.closePeerConversationRecord(conversation, 'closed');
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId) };
+    return { item: await this.peerConversationForUser(conversation, userId) };
   }
 
   async reportPeerConversation(matchId: string, reason: unknown, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const reportReason = this.text(reason, '举报原因', 300);
+    if (DIRECT_DB_MODELS.PeerReport && DIRECT_DB_MODELS.PeerConversation) {
+      const res = await this.peerPersistence.reportConversation(matchId, userId, reportReason);
+      return { item: await this.peerConversationForUser(res.conversation, userId) };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     const match = this.peerMatches.find((item) => item.id === matchId);
     // One open report per (conversation, reporter). Reporting again while an earlier report is
     // still open updates that report rather than creating a duplicate; reporting again after the
@@ -4641,7 +5034,7 @@ export class StoreService implements OnModuleInit {
     conversation.reportReason = reportReason;
     this.syncPeerReportCounts();
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId) };
+    return { item: await this.peerConversationForUser(conversation, userId) };
   }
 
   /**
@@ -4652,6 +5045,7 @@ export class StoreService implements OnModuleInit {
    * status, which is the semantic the increment had.
    */
   syncPeerReportCounts() {
+    if (DIRECT_DB_MODELS.PeerReport) return;
     for (const experience of this.peerExperiences) {
       experience.reportCount = this.peerReports.filter((report) => report.experienceId === experience.id).length;
     }
@@ -4737,14 +5131,40 @@ export class StoreService implements OnModuleInit {
   }
 
   async blockPeerConversation(matchId: string, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation && DIRECT_DB_MODELS.PeerMatch) {
+      const res = await this.peerPersistence.blockConversation(matchId, userId);
+      const body = '这段匿名同行已被结束，你们不能继续发送消息。';
+      const route = `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`;
+      await this.peerNotification(
+        res.conversation.starterUserId,
+        'CONVERSATION_CLOSED',
+        `closed_${res.conversation.id}`,
+        '这段同行到这里了',
+        body,
+        route,
+      );
+      await this.peerNotification(
+        res.conversation.receiverUserId,
+        'CONVERSATION_CLOSED',
+        `closed_${res.conversation.id}`,
+        '这段同行到这里了',
+        body,
+        route,
+      );
+      return {
+        item: await this.peerConversationForUser(res.conversation, userId),
+        match: this.peerMatchForUser(res.match),
+      };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     const match = this.peerMatches.find((item) => item.id === matchId);
     if (!match) throw new NotFoundException('同路匹配不存在');
     match.status = 'blocked';
     match.updatedAt = now();
     await this.closePeerConversationRecord(conversation, 'blocked');
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId), match: this.peerMatchForUser(match) };
+    return { item: await this.peerConversationForUser(conversation, userId), match: this.peerMatchForUser(match) };
   }
 
   async savePeerConversationFeedback(
@@ -4752,14 +5172,65 @@ export class StoreService implements OnModuleInit {
     input: { feedback?: unknown; note?: unknown; shareLater?: unknown },
     requestedUserId?: string,
   ) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    if (conversation.status === 'active' && Date.parse(conversation.expiresAt) > Date.now())
-      throw new BadRequestException('请先结束这段同行，再留下感受');
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const feedback = String(input.feedback ?? '');
     if (!['helpful', 'unchanged', 'uncomfortable'].includes(feedback))
       throw new BadRequestException('请选择这段同行带来的感受');
     const note = typeof input.note === 'string' ? input.note.trim().slice(0, 500) : '';
     this.assertPeerDraftSafe(note);
+
+    if (DIRECT_DB_MODELS.PeerConversation && DIRECT_DB_MODELS.PeerExperience) {
+      let shareData: any = undefined;
+      if (input.shareLater === true) {
+        this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
+        const match = await this.peerPersistence.getMatchById(matchId);
+        const source = match ? await this.peerPersistence.getExperienceById(match.peerExperienceId) : null;
+        const journeyId = match?.userId === userId ? match.journeyId : source?.journeyId;
+        const journey = journeyId ? await this.batch1Persistence.getJourneyByIdAndUser(journeyId, userId) : undefined;
+        const snapshot = journey ? await this.batch1Persistence.getSnapshotByJourneyId(journey.id) : undefined;
+        const shareText = this.redactPeerPublicText(
+          note || '这段同行结束后，我愿意把后来的一点变化留给走在相似路上的人。',
+        );
+        const rawSubDomain = snapshot?.subDomain ?? source?.subDomain;
+        const subDomain = rawSubDomain ? this.redactPeerPublicText(rawSubDomain) : undefined;
+        shareData = {
+          title: '这段同行之后，我慢慢走了一点出来',
+          domain: this.redactPeerPublicText(journey?.domain ?? source?.domain ?? '其他'),
+          subDomain,
+          stage: 'graduated',
+          content: shareText,
+          tags: (snapshot?.contextTags ?? source?.tags ?? []).map((t) => this.redactPeerPublicText(t)),
+          fingerprintJson: snapshot?.fingerprintJson ?? source?.fingerprintJson,
+          journeyId: journey?.id,
+        };
+      }
+
+      const res = await this.peerPersistence.saveConversationFeedback(
+        matchId,
+        userId,
+        feedback as any,
+        note || undefined,
+        shareData,
+      );
+
+      const updateCount = res.sharedExperience?.journeyId
+        ? await this.batch1Persistence.countUpdatesForJourney(res.sharedExperience.journeyId)
+        : 0;
+      const checkinCount = res.sharedExperience?.journeyId
+        ? await this.batch1Persistence.countCheckinsForJourney(res.sharedExperience.journeyId)
+        : 0;
+
+      return {
+        item: await this.peerConversationForUser(res.conversation, userId),
+        sharedExperience: res.sharedExperience
+          ? this.peerExperienceSummary(res.sharedExperience, updateCount, checkinCount)
+          : undefined,
+      };
+    }
+
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status === 'active' && Date.parse(conversation.expiresAt) > Date.now())
+      throw new BadRequestException('请先结束这段同行，再留下感受');
     conversation.feedback = feedback as PeerConversationRecord['feedback'];
     conversation.feedbackNote = note || undefined;
     let sharedExperience: PeerExperienceRecord | undefined;
@@ -4773,16 +5244,18 @@ export class StoreService implements OnModuleInit {
       const shareText = this.redactPeerPublicText(
         note || '这段同行结束后，我愿意把后来的一点变化留给走在相似路上的人。',
       );
+      const rawSubDomain = snapshot?.subDomain ?? source?.subDomain;
+      const subDomain = rawSubDomain ? this.redactPeerPublicText(rawSubDomain) : undefined;
       sharedExperience = {
         id: id('experience'),
         userId,
         journeyId: journey?.id,
         title: '这段同行之后，我慢慢走了一点出来',
-        domain: journey?.domain ?? source?.domain ?? '其他',
+        domain: this.redactPeerPublicText(journey?.domain ?? source?.domain ?? '其他'),
+        subDomain,
         stage: 'graduated',
-        subDomain: snapshot?.subDomain ?? source?.subDomain,
         content: shareText,
-        tags: snapshot?.contextTags ?? source?.tags ?? [],
+        tags: (snapshot?.contextTags ?? source?.tags ?? []).map((t) => this.redactPeerPublicText(t)),
         fingerprintJson: snapshot?.fingerprintJson ?? source?.fingerprintJson,
         laterSummary: { summary: shareText },
         helpfulActions: [],
@@ -4803,7 +5276,7 @@ export class StoreService implements OnModuleInit {
       ? await this.batch1Persistence.countCheckinsForJourney(sharedExperience.journeyId)
       : 0;
     return {
-      item: this.peerConversationForUser(conversation, userId),
+      item: await this.peerConversationForUser(conversation, userId),
       sharedExperience: sharedExperience
         ? this.peerExperienceSummary(sharedExperience, updateCount, checkinCount)
         : undefined,

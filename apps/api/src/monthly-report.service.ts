@@ -3,6 +3,8 @@ import crypto from 'node:crypto';
 import { normalizeStoreEmotion, StoreService } from './store.service.js';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 import { Batch1PersistenceService } from './batch1-persistence.service.js';
+import { PeerPersistenceService } from './peer-persistence.service.js';
+import { DIRECT_DB_MODELS } from './direct-db-models.js';
 
 type MonthlyRecord = {
   emotion: string;
@@ -136,6 +138,7 @@ export class MonthlyReportService {
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+    @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
   ) {}
 
   private recordsFor(userId: string, month: string): MonthlyRecord[] {
@@ -197,14 +200,36 @@ export class MonthlyReportService {
     const recoverySnapshots = this.store.recoverySnapshots.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt),
     );
-    const peerConversationCount = this.store.peerConversations.filter(
-      (item) =>
-        (item.starterUserId === userId || item.receiverUserId === userId) &&
+    let peerConversationCount = 0;
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const userConvs = await this.peerPersistence.listConversationsForUser(userId);
+      peerConversationCount = userConvs.filter((item) =>
         belongsToMonth(month, item.createdAt, item.startsAt, item.closedAt),
-    ).length;
-    const peerExperienceCount = this.store.peerExperiences.filter(
-      (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.consentedAt),
-    ).length;
+      ).length;
+    } else {
+      peerConversationCount = this.store.peerConversations.filter(
+        (item) =>
+          (item.starterUserId === userId || item.receiverUserId === userId) &&
+          belongsToMonth(month, item.createdAt, item.startsAt, item.closedAt),
+      ).length;
+    }
+
+    let peerExperienceCount = 0;
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const userExps = await this.prisma.peerExperience.findMany({ where: { userId } });
+      peerExperienceCount = userExps.filter((item) =>
+        belongsToMonth(
+          month,
+          item.createdAt.toISOString(),
+          item.updatedAt.toISOString(),
+          item.consentedAt ? item.consentedAt.toISOString() : undefined,
+        ),
+      ).length;
+    } else {
+      peerExperienceCount = this.store.peerExperiences.filter(
+        (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.consentedAt),
+      ).length;
+    }
     const decisionCount = this.store.decisionRecords.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.reviewedAt),
     ).length;
@@ -333,11 +358,27 @@ export class MonthlyReportService {
     for (const item of this.store.recoverySnapshots) if (item.userId === userId) addMonths(item.createdAt);
     for (const item of this.store.decisionRecords)
       if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.reviewedAt);
-    for (const item of this.store.peerExperiences)
-      if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.consentedAt);
-    for (const item of this.store.peerConversations)
-      if (item.starterUserId === userId || item.receiverUserId === userId)
-        addMonths(item.createdAt, item.startsAt, item.closedAt);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const userExps = await this.prisma.peerExperience.findMany({ where: { userId } });
+      for (const item of userExps) {
+        addMonths(
+          item.createdAt.toISOString(),
+          item.updatedAt.toISOString(),
+          item.consentedAt ? item.consentedAt.toISOString() : undefined,
+        );
+      }
+    } else {
+      for (const item of this.store.peerExperiences)
+        if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.consentedAt);
+    }
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const userConvs = await this.peerPersistence.listConversationsForUser(userId);
+      for (const item of userConvs) addMonths(item.createdAt, item.startsAt, item.closedAt);
+    } else {
+      for (const item of this.store.peerConversations)
+        if (item.starterUserId === userId || item.receiverUserId === userId)
+          addMonths(item.createdAt, item.startsAt, item.closedAt);
+    }
     months.add(new Date().toISOString().slice(0, 7));
     return { items: [...months].sort((left, right) => right.localeCompare(left)) };
   }
