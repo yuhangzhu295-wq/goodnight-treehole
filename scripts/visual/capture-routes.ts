@@ -1,27 +1,28 @@
-// Capture an arbitrary mini-program route to a PNG.
-//
-// `scripts/visual/capture-front-pages.ts` only covers a fixed list of 14 pages, which is
-// not enough to review the rest of the app. This helper takes route=name pairs so any
-// page can be rendered and looked at:
-//
-//   node scripts/visual/capture-routes.mjs /pages/action/index=action-center
-//   node scripts/visual/capture-routes.mjs --out artifacts/screenshots/x /pages/a=b /pages/c=d
-//
-// It prints `name hscroll=<bool>` per page so a horizontal-overflow regression is visible
-// in the same pass.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// `scripts/visual/capture-front-pages.ts` only covers a fixed list of 14 pages, which is
+// not enough to review the rest of the app. This helper takes route=name pairs so any
+// page can be rendered and looked at:
+//
+//   pnpm exec tsx scripts/visual/capture-routes.ts /pages/action/index=action-center
+//
+// It prints `name hscroll=<bool>` per page so a horizontal-overflow regression shows up
+// in the same pass.
 const args = process.argv.slice(2);
 let outDir = 'artifacts/screenshots/verify';
-const pairs = [];
+const pairs: string[] = [];
 for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--out') { outDir = args[i + 1]; i += 1; continue; }
+  if (args[i] === '--out') {
+    outDir = args[i + 1];
+    i += 1;
+    continue;
+  }
   pairs.push(args[i]);
 }
 if (!pairs.length) {
-  console.error('usage: capture-routes.mjs [--out DIR] <route=name> ...');
+  console.error('usage: capture-routes.ts [--out DIR] <route=name> ...');
   process.exit(2);
 }
 fs.mkdirSync(outDir, { recursive: true });
