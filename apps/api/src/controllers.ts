@@ -1132,11 +1132,12 @@ export class PublicController {
       this.store.resolveRuntimeUserId(runtimeUserId(userId)),
       taskType,
     );
+    const safeJob = job ? this.store.peerAssistJobForResponse(job) : null;
     return {
-      item: job ?? null,
-      jobId: job?.id ?? null,
-      status: job?.status ?? null,
-      result: job?.result ?? '',
+      item: safeJob,
+      jobId: safeJob?.id ?? null,
+      status: safeJob?.status ?? null,
+      result: safeJob?.result ?? '',
     };
   }
 
@@ -1149,14 +1150,28 @@ export class PublicController {
       if (!job || job.userId !== expectedUserId) {
         throw new NotFoundException('AI 任务不存在');
       }
-      return { jobId: job.id, status: job.status, job, result: job.result, structured: job.structuredResult ?? {} };
+      const safeJob = this.store.peerAssistJobForResponse(job);
+      return {
+        jobId: safeJob.id,
+        status: safeJob.status,
+        job: safeJob,
+        result: safeJob.result,
+        structured: safeJob.structuredResult ?? {},
+      };
     }
     const job = this.store.aiJobs.find((item) => item.id === id);
     if (!job || job.userId !== expectedUserId) {
       throw new NotFoundException('AI 任务不存在');
     }
     if (!['queued', 'running'].includes(job.status)) await this.store.flush();
-    return { jobId: job.id, status: job.status, job, result: job.result, structured: job.structuredResult ?? {} };
+    const safeJob = this.store.peerAssistJobForResponse(job);
+    return {
+      jobId: safeJob.id,
+      status: safeJob.status,
+      job: safeJob,
+      result: safeJob.result,
+      structured: safeJob.structuredResult ?? {},
+    };
   }
 
   @Get('letters/today')

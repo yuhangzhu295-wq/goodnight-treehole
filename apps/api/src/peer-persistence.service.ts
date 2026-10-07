@@ -210,6 +210,63 @@ async function lockUsers(tx: any, uids: string[]) {
   }
 }
 
+/**
+ * Global lock hierarchy for peer writes: `User` (sorted) -> `LifeJourney` (sorted) -> peer row.
+ *
+ * Every peer table carries a `User` foreign key (`PeerExperience.userId`, `PeerMatch.userId`,
+ * `PeerMessage.senderUserId`, `PeerReport.reporterUserId`, `PeerConversation.starter/receiver`),
+ * and `PeerExperience`/`PeerMatch` also carry an optional `LifeJourney` foreign key. Inserting or
+ * updating a row whose foreign key column is written takes an implicit `FOR KEY SHARE` on the
+ * referenced row, which conflicts with the `FOR UPDATE` the legacy full-flush takes on `User` as
+ * its first statement (`relational-runtime.mapper.ts`), and with the `User` -> `LifeJourney` order
+ * `deleteJourneyArchive` uses (`batch1-persistence.service.ts:deleteJourneyArchive`). A peer
+ * transaction that locks its own child row before these roots therefore cycles against both and
+ * raises `40P01`; this project has already produced that deadlock twice.
+ *
+ * So peer writes acquire the roots first, in the same deterministic (sorted) order as every other
+ * writer, and only then touch their own rows. Sorting is what makes two multi-party paths
+ * (consent, block, feedback) safe against each other.
+ */
+async function lockPeerWriteRoots(
+  tx: any,
+  userIds: Array<string | null | undefined>,
+  journeyIds: Array<string | null | undefined> = [],
+) {
+  await lockUsers(tx, userIds.filter((id): id is string => Boolean(id)));
+  const journeys = [...new Set(journeyIds.filter((id): id is string => Boolean(id)))].sort() as string[];
+  for (const journeyId of journeys) {
+    await tx.$executeRaw`SELECT 1 FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`;
+  }
+}
+
+/**
+ * Test-only rendezvous points, so a barrier can meet *inside* an open transaction.
+ *
+ * `_onBeforeLock` fires after the transaction has begun and before any lock is taken: two
+ * transactions meeting there are both open and will then genuinely contend for the same roots.
+ * `_onAfterLock` fires once this transaction holds its root locks, which is the point a test
+ * needs to hold open while a different writer (a journey delete, a legacy flush) runs.
+ */
+export type PeerWriteHooks = {
+  _onBeforeLock?: () => Promise<void>;
+  _onAfterLock?: () => Promise<void>;
+};
+
+/**
+ * Resolve a supplied `LifeJourney` reference **under the lock** taken by `lockPeerWriteRoots`.
+ *
+ * A journey that a concurrent delete removed resolves to `null`. That is deliberately the same
+ * post-state the delete produces for rows already attached to it: `fkUpdate`
+ * (`relational-runtime.mapper.ts:790`) treats a supplied-but-invalid reference as a detach, so
+ * both orderings of the create/delete race end in one deterministic state instead of a foreign
+ * key error that discards the user's write.
+ */
+async function resolveJourneyRefUnderLock(tx: any, journeyId: string | null | undefined): Promise<string | null> {
+  if (!journeyId) return null;
+  const rows = await tx.$queryRaw<any[]>`SELECT id FROM "LifeJourney" WHERE id = ${journeyId}`;
+  return rows.length ? journeyId : null;
+}
+
 @Injectable()
 export class PeerPersistenceService {
   constructor(
@@ -241,46 +298,56 @@ export class PeerPersistenceService {
     return row ? mapPeerExperienceRow(row) : null;
   }
 
-  async createExperience(params: {
-    userId: string;
-    journeyId?: string;
-    title: string;
-    domain: string;
-    subDomain?: string;
-    stage: string;
-    content: string;
-    tags: string[];
-    fingerprintJson?: Record<string, unknown>;
-    laterSummary?: Record<string, unknown>;
-    helpfulActions?: string[];
-    notHelpfulActions?: string[];
-    retrospective?: string;
-    consentedAt: string;
-    status: 'draft' | 'pending_review' | 'published' | 'hidden' | 'rejected';
-  }): Promise<PeerExperienceRecord> {
+  async createExperience(
+    params: {
+      userId: string;
+      journeyId?: string;
+      title: string;
+      domain: string;
+      subDomain?: string;
+      stage: string;
+      content: string;
+      tags: string[];
+      fingerprintJson?: Record<string, unknown>;
+      laterSummary?: Record<string, unknown>;
+      helpfulActions?: string[];
+      notHelpfulActions?: string[];
+      retrospective?: string;
+      consentedAt: string;
+      status: 'draft' | 'pending_review' | 'published' | 'hidden' | 'rejected';
+    },
+    hooks: PeerWriteHooks = {},
+  ): Promise<PeerExperienceRecord> {
     const id = genId('experience');
-    const created = await this.prisma.peerExperience.create({
-      data: {
-        id,
-        userId: params.userId,
-        journeyId: params.journeyId ?? null,
-        title: params.title,
-        domain: params.domain,
-        subDomain: params.subDomain ?? null,
-        stage: params.stage,
-        content: params.content,
-        tags: params.tags,
-        fingerprintJson: params.fingerprintJson ? (params.fingerprintJson as Prisma.InputJsonValue) : Prisma.JsonNull,
-        laterSummary: params.laterSummary ? (params.laterSummary as Prisma.InputJsonValue) : Prisma.JsonNull,
-        helpfulActions: params.helpfulActions ? (params.helpfulActions as Prisma.InputJsonValue) : Prisma.JsonNull,
-        notHelpfulActions: params.notHelpfulActions ? (params.notHelpfulActions as Prisma.InputJsonValue) : Prisma.JsonNull,
-        retrospective: params.retrospective ?? null,
-        consentedAt: new Date(params.consentedAt),
-        status: params.status,
-        reportCount: 0,
-      },
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      // Writes `PeerExperience.journeyId`: join the global lock order first.
+      await lockPeerWriteRoots(tx, [params.userId], [params.journeyId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+      const journeyId = await resolveJourneyRefUnderLock(tx, params.journeyId);
+      const created = await tx.peerExperience.create({
+        data: {
+          id,
+          userId: params.userId,
+          journeyId,
+          title: params.title,
+          domain: params.domain,
+          subDomain: params.subDomain ?? null,
+          stage: params.stage,
+          content: params.content,
+          tags: params.tags,
+          fingerprintJson: params.fingerprintJson ? (params.fingerprintJson as Prisma.InputJsonValue) : Prisma.JsonNull,
+          laterSummary: params.laterSummary ? (params.laterSummary as Prisma.InputJsonValue) : Prisma.JsonNull,
+          helpfulActions: params.helpfulActions ? (params.helpfulActions as Prisma.InputJsonValue) : Prisma.JsonNull,
+          notHelpfulActions: params.notHelpfulActions ? (params.notHelpfulActions as Prisma.InputJsonValue) : Prisma.JsonNull,
+          retrospective: params.retrospective ?? null,
+          consentedAt: new Date(params.consentedAt),
+          status: params.status,
+          reportCount: 0,
+        },
+      });
+      return mapPeerExperienceRow(created);
     });
-    return mapPeerExperienceRow(created);
   }
 
   async updateExperience(
@@ -398,43 +465,70 @@ export class PeerPersistenceService {
     return row ? mapPeerMatchRow(row) : null;
   }
 
-  async createMatches(matches: Array<Omit<PeerMatchRecord, 'id' | 'createdAt' | 'updatedAt'>>): Promise<PeerMatchRecord[]> {
-    const created: PeerMatchRecord[] = [];
-    for (const m of matches) {
-      const row = await this.prisma.peerMatch.upsert({
-        where: { userId_peerExperienceId: { userId: m.userId, peerExperienceId: m.peerExperienceId } },
-        create: {
-          id: genId('peer_match'),
-          userId: m.userId,
-          journeyId: m.journeyId ?? null,
-          peerExperienceId: m.peerExperienceId,
-          score: m.score,
-          reasons: m.reasons,
-          stageDistance: m.stageDistance ?? null,
-          recoveryLead: m.recoveryLead ?? null,
-          trustScore: m.trustScore ?? null,
-          fingerprintSimilarity: m.fingerprintSimilarity ?? null,
-          scoreBreakdown: m.scoreBreakdown ? (m.scoreBreakdown as Prisma.InputJsonValue) : Prisma.JsonNull,
-          explanation: m.explanation ?? null,
-          requestReason: m.requestReason ?? null,
-          requestQuestion: m.requestQuestion ?? null,
-          acceptedAt: m.acceptedAt ? new Date(m.acceptedAt) : null,
-          status: m.status,
-        },
-        update: {
-          score: m.score,
-          reasons: m.reasons,
-          stageDistance: m.stageDistance ?? null,
-          recoveryLead: m.recoveryLead ?? null,
-          trustScore: m.trustScore ?? null,
-          fingerprintSimilarity: m.fingerprintSimilarity ?? null,
-          scoreBreakdown: m.scoreBreakdown ? (m.scoreBreakdown as Prisma.InputJsonValue) : Prisma.JsonNull,
-          explanation: m.explanation ?? null,
-        },
-      });
-      created.push(mapPeerMatchRow(row));
-    }
-    return created;
+  async createMatches(
+    matches: Array<Omit<PeerMatchRecord, 'id' | 'createdAt' | 'updatedAt'>>,
+    hooks: PeerWriteHooks = {},
+  ): Promise<PeerMatchRecord[]> {
+    if (!matches.length) return [];
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      // This path writes `PeerMatch.journeyId`, so it joins the global lock order
+      // (`User` -> `LifeJourney` -> peer row) before touching any match row.
+      await lockPeerWriteRoots(
+        tx,
+        matches.map((m) => m.userId),
+        matches.map((m) => m.journeyId),
+      );
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const created: PeerMatchRecord[] = [];
+      for (const m of matches) {
+        const key = { userId: m.userId, peerExperienceId: m.peerExperienceId };        // A suggestion refresh must not rewrite a match that has already left `suggested`:
+        // its request reason, accepted timestamp and status belong to the peer flow now.
+        const existing = await tx.peerMatch.findUnique({ where: { userId_peerExperienceId: key } });
+        if (existing) {
+          if (existing.status === 'suggested') {
+            await tx.peerMatch.updateMany({
+              where: { id: existing.id, status: 'suggested' },
+              data: {
+                score: m.score,
+                reasons: m.reasons,
+                stageDistance: m.stageDistance ?? null,
+                recoveryLead: m.recoveryLead ?? null,
+                trustScore: m.trustScore ?? null,
+                fingerprintSimilarity: m.fingerprintSimilarity ?? null,
+                scoreBreakdown: m.scoreBreakdown ? (m.scoreBreakdown as Prisma.InputJsonValue) : Prisma.JsonNull,
+                explanation: m.explanation ?? null,
+              },
+            });
+          }
+          created.push(mapPeerMatchRow((await tx.peerMatch.findUnique({ where: { id: existing.id } }))!));
+          continue;
+        }
+        const row = await tx.peerMatch.create({
+          data: {
+            id: genId('peer_match'),
+            userId: m.userId,
+            journeyId: await resolveJourneyRefUnderLock(tx, m.journeyId),
+            peerExperienceId: m.peerExperienceId,
+            score: m.score,
+            reasons: m.reasons,
+            stageDistance: m.stageDistance ?? null,
+            recoveryLead: m.recoveryLead ?? null,
+            trustScore: m.trustScore ?? null,
+            fingerprintSimilarity: m.fingerprintSimilarity ?? null,
+            scoreBreakdown: m.scoreBreakdown ? (m.scoreBreakdown as Prisma.InputJsonValue) : Prisma.JsonNull,
+            explanation: m.explanation ?? null,
+            requestReason: m.requestReason ?? null,
+            requestQuestion: m.requestQuestion ?? null,
+            acceptedAt: m.acceptedAt ? new Date(m.acceptedAt) : null,
+            status: m.status,
+          },
+        });
+        created.push(mapPeerMatchRow(row));
+      }
+      return created;
+    });
   }
 
   async updateMatchRequest(
@@ -443,19 +537,33 @@ export class PeerPersistenceService {
     status: 'requested',
     requestReason: string,
     requestQuestion?: string,
+    hooks: PeerWriteHooks = {},
   ): Promise<{ match: PeerMatchRecord; ownerUserId: string }> {
     return await this.prisma.$transaction(async (tx) => {
-      const match = await tx.peerMatch.findUnique({
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      const pre = await tx.peerMatch.findUnique({
         where: { id: matchId },
         include: { peerExperience: true },
       });
-      if (!match) throw new NotFoundException('同路匹配不存在');
+      if (!pre) throw new NotFoundException('同路匹配不存在');
+
+      // Global lock order: both participants' `User` rows, then this peer row. The match is
+      // re-read after locking so the identity/status decision below is made on locked data.
+      await lockPeerWriteRoots(tx, [pre.userId, pre.peerExperience?.userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const match = await tx.peerMatch.findUniqueOrThrow({
+        where: { id: matchId },
+        include: { peerExperience: true },
+      });
       if (match.userId !== userId || match.status !== 'suggested') {
         throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
       }
 
-      const updated = await tx.peerMatch.update({
-        where: { id: matchId },
+      // Compare-and-swap: the status that was read above is part of the write predicate,
+      // so a concurrent transition cannot be silently overwritten.
+      const cas = await tx.peerMatch.updateMany({
+        where: { id: matchId, userId, status: 'suggested' },
         data: {
           status: 'requested',
           requestReason,
@@ -463,6 +571,10 @@ export class PeerPersistenceService {
           updatedAt: new Date(),
         },
       });
+      if (cas.count === 0) {
+        throw new BadRequestException('这条同路匹配的状态已经变化，请刷新后再试');
+      }
+      const updated = await tx.peerMatch.findUniqueOrThrow({ where: { id: matchId } });
 
       return {
         match: mapPeerMatchRow(updated),
@@ -475,13 +587,23 @@ export class PeerPersistenceService {
     matchId: string,
     userId: string,
     status: 'connected' | 'declined' | 'blocked',
+    hooks: PeerWriteHooks = {},
   ): Promise<{ match: PeerMatchRecord }> {
     return await this.prisma.$transaction(async (tx) => {
-      const match = await tx.peerMatch.findUnique({
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      const pre = await tx.peerMatch.findUnique({
         where: { id: matchId },
         include: { peerExperience: true },
       });
-      if (!match) throw new NotFoundException('同路匹配不存在');
+      if (!pre) throw new NotFoundException('同路匹配不存在');
+
+      await lockPeerWriteRoots(tx, [pre.userId, pre.peerExperience?.userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const match = await tx.peerMatch.findUniqueOrThrow({
+        where: { id: matchId },
+        include: { peerExperience: true },
+      });
 
       const isExperienceOwner = match.peerExperience?.userId === userId;
       const isRequester = match.userId === userId;
@@ -494,34 +616,56 @@ export class PeerPersistenceService {
       }
 
       const now = new Date();
-      const updated = await tx.peerMatch.update({
-        where: { id: matchId },
+      // Compare-and-swap. `connected`/`declined` may only leave `requested`, so a
+      // concurrent accept and decline cannot both land and the later one cannot
+      // overwrite the earlier. `blocked` may terminate any non-terminal state but can
+      // never overwrite an already-blocked row.
+      const allowedFrom: Array<'suggested' | 'requested' | 'connected'> =
+        status === 'blocked' ? ['suggested', 'requested', 'connected'] : ['requested'];
+      const cas = await tx.peerMatch.updateMany({
+        where: { id: matchId, status: { in: allowedFrom } },
         data: {
           status,
           ...(status === 'connected' ? { acceptedAt: now } : {}),
           updatedAt: now,
         },
       });
+      if (cas.count === 0) {
+        throw new BadRequestException('这条同路匹配的状态已经变化，请刷新后再试');
+      }
+      const updated = await tx.peerMatch.findUniqueOrThrow({ where: { id: matchId } });
 
       return { match: mapPeerMatchRow(updated) };
     });
   }
 
-  async blockMatchDirect(matchId: string, userId: string): Promise<PeerMatchRecord> {
+  async blockMatchDirect(matchId: string, userId: string, hooks: PeerWriteHooks = {}): Promise<PeerMatchRecord> {
     return await this.prisma.$transaction(async (tx) => {
-      const match = await tx.peerMatch.findUnique({
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      const pre = await tx.peerMatch.findUnique({
         where: { id: matchId },
         include: { peerExperience: true },
       });
-      if (!match) throw new NotFoundException('同路匹配不存在');
+      if (!pre) throw new NotFoundException('同路匹配不存在');
+
+      await lockPeerWriteRoots(tx, [pre.userId, pre.peerExperience?.userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const match = await tx.peerMatch.findUniqueOrThrow({
+        where: { id: matchId },
+        include: { peerExperience: true },
+      });
       if (match.userId !== userId && match.peerExperience?.userId !== userId) {
         throw new BadRequestException('你无权处理这条同路匹配');
       }
-      const updated = await tx.peerMatch.update({
-        where: { id: matchId },
+      const cas = await tx.peerMatch.updateMany({
+        where: { id: matchId, status: { in: ['suggested', 'requested', 'connected'] } },
         data: { status: 'blocked', updatedAt: new Date() },
       });
-      return mapPeerMatchRow(updated);
+      if (cas.count === 0) {
+        throw new BadRequestException('这条同路匹配的状态已经变化，请刷新后再试');
+      }
+      return mapPeerMatchRow(await tx.peerMatch.findUniqueOrThrow({ where: { id: matchId } }));
     });
   }
 
@@ -585,6 +729,7 @@ export class PeerPersistenceService {
   async consentMatch(
     matchId: string,
     callerUserId: string,
+    hooks: PeerWriteHooks = {},
   ): Promise<{
     conversation: PeerConversationRecord | null;
     pending: boolean;
@@ -594,6 +739,7 @@ export class PeerPersistenceService {
     receiverUserId?: string;
   }> {
     return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
       // 1. Fetch match to determine requester & owner
       const preCheck = await tx.peerMatch.findUnique({
         where: { id: matchId },
@@ -612,8 +758,9 @@ export class PeerPersistenceService {
         throw new ForbiddenException('只有接受请求的经历发布者可以确认同行边界');
       }
 
-      // 2. Lock Users in deterministic sorted order
-      await lockUsers(tx, [requesterId, ownerId]);
+      // 2. Lock the roots in the global order (User rows, sorted) before the peer row
+      await lockPeerWriteRoots(tx, [requesterId, ownerId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
 
       // 3. Lock PeerMatch under row lock
       const [lockedMatch] = await tx.$queryRaw<any[]>`SELECT * FROM "PeerMatch" WHERE id = ${matchId} FOR UPDATE`;
@@ -675,13 +822,18 @@ export class PeerPersistenceService {
 
       const bothConsented = Boolean(requesterConsentAt && ownerConsentAt);
 
+      // §0.4/A4: a consent call writes ONLY the caller's own consent column. Writing the
+      // other party's value back — even the value just read under the row lock — would
+      // widen the write set beyond what this request owns, so a future change to how the
+      // counterpart value is derived would silently overwrite it.
+      const callerConsentWrite = isRequester ? { requesterConsentAt: now } : { ownerConsentAt: now };
+
       if (bothConsented) {
-        // Second consent: atomically write match consent field AND create PeerConversation
+        // Second consent: atomically write the caller's consent field AND create PeerConversation
         await tx.peerMatch.update({
           where: { id: matchId },
           data: {
-            requesterConsentAt,
-            ownerConsentAt,
+            ...callerConsentWrite,
             updatedAt: now,
           },
         });
@@ -716,8 +868,7 @@ export class PeerPersistenceService {
         const updatedMatch = await tx.peerMatch.update({
           where: { id: matchId },
           data: {
-            requesterConsentAt,
-            ownerConsentAt,
+            ...callerConsentWrite,
             updatedAt: now,
           },
         });
@@ -749,36 +900,16 @@ export class PeerPersistenceService {
   }
 
   async expireDueConversations(): Promise<PeerConversationRecord[]> {
-    const now = new Date();
-    const dueRows = await this.prisma.peerConversation.findMany({
-      where: {
-        status: 'active',
-        expiresAt: { lte: now },
-      },
-    });
-
-    if (!dueRows.length) return [];
-
-    const closed: PeerConversationRecord[] = [];
-    for (const due of dueRows) {
-      const updated = await this.prisma.peerConversation.updateMany({
-        where: { id: due.id, status: 'active', expiresAt: { lte: now } },
-        data: {
-          status: 'closed',
-          closedAt: now,
-          closedReason: 'expired',
-        },
-      });
-      if (updated.count > 0) {
-        closed.push({
-          ...mapPeerConversationRow(due),
-          status: 'closed',
-          closedAt: now.toISOString(),
-          closedReason: 'expired',
-        });
-      }
-    }
-    return closed;
+    // §0.4/A8: due-ness is decided by the database clock, not the application clock, and
+    // the transition is one conditional statement so two instances cannot both "close"
+    // the same conversation or close one that a concurrent consent just extended.
+    const closed = await this.prisma.$queryRaw<any[]>`
+      UPDATE "PeerConversation"
+      SET status = 'closed', "closedAt" = NOW(), "closedReason" = 'expired'
+      WHERE status = 'active' AND "expiresAt" <= NOW()
+      RETURNING *
+    `;
+    return closed.map(mapPeerConversationRow);
   }
 
   async requireConversation(matchId: string, userId: string): Promise<{ conversation: PeerConversationRecord; expiredJustNow?: boolean }> {
@@ -787,6 +918,47 @@ export class PeerPersistenceService {
       throw new NotFoundException('匿名会话不存在');
     }
     return { conversation: mapPeerConversationRow(row) };
+  }
+
+  /**
+   * Participant + deadline boundary for anything that will act on a live conversation.
+   *
+   * The check runs under `FOR UPDATE` with database time (§0.4/A8), so a concurrent close
+   * cannot slip between the check and the caller's next step. When the deadline has passed
+   * the closure is **committed** — a rejected action must not roll back the very transition
+   * it detected — and the caller is told the conversation is over.
+   *
+   * What this does NOT provide: atomicity between this check and the caller's own write,
+   * which happens in a later transaction. Callers must not describe it as such.
+   */
+  async requireOpenConversation(matchId: string, userId: string): Promise<PeerConversationRecord> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const [conv] = await tx.$queryRaw<any[]>`
+        SELECT * FROM "PeerConversation" WHERE "matchId" = ${matchId} FOR UPDATE
+      `;
+      if (!conv || (conv.starterUserId !== userId && conv.receiverUserId !== userId)) {
+        throw new NotFoundException('匿名会话不存在');
+      }
+      if (conv.status !== 'active') return { open: false as const, conversation: mapPeerConversationRow(conv) };
+
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT NOW() as db_now`;
+      const dbNow = new Date(timeRow.db_now);
+      if (new Date(conv.expiresAt).getTime() <= dbNow.getTime()) {
+        await tx.$executeRaw`
+          UPDATE "PeerConversation"
+          SET status = 'closed', "closedAt" = NOW(), "closedReason" = 'expired'
+          WHERE id = ${conv.id} AND status = 'active' AND "expiresAt" <= NOW()
+        `;
+        return {
+          open: false as const,
+          conversation: { ...mapPeerConversationRow(conv), status: 'closed', closedReason: 'expired' } as PeerConversationRecord,
+        };
+      }
+      return { open: true as const, conversation: mapPeerConversationRow(conv) };
+    });
+
+    if (!outcome.open) throw new BadRequestException('这段 72 小时会话已经结束');
+    return outcome.conversation;
   }
 
   async listConversationsForUser(userId: string): Promise<PeerConversationRecord[]> {
@@ -803,64 +975,95 @@ export class PeerPersistenceService {
     matchId: string,
     userId: string,
     reason: 'closed' | 'expired' | 'blocked' = 'closed',
+    hooks: PeerWriteHooks = {},
   ): Promise<{ conversation: PeerConversationRecord; wasActive: boolean }> {
     return await this.prisma.$transaction(async (tx) => {
-      const conv = await tx.peerConversation.findUnique({ where: { matchId } });
-      if (!conv || (conv.starterUserId !== userId && conv.receiverUserId !== userId)) {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      const pre = await tx.peerConversation.findUnique({ where: { matchId } });
+      if (!pre || (pre.starterUserId !== userId && pre.receiverUserId !== userId)) {
         throw new NotFoundException('匿名会话不存在');
       }
 
+      // Global lock order: both participants' `User` rows, then the conversation row.
+      await lockPeerWriteRoots(tx, [pre.starterUserId, pre.receiverUserId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const conv = await tx.peerConversation.findUniqueOrThrow({ where: { matchId } });
       if (conv.status === 'closed') {
         return { conversation: mapPeerConversationRow(conv), wasActive: false };
       }
 
       const now = new Date();
-      const updated = await tx.peerConversation.update({
-        where: { id: conv.id },
+      // CAS: the first closer commits the reason; a second close is a no-op that returns
+      // the already-closed row rather than overwriting the winner's close reason.
+      const cas = await tx.peerConversation.updateMany({
+        where: { id: conv.id, status: 'active' },
         data: {
           status: 'closed',
           closedAt: now,
           closedReason: reason,
         },
       });
+      if (cas.count === 0) {
+        return {
+          conversation: mapPeerConversationRow(await tx.peerConversation.findUniqueOrThrow({ where: { id: conv.id } })),
+          wasActive: false,
+        };
+      }
 
-      return { conversation: mapPeerConversationRow(updated), wasActive: true };
+      return {
+        conversation: mapPeerConversationRow(await tx.peerConversation.findUniqueOrThrow({ where: { id: conv.id } })),
+        wasActive: true,
+      };
     });
   }
 
   async blockConversation(
     matchId: string,
     userId: string,
+    hooks: PeerWriteHooks = {},
   ): Promise<{ conversation: PeerConversationRecord; match: PeerMatchRecord }> {
     return await this.prisma.$transaction(async (tx) => {
-      const conv = await tx.peerConversation.findUnique({ where: { matchId } });
-      if (!conv || (conv.starterUserId !== userId && conv.receiverUserId !== userId)) {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      const pre = await tx.peerConversation.findUnique({ where: { matchId } });
+      if (!pre || (pre.starterUserId !== userId && pre.receiverUserId !== userId)) {
         throw new NotFoundException('匿名会话不存在');
       }
 
+      // Global lock order: both participants' `User` rows, then the peer rows.
+      await lockPeerWriteRoots(tx, [pre.starterUserId, pre.receiverUserId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const conv = await tx.peerConversation.findUniqueOrThrow({ where: { matchId } });
       const match = await tx.peerMatch.findUnique({ where: { id: matchId } });
       if (!match) throw new NotFoundException('同路匹配不存在');
 
-      await lockUsers(tx, [conv.starterUserId, conv.receiverUserId]);
-
       const now = new Date();
-      const updatedMatch = await tx.peerMatch.update({
-        where: { id: matchId },
+      // CAS on the match: a concurrent accept must not be reported as "blocked" by this
+      // path's return value, and an already-blocked match is left as it is.
+      const matchCas = await tx.peerMatch.updateMany({
+        where: { id: matchId, status: { in: ['suggested', 'requested', 'connected'] } },
         data: { status: 'blocked', updatedAt: now },
       });
+      if (matchCas.count === 0 && match.status !== 'blocked') {
+        throw new BadRequestException('这条同路匹配的状态已经变化，请刷新后再试');
+      }
 
-      const updatedConv = await tx.peerConversation.update({
-        where: { id: conv.id },
+      const convCas = await tx.peerConversation.updateMany({
+        where: { id: conv.id, status: 'active' },
         data: {
           status: 'closed',
           closedAt: now,
           closedReason: 'blocked',
         },
       });
+      if (convCas.count === 0 && conv.status !== 'closed') {
+        throw new BadRequestException('这段匿名会话的状态已经变化，请刷新后再试');
+      }
 
       return {
-        conversation: mapPeerConversationRow(updatedConv),
-        match: mapPeerMatchRow(updatedMatch),
+        conversation: mapPeerConversationRow(await tx.peerConversation.findUniqueOrThrow({ where: { id: conv.id } })),
+        match: mapPeerMatchRow(await tx.peerMatch.findUniqueOrThrow({ where: { id: matchId } })),
       };
     });
   }
@@ -937,8 +1140,15 @@ export class PeerPersistenceService {
     matchId: string,
     senderUserId: string,
     content: string,
+    hooks: PeerWriteHooks = {},
   ): Promise<PeerMessageRecord> {
-    return await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      // 0. Roots first: the message insert takes an implicit key-share on its `User` row, so
+      //    the user lock must be acquired before the conversation row (global lock order).
+      await lockPeerWriteRoots(tx, [senderUserId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
       // 1. Lock conversation under row lock
       const [conv] = await tx.$queryRaw<any[]>`
         SELECT * FROM "PeerConversation"
@@ -956,16 +1166,17 @@ export class PeerPersistenceService {
 
       if (conv.status !== 'active' || dbNow.getTime() >= expiresAt.getTime()) {
         if (conv.status === 'active' && dbNow.getTime() >= expiresAt.getTime()) {
-          await tx.peerConversation.update({
-            where: { id: conv.id },
-            data: {
-              status: 'closed',
-              closedAt: dbNow,
-              closedReason: 'expired',
-            },
-          });
+          // Committable closure: the UPDATE and the rejection share one transaction, so
+          // this returns a value instead of throwing. Throwing here rolled the closure
+          // back, which meant a message that was refused for expiry never actually
+          // expired the conversation (review P1-4).
+          await tx.$executeRaw`
+            UPDATE "PeerConversation"
+            SET status = 'closed', "closedAt" = NOW(), "closedReason" = 'expired'
+            WHERE id = ${conv.id} AND status = 'active' AND "expiresAt" <= NOW()
+          `;
         }
-        throw new BadRequestException('这段 72 小时会话已经结束');
+        return { expired: true as const };
       }
 
       const msgId = genId('peer_message');
@@ -981,8 +1192,11 @@ export class PeerPersistenceService {
         },
       });
 
-      return mapPeerMessageRow(created);
+      return { expired: false as const, message: mapPeerMessageRow(created) };
     });
+
+    if (outcome.expired) throw new BadRequestException('这段 72 小时会话已经结束');
+    return outcome.message;
   }
 
   async getMessagesForConversation(conversationId: string): Promise<PeerMessageRecord[]> {
@@ -1001,8 +1215,13 @@ export class PeerPersistenceService {
     matchId: string,
     reporterUserId: string,
     reason: string,
+    hooks: PeerWriteHooks = {},
   ): Promise<{ report: PeerReportRecord; conversation: PeerConversationRecord; isRepeat: boolean }> {
     return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      // Roots first: the report insert takes an implicit key-share on its `User` row.
+      await lockPeerWriteRoots(tx, [reporterUserId]);
+
       // Serialize repeat-report on the conversation row lock (§0.4/A7)
       const [conv] = await tx.$queryRaw<any[]>`
         SELECT * FROM "PeerConversation"
@@ -1148,18 +1367,32 @@ export class PeerPersistenceService {
       fingerprintJson?: Record<string, unknown>;
       journeyId?: string;
     },
+    hooks: PeerWriteHooks = {},
   ): Promise<{
     conversation: PeerConversationRecord;
     sharedExperience?: PeerExperienceRecord;
   }> {
     return await this.prisma.$transaction(async (tx) => {
-      const conv = await tx.peerConversation.findUnique({ where: { matchId } });
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      // Roots first: the feedback write and the derived experience carry `User`/`LifeJourney`
+      // foreign keys, so they must be locked before the conversation row (global lock order).
+      await lockPeerWriteRoots(tx, [userId], [shareExperienceData?.journeyId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      // Participant, status and deadline are all decided here, under the row lock, so the
+      // feedback cannot be written against a state that a concurrent close has already
+      // changed (review P0-2). The deadline uses database time (§0.4/A8).
+      const [conv] = await tx.$queryRaw<any[]>`
+        SELECT * FROM "PeerConversation" WHERE "matchId" = ${matchId} FOR UPDATE
+      `;
       if (!conv || (conv.starterUserId !== userId && conv.receiverUserId !== userId)) {
         throw new NotFoundException('匿名会话不存在');
       }
 
-      const now = new Date();
-      if (conv.status === 'active' && new Date(conv.expiresAt).getTime() > now.getTime()) {
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT NOW() as db_now`;
+      const dbNow = new Date(timeRow.db_now);
+      const now = dbNow;
+      if (conv.status === 'active' && new Date(conv.expiresAt).getTime() > dbNow.getTime()) {
         throw new BadRequestException('请先结束这段同行，再留下感受');
       }
 
@@ -1178,7 +1411,7 @@ export class PeerPersistenceService {
           data: {
             id: expId,
             userId,
-            journeyId: shareExperienceData.journeyId ?? null,
+            journeyId: await resolveJourneyRefUnderLock(tx, shareExperienceData.journeyId),
             title: shareExperienceData.title,
             domain: shareExperienceData.domain,
             subDomain: shareExperienceData.subDomain ?? null,

@@ -18,6 +18,7 @@
     "test": "pnpm qa:all",
     "test:unit": "vitest run tests/unit",
     "test:batch1": "tsx scripts/test-runner.ts tests/business/batch1-usernotification.spec.ts tests/business/batch1-safetyevent.spec.ts tests/business/batch1-aijob.spec.ts tests/business/batch1-journey.spec.ts tests/business/batch1-action.spec.ts tests/business/batch1-multi-instance.spec.ts tests/business/persistence-durability.spec.ts",
+    "test:batch2-mutation": "tsx scripts/batch2-mutation-check.ts",
     "check:migrations": "tsx scripts/check-migration-immutability.ts",
     "check:baseline-diff": "tsx scripts/check-baseline-failures.ts",
     "test:business": "tsx scripts/test-runner.ts",

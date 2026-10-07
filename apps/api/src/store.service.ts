@@ -4246,7 +4246,11 @@ export class StoreService implements OnModuleInit {
     const userMatches = DIRECT_DB_MODELS.PeerMatch
       ? await this.peerPersistence.listMatchesForUser(userId)
       : this.peerMatches.filter((item) => item.userId === userId);
-    const topMatches = userMatches.sort((a, b) => b.score - a.score).slice(0, 3);
+    // Sorted by score, but NOT truncated: the waiting and consent pages look their match up by id
+    // in this list, so a top-3 slice made the pending state unreachable whenever the match a user
+    // had just been navigated to was not among their three highest-scoring matches. The network
+    // page renders only the first three and slices for display.
+    const topMatches = userMatches.sort((a, b) => b.score - a.score);
     const matchExpIds = topMatches.map((m) => m.peerExperienceId);
     const matchExps = DIRECT_DB_MODELS.PeerExperience
       ? await this.peerPersistence.getExperiencesByIds(matchExpIds)
@@ -4320,6 +4324,11 @@ export class StoreService implements OnModuleInit {
       requestReason: match.requestReason,
       requestQuestion: match.requestQuestion,
       acceptedAt: match.acceptedAt,
+      // The waiting page decides whether to say "you have confirmed, waiting for the other
+      // party" from these two fields. Dropping them made `hasRequesterConsented` permanently
+      // false, so the page kept offering "确认边界" after the caller had already consented.
+      requesterConsentAt: match.requesterConsentAt,
+      ownerConsentAt: match.ownerConsentAt,
       createdAt: match.createdAt,
       updatedAt: match.updatedAt,
       experience,
@@ -4525,6 +4534,25 @@ export class StoreService implements OnModuleInit {
     return value;
   }
 
+  /**
+   * Response-boundary guard for model-generated peer drafts (review P1-5). Persistence
+   * already redacts them; repeating the redaction on read means a row written before that
+   * guard existed, or by any other writer, still cannot hand identifiers to the client.
+   */
+  peerAssistJobForResponse<
+    T extends { taskType?: string | null; jobType?: string | null; result?: string | null; structuredResult?: unknown },
+  >(job: T): T {
+    if (job.taskType !== 'peer_response_assist' && job.jobType !== 'peer_response_assist') return job;
+    return {
+      ...job,
+      result: typeof job.result === 'string' ? this.redactPeerPublicText(job.result) : job.result,
+      structuredResult:
+        job.structuredResult === undefined || job.structuredResult === null
+          ? job.structuredResult
+          : this.redactPeerPublicValue(job.structuredResult),
+    };
+  }
+
   private async peerNotification(
     userId: string,
     type: UserNotification['type'],
@@ -4541,6 +4569,52 @@ export class StoreService implements OnModuleInit {
       body,
       targetRoute,
     });
+  }
+
+  /**
+   * Notification obligations left behind by peer transitions that already committed.
+   * Recorded rather than swallowed, so a partial delivery can be inspected instead of assumed away.
+   */
+  peerNotificationFailures: Array<{
+    userId: string;
+    suffix: string;
+    type: string;
+    at: string;
+    message: string;
+  }> = [];
+
+  /**
+   * Post-commit peer notification.
+   *
+   * Every caller runs *after* a peer state transition has been committed by a direct database
+   * write in its own transaction. A failure here therefore cannot be reported as a failure of
+   * that transition: the peer state is committed and what remains is a notification obligation.
+   * The row is keyed by a deterministic id (`notification_peer_<suffix>_<userId>`), so the
+   * obligation is idempotent — the next successful invocation of the same operation writes the
+   * same row without duplicating it. The failure is appended to `peerNotificationFailures` and
+   * reported to the caller as `false`, so the partial delivery is exposed rather than hidden.
+   */
+  private async peerNotificationAfterCommit(
+    userId: string,
+    type: UserNotification['type'],
+    suffix: string,
+    title: string,
+    body: string,
+    targetRoute: string,
+  ): Promise<boolean> {
+    try {
+      await this.peerNotification(userId, type, suffix, title, body, targetRoute);
+      return true;
+    } catch (error) {
+      this.peerNotificationFailures.push({
+        userId,
+        suffix,
+        type,
+        at: now(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   private async closePeerConversationRecord(
@@ -4582,7 +4656,7 @@ export class StoreService implements OnModuleInit {
       for (const conversation of closed) {
         const body = '这段匿名同行的 72 小时已经结束。';
         const route = `/pages/peer/conversation?matchId=${encodeURIComponent(conversation.matchId)}`;
-        await this.peerNotification(
+        await this.peerNotificationAfterCommit(
           conversation.starterUserId,
           'CONVERSATION_CLOSED',
           `closed_${conversation.id}`,
@@ -4590,7 +4664,7 @@ export class StoreService implements OnModuleInit {
           body,
           route,
         );
-        await this.peerNotification(
+        await this.peerNotificationAfterCommit(
           conversation.receiverUserId,
           'CONVERSATION_CLOSED',
           `closed_${conversation.id}`,
@@ -4655,7 +4729,7 @@ export class StoreService implements OnModuleInit {
 
         // Commit peer transition first, THEN emit deterministic-id notification (§3.3, §0.4/A4)
         if (ownerUserId && ownerUserId !== currentUserId) {
-          await this.peerNotification(
+          await this.peerNotificationAfterCommit(
             ownerUserId,
             'PEER_REQUEST',
             `request_${match.id}`,
@@ -4729,7 +4803,7 @@ export class StoreService implements OnModuleInit {
       const result = await this.peerPersistence.consentMatch(matchId, currentUserId);
       if (result.activated && result.conversation) {
         // Second consent: both participants consented! Commit done, notify (§0.4/A4, §3.3)
-        await this.peerNotification(
+        const notificationDelivered = await this.peerNotificationAfterCommit(
           result.starterUserId!,
           'PEER_ACCEPTED',
           `accepted_${matchId}`,
@@ -4739,6 +4813,7 @@ export class StoreService implements OnModuleInit {
         );
         return {
           conversation: await this.peerConversationForUser(result.conversation, currentUserId),
+          notificationPending: !notificationDelivered,
         };
       }
       if (result.conversation) {
@@ -4937,10 +5012,10 @@ export class StoreService implements OnModuleInit {
     let convId = '';
     let userId = this.resolveRuntimeUserId(requestedUserId);
     if (DIRECT_DB_MODELS.PeerConversation) {
-      const { conversation } = await this.peerPersistence.requireConversation(matchId, userId);
-      if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) {
-        throw new BadRequestException('这段 72 小时会话已经结束');
-      }
+      // Participant, status and deadline are decided under the row lock with database
+      // time (§0.4/A8). The queue write below happens in its own transaction, so this is
+      // a lock-held database-time check — not a claim that queueing and expiry are atomic.
+      const conversation = await this.peerPersistence.requireOpenConversation(matchId, userId);
       convId = conversation.id;
     } else {
       const res = await this.requirePeerConversation(matchId, requestedUserId);
@@ -4968,27 +5043,33 @@ export class StoreService implements OnModuleInit {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     if (DIRECT_DB_MODELS.PeerConversation) {
       const res = await this.peerPersistence.closeConversation(matchId, userId, 'closed');
+      let notificationDelivered = true;
       if (res.wasActive) {
         const body = '这段匿名同行已经结束，你们不能继续发送消息。';
         const route = `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`;
-        await this.peerNotification(
-          res.conversation.starterUserId,
-          'CONVERSATION_CLOSED',
-          `closed_${res.conversation.id}`,
-          '这段同行到这里了',
-          body,
-          route,
-        );
-        await this.peerNotification(
-          res.conversation.receiverUserId,
-          'CONVERSATION_CLOSED',
-          `closed_${res.conversation.id}`,
-          '这段同行到这里了',
-          body,
-          route,
-        );
+        notificationDelivered =
+          (await this.peerNotificationAfterCommit(
+            res.conversation.starterUserId,
+            'CONVERSATION_CLOSED',
+            `closed_${res.conversation.id}`,
+            '这段同行到这里了',
+            body,
+            route,
+          )) && notificationDelivered;
+        notificationDelivered =
+          (await this.peerNotificationAfterCommit(
+            res.conversation.receiverUserId,
+            'CONVERSATION_CLOSED',
+            `closed_${res.conversation.id}`,
+            '这段同行到这里了',
+            body,
+            route,
+          )) && notificationDelivered;
       }
-      return { item: await this.peerConversationForUser(res.conversation, userId) };
+      return {
+        item: await this.peerConversationForUser(res.conversation, userId),
+        notificationPending: !notificationDelivered,
+      };
     }
     const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     await this.closePeerConversationRecord(conversation, 'closed');
@@ -5136,25 +5217,29 @@ export class StoreService implements OnModuleInit {
       const res = await this.peerPersistence.blockConversation(matchId, userId);
       const body = '这段匿名同行已被结束，你们不能继续发送消息。';
       const route = `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`;
-      await this.peerNotification(
-        res.conversation.starterUserId,
-        'CONVERSATION_CLOSED',
-        `closed_${res.conversation.id}`,
-        '这段同行到这里了',
-        body,
-        route,
-      );
-      await this.peerNotification(
-        res.conversation.receiverUserId,
-        'CONVERSATION_CLOSED',
-        `closed_${res.conversation.id}`,
-        '这段同行到这里了',
-        body,
-        route,
-      );
+      let notificationDelivered = true;
+      notificationDelivered =
+        (await this.peerNotificationAfterCommit(
+          res.conversation.starterUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${res.conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        )) && notificationDelivered;
+      notificationDelivered =
+        (await this.peerNotificationAfterCommit(
+          res.conversation.receiverUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${res.conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        )) && notificationDelivered;
       return {
         item: await this.peerConversationForUser(res.conversation, userId),
         match: this.peerMatchForUser(res.match),
+        notificationPending: !notificationDelivered,
       };
     }
     const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
@@ -7031,7 +7116,15 @@ export class StoreService implements OnModuleInit {
     if (taskType === 'peer_response_assist') {
       const draft = String(parsed.draft ?? '').trim();
       if (!draft) throw new Error('Remote peer-assist response is incomplete');
-      return { ...parsed, draft, reminders: arrays('reminders'), summary: draft };
+      // The model writes the draft, so its output is the untrusted side here: a draft that
+      // repeats the other party's phone number or address must be redacted before it is
+      // persisted, exactly like human-authored peer text (review P1-5).
+      return {
+        ...parsed,
+        draft: this.redactPeerPublicText(draft),
+        reminders: arrays('reminders').map((item) => this.redactPeerPublicText(item)),
+        summary: this.redactPeerPublicText(draft),
+      };
     }
     const summary = String(parsed.summary ?? parsed.description ?? parsed.nextStep ?? parsed.question ?? '').trim();
     if (!summary) throw new Error('Remote AI structured response is incomplete');

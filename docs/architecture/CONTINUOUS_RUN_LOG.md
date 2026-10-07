@@ -102,6 +102,54 @@ for the six defects above is **not started**: the `code-implementer` model retur
 unavailable provider or were cancelled. This is an external model-availability blocker, not a
 technical one.
 
+## PHASE 1 — the six review defects: fixed and verified
+
+All six defects from `BATCH2_PEER_REVIEW.md` are fixed, and the fix round found **two further
+product defects** that only became visible once the tests the review asked for existed. Full record:
+`docs/architecture/BATCH2_PEER_FIX_VERIFICATION.md`; the lock-order and FK-writer proof:
+`docs/architecture/BATCH2_LOCK_ORDER.md`.
+
+| Review item | Fix |
+| --- | --- |
+| P0-1 state check disconnected from the write | Six peer write paths now lock the roots, **re-read after locking**, and write through a compare-and-swap predicate carrying the read status with an affected-row check; `createMatches` no longer upserts a match that has left `suggested`. |
+| P0-2 boundary outside the database operation | `saveConversationFeedback` decides participant/status/deadline under the conversation row lock; `requireOpenConversation` performs the assist check under the lock with database time and **commits** the expiry it detects. |
+| P0-3 lock order | New `lockPeerWriteRoots`: `User` (sorted) → `LifeJourney` (sorted) → peer row, applied to all eleven write paths, with a per-path table and the §0.4/A5 FK-writer matrix. |
+| P1-4 expire-on-send rolled back its closure | The transaction returns a sentinel instead of throwing, so the closure commits; the batch sweep became one conditional statement on database time. |
+| P1-5 AI draft PII | Model-generated `draft`/`reminders` are redacted at persistence and again at the response boundary of both AI task endpoints. |
+| P1-6 tests that could not fail | All race cases call the persistence layer with `_onBeforeLock`, a hook that fires **inside the open transaction before any lock is taken**; assertions are "exactly one"; `4.1` is the omitted-field case; `5.2` asserts every direct operation's write set. |
+
+**Two product defects found by the new tests:** `peerMatchForUser` dropped the consent timestamps,
+so `PeerMatchWaiting.vue` could never render its pending state; and `peerNetwork` truncated the
+match list to three, so the waiting page could not find the match it was navigated to. Both fixed.
+
+**Verification (orchestrator-measured):**
+
+| Check | Result |
+| --- | --- |
+| `batch2-peer-verification.spec.ts` | **26 / 26 pass**, 4 consecutive clean runs after the fixture fixes |
+| `peer-support-stage.spec.ts` | 10 pass / 1 skipped — unchanged |
+| Full business suite | **7 failed / 23 passed files, 8 failed / 131 passed tests** — exactly the recorded baseline |
+| `pnpm check:baseline-diff` | **SUCCESS** — 0 new regressions |
+| `pnpm check:migrations` | 12 baseline migrations immutable |
+| `pnpm typecheck` / `pnpm lint` | clean / 0 errors |
+| Mutation harness | **10 of 12 proven.** M2a/M2b are the redundant half of a two-guard pair and are reported as **not proven on their own**; M2c removes both and proves the pair. |
+
+**What is explicitly not proven** (recorded so the claim stays inside the evidence): the
+database-clock property is not discriminable in a single-clock environment, so no mutation is
+claimed for it; no deadlock was reproduced, so lock-order *necessity* is proven by the separate
+lock-timeout probe in `3.6` rather than by `3.4`/`3.5`; and the `User` lock means a peer write can
+wait behind a full legacy flush, which is unmeasured.
+
+**Environment findings, recorded as environment:** the WSL2 VM stops and kills the database
+containers (one run collapsed to 21 failed files with `FATAL: the database system is shutting
+down`), and under sustained load the suite degrades into `Test timed out in 5000ms` on files that
+pass in isolation. Both were verified as environment, not product: the affected files pass alone
+and the recorded suite figure is from a run taken after the machine was idle.
+
+**Gate position: PHASE 1 CLOSED for Batch 2.** `PERSISTENCE_BATCH2_STABLE` is claimed for the five
+peer models against the evidence above. `PERSISTENCE_BATCH2_FULL` and `FULL_MULTI_INSTANCE_READY`
+are **not** claimed — Batch 3–4 models are still memory-authoritative.
+
 ## Note — the visual baseline now encodes the aesthetic the UI contract removes
 
 `design_refs/` holds 26 tracked reference PNGs, and `docs/claude-page-by-page-visual-checklist.md`
