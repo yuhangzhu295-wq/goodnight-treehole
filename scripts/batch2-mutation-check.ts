@@ -5,6 +5,16 @@
  * leaves the suite green is NOT proven by the suite, and that has to be reported as unproven
  * rather than covered. Where two guards are redundant, both are removed together so the original
  * defect is reproduced.
+ *
+ * Two things this harness refuses to do, because the earlier version did them:
+ *   - it does not report a mutation as proven from a nonzero failure count alone. A failure in an
+ *     unrelated test is not evidence about this guard, so each mutation names the test that must
+ *     fail, and a mismatch is reported as `PROVEN-UNRELATED` instead of `PROVEN`.
+ *   - it does not run against a dirty environment. A baseline run must come back green first; if
+ *     it does not, the harness aborts, because no mutation result would be interpretable.
+ *
+ * File restoration happens in a `finally` that also covers patch application, so an I/O failure
+ * part-way through cannot leave a patched file behind.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -17,6 +27,7 @@ const REGISTRY = 'apps/api/src/direct-db-models.ts';
 const mutations = [
   {
     id: 'M1 expire-on-send closure rolls back (P1-4)',
+    expectFailing: ['2.6a'],
     patches: [
       {
         file: PEER,
@@ -27,6 +38,7 @@ const mutations = [
   },
   {
     id: 'M2a respondMatch: CAS removed, post-lock re-read kept (P0-1)',
+    expectFailing: [],
     patches: [
       {
         file: PEER,
@@ -37,6 +49,7 @@ const mutations = [
   },
   {
     id: 'M2b respondMatch: post-lock re-read removed, CAS kept (P0-1)',
+    expectFailing: [],
     patches: [
       {
         file: PEER,
@@ -47,6 +60,7 @@ const mutations = [
   },
   {
     id: 'M2c respondMatch: BOTH guards removed (the original defect) (P0-1)',
+    expectFailing: ['2.1'],
     patches: [
       {
         file: PEER,
@@ -62,6 +76,7 @@ const mutations = [
   },
   {
     id: 'M3 createMatches takes no root locks (P0-3)',
+    expectFailing: ['3.6'],
     patches: [
       {
         file: PEER,
@@ -72,6 +87,7 @@ const mutations = [
   },
   {
     id: 'M4 peer draft is persisted unredacted (P1-5)',
+    expectFailing: ['7.1'],
     patches: [
       {
         file: STORE,
@@ -82,6 +98,7 @@ const mutations = [
   },
   {
     id: 'M5 response boundary stops redacting (P1-5)',
+    expectFailing: ['7.2'],
     patches: [
       {
         file: STORE,
@@ -92,6 +109,7 @@ const mutations = [
   },
   {
     id: 'M6 match projection drops the consent fields (UI pending state)',
+    expectFailing: ['3.2'],
     patches: [
       {
         file: STORE,
@@ -102,16 +120,18 @@ const mutations = [
   },
   {
     id: 'M7 peer network truncates the match list again (UI pending state)',
+    expectFailing: ['3.2'],
     patches: [
       {
         file: STORE,
-        old: '    const topMatches = userMatches.sort((a, b) => b.score - a.score);',
-        new: '    const topMatches = userMatches.sort((a, b) => b.score - a.score).slice(0, 3);',
+        old: '    const selectedMatches = sortedMatches.slice(0, 3);\n    for (const match of sortedMatches) {\n      if (match.status === \'suggested\') continue;\n      if (selectedMatches.includes(match)) continue;\n      selectedMatches.push(match);\n    }\n    const topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);',
+        new: '    const topMatches = sortedMatches.slice(0, 3);',
       },
     ],
   },
   {
     id: 'M8 close notification throws after the commit (notification semantics)',
+    expectFailing: ['6.1'],
     patches: [
       {
         file: STORE,
@@ -122,10 +142,12 @@ const mutations = [
   },
   {
     id: 'M9 peer match leaves the registry (three exits)',
+    expectFailing: ['5.1'],
     patches: [{ file: REGISTRY, old: "  PeerMatch: 'peerMatches',\n", new: '' }],
   },
   {
     id: 'M10 journey reference is not re-resolved under the lock (A5)',
+    expectFailing: ['3.5'],
     patches: [
       {
         file: PEER,
@@ -134,73 +156,125 @@ const mutations = [
       },
     ],
   },
+  {
+    id: 'M11 the deadline is read as the transaction-start time again (P1-4)',
+    expectFailing: ['2.6c'],
+    patches: [
+      {
+        file: PEER,
+        old: "      // 2. Under lock, compare database time against expiresAt (§0.4/A8)\n      // clock_timestamp(), not NOW(): NOW() is the TRANSACTION-START time, so a transaction that\n      // began before the deadline but waited for a lock until after it would compare against a\n      // pre-deadline instant and let the write through. clock_timestamp() is evaluated at this\n      // call, which is after the lock was acquired — the instant the deadline decision claims.\n      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;",
+        new: "      // mutation: back to the transaction-start clock\n      const [timeRow] = await tx.$queryRaw<any[]>`SELECT NOW() as db_now`;",
+      },
+    ],
+  },
 ];
 
-function countOccurrences(haystack, needle) {
-  return haystack.split(needle).length - 1;
+const countOccurrences = (haystack, needle) => haystack.split(needle).length - 1;
+
+// Built from a char code rather than written literally: a control character in a regex literal
+// trips `no-control-regex`.
+const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+const stripAnsi = (text: string) => text.replace(ANSI_PATTERN, '');
+
+function runSpec() {
+  const run = spawnSync(
+    process.execPath,
+    [
+      'node_modules/tsx/dist/cli.mjs',
+      'scripts/test-runner.ts',
+      'vitest',
+      'run',
+      SPEC,
+      '--pool=forks',
+      '--maxWorkers=1',
+      '--minWorkers=1',
+      '--reporter=basic',
+    ],
+    { encoding: 'utf8', windowsHide: true, timeout: 900_000 },
+  );
+  const output = stripAnsi(`${run.stdout ?? ''}${run.stderr ?? ''}`);
+  const summary = output.match(/Tests:\s+(\d+) failed \| (\d+) passed \((\d+)\)/);
+  const failedTests = output
+    .split(/\r?\n/)
+    .filter((line) => /^\s*(FAIL|×)\s/.test(line))
+    .map((line) => line.trim());
+  return {
+    output,
+    failed: summary ? Number(summary[1]) : null,
+    passed: summary ? Number(summary[2]) : null,
+    failedTests,
+  };
 }
+
+console.log('=== baseline run (must be green before any mutation result is meaningful) ===');
+const baseline = runSpec();
+if (baseline.failed === null) {
+  console.error('ABORT: could not parse the baseline summary; no mutation result would be interpretable.');
+  console.error(baseline.output.split('\n').slice(-12).join('\n'));
+  process.exit(1);
+}
+if (baseline.failed > 0) {
+  console.error(
+    `ABORT: baseline run already has ${baseline.failed} failing test(s); no mutation result would be interpretable.`,
+  );
+  console.error(baseline.failedTests.slice(0, 8).join('\n'));
+  process.exit(1);
+}
+console.log(`baseline green: ${baseline.passed} passed\n`);
 
 const results = [];
 
 for (const mutation of mutations) {
-  const originals = new Map();
-  let patchError = '';
-  for (const patch of mutation.patches) {
-    if (!originals.has(patch.file)) originals.set(patch.file, fs.readFileSync(patch.file, 'utf8'));
-    const current = fs.readFileSync(patch.file, 'utf8');
-    if (countOccurrences(current, patch.old) !== 1) {
-      patchError = `${patch.file}: expected 1 match, found ${countOccurrences(current, patch.old)}`;
-      break;
-    }
-    fs.writeFileSync(patch.file, current.replace(patch.old, patch.new));
-  }
-
-  if (patchError) {
-    for (const [file, content] of originals) fs.writeFileSync(file, content);
-    results.push({ id: mutation.id, verdict: 'PATCH-FAILED', detail: patchError });
-    console.log(`${mutation.id} -> PATCH-FAILED (${patchError})`);
-    continue;
-  }
-
-  let verdict;
+  let verdict = 'INCONCLUSIVE';
   let detail = '';
+  const originals = new Map();
+
   try {
-    const run = spawnSync(
-      process.execPath,
-      [
-        'node_modules/tsx/dist/cli.mjs',
-        'scripts/test-runner.ts',
-        'vitest',
-        'run',
-        SPEC,
-        '--pool=forks',
-        '--maxWorkers=1',
-        '--minWorkers=1',
-        '--reporter=basic',
-      ],
-      { encoding: 'utf8', windowsHide: true, timeout: 900_000 },
-    );
-    const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
-    const aggregate = output.match(/Tests:\s+(\d+) failed \| (\d+) passed \((\d+)\)/);
-    const fallback = output.match(/Tests\s+(\d+) failed \| (\d+) passed \((\d+)\)/);
-    const match = aggregate ?? fallback;
-    if (match) {
-      const failed = Number(match[1]);
-      const passed = Number(match[2]);
-      verdict = failed > 0 ? 'PROVEN (test fails without the guard)' : 'NOT PROVEN (test still passes)';
-      detail = `${failed} failed / ${passed} passed`;
-    } else {
-      verdict = 'INCONCLUSIVE';
-      detail = output.split('\n').filter((line) => /Error|failed|Cannot/.test(line)).slice(0, 3).join(' | ');
+    for (const patch of mutation.patches) {
+      if (!originals.has(patch.file)) originals.set(patch.file, fs.readFileSync(patch.file, 'utf8'));
+      const current = fs.readFileSync(patch.file, 'utf8');
+      const found = countOccurrences(current, patch.old);
+      if (found !== 1) {
+        verdict = 'PATCH-FAILED';
+        detail = `${patch.file}: expected 1 match, found ${found}`;
+        break;
+      }
+      fs.writeFileSync(patch.file, current.replace(patch.old, patch.new));
+    }
+
+    if (verdict !== 'PATCH-FAILED') {
+      const run = runSpec();
+      if (run.failed === null) {
+        detail = 'could not parse the summary';
+      } else if (run.failed === 0) {
+        verdict = 'NOT PROVEN (test still passes)';
+        detail = `0 failed / ${run.passed} passed`;
+      } else if (mutation.expectFailing.length === 0) {
+        verdict = 'PROVEN-UNRELATED (a test failed, but this mutation expected none to)';
+        detail = `${run.failed} failed / ${run.passed} passed; failed: ${run.failedTests.slice(0, 2).join(' | ').slice(0, 140)}`;
+      } else {
+        const matched = run.failedTests.filter((line) =>
+          mutation.expectFailing.some((expected) => line.includes(expected)),
+        );
+        if (matched.length > 0) {
+          verdict = 'PROVEN (the named test fails without the guard)';
+          detail = `${run.failed} failed / ${run.passed} passed; matched: ${matched[0].slice(0, 90)}`;
+        } else {
+          verdict = 'PROVEN-UNRELATED (failures did not include the named test)';
+          detail = `${run.failed} failed / ${run.passed} passed; failed: ${run.failedTests.slice(0, 3).join(' | ').slice(0, 160)}`;
+        }
+      }
     }
   } finally {
     for (const [file, content] of originals) fs.writeFileSync(file, content);
   }
 
-  results.push({ id: mutation.id, verdict, detail });
+  results.push({ id: mutation.id, expectFailing: mutation.expectFailing, verdict, detail });
   console.log(`${mutation.id} -> ${verdict} :: ${detail}`);
 }
 
 console.log('\n=== MUTATION SUMMARY ===');
-for (const row of results) console.log(`${row.verdict.padEnd(36)} ${row.id}  [${row.detail}]`);
-fs.writeFileSync('artifacts/runtime/batch2-mutation-report.json', JSON.stringify(results, null, 2));
+for (const row of results) {
+  console.log(`${row.verdict.padEnd(52)} ${row.id}  [${row.detail}]`);
+}
+fs.writeFileSync('artifacts/runtime/batch2-mutation-report.json', JSON.stringify({ baseline, results }, null, 2));

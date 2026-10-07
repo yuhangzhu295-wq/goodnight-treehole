@@ -134,23 +134,30 @@ wrong today and must not be recorded as covered.
 
 Peer notifications are a **cross-boundary side effect, not a sixth migrated model**. Every peer
 notification call runs *after* the peer state transition has been committed by a direct database
-write in its own transaction. The consequences are stated here explicitly because the review
-required it:
+write in its own transaction. The consequences are stated here explicitly, and narrowly, because an
+earlier version of this section claimed more than the code does:
 
 - **The peer state is committed and stays committed.** A notification failure must never be
   reported as a failure of the transition, and must never roll it back. The transition already
   returned from its transaction.
-- **What remains is a notification obligation**, and it is retryable. The row id is deterministic
-  (`notification_peer_<suffix>_<userId>`, `batch1-persistence.service.ts:608`), so the write is an
-  idempotent upsert: the next successful invocation of the same operation writes the same row and
-  does not duplicate it.
-- **The partial delivery is exposed, not swallowed.** `StoreService.peerNotificationFailures`
-  records `{ userId, suffix, type, at, message }` for every failed write, and the affected
-  operations return `notificationPending: true` to the caller
-  (`startPeerConversation`, `closePeerConversation`, `blockPeerConversation`).
+- **A failed notification is recorded, not swallowed.** `StoreService.peerNotificationFailures`
+  appends `{ userId, suffix, type, at, message }` for every failed write. That array is
+  **in-process only** — there is no durable record and no admin surface that reads it today.
+- **The failure is reported to the caller where a caller exists.** `startPeerConversation`,
+  `updatePeerMatch` (the request path), `closePeerConversation` and `blockPeerConversation` return
+  `notificationPending: true`. The expiry sweep (`expirePeerConversations`) runs from read paths and
+  has **no response channel**, so its failures are recorded but not reported to anyone.
+- **Nothing retries automatically.** The row id is deterministic
+  (`notification_peer_<suffix>_<userId>`, `batch1-persistence.service.ts:608`), so an *attempted*
+  retry is idempotent and will not duplicate a row. A deterministic id does not create a retry, and
+  no production consumer performs one. The previous wording here — "a retryable notification
+  obligation" — overstated this and has been withdrawn.
 - **No atomicity is claimed** between the peer transaction and the notification. The design says
   "commit first, then notify"; it does not say the two are one unit, and this document does not
   claim it either.
+- **The client does not yet act on the flag.** `PeerConversation.vue` ignores
+  `notificationPending` in its close and block responses. That is a UI gap, recorded for PHASE 6,
+  not a backend guarantee.
 
 The legacy (in-memory) branches keep the throwing `peerNotification`, because there the
 notification is written by the same `persistAndFlush()` as the state change, so a failure there
@@ -185,5 +192,10 @@ different things:
   `BATCH2_PEER_FIX_VERIFICATION.md`).
 
 **What 3.4 and 3.5 do not prove:** removing the root locks does not fail them. They show that the
-overlap is safe, not that the lock order is necessary. Necessity is what 3.6 establishes. Every
-barrier fails on timeout, so a run in which the operations do not actually overlap cannot pass.
+overlap is safe, not that the lock order is necessary. **What 3.6 does not prove either:** it shows
+that the roots are held before the peer row on the paths it exercises. It does **not** show that
+this ordering was necessary to avert a deadlock, because no deadlock was ever reproduced. The
+order's justification is structural (the implicit `FOR KEY SHARE` an FK write takes, versus the
+`FOR UPDATE` the flush and the journey delete take), and structural reasoning is what it rests on.
+Every barrier fails on timeout, so a run in which the operations do not actually overlap cannot
+pass.

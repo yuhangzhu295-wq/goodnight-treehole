@@ -3036,14 +3036,18 @@ export class AdminController {
   @Get('ai/jobs')
   async jobs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
     if (DIRECT_DB_MODELS.AIJob) {
-      return await this.batch1Persistence.listAdminAiJobs(page, pageSize);
+      const listed = await this.batch1Persistence.listAdminAiJobs(page, pageSize);
+      // The operator list carries model-generated peer drafts, so the same response-boundary
+      // redaction the user-facing task endpoints apply is applied here (review P1-5).
+      return { ...listed, items: listed.items.map((job) => this.store.peerAssistJobForResponse(job)) };
     }
     return this.list(this.store.aiJobs, page, pageSize);
   }
   @Get('ai/jobs/:id')
   async job(@Param('id') id: string) {
     if (DIRECT_DB_MODELS.AIJob) {
-      return { item: await this.batch1Persistence.getAiJob(id) };
+      const found = await this.batch1Persistence.getAiJob(id);
+      return { item: found ? this.store.peerAssistJobForResponse(found) : found };
     }
     return { item: this.store.aiJobs.find((j) => j.id === id) };
   }

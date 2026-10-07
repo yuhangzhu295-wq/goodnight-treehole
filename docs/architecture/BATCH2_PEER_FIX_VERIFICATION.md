@@ -38,22 +38,27 @@ endpoints and never read the projection the views actually consume.
 ## 3. Mutation results
 
 `scripts/batch2-mutation-check.ts` removes each guard, runs the suite, and reverts. A guard is only
-"proven" if its removal makes a test fail.
+"proven" if its removal makes the **named** test fail — a failure in an unrelated test is reported
+as `PROVEN-UNRELATED`, not as proof, and the harness refuses to run at all unless its baseline run
+comes back green.
+
+Baseline before the run: **27 passed**.
 
 | Mutation | Verdict |
 | --- | --- |
-| M1 expire-on-send closure rolls back (P1-4) | **PROVEN** — 1 failed / 25 passed |
-| M2a `respondMatch`: CAS removed, post-lock re-read kept | NOT PROVEN — 0 failed / 26 passed |
-| M2b `respondMatch`: post-lock re-read removed, CAS kept | NOT PROVEN — 0 failed / 26 passed |
-| M2c `respondMatch`: **both** guards removed (the original defect) | **PROVEN** — 1 failed / 25 passed |
-| M3 `createMatches` takes no root locks (P0-3) | **PROVEN** — 3 failed / 23 passed |
-| M4 peer draft persisted unredacted (P1-5) | **PROVEN** — 2 failed / 24 passed |
-| M5 response boundary stops redacting (P1-5) | **PROVEN** — 1 failed / 25 passed |
-| M6 match projection drops the consent fields | **PROVEN** — 1 failed / 25 passed |
-| M7 peer network truncates the match list | **PROVEN** — 1 failed / 25 passed |
-| M8 close notification throws after the commit | **PROVEN** — 1 failed / 25 passed |
-| M9 peer match leaves the registry (three exits) | **PROVEN** — 23 failed / 3 passed |
-| M10 journey reference not re-resolved under the lock | **PROVEN** — 1 failed / 25 passed |
+| M1 expire-on-send closure rolls back (P1-4) | **PROVEN** — 2 failed / 25 passed, includes `2.6a` |
+| M2a `respondMatch`: CAS removed, post-lock re-read kept | NOT PROVEN — 0 failed / 27 passed |
+| M2b `respondMatch`: post-lock re-read removed, CAS kept | NOT PROVEN — 0 failed / 27 passed |
+| M2c `respondMatch`: **both** guards removed (the original defect) | **PROVEN** — 1 failed / 26 passed, includes `2.1` |
+| M3 `createMatches` takes no root locks (P0-3) | **PROVEN** — 3 failed / 24 passed, includes `3.6` |
+| M4 peer draft persisted unredacted (P1-5) | **PROVEN** — 1 failed / 26 passed, includes `7.1` |
+| M5 response boundary stops redacting (P1-5) | **PROVEN** — 1 failed / 26 passed, includes `7.2` |
+| M6 match projection drops the consent fields | **PROVEN** — 1 failed / 26 passed, includes `3.2` |
+| M7 peer network truncates the match list | **PROVEN** — 1 failed / 26 passed, includes `3.2` |
+| M8 close notification throws after the commit | **PROVEN** — 1 failed / 26 passed, includes `6.1` |
+| M9 peer match leaves the registry (three exits) | **PROVEN** — 24 failed / 3 passed, includes `5.1` |
+| M10 journey reference not re-resolved under the lock | **PROVEN** — 1 failed / 26 passed, includes `3.5` |
+| M11 the deadline read as the transaction-start time again (P1-4) | **PROVEN** — 1 failed / 26 passed, includes `2.6c` |
 
 M2a/M2b are reported as **not proven on their own** on purpose. The post-lock re-read and the CAS
 predicate are two independent mechanisms that both stop the loser; either one alone is sufficient,
@@ -61,31 +66,95 @@ so removing either alone leaves the suite green. Removing both reproduces the re
 (M2c). The honest statement is therefore: *the state check and the write are connected by two
 independent mechanisms, and the test proves the conjunction, not each half.*
 
-## 4. What the new tests do not prove
+M11 is the mutation that proves the second review round's finding was real: reverting
+`clock_timestamp()` to `NOW()` — the transaction-start clock — lets a send that began before the
+deadline write after it, and `2.6c` fails.
+
+## 4. Second review round: what it found, and what was corrected
+
+A second independent review of the fix commit returned `REQUEST_CHANGES` with four real defects and
+several overclaims. All are addressed here; the claims were narrowed where the reviewer was right.
+
+### Defects in the fix, now fixed
+
+**D1 — the deadline was read as the transaction-start time (P1).** The locked deadline check used
+PostgreSQL `NOW()`, which is the **transaction-start** timestamp. A transaction that began before
+the deadline but waited for a lock until after it therefore compared against a pre-deadline instant
+and could write after the deadline had passed. All four sites
+(`sendMessage`, `requireOpenConversation`, `saveConversationFeedback`, `expireDueConversations`)
+now use `clock_timestamp()`, which is evaluated at the call — after the lock. `2.6c` is the
+discriminating test: the send transaction is held open for 2 s while the deadline is 1.2 s away,
+and the message must be refused and the closure committed. Mutation **M11** reverts the clock and
+the test fails.
+
+**D2 — the model's output was spread into `structuredResult` unredacted (P1).** The peer-assist
+parser redacted the three fields it named and then spread `...parsed`, so every other field the
+model chose to emit was persisted with no redaction. The output is now **whitelisted**
+(`draft`, `reminders`, `summary`), not spread. The admin AI-job endpoints
+(`GET /ai/jobs`, `GET /ai/jobs/:id`) now also apply the response-boundary redaction, so a row
+written before this change cannot leak on read either.
+
+**D3 — a notification failure was ignored on two paths (P1).** The request path discarded the
+result of `peerNotificationAfterCommit`; it now returns `notificationPending`. The expiry sweep
+runs from read paths and has **no response channel**, so its failures remain recorded but
+unreported — that limitation is now stated rather than implied. The claim that the obligation is
+"retryable" has been **withdrawn**: a deterministic id makes an attempted retry idempotent, it does
+not create a retry, and nothing in production retries. The client views also ignore the flag; that
+is recorded as a UI gap for PHASE 6.
+
+**D4 — the mutation harness could report a false "PROVEN" (P1).** It classified solely from a
+nonzero failure count, so a failure in an *unrelated* test would have been read as evidence about
+the mutated guard. It now (a) refuses to run at all unless a baseline run is green, (b) names the
+test that must fail for each mutation, and (c) reports `PROVEN-UNRELATED` when the failures do not
+include that test. Patch application is also inside the `try/finally` that restores the files, so
+an I/O failure part-way through cannot leave a patched tree behind.
+
+### Overclaims, corrected
+
+**C1 — lock-order necessity.** The earlier text said `3.6` proves necessity. It proves the roots
+are held before the peer row on the paths it exercises; it does not prove the order was *necessary*,
+because no deadlock was reproduced. The justification is structural and is now described as such.
+
+**C2 — "the tests can now fail" was too broad.** Two exceptions existed and are now removed or
+disclosed: consent case `1.4` rendezvoused the HTTP requests before they started and now uses
+`_onBeforeLock` inside the transaction like the other races; `5.2` covered a subset of the direct
+operations and now covers all of them, including `updateExperience`, `reviewExperience` and
+`handleReport`. Its table parser now also recognises unqualified raw SQL targets, which it
+previously missed. Two gaps remain and are stated: the expire/sweep cases are **sequential by
+design** (they exercise both orderings rather than an overlap), and `5.2`'s contract is not
+literally "peer tables only" — the two audited admin actions also append to `AuditLog`.
+
+**C3 — the unbounded match list was a scalability trade-off.** Removing the top-3 slice fixed the
+waiting page's lookup but made the response unbounded. `peerNetwork` now returns the three
+highest-scoring matches first (the network page renders exactly those), then the user's other
+in-flight matches — the ones the waiting and consent pages look up — capped at 50.
+
+## 5. What the new tests do not prove
 
 Recorded so the claims stay inside the evidence.
 
-1. **The database-clock property is not discriminated.** `expireDueConversations` now closes on
-   the server clock in one statement, but the test environment has one clock, so a version using
-   the application clock would also pass `2.6a`/`2.6b`. The change is a correctness improvement
-   for environments where the two clocks differ (and for concurrent instances); **the suite does
-   not prove it.** No mutation is claimed for it.
-2. **No deadlock was reproduced.** `3.4`/`3.5` hold a peer write open against a real journey
+1. **No deadlock was reproduced.** `3.4`/`3.5` hold a peer write open against a real journey
    delete and a full legacy flush and assert no `40P01`, but removing the root locks does not fail
-   them — they show the overlap is safe, not that the lock order is *necessary*. That necessity is
-   proven instead by `3.6`, which probes `FOR UPDATE` on the `User` and `LifeJourney` rows from a
-   separate connection while the peer transaction is parked, and observes the lock timeout. M3
-   confirms `3.6` fails when the root locks are removed.
-3. **The `User` `FOR UPDATE` lock makes peer writes wait behind a full legacy flush.** That is the
+   them — they show the overlap is safe, not that the lock order is *necessary*. `3.6` proves the
+   roots are held before the peer row on the paths it exercises; necessity remains unproven and
+   rests on the structural argument in `BATCH2_LOCK_ORDER.md`. M3 confirms `3.6` fails when the
+   root locks are removed.
+2. **The `User` `FOR UPDATE` lock makes peer writes wait behind a full legacy flush.** That is the
    cost of joining the hierarchy. It is a wait, not a deadlock, and it is not measured here.
-4. **`4.1` case B is the discriminating half.** Case A (row present, FK omitted) would also pass
+3. **`4.1` case B is the discriminating half.** Case A (row present, FK omitted) would also pass
    before Batch 2, because `fkUpdate(undefined)` already omitted the column. Case B (row present,
    FK **explicitly null**) is what fails without the registry exits. The empty-set case C is kept
    from the original test.
-5. **`PeerReport.experienceId` has no detach writer.** It is set once at insert and never changed.
+4. **`PeerReport.experienceId` has no detach writer.** It is set once at insert and never changed.
    Nothing detaches it today, and no test claims otherwise.
+5. **The expiry sweep has no response channel.** Its notification failures are recorded in-process
+   and reported to nobody. There is no durable record and nothing retries.
+6. **The clock fix is proven for the send path only.** `2.6c` holds the send transaction across the
+   deadline. The same `clock_timestamp()` change was made in `requireOpenConversation`,
+   `saveConversationFeedback` and `expireDueConversations`, but no test holds *those* transactions
+   across a deadline; for them the change is argued, not measured.
 
-## 5. Suite results
+## 6. Suite results
 
 | Check | Result |
 | --- | --- |
@@ -115,6 +184,20 @@ false signal:
    (`MaxListenersExceededWarning`) and the captured window became ambiguous. Replaced with one
    listener sliced by index.
 
+### One production change outside the peer scope, and why
+
+`FollowUpWorkerService.onModuleDestroy` awaited `worker.close()` and `connection.quit()` with no
+bound. Both wait on the Redis socket, and that wait does not necessarily end — it was measured
+never returning, which is what made `app.close()` hang and turned this file into a *failing file
+with zero failing tests*. The shutdown path now attempts the graceful close with a 3 s budget and
+falls back to a hard `disconnect()`, reporting the fallback to stderr.
+
+This is a deviation from "change nothing outside the peer models" and is recorded as one. The
+justification is that the unbounded wait is itself a defect — a graceful shutdown that can hang
+forever is worse than one that drops the socket — and that it corrupted the evidence: any spec
+file's teardown could hang for reasons unrelated to what it tests. The delivery path is untouched;
+when Redis is responsive the graceful close is what runs, and the budget is only a ceiling.
+
 ### Environment findings, recorded as environment
 
 - **The WSL2 VM stops and kills the database containers.** One full-suite run collapsed to 21
@@ -132,7 +215,7 @@ false signal:
   two teardown hooks now carry an explicit 120 s timeout, which does not convert a failed close
   into a pass — if the close never completes, the hook still fails.
 
-## 6. Claim position
+## 7. Claim position
 
 `PERSISTENCE_BATCH2_STABLE` is claimed **only** for the peer models and only against the evidence
 above. `PEER_STATE_MACHINE_PASS`, `PEER_CONCURRENCY_PASS`, `PEER_MULTI_INSTANCE_SAFE`,

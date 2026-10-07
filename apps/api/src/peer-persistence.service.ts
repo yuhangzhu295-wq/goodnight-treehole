@@ -905,8 +905,8 @@ export class PeerPersistenceService {
     // the same conversation or close one that a concurrent consent just extended.
     const closed = await this.prisma.$queryRaw<any[]>`
       UPDATE "PeerConversation"
-      SET status = 'closed', "closedAt" = NOW(), "closedReason" = 'expired'
-      WHERE status = 'active' AND "expiresAt" <= NOW()
+      SET status = 'closed', "closedAt" = clock_timestamp(), "closedReason" = 'expired'
+      WHERE status = 'active' AND "expiresAt" <= clock_timestamp()
       RETURNING *
     `;
     return closed.map(mapPeerConversationRow);
@@ -941,13 +941,17 @@ export class PeerPersistenceService {
       }
       if (conv.status !== 'active') return { open: false as const, conversation: mapPeerConversationRow(conv) };
 
-      const [timeRow] = await tx.$queryRaw<any[]>`SELECT NOW() as db_now`;
+      // clock_timestamp(), not NOW(): NOW() is the TRANSACTION-START time, so a transaction that
+      // began before the deadline but waited for a lock until after it would compare against a
+      // pre-deadline instant and let the write through. clock_timestamp() is evaluated at this
+      // call, which is after the lock was acquired — the instant the deadline decision claims.
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;
       const dbNow = new Date(timeRow.db_now);
       if (new Date(conv.expiresAt).getTime() <= dbNow.getTime()) {
         await tx.$executeRaw`
           UPDATE "PeerConversation"
-          SET status = 'closed', "closedAt" = NOW(), "closedReason" = 'expired'
-          WHERE id = ${conv.id} AND status = 'active' AND "expiresAt" <= NOW()
+          SET status = 'closed', "closedAt" = clock_timestamp(), "closedReason" = 'expired'
+          WHERE id = ${conv.id} AND status = 'active' AND "expiresAt" <= clock_timestamp()
         `;
         return {
           open: false as const,
@@ -1160,7 +1164,11 @@ export class PeerPersistenceService {
       }
 
       // 2. Under lock, compare database time against expiresAt (§0.4/A8)
-      const [timeRow] = await tx.$queryRaw<any[]>`SELECT NOW() as db_now`;
+      // clock_timestamp(), not NOW(): NOW() is the TRANSACTION-START time, so a transaction that
+      // began before the deadline but waited for a lock until after it would compare against a
+      // pre-deadline instant and let the write through. clock_timestamp() is evaluated at this
+      // call, which is after the lock was acquired — the instant the deadline decision claims.
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;
       const dbNow = new Date(timeRow.db_now);
       const expiresAt = new Date(conv.expiresAt);
 
@@ -1172,8 +1180,8 @@ export class PeerPersistenceService {
           // expired the conversation (review P1-4).
           await tx.$executeRaw`
             UPDATE "PeerConversation"
-            SET status = 'closed', "closedAt" = NOW(), "closedReason" = 'expired'
-            WHERE id = ${conv.id} AND status = 'active' AND "expiresAt" <= NOW()
+            SET status = 'closed', "closedAt" = clock_timestamp(), "closedReason" = 'expired'
+            WHERE id = ${conv.id} AND status = 'active' AND "expiresAt" <= clock_timestamp()
           `;
         }
         return { expired: true as const };
@@ -1389,7 +1397,11 @@ export class PeerPersistenceService {
         throw new NotFoundException('匿名会话不存在');
       }
 
-      const [timeRow] = await tx.$queryRaw<any[]>`SELECT NOW() as db_now`;
+      // clock_timestamp(), not NOW(): NOW() is the TRANSACTION-START time, so a transaction that
+      // began before the deadline but waited for a lock until after it would compare against a
+      // pre-deadline instant and let the write through. clock_timestamp() is evaluated at this
+      // call, which is after the lock was acquired — the instant the deadline decision claims.
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;
       const dbNow = new Date(timeRow.db_now);
       const now = dbNow;
       if (conv.status === 'active' && new Date(conv.expiresAt).getTime() > dbNow.getTime()) {

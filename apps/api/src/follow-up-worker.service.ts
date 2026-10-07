@@ -126,8 +126,47 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /**
+   * Graceful shutdown with a bounded wait.
+   *
+   * `worker.close()` and `connection.quit()` both wait on the Redis socket. When Redis is slow,
+   * already gone, or the connection has already been quit, that wait does not necessarily end:
+   * measured here as an `app.close()` that never returned, which surfaced as a test file failing
+   * with zero failing tests. A shutdown that can hang forever is worse than one that drops the
+   * socket, so the graceful attempt is bounded and a hard `disconnect()` is the fallback. The
+   * fallback is reported, not silent.
+   */
+  private async closeBounded(label: string, graceful: () => Promise<unknown>, hardClose: () => void) {
+    const budgetMs = 3000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<'expired'>((resolve) => {
+      timer = setTimeout(() => resolve('expired'), budgetMs);
+      timer.unref?.();
+    });
+    try {
+      const outcome = await Promise.race([graceful().then(() => 'closed' as const), expired]);
+      if (outcome === 'expired') {
+        console.error(`[follow-up-worker] ${label} did not finish within ${budgetMs}ms; forcing disconnect`);
+        hardClose();
+      }
+    } catch (error) {
+      console.error(`[follow-up-worker] ${label} failed (${(error as Error).message}); forcing disconnect`);
+      hardClose();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async onModuleDestroy() {
-    await this.worker?.close();
-    await this.connection?.quit();
+    await this.closeBounded(
+      'worker.close',
+      () => this.worker?.close() ?? Promise.resolve(),
+      () => this.worker?.disconnect(),
+    );
+    await this.closeBounded(
+      'connection.quit',
+      () => this.connection?.quit() ?? Promise.resolve(),
+      () => this.connection?.disconnect(),
+    );
   }
 }

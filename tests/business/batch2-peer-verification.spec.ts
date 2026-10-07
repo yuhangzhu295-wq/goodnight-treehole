@@ -77,12 +77,9 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
   });
 
   // Teardown here closes three Nest applications plus the extra Prisma clients this file creates.
-  // Measured: `prisma.$disconnect` 7ms, `app.close` 21ms, `harness.close` 13-173ms — normally
-  // trivial. Under full-suite load it has been observed to exceed the 30s default hook timeout
-  // once, with the HTTP server already closed, zero open connections and both shutdown hooks
-  // measured at 2-18ms; that is an environment stall, not a test or product failure. The explicit
-  // timeout keeps a slow environment from being reported as a failing file, and it does not turn
-  // a failed teardown into a pass: if the close never completes the hook still fails.
+  // It is bounded rather than left to the default 30s hook timeout: the Redis-backed follow-up
+  // worker's shutdown was measured stalling indefinitely (see the bounded close in
+  // `follow-up-worker.service.ts`), which surfaced as this file failing with zero failing tests.
   afterAll(async () => {
     await prisma.$disconnect();
     await app.close();
@@ -277,7 +274,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       expect(await prisma.peerConversation.findUnique({ where: { matchId: match.id } })).toBeNull();
     });
 
-    it('1.4 Both consenting concurrently: strict barrier rendezvous produces exactly ONE conversation', async () => {
+    it('1.4 Both consenting concurrently: the barrier meets inside the transactions, so both are open when they contend, and exactly ONE conversation results', async () => {
       const server = app.getHttpServer();
       const { match } = await createFixtureMatch('ConcurrentConsent');
 
@@ -292,34 +289,31 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
         .send({ status: 'connected' })
         .expect(201);
 
+      // `_onBeforeLock` fires inside the open transaction before any lock, so both consent
+      // transactions are demonstrably open when they race for the same match row. Rendezvousing
+      // the HTTP requests before they start would let the two run one after the other.
       const barrier = new StrictBarrier(['owner', 'requester']);
+      const peerService = app.get(PeerPersistenceService);
 
-      const ownerTask = (async () => {
-        await barrier.enter('owner');
-        return await request(server)
-          .post(`/api/v1/peer-matches/${match.id}/consent`)
-          .set('x-goodnight-user-id', owner)
-          .send({});
-      })();
-
-      const requesterTask = (async () => {
-        await barrier.enter('requester');
-        return await request(server)
-          .post(`/api/v1/peer-matches/${match.id}/consent`)
-          .set('x-goodnight-user-id', requester)
-          .send({});
-      })();
-
-      const [resOwner, resReq] = await Promise.all([ownerTask, requesterTask]);
+      const [resOwner, resReq] = await Promise.allSettled([
+        peerService.consentMatch(match.id, owner, { _onBeforeLock: () => barrier.enter('owner') }),
+        peerService.consentMatch(match.id, requester, { _onBeforeLock: () => barrier.enter('requester') }),
+      ]);
       barrier.assertAllArrived();
 
-      expect([200, 201]).toContain(resOwner.status);
-      expect([200, 201]).toContain(resReq.status);
+      expect(resOwner.status).toBe('fulfilled');
+      expect(resReq.status).toBe('fulfilled');
 
       // Exactly ONE conversation created in PostgreSQL
       const convRows = await prisma.peerConversation.findMany({ where: { matchId: match.id } });
       expect(convRows).toHaveLength(1);
       expect(convRows[0].status).toBe('active');
+
+      // Exactly one of the two calls is the one that activated it.
+      const activations = [resOwner, resReq].filter(
+        (r) => (r as PromiseFulfilledResult<{ activated: boolean }>).value.activated,
+      );
+      expect(activations).toHaveLength(1);
 
       const finalMatch = await prisma.peerMatch.findUnique({ where: { id: match.id } });
       expect(finalMatch?.ownerConsentAt).not.toBeNull();
@@ -641,6 +635,32 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // A sweep that closes the row must not invent a message or reopen the conversation.
       expect(await prisma.peerMessage.count({ where: { conversationId: liveConv.id } })).toBe(1);
     }, 20_000);
+
+    it('2.6c A send transaction held open ACROSS the deadline is refused on the post-lock clock, not the transaction-start clock', async () => {
+      const { match } = await createFixtureMatch('ExpireDuringTx');
+      const conv = await openConversation(match.id);
+
+      // The deadline is 1.2 s away and the send transaction is held open for 2 s before it reads
+      // the clock, so the deadline passes while the transaction is open.
+      await prisma.peerConversation.update({
+        where: { id: conv.id },
+        data: { expiresAt: new Date(Date.now() + 1200) },
+      });
+
+      // PostgreSQL's NOW() is the transaction-start timestamp. A transaction that began before the
+      // deadline but reached its clock read after it would compare against the pre-deadline instant
+      // and let the message through; clock_timestamp() is evaluated at the call, after the lock.
+      await expect(
+        peer().sendMessage(match.id, requester, '截止时刻跨过的消息', {
+          _onBeforeLock: () => new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+        }),
+      ).rejects.toThrow(/已经结束/);
+
+      const dbConv = await prisma.peerConversation.findUnique({ where: { id: conv.id } });
+      expect(dbConv?.status).toBe('closed');
+      expect(dbConv?.closedReason).toBe('expired');
+      expect(await prisma.peerMessage.count({ where: { conversationId: conv.id } })).toBe(0);
+    }, 30_000);
   });
 
   describe('3. Two Instances, One Database (§5)', () => {
@@ -1218,14 +1238,20 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
   describe('5. SQL Scope & Zero-Legacy-Write Verification (§5, §0.4/A7)', () => {
     const PEER_TABLES = ['PeerExperience', 'PeerMatch', 'PeerConversation', 'PeerMessage', 'PeerReport'];
 
-    /** Tables named by the INSERT/UPDATE/DELETE statements in a captured query log. */
+    /**
+     * Tables named by the INSERT/UPDATE/DELETE statements in a captured query log.
+     *
+     * The target is matched with or without the `"public".` schema prefix. Raw SQL issued by the
+     * peer service is unqualified (`UPDATE "PeerConversation" ...`), so a parser that required the
+     * prefix would silently miss those writes and let the scope assertion pass vacuously.
+     */
     function writtenTables(queries: string[]) {
       const writes = queries.filter((q) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(q));
       const tables = new Set<string>();
       for (const statement of writes) {
-        // Match only the statement's target table. A bare scan for `"public"."X"` also picks up
-        // enum types and sub-selects, which is not a write against a table.
-        const target = statement.match(/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"public"\."(\w+)"/i);
+        const target = statement.match(
+          /^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"public"\.)?"(\w+)"/i,
+        );
         if (target) tables.add(target[1]);
       }
       return { writes, tables: [...tables] };
@@ -1312,12 +1338,27 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       );
       await record('expireDueConversations', () => tracedPeer.expireDueConversations());
 
-      expect(observed.length).toBeGreaterThanOrEqual(12);
-      for (const entry of observed) {
-        const unexpected = entry.tables.filter((table) => !PEER_TABLES.includes(table));
-        expect({ operation: entry.operation, unexpected }).toEqual({ operation: entry.operation, unexpected: [] });
-        expect(entry.writes.filter((q) => /^\s*DELETE\b/i.test(q))).toHaveLength(0);
-      }
+      // The remaining write paths, so the captured set is every direct operation and not a subset:
+      // the experience edit/review paths and the admin report handler were previously omitted.
+      const created = await tracedPeer.createExperience({
+        userId: owner,
+        title: 'SQL 范围待审经历',
+        domain: '关系',
+        stage: 'graduated',
+        content: '用于 updateExperience 与 reviewExperience 的范围验证。',
+        tags: ['范围'],
+        consentedAt: new Date().toISOString(),
+        status: 'pending_review',
+      });
+      await record('updateExperience', () =>
+        tracedPeer.updateExperience(created.id, owner, { content: '编辑后的经历内容。' }),
+      );
+      await record('reviewExperience', () =>
+        tracedPeer.reviewExperience(created.id, adminUser!.id, 'published'),
+      );
+
+      const { report: scopedReport } = await tracedPeer.reportConversation(baseMatch.id, requester, '范围验证举报二');
+      await record('handleReport', () => tracedPeer.handleReport(scopedReport.id, adminUser!.id, 'handled'));
 
       // A second match fixture, so the block paths are exercised on a fresh row.
       const { match: blockMatch } = await createFixtureMatch('SqlScopeBlock');
@@ -1329,11 +1370,24 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       await tracedPeer.consentMatch(blockConvMatch.id, requester);
       await record('blockConversation', () => tracedPeer.blockConversation(blockConvMatch.id, owner));
 
-      const finalEntry = observed[observed.length - 1];
-      expect(finalEntry.operation).toBe('blockConversation');
-      expect(finalEntry.tables.filter((table) => !PEER_TABLES.includes(table))).toEqual([]);
+      // Asserted after every operation has been recorded, so the loop covers the whole write set
+      // rather than a prefix of it.
+      //
+      // The contract is not literally "peer tables only": the two audited admin actions
+      // (`reviewExperience`, `handleReport`) also append to `AuditLog` by design. That is the only
+      // non-peer table any peer operation may write, and only for those two — anything else means
+      // an operation reached back into the legacy store.
+      const AUDITED_OPERATIONS = new Set(['reviewExperience', 'handleReport']);
+      expect(observed.length).toBeGreaterThanOrEqual(17);
+      for (const entry of observed) {
+        const allowed = AUDITED_OPERATIONS.has(entry.operation)
+          ? [...PEER_TABLES, 'AuditLog']
+          : PEER_TABLES;
+        const unexpected = entry.tables.filter((table) => !allowed.includes(table));
+        expect({ operation: entry.operation, unexpected }).toEqual({ operation: entry.operation, unexpected: [] });
+        expect(entry.writes.filter((q) => /^\s*DELETE\b/i.test(q))).toHaveLength(0);
+      }
 
-      void adminUser;
       await traced.$disconnect();
     }, 60_000);
   });

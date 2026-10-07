@@ -4246,11 +4246,21 @@ export class StoreService implements OnModuleInit {
     const userMatches = DIRECT_DB_MODELS.PeerMatch
       ? await this.peerPersistence.listMatchesForUser(userId)
       : this.peerMatches.filter((item) => item.userId === userId);
-    // Sorted by score, but NOT truncated: the waiting and consent pages look their match up by id
-    // in this list, so a top-3 slice made the pending state unreachable whenever the match a user
-    // had just been navigated to was not among their three highest-scoring matches. The network
-    // page renders only the first three and slices for display.
-    const topMatches = userMatches.sort((a, b) => b.score - a.score);
+    // Bounded, but not by a bare top-3 slice. The waiting and consent pages look their match up by
+    // id in this list, and a match a user has just been navigated to may not be among their three
+    // highest-scoring ones, so a bare slice made those pages render their empty fallback. The three
+    // highest-scoring matches come first (the network page renders exactly those), followed by the
+    // user's other in-flight matches — the ones the waiting/consent pages actually look up. The
+    // whole list is capped so the response stays bounded.
+    const PEER_NETWORK_MATCH_LIMIT = 50;
+    const sortedMatches = userMatches.sort((a, b) => b.score - a.score);
+    const selectedMatches = sortedMatches.slice(0, 3);
+    for (const match of sortedMatches) {
+      if (match.status === 'suggested') continue;
+      if (selectedMatches.includes(match)) continue;
+      selectedMatches.push(match);
+    }
+    const topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);
     const matchExpIds = topMatches.map((m) => m.peerExperienceId);
     const matchExps = DIRECT_DB_MODELS.PeerExperience
       ? await this.peerPersistence.getExperiencesByIds(matchExpIds)
@@ -4728,8 +4738,9 @@ export class StoreService implements OnModuleInit {
         );
 
         // Commit peer transition first, THEN emit deterministic-id notification (§3.3, §0.4/A4)
+        let notificationDelivered = true;
         if (ownerUserId && ownerUserId !== currentUserId) {
-          await this.peerNotificationAfterCommit(
+          notificationDelivered = await this.peerNotificationAfterCommit(
             ownerUserId,
             'PEER_REQUEST',
             `request_${match.id}`,
@@ -4743,6 +4754,7 @@ export class StoreService implements OnModuleInit {
         return {
           item: this.peerMatchForUser(match, this.peerExperienceSummary(exp ?? undefined)),
           conversation: null,
+          notificationPending: !notificationDelivered,
         };
       } else {
         const { match } = await this.peerPersistence.respondMatch(matchId, currentUserId, status);
@@ -7119,8 +7131,11 @@ export class StoreService implements OnModuleInit {
       // The model writes the draft, so its output is the untrusted side here: a draft that
       // repeats the other party's phone number or address must be redacted before it is
       // persisted, exactly like human-authored peer text (review P1-5).
+      //
+      // Whitelisted, not spread. `{ ...parsed }` carried every other field the model chose to
+      // emit straight into `structuredResult`, where no redaction had been applied — the
+      // redaction covered only the three fields this code names.
       return {
-        ...parsed,
         draft: this.redactPeerPublicText(draft),
         reminders: arrays('reminders').map((item) => this.redactPeerPublicText(item)),
         summary: this.redactPeerPublicText(draft),

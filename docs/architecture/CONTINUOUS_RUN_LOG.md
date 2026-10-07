@@ -150,6 +150,55 @@ and the recorded suite figure is from a run taken after the machine was idle.
 peer models against the evidence above. `PERSISTENCE_BATCH2_FULL` and `FULL_MULTI_INSTANCE_READY`
 are **not** claimed — Batch 3–4 models are still memory-authoritative.
 
+### Second review round — four more real defects, all fixed
+
+A second independent review of the fix commit returned `REQUEST_CHANGES`. It was right on four
+counts and on three overclaims. Full detail: `BATCH2_PEER_FIX_VERIFICATION.md` §4.
+
+**Real defects it found in the fix:**
+
+1. **The deadline was read with `NOW()`, the transaction-start clock.** A transaction that began
+   before the deadline but waited for a lock until after it compared against the pre-deadline
+   instant and could write after the deadline had passed. All four sites now use
+   `clock_timestamp()`. New case `2.6c` holds a send transaction open across the deadline;
+   mutation **M11** reverts the clock and the test fails.
+2. **The model's output was spread into `structuredResult`.** The peer-assist parser redacted the
+   three fields it named and then spread `...parsed`, so every other field the model emitted was
+   persisted unredacted. The output is now whitelisted. The admin AI-job endpoints now apply the
+   response-boundary redaction too.
+3. **A notification failure was ignored on the request path.** It now returns
+   `notificationPending`. The expiry sweep has no response channel — stated, not implied. The
+   "retryable obligation" wording was **withdrawn**: a deterministic id makes an attempted retry
+   idempotent; nothing retries.
+4. **The mutation harness could report a false PROVEN.** It classified from a failure count alone,
+   so an unrelated failure would have been read as evidence. It now refuses to run unless its
+   baseline is green, names the test each mutation must fail, and reports `PROVEN-UNRELATED`
+   otherwise. Patch application moved inside the restoring `try/finally`.
+
+**Overclaims corrected:** lock-order *necessity* is not proven (no deadlock was reproduced; the
+justification is structural and now described as such); "the tests can now fail" was too broad —
+consent case `1.4` now uses `_onBeforeLock` like the others, and `5.2` now covers all direct
+operations including the experience edit/review and report-handling paths, with a parser that also
+recognises unqualified raw SQL targets; the unbounded match list is now bounded (top three by
+score, then the user's other in-flight matches, capped at 50).
+
+**One production change outside the peer scope, recorded as a deviation.**
+`FollowUpWorkerService.onModuleDestroy` awaited `worker.close()` and `connection.quit()` with no
+bound, and that wait was measured never returning — which is what made `app.close()` hang and
+turned this file into a *failing file with zero failing tests*. The shutdown path now attempts the
+graceful close with a 3 s budget and falls back to a hard `disconnect()`, reporting the fallback to
+stderr. The delivery path is untouched.
+
+**Round-3 verification (orchestrator-measured):**
+
+| Check | Result |
+| --- | --- |
+| `batch2-peer-verification.spec.ts` | **27 / 27 pass**, and 3 consecutive clean runs after the shutdown fix |
+| Mutation harness | **11 of 13 proven**, baseline green before the run; M2a/M2b are the redundant half of a two-guard pair and are reported as not proven alone |
+| Full business suite | **7 failed / 23 passed files, 8 failed / 132 passed tests** — exactly the recorded baseline |
+| `pnpm check:baseline-diff` | **SUCCESS** — 0 new regressions |
+| `pnpm typecheck` / `pnpm lint` | clean / 0 errors |
+
 ## Note — the visual baseline now encodes the aesthetic the UI contract removes
 
 `design_refs/` holds 26 tracked reference PNGs, and `docs/claude-page-by-page-visual-checklist.md`
