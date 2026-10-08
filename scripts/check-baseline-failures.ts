@@ -191,10 +191,25 @@ export function checkBaselineDiff(customReportPath?: string, customBaselinePath?
  * as last time" from "a test that was passing last time and is not now". A failure that was passing
  * in the previous run is a regression whatever the original baseline says.
  */
-const LAST_RUN_PATH = () => path.resolve(path.resolve(__dirname, '..'), 'artifacts', 'runtime', 'last-run-failures.json');
+const LAST_RUN_PATH = () =>
+  process.env.BASELINE_LAST_RUN_PATH ??
+  path.resolve(path.resolve(__dirname, '..'), 'artifacts', 'runtime', 'last-run-failures.json');
 
 function failureKey(file: string, title: string): string {
   return `${path.basename(file)}::${normalizeTitle(title)}`;
+}
+
+/**
+ * How many spec files a run covered, read back from a recorded scope string (`files:37`).
+ * Returns -1 when there is no record or the scope cannot be read, which makes any real run
+ * count as broader and therefore allowed to replace it.
+ */
+export function parseScopeFileCount(scope: string | null): number {
+  if (!scope) return -1;
+  const match = /^files:(\d+)$/.exec(scope.trim());
+  if (!match) return -1;
+  const count = Number(match[1]);
+  return Number.isFinite(count) && count > 0 ? count : -1;
 }
 
 export function compareWithPreviousRun(
@@ -230,9 +245,9 @@ export function compareWithPreviousRun(
 
   // Only a run at least as broad as the recorded one may replace it. A selected-spec run must not
   // be able to overwrite a full run's record and hide the next full run's comparison.
-  const recordedScopeFiles = previousScope ? Number(previousScope.replace(/D/g, '')) : -1;
-  const currentScopeFiles = Number(scope.replace(/D/g, ''));
-  if (currentScopeFiles >= recordedScopeFiles) {
+  const recordedScopeFiles = parseScopeFileCount(previousScope);
+  const currentScopeFiles = parseScopeFileCount(scope);
+  if (currentScopeFiles > 0 && currentScopeFiles >= recordedScopeFiles) {
     fs.mkdirSync(path.dirname(lastRunPath), { recursive: true });
     fs.writeFileSync(
       lastRunPath,
