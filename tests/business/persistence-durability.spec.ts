@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin } from './helpers';
+import { createApiTestApp, loginAdmin, demoUserHeaders } from './helpers';
 
 describe('persistence durability regression tests', () => {
   let app: INestApplication;
@@ -26,6 +26,7 @@ describe('persistence durability regression tests', () => {
 
     const created = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: initialTitle, domain: '生活', content: initialContent })
       .expect(201);
 
@@ -46,6 +47,7 @@ describe('persistence durability regression tests', () => {
     const patchedSummary = '持久化验证总结内容';
     const patchRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
+      .set(demoUserHeaders())
       .send({ title: patchedTitle, summary: patchedSummary })
       .expect(200);
 

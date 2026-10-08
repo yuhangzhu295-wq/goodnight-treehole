@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth, demoUserHeaders } from './helpers';
+import { createApiTestApp, loginAdmin, auth, demoUserHeaders, waitForAiJob } from './helpers';
 /**
  * PrivacySetting is database-authoritative from Batch 3, so the in-memory map is disabled and a
  * fixture must seed through the database. Seeding the map would throw, and seeding a *copy* would
@@ -466,6 +466,9 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       .send({ title: `J_P0A_${Date.now()}`, domain: '生活', content: '初始生活困境' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
+    if (created.body.job?.id) {
+      await waitForAiJob(server, created.body.job.id);
+    }
 
     // 1. Sending { status: 'paused', title: '...' } with a stale expectedUpdatedAt must receive 409 Conflict
     const staleVersion = new Date(Date.now() - 3600000).toISOString();
