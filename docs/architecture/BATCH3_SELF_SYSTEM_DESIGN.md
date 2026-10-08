@@ -1,7 +1,8 @@
 # Persistence Batch 3 — Self System Design
 
 **Status: DESIGN GATE NOT PASSED as written — the four escalations below are resolved by orchestrator decision in §0.4, and implementation proceeds on that basis.**
-**Reviewed checkout:** branch `codex/post-recovery-validation`, HEAD `a004541`. Read-only review; no database, migration, worker or concurrency test was run.
+**A second independent review of this document returned `REQUEST_CHANGES` with four P0 and four P1 findings. All eight are adjudicated in §0.5, which supersedes §0.4 wherever the two disagree.**
+**Reviewed checkouts:** the first review read HEAD `a004541`; the second read HEAD `446b57a`. Both were read-only. Citations are `file:line` as checked at each review.
 
 Citations are `file:line` at that HEAD. `schema.prisma` = `prisma/schema.prisma`; bare `.ts` files are under `apps/api/src/`.
 
@@ -35,15 +36,17 @@ The reviewer found the plan's explicit prohibition is **violated today**:
 - The four AI-eligibility predicates are enforced in **one owner-scoped database query**: `status='active'`, `deletedAt IS NULL`, `expiresAt >` **database** current time, an allowlisted task/scope predicate, and current `allowAiMemoryUse=true`. `allowLongTermMemory` governs **saving**, not by itself permission to inject existing material into AI (`store.service.ts:5749–5783,5834–5845`).
 - The final consent check must sit close enough to prompt dispatch to define its race with revocation, and a test must establish that linearization point.
 
-### S3 — Decision: `outcome` becomes a real transition, matching the UI *(P0-DECISION)*
+### S3 — Decision: `outcome` is an **optional** state, not a required step *(P0-DECISION — corrected by §0.5/A1)*
 
 The plan names six states. Today only `cooling→ready`, `ready→decided`, `decided→archived` are reachable; `outcome` is a **text field, not a status**, and `updateDecision` can change `decision`/`outcome` with no state transition (`store.service.ts:5398–5425`).
 
-**Decision — implement the reviewed `decided → outcome → archived` transition.** The mini-program already has the user-facing step: the decision vault's post-cooldown flow ends with **"保存结果并归档"** (save the result and archive). So `outcome` is the missing *state*, not a missing *feature* — the same shape as Batch 2's unilateral-consent defect. Entering `outcome` requires the outcome text; `archived` follows it.
+**Decision — corrected.** The original text here inferred that "保存结果并归档" was the missing `outcome` step. **That inference was wrong**, and the second review refuted it: the decision-vault page treats the result as optional and, on that button, PATCHes the result and then PATCHes `archived` directly — it never sends `status:'outcome'` (`apps/mp/src/views/DecisionVault.vue:124–155,240–250`; `store.service.ts:5503–5526`). Requiring `outcome` first would break the product's normal archive action.
 
-Also decided: **cooldown readiness is a database-time transition.** A list must not age decisions by flushing other models; the deadline comparison happens in the transaction against database time, so two instances cannot disagree about `ready`.
+So: **`decided → archived` stays valid** and carries an optional outcome text in the same write. **`decided → outcome → archived` is additionally accepted** when a caller supplies a non-empty outcome and asks for the intermediate state. Both paths are legal; neither is required. The plan's state is therefore representable without changing what the product does today, and `DECISION_STATE_PASS` is scoped to the four states that exist plus `outcome` as an accepted optional state — **not** to a mandatory six-state walk. Whether the product *should* require an outcome is a product question, recorded as open in §0.5/A1, and not decided here.
 
-**Repeated cooldowns for one decision: the current behaviour is kept** (another cooling cooldown is permitted, `store.service.ts:5452–5469`) but the races must prove a **stale worker cannot set a superseded decision ready early**. If the tests cannot establish that, it escalates rather than being assumed.
+Also decided: **cooldown readiness is a database-time transition.** A list must not age decisions by flushing other models; the deadline comparison happens in the transaction against `clock_timestamp()` (never `NOW()`, which is the transaction-start clock), so two instances cannot disagree about `ready`.
+
+**Repeated cooldowns for one decision: the current behaviour is kept** (another cooling cooldown is permitted, `store.service.ts:5452–5469`) but the races must prove a **stale worker cannot set a superseded decision ready early** — see §0.5/A2 for the exact predicate that makes that true.
 
 ### S4 — Admin disclosure: metadata in list/search, full content only via an audited single-record read *(P0-PRIVACY)*
 
@@ -58,6 +61,227 @@ The plan requires **admin minimal disclosure** for `PersonalSupportPlan`. Today 
 ### S5 — FutureSelf notification policy *(P1-NOTIFY)*
 
 Accepted as the reviewer assumed: with notifications off, the message is **delivered silently and retained** — the letter is the value, the notification is optional. A later opt-in does **not** retroactively notify an already-delivered letter.
+
+---
+
+## 0.5 Adjudication of the second design review
+
+The second review returned `REQUEST_CHANGES` with four P0 and four P1 findings. It verified as
+correct: the ten-model list and the schema/legacy-writer mapping; the absence of any `Archive` /
+`Recovery` / generic `Self` table; that `FollowUpJob` and `AgentDecisionLog` are still
+legacy-written and unregistered; and that the `PrivacySetting` per-user upsert
+(`relational-runtime.mapper.ts:1034–1071`) turns an omitted map entry into a destructive write —
+**on the legacy path only**, since no direct path exists yet. It also confirmed `deleteMemory`
+writes `status='expired'` while setting `deletedAt` (`store.service.ts:5917–5935`) and that the
+required `deleted` spelling has no representation.
+
+Where the review and §0.4 disagreed, §0.5 governs.
+
+### A1 — Decision state machine: corrected, not forced *(P0-1)*
+
+See S3. `decided → archived` with an optional outcome text stays valid; `outcome` is additionally
+accepted as an optional intermediate state. **Open product question, recorded and not decided
+here:** whether an outcome should ever be required, and whether an outcome may be recorded after
+archiving. Implementation must not answer it by changing the page's behaviour.
+
+### A2 — Cooldown release and expiry: one invariant, stated as predicates *(P0-2)*
+
+The review is right that "use database time" is not a specification. Today the worker releases a
+cooldown and readies a decision purely because the job is `pending`/`scheduled`
+(`follow-up-worker.service.ts:39–69`), without checking the item's own deadline, the decision's
+current deadline, or whether the job has been superseded — so a stale, rescheduled or delayed job
+can release early.
+
+**Required invariant — every expiry write path uses the same shape**, evaluated under the row lock
+with `clock_timestamp()` (never `NOW()`, the transaction-start clock):
+
+| Path | Predicate (all inside the transaction, after the row lock) |
+| --- | --- |
+| Follow-up job claim | `FollowUpJob.id = :id AND status IN ('pending','scheduled') AND dueAt <= clock_timestamp()` |
+| Cooldown release | the claim above **and** `CooldownItem.status='active'` **and** `CooldownItem.releaseAt <= clock_timestamp()` **and** `CooldownItem.id` is still the decision's **current** cooldown (the job's `payload.cooldownId` equals the decision's current cooldown id) |
+| Decision ready | `DecisionRecord.status='cooling'` **and** `cooldownUntil <= clock_timestamp()` **and** the current cooldown is released/superseded, as one conditional update with an affected-row check |
+| Delivery stamp | the claim above, in the same transaction as the notification write (A6) |
+
+A **superseded** job — one whose `payload.cooldownId` no longer matches the decision's current
+cooldown, or whose decision was re-cooled after the job was scheduled — is closed as
+`superseded`, not released: it must not move any decision or cooldown forward. Re-cooling a
+decision cancels the outstanding job in the same transaction as the new cooldown, so the
+superseded case is the *crash-recovery* path, not the normal one.
+
+Each predicate gets a mutation: removing the item-deadline term, the current-cooldown term, or the
+`status` term must fail its named test.
+
+### A3 — Graduation is idempotent, and the snapshot follows a real transition *(P0-3)*
+
+`graduateJourney` locks the journey and then rewrites `completed`/`completedAt` regardless of the
+prior state (`batch1-persistence.service.ts:2075–2093`), and the caller appends a derived
+`RecoverySnapshot` on every call (`store.service.ts:4002–4017`). Two sequential requests therefore
+produce two "graduation" snapshots, and `RecoverySnapshot` has no source key or unique constraint
+to tell a repeat graduation from a legitimate user check-in (`schema.prisma:728–739`).
+
+**Required.** Graduation is allowed only from the non-terminal states; the Journey transition is a
+conditional update with an affected-row check, and the derived snapshot is appended **only when
+that update affected a row**. A repeat or concurrent graduation returns the already-completed
+journey and appends nothing. The invariant to test is "at most one graduation-derived snapshot per
+journey", proven by a duplicate request and by two concurrent ones from separate instances, not by
+"the insert failed and we rolled back".
+
+If a database-level guarantee is required rather than a transaction-level one, that needs a source
+marker and a constrained unique index — i.e. a new migration. It is **not** required for the
+transaction-level invariant above, and no migration is proposed on this basis.
+
+### A4 — Per-path lock table and the FK writer matrix *(P0-4)*
+
+§2's single sentence and §3's summary are not the per-path proof Batch 2 required. The table below
+is normative; the implementation must match it, and a path that locks a child before a root is a
+defect. `User` and `LifeJourney` are always taken in sorted id order, before any child row.
+
+| Path | Roots locked first | Then | Write predicate |
+| --- | --- | --- | --- |
+| Privacy preference change | `User(owner)` | `PrivacySetting` | owner-scoped patch of the changed fields only; **never** a whole-row write from a possibly-partial snapshot |
+| Memory save / update / delete | `User(owner)` → `LifeJourney` if supplied | `MemoryItem` | create/update owner-scoped; delete is a conditional soft delete; privacy read **inside** the transaction |
+| Decision create / edit | `User(owner)` → `LifeJourney` if supplied | `DecisionRecord` | create validated; edit owner-scoped, no status change |
+| Decision deadline transition | `User(owner)` | `DecisionRecord` | CAS on `status` + `clock_timestamp()` deadline (A2) |
+| Cooldown create | `User(owner)` → `LifeJourney` if the decision carries one | `DecisionRecord` → `CooldownItem` → existing `FollowUpJob` | one transaction; Redis enqueue **after** commit |
+| Cooldown release / decision ready | `User(owner)` | `DecisionRecord` → `CooldownItem` → `FollowUpJob` | the A2 predicates |
+| Reality handoff create / share | `User(owner)` → `LifeJourney` if supplied | `RealityHandoff` | create validated |
+| Trusted contact create | `User(owner)` | `TrustedContact` | create validated; no FK edit or detach exists |
+| Future message create | `User(owner)` → `LifeJourney` if supplied | `MessageToFutureSelf` → new `FollowUpJob` | one transaction; enqueue after commit |
+| Future message deliver | `User(owner)` | `MessageToFutureSelf` → `FollowUpJob` → `UserNotification` | the A2 claim, notification in the **same** transaction (A6) |
+| Support-plan save | `User(owner)` → `LifeJourney` if supplied | `PersonalSupportPlan` | serialize absent-row create on the `User` root; update omits an unsupplied `journeyId` |
+| Stable-self save | `User(owner)` | `StableSelfProfile` | unique-per-user upsert / CAS |
+| Recovery check-in | `User(owner)` → `LifeJourney` | `RecoverySnapshot` | append only; no Journey patch |
+| Graduation | `User(owner)` → `LifeJourney` | `RecoverySnapshot` | A3: conditional Journey transition, snapshot only on a real transition |
+| Journey archive delete | `User` → `LifeJourney` (Batch 1's existing order) | Self rows | detach surviving Self Journey FKs; no collection sweep |
+
+**Correction to §3.1.** That paragraph called `CooldownItem` and `StableSelfProfile` exceptions to
+the `User` FK. They are not: both carry a `User` FK (`schema.prisma:613–700`), and both appear in
+the lock table above. What is true is narrower — they have no nullable *Journey* FK, and
+`StableSelfProfile` is unique per user.
+
+**FK writer matrix.** For every Self FK column, each writer is classified as **omit** (the column
+is absent from the update, so a committed value survives), **detach** (`null`, only where an
+authorised operation removes the association), or **supply** (a value validated for existence and
+ownership inside the transaction). `fkUpdate`'s behaviour is not a proof for the direct path.
+
+| Column | Writers | Omit | Detach | Supply |
+| --- | --- | --- | --- | --- |
+| `PrivacySetting.userId` | legacy per-user upsert; direct create; direct patch | patch (never re-assigns) | — | create, against a verified `User` |
+| `DecisionRecord.userId` | legacy upsert; create; edit; worker | edit, worker | — | create |
+| `DecisionRecord.journeyId` | legacy upsert; create; edit; archive detach | edit, worker | archive (Journey deleted) | create |
+| `CooldownItem.userId` | legacy upsert; create; release | release | — | create |
+| `CooldownItem.decisionId` | legacy upsert; create; decision deletion (`SetNull`) | release | only on an authorised decision deletion | create, validated against the decision **and** the same owner |
+| `RealityHandoff.userId` / `journeyId` | legacy upsert; create; share; archive detach | share (both) | archive (Journey only) | create |
+| `TrustedContact.userId` | legacy upsert; create | — | — | create |
+| `MessageToFutureSelf.userId` / `journeyId` | legacy upsert; create; deliver; archive detach | deliver (both) | archive (Journey only) | create |
+| `PersonalSupportPlan.userId` / `journeyId` | legacy upsert; create; update-active; archive detach | update (an unsupplied `journeyId` must not erase the current value) | archive (Journey only) | create, update |
+| `StableSelfProfile.userId` | legacy upsert; owner upsert | update | — | create |
+| `MemoryItem.userId` / `journeyId` | legacy upsert; create; content/status/expiry update; soft delete; archive detach | update, soft delete | archive (Journey only) | create |
+| `RecoverySnapshot.userId` / `journeyId` | legacy upsert; check-in; graduation; archive detach | — (rows are append-only; history is never rewritten) | archive (Journey only) | create |
+
+`MessageToFutureSelf.contextRefId` is a **plain string, not an FK** (`schema.prisma:665–670`). It
+still needs its own rule: validate the referenced type/owner at create, and define what it means
+after the referenced row is deleted. It is not covered by the FK matrix.
+
+### A5 — Memory: the contract, not just the mechanism *(P1-5)*
+
+The technical fixes in S2 stand. What was missing is the contract, and it must be written before
+implementation because the UI does not support it today:
+
+- **Allowed operations per state.** `active`: read, use in AI, edit, extend, disable, delete.
+  `disabled`: read, re-enable, delete. `expired`: read, **delete**, and re-activate only through
+  the explicit re-consent action; **not** editable and **not** usable in AI. `deleted`: nothing —
+  terminal, irreversible, and excluded even if status, dates or consent change later.
+- **Effective expiry while `status='active'`.** The row is not rewritten by a clock; eligibility is
+  decided by the query predicate `status='active' AND "deletedAt" IS NULL AND "expiresAt" >
+  clock_timestamp()`. A later extension therefore cannot revive it, because the extension is
+  refused for a row whose effective state is expired (it must first go through re-consent).
+- **Re-consent.** A dedicated owner-scoped action that sets `status='active'`, a fresh
+  `consentedAt`, and a **future** `expiresAt` in one conditional update; it is the only path from
+  `expired` to `active`, and it is what the plan's "explicit new consent" means. `consentedAt` is
+  the audit of that act and is never carried over from the previous activation.
+- **Delete is terminal.** `status='deleted'` **plus** `deletedAt`; no update path may move a row out
+  of `deleted`.
+- **Required UI change, named here rather than smuggled in:** `MemoryCenter.vue` shows "恢复使用"
+  only for `disabled` and still allows editing an expired row (`MemoryCenter.vue:101–115,307–330`).
+  It must gain the re-consent action for `expired` and lose the edit affordance. That is part of
+  Batch 3 because the design cannot promise a flow the page does not have.
+- **AI linearization.** Eligibility is checked in one owner-scoped query immediately before prompt
+  dispatch, and the design must state which point the check linearizes at: revocation commits
+  either before the query (the memory is excluded) or after dispatch (the in-flight request is
+  allowed to complete and the revocation applies to the next one). It must not claim both.
+
+### A6 — FutureSelf delivery: the notification is part of the claim *(P1-6)*
+
+The review is right that "delivered with a missing notification" cannot distinguish *consent was
+off* from *the notification write failed*, and that the worker currently reads the consent flag
+from the untrusted queue payload before claiming the job (`follow-up-worker.service.ts:34–37`).
+
+**Resolution: remove the ambiguity instead of recording it.**
+
+- The consent flag is read from the **database** inside the claim transaction, not from the payload.
+- When consent is on, the `UserNotification` row is written **in the same transaction as the
+  claim**. A crash after the claim therefore cannot produce "delivered without a notification": the
+  two either both commit or neither does.
+- When consent is off, the delivery deliberately writes no notification. "Delivered with no
+  notification row" then means exactly one thing — consent was off at the decision point — and no
+  reconciler may invent one.
+- A later opt-in does not retroactively notify an already-delivered letter (S5, unchanged).
+- **What "delivered" means to the user is a product statement that must be made explicitly**:
+  either the list state changes, or an in-app reminder appears, or it is only a background
+  timestamp. `FutureSelf.vue:81–88,95–105,129–135` currently shows the letter's content before its
+  due date and says it will arrive "通过提醒送达", which does not match a silent delivery with
+  notifications off. The page copy and the reveal rule are corrected as part of Batch 3.
+
+### A7 — Admin disclosure: an audited read means audit-first *(P1-7)*
+
+S4's direction is right; the review is right that it is a new access policy rather than an existing
+capability, and that `store.audit()` writes only to an in-memory array which a later legacy flush
+persists (`store.service.ts:2718–2739`).
+
+**Required.**
+- **List and search** may match and return only: id, owner id, status, timestamps, counts, and
+  non-sensitive labels. **No plan JSON, no memory content, no full-text matching over private
+  text.** Today the admin support-plan list searches `JSON.stringify(plan)` and the memory list
+  returns `content` (`controllers.ts:2482–2515`); both are removed.
+- **Single-record full content** is a separate owner-scoped-by-role read with its own route. It
+  **persists the `AuditLog` row first and returns the content only if that write committed**; the
+  audit row records who, which record, and why, and **never** contains the private text itself.
+  Returning content whose audit failed is not an audited read.
+- The admin UI stops expanding `plan`/`content` from list rows (`apps/admin/src/views/TablePage.vue:880–897`)
+  and calls the single-record route instead.
+- Negative tests: a list/search response contains no private text for any query string; a
+  single-record read without a committed audit row returns no content; another owner's record is
+  refused.
+
+### A8 — Route-level identity and consent, before any read conversion *(P1-8)*
+
+Several Self routes do not accept a caller identity at all and fall back to the demo user
+(`controllers.ts:665–742,779–795`; `store.service.ts:5453–5455,5551–5555,5658–5666`). Converting
+those reads to owner-scoped SQL does not fix the entry contract, and the migration would look
+complete while the route stayed wrong.
+
+**Required.** A per-route matrix naming, for every Self route: the identity it accepts, the
+ownership check, the consent gate it must pass, and the negative test. A route that cannot accept
+an identity must be corrected or explicitly recorded as single-user-by-design; "the demo user
+happens to be the caller" is not a gate.
+
+**And one degradation defect to fix with it:** `FutureSelf.vue:91–109` loads the letter list and the
+optional recovery context in one `Promise.all`, so turning off `allowRecoveryData` makes the whole
+page show an error even though the letters are independently readable. The optional context must
+degrade on its own; a database-authoritative read does not change that.
+
+### A9 — What this batch does not claim, restated
+
+`DECISION_STATE_PASS` covers the states that exist plus `outcome` as an optional state (A1), **not**
+a mandatory six-state walk. `MEMORY_STATE_PASS` covers the A5 contract including the required UI
+change. No new migration is proposed by this batch: A2's predicates, A3's transaction-level
+idempotency, A5's `deleted` spelling and A6's same-transaction notification all fit the existing
+columns. A migration becomes necessary only if A3 is escalated to a database-enforced uniqueness,
+which is not proposed.
+
+---
+
 
 ---
 
@@ -144,7 +368,7 @@ External AI, Redis and filesystem work never runs inside a long transaction. Loc
 
 **Current: REFUTED if the arrays are removed without the conversions above. Target: NOT YET PROVEN.**
 
-1. **Incoming references.** Every registered Self row except `CooldownItem` and `StableSelfProfile` has a `User` FK; the latter two and privacy are unique per User (`schema.prisma:229–249,587–739`). Nullable Journey FKs exist on Decision, Handoff, FutureSelf, SupportPlan, Memory and Recovery. `CooldownItem.decisionId` references `DecisionRecord` with `onDelete:SetNull` (`:617–618`). FutureSelf `contextRefId` is a **plain string** (`:665–667`), as are the worker payload ids. None may be cleared because a snapshot lacks its source row.
+1. **Incoming references.** Every registered Self row has a `User` FK (`schema.prisma:229–249,587–739`); `StableSelfProfile` and privacy are additionally unique per User. *(Corrected: an earlier version of this paragraph called `CooldownItem` and `StableSelfProfile` exceptions to the `User` FK. They are not — see §0.5/A4.)* Nullable Journey FKs exist on Decision, Handoff, FutureSelf, SupportPlan, Memory and Recovery. `CooldownItem.decisionId` references `DecisionRecord` with `onDelete:SetNull` (`:617–618`). FutureSelf `contextRefId` is a **plain string** (`:665–667`), as are the worker payload ids. None may be cleared because a snapshot lacks its source row.
 2. **Self-target id-set consumers.** `decisionIds` is built from the `decisionRecords` array (`mapper:893`) and filters/resolves `CooldownItem` (`:1788–1809`): after a Decision cutover but before Cooldown, an empty set drops cooldown writes, can null their FK, and the cooldown sweep can delete rows. **Convert Decision + Cooldown as one cutover unit**, or replace that guard with a transaction-scoped, omission-safe database check first. `journeyIds` candidates still include six Self Journey references (`:933–959`); remove only registered candidates as they exit. Existing `User` ids are array-derived (`:897`) — no Self upsert may depend on that array after registration.
 3. **Self sweeps.** Nine collections are swept at `mapper:2466–2500`; all nine must exit. Privacy has no sweep but its upsert default is destructive (§0.1).
 4. **Mapper paths.** Loader `:113–121,573–676`; privacy via `User` `:77,157–174`; saver `:1034–1072,1757–1967`; sweeps `:2466–2500`. `fkUpdate` distinguishes undefined/omitted from explicit null and a supplied candidate (`:790–799`) — do not replace it with `item.journeyId ?? null` on an update. It is **not sufficient** for a stale but *supplied* old Journey id, nor for fields overwritten by an unconditional upsert.
@@ -169,27 +393,47 @@ Leased databases created by tracked `prisma migrate deploy`, two independently i
 | Two simultaneous support-plan saves with no active row; stable-self upserts; recovery check-in vs graduation/archive | at most one active plan if required; no lost profile update; recovery history persists once, retains original signals, is never turned into a diagnosis |
 | Batch 1 archive delete vs a Self create/update with a Journey FK; stale `undefined`, explicit `null`, supplied valid/foreign id; Decision removal vs Cooldown | no surviving FK silently cleared, no deleted Journey resurrected, no Cooldown lost; no unexpected `40P01` |
 | Admin disclosure and owner/safety readback with guessed ids and changed privacy | admin sees only approved fields (§0.4/S4); owner sees only their own full plan; authorised safety readback remains available |
+| Stale/superseded cooldown job firing after the decision was re-cooled; two workers racing the same job; job whose item deadline has not arrived | no early release, no early `ready`, the superseded job closes without moving anything (§0.5/A2) |
+| Duplicate graduation request; two concurrent graduations from separate instances | at most one graduation-derived `RecoverySnapshot` per journey; the second call returns the completed journey and appends nothing (§0.5/A3) |
+| Crash between the delivery claim and the notification; delivery with consent off; delivery with consent on | with consent on the notification is in the claim's transaction, so the pair is atomic; with consent off the absence of a row is the intended state and no reconciler invents one (§0.5/A6) |
+| Every Self route called with a foreign id, and with no identity at all | the §0.5/A8 matrix holds: no route decides ownership from the demo-user fallback |
 
 | Gate | Evidence needed | At reviewed HEAD |
 | --- | --- | --- |
 | `SELF_FULL_FLUSH=false` | SQL trace per operation + forced legacy flush: no snapshot writes/sweeps on the ten tables | **Not established** |
 | `SELF_DUAL_WRITER=false` | complete writer inventory, permitted cross-boundary detaches, worker cutover, SQL trace | **Not established** |
-| `MEMORY_STATE_PASS=true` | four eligibility predicates, the explicit consent/reactivation/deletion contract, expiry/revocation races and guard mutations | **Blocked by S2 (now decided)** |
-| `DECISION_STATE_PASS=true` | reviewed six-state meaning incl. `outcome`, DB-time deadline transition, worker/manual/cooldown races and mutations | **Blocked by S3 (now decided)** |
-| `FUTURE_SELF_QUEUE_PASS=true` | DB/Redis fault injection, periodic reconciliation, restart, duplicate worker, post-claim crash, final-row checks | **Not established** |
-| `PRIVACY_PASS=true` | DB-authoritative settings; the S4 disclosure decision and its negative tests; owner/safety/AI reads under revocation | **Blocked by S4 (now decided)** |
+| `MEMORY_STATE_PASS=true` | four eligibility predicates; the §0.5/A5 contract — allowed operations per state, effective expiry, the explicit re-consent action, irreversible delete, the named `MemoryCenter.vue` change, and the AI linearization point; expiry/revocation races and guard mutations | **Blocked by S2 + A5** |
+| `DECISION_STATE_PASS=true` | the states that exist, plus `outcome` as an **optional** state (§0.5/A1) — **not** a mandatory six-state walk; the §0.5/A2 predicates; DB-time deadline transition; worker/manual/cooldown races and mutations | **Blocked by S3 + A1/A2** |
+| `FUTURE_SELF_QUEUE_PASS=true` | DB/Redis fault injection, periodic reconciliation, restart, duplicate worker, post-claim crash, final-row checks; the §0.5/A6 same-transaction notification and the corrected "what delivered means" copy | **Not established** |
+| `PRIVACY_PASS=true` | DB-authoritative settings; the §0.4/S4 + §0.5/A7 disclosure policy (metadata-only list/search, audit-before-disclosure single-record read) and its negative tests; owner/safety/AI reads under revocation | **Blocked by S4 + A7** |
+| `SELF_ROUTE_IDENTITY_PASS=true` | the §0.5/A8 per-route identity/ownership/consent matrix, with a negative test per route, and the FutureSelf optional-context degradation fix | **Not established** |
 | `MULTI_INSTANCE_SELECTED_FLOWS_PASS=true` | the strict-barrier races above, independent-client rows, DB-only reads, stale flush/reload | **No Batch 3 evidence** |
 
-`PERSISTENCE_BATCH3_STABLE=true` only when all seven hold, the escalations are adjudicated (done here), and an independent review accepts the implementation. This is a **selected Self-flow** claim — not application-wide multi-instance safety, live-AI verification, or any visual/pet-presence result.
+`PERSISTENCE_BATCH3_STABLE=true` only when all eight hold, the escalations are adjudicated (done in
+§0.4 and §0.5), and an independent review accepts the implementation. This is a **selected
+Self-flow** claim — not application-wide multi-instance safety, live-AI verification, or any
+visual/pet-presence result. **`DECISION_STATE_PASS` does not mean the plan's six-state machine is
+implemented** (A1), and **`MEMORY_STATE_PASS` does not mean the re-consent flow is reachable in the
+UI** until the named `MemoryCenter.vue` change lands.
 
 ---
 
 ## 5. Implementation boundary
 
-**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` **only** for an identified atomic graduation/RecoverySnapshot insert or a necessary correction to its existing Self-FK detaches, and targeted Self tests under `tests/business/`. The admin views may change for §0.4/S4.
+**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` **only** for an identified atomic graduation/RecoverySnapshot insert or a necessary correction to its existing Self-FK detaches, and targeted Self tests under `tests/business/`.
 
-**Migration decision.** A DB-time Decision transition, Recovery history and durable FutureSelf scheduling need **no** new migration — current columns and the existing `FollowUpJob` index suffice, and `MemoryItem.status` is already `String`, so a `deleted` spelling needs none. A **new tracked migration is required only if** the approved policy demands a database-enforced constraint or new field (a partial unique active-plan constraint, a per-message queue marker, or re-consent metadata `consentedAt` cannot represent). Never edit an applied migration.
+**Named UI/API contract changes that are part of this batch** (each one is required by a decision above, and none is smuggled in as an incidental persistence fix):
 
-**Must not change:** ownership or behaviour of the eight Batch 1 or five Batch 2 models, general Peer/AI/legacy content, applied migrations, production/development data, fixture/recovery scripts, the transaction timeout, or mini-program presentation as an incidental persistence fix. A genuinely required Self UI/API contract change — particularly explicit memory re-consent, and the §0.4/S4 admin disclosure change — is named here rather than smuggled in.
+| Change | Required by |
+| --- | --- |
+| `MemoryCenter.vue` gains the re-consent action for `expired` and loses the edit affordance for it | §0.5/A5 |
+| `FutureSelf.vue` stops coupling the letter list to the optional recovery context, and its copy/reveal rule matches silent delivery | §0.5/A6, A8 |
+| Admin `TablePage.vue` stops expanding `plan`/`content` from list rows and calls the audited single-record route | §0.4/S4, §0.5/A7 |
+| `MemoryItem.status='deleted'` becomes an accepted value in the app-level type and update validation (the column is already `String`) | §0.4/S2 |
+| Every Self route that silently falls back to the demo user is corrected or explicitly recorded as single-user-by-design | §0.5/A8 |
 
-**Review order:** product decisions (done, §0.4) → reference-safety approval → atomic Decision/Cooldown and FutureSelf/worker boundaries → individual triple exits and DB-only reads → privacy/admin disclosure → strict-barrier races, fault injection and SQL-scope measurement → independent Batch 3 gate.
+**Migration decision.** The §0.5/A2 predicates, A3's transaction-level graduation idempotency, A5's `deleted` spelling and A6's same-transaction notification all fit the existing columns and the existing `FollowUpJob` index — **no new migration is proposed**. A migration becomes necessary only if the approved policy demands a database-enforced constraint or a new field (a partial unique active-plan constraint, a per-message queue marker, or re-consent metadata `consentedAt` cannot represent), and A3 is explicitly **not** escalated to that. Never edit an applied migration.
+
+**Must not change:** ownership or behaviour of the eight Batch 1 or five Batch 2 models, general Peer/AI/legacy content, applied migrations, production/development data, fixture/recovery scripts, the transaction timeout, or mini-program presentation as an incidental persistence fix.
+
+**Review order:** product decisions (§0.4, §0.5) → reference-safety approval → atomic Decision/Cooldown and FutureSelf/worker boundaries → individual triple exits and DB-only reads → route identity matrix → privacy/admin disclosure → strict-barrier races, fault injection and SQL-scope measurement → independent Batch 3 gate. Each predicate in §0.5/A2 and A3 carries a named mutation; a green suite is not the gate.
