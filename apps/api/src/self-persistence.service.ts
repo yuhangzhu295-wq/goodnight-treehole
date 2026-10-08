@@ -809,6 +809,13 @@ export class SelfPersistenceService {
       const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
       if (!existing) throw new NotFoundException('记忆不存在');
       if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (memoryDatePassed(existing)) {
+        // §0.5/A5: an effectively expired row allows read, delete and explicit re-consent only.
+        // Disabling or re-expiring it is not in that set, and allowing it would let an expired row
+        // be moved around as if it were live.
+        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
+      }
       if (memoryDatePassed(existing)) {
         throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
       }
@@ -847,6 +854,13 @@ export class SelfPersistenceService {
       const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
       if (!existing) throw new NotFoundException('记忆不存在');
       if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (memoryDatePassed(existing)) {
+        // §0.5/A5: an effectively expired row allows read, delete and explicit re-consent only.
+        // Disabling or re-expiring it is not in that set, and allowing it would let an expired row
+        // be moved around as if it were live.
+        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
+      }
       const nowTime = new Date();
       const updated = await tx.memoryItem.update({
         where: { id: existing.id },
@@ -865,6 +879,13 @@ export class SelfPersistenceService {
       const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
       if (!existing) throw new NotFoundException('记忆不存在');
       if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (memoryDatePassed(existing)) {
+        // §0.5/A5: an effectively expired row allows read, delete and explicit re-consent only.
+        // Disabling or re-expiring it is not in that set, and allowing it would let an expired row
+        // be moved around as if it were live.
+        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
+      }
       const updated = await tx.memoryItem.update({
         where: { id: existing.id },
         data: { status: 'disabled', updatedAt: new Date() },
@@ -914,6 +935,13 @@ export class SelfPersistenceService {
       const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
       if (!existing) throw new NotFoundException('记忆不存在');
       if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (memoryDatePassed(existing)) {
+        // §0.5/A5: an effectively expired row allows read, delete and explicit re-consent only.
+        // Disabling or re-expiring it is not in that set, and allowing it would let an expired row
+        // be moved around as if it were live.
+        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
+      }
       if (memoryDatePassed(existing)) {
         throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
       }
@@ -972,27 +1000,42 @@ export class SelfPersistenceService {
    * material into a prompt, which is why it does not appear here.
    */
   async listAiEligibleMemories(userId: string, taskType: string, contentType: string): Promise<MemoryItemRecord[]> {
-    const privacy = await this.prisma.privacySetting.findUnique({ where: { userId } });
-    if (privacy?.allowAiMemoryUse !== true) return [];
+    // ONE owner-scoped statement carrying every predicate, including the scope allowlist.
+    //
+    // The earlier version read privacy, then memories, then filtered scope in application code. Two
+    // things were wrong with that, and both are fixed by making it one statement:
+    //   - the consent was read in a *different* statement, so a revocation committing between the
+    //     two reads still let the memory into the prompt. Here the consent is a join predicate of the
+    //     same statement, so the eligibility decision linearizes at that statement.
+    //   - `LIMIT 8` ran before the scope filter, so eight out-of-scope memories could crowd out the
+    //     in-scope ones and the caller would see fewer usable memories than existed. The limit is now
+    //     applied after the scope predicate, by the database.
+    //
+    // The scope booleans are computed here because they depend on the task, not on the row; they are
+    // passed as parameters so the predicate itself stays in SQL.
+    const journeyScope = contentType.toLowerCase().includes('journey');
+    const recoveryScope = taskType === 'recovery_summary';
+    const supportScope = ['support_plan', 'risk_analysis', 'barrier_analysis'].includes(taskType);
 
     const rows = await this.prisma.$queryRaw<any[]>`
-      SELECT * FROM "MemoryItem"
-      WHERE "userId" = ${userId}
-        AND status = 'active'
-        AND "deletedAt" IS NULL
-        AND "expiresAt" > clock_timestamp()
-      ORDER BY "updatedAt" DESC
+      SELECT m.* FROM "MemoryItem" m
+      JOIN "PrivacySetting" p ON p."userId" = m."userId"
+      WHERE m."userId" = ${userId}
+        AND p."allowAiMemoryUse" = true
+        AND m.status = 'active'
+        AND m."deletedAt" IS NULL
+        AND m."expiresAt" > clock_timestamp()
+        AND (
+          m.scope = 'all_ai'
+          OR (m.scope = 'journey' AND ${journeyScope}::boolean)
+          OR (m.scope = 'recovery' AND ${recoveryScope}::boolean)
+          OR (m.scope = 'support' AND ${supportScope}::boolean)
+        )
+      ORDER BY m."updatedAt" DESC
       LIMIT 8
     `;
 
-    const normalizedContentType = contentType.toLowerCase();
-    const scopeAllowed = (scope: string) =>
-      scope === 'all_ai' ||
-      (scope === 'journey' && normalizedContentType.includes('journey')) ||
-      (scope === 'recovery' && taskType === 'recovery_summary') ||
-      (scope === 'support' && ['support_plan', 'risk_analysis', 'barrier_analysis'].includes(taskType));
-
-    return rows.filter((row) => scopeAllowed(row.scope)).map(mapMemoryItemRow);
+    return rows.map(mapMemoryItemRow);
   }
 
   /** Admin list: metadata only, no content — §0.4/S4 applies to memories as well as to plans. */

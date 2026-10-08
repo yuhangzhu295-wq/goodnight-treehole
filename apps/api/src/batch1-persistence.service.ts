@@ -1724,9 +1724,11 @@ export class Batch1PersistenceService {
       // barrier can hold this request while a graduation commits completely. See §0.13 of the Batch
       // 3 design — the ordering claim is proven by a mutation against this interleaving.
       if (hooks._onBeforeLock) await hooks._onBeforeLock();
-      // P0-3: If requested status is 'active', lock the parent User row FIRST before any read that informs the activation decision
+      // §0.5/A4: the owner User is locked first on EVERY status write, not only on activation —
+      // graduation locks User -> LifeJourney unconditionally, so a conditional lock here would put
+      // the two entry points in different orders and re-open the cycle the hierarchy exists to close.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
       if (body.status === 'active') {
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
         const activeCount = await tx.lifeJourney.count({
           where: { userId, status: 'active', id: { not: journeyId } },
         });
@@ -2109,9 +2111,10 @@ export class Batch1PersistenceService {
       if (!journey) throw new NotFoundException('旅程不存在');
       const targetUserId = userId ?? journey.userId;
 
+      // §0.5/A4: lock the owner User first for every target status; the activation check below is
+      // an additional business rule, not the reason the root lock exists.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${targetUserId} FOR UPDATE`);
       if (status === 'active') {
-        // D3: Lock parent User row when activating
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${targetUserId} FOR UPDATE`);
         const activeCount = await tx.lifeJourney.count({
           where: { userId: targetUserId, status: 'active', id: { not: journeyId } },
         });

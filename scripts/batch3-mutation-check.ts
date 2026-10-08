@@ -109,14 +109,22 @@ const mutations = [
     ],
   },
   {
-    id: 'M9 patchJourney: guard before the lock AND an unconditional write (the ordering claim)',
+    id: 'M9 patchJourney: pre-lock read AND an unconditional write (the ordering claim)',
     spec: TRANSITION_SPEC,
     expectFailing: ['1.5'],
     patches: [
       {
+        // The mutant's read must happen BEFORE the barrier. Placing it where the real guard sits
+        // would let it observe the post-graduation status and refuse exactly like the real guard,
+        // so the test would pass against the racy implementation and prove nothing.
+        file: B1,
+        old: '      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      // §0.5/A4: the owner User is locked first on EVERY status write, not only on activation —',
+        new: '      const [preRow] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId}`;\n      const preLockStatus = preRow.status;\n      if (body.status && preLockStatus !== body.status && !(ALLOWED_JOURNEY_TRANSITIONS[preLockStatus] ?? []).includes(body.status)) {\n        throw new BadRequestException("mutation: pre-lock guard");\n      }\n      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      // §0.5/A4: the owner User is locked first on EVERY status write, not only on activation —',
+      },
+      {
         file: B1,
         old: '      // The transition rule runs under the LifeJourney lock, so a graduation committing concurrently\n      // cannot slip between the check and the write.\n      const locked = await lockJourneyAndAssertTransition(tx, journeyId, body.status);',
-        new: '      const [preRow] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId}`;\n      const locked = { status: preRow.status } as any;\n      if (body.status && preRow.status !== body.status && !(ALLOWED_JOURNEY_TRANSITIONS[preRow.status] ?? []).includes(body.status)) {\n        throw new BadRequestException("mutation: pre-lock guard");\n      }',
+        new: '      const locked = { status: preLockStatus } as any;',
       },
       {
         file: B1,
@@ -126,14 +134,19 @@ const mutations = [
     ],
   },
   {
-    id: 'M10 updateJourneyStatus: guard before the lock AND an unconditional write',
+    id: 'M10 updateJourneyStatus: pre-lock read AND an unconditional write',
     spec: TRANSITION_SPEC,
     expectFailing: ['1.6'],
     patches: [
       {
         file: B1,
+        old: '      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });',
+        new: '      const [preRow] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId}`;\n      const preLockStatus = preRow.status;\n      if (preLockStatus !== status && !(ALLOWED_JOURNEY_TRANSITIONS[preLockStatus] ?? []).includes(status)) {\n        throw new BadRequestException("mutation: pre-lock guard");\n      }\n      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });',
+      },
+      {
+        file: B1,
         old: "      // The transition rule runs under the LifeJourney lock (the same helper both entry points use),\n      // and the write is conditional on the status that was read there.\n      const locked = await lockJourneyAndAssertTransition(tx, journeyId, status);\n\n      const updated = await tx.lifeJourney.updateMany({\n        where: { id: journeyId, status: locked.status },\n        data: { status, updatedAt: new Date() },\n      });\n      if (updated.count === 0) {\n        throw new ConflictException('旅程状态已被并发更新，请刷新重试');\n      }",
-        new: '      const [preRow] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId}`;\n      if (preRow.status !== status && !(ALLOWED_JOURNEY_TRANSITIONS[preRow.status] ?? []).includes(status)) {\n        throw new BadRequestException("mutation: pre-lock guard");\n      }\n      await tx.lifeJourney.updateMany({ where: { id: journeyId }, data: { status, updatedAt: new Date() } });',
+        new: '      await tx.lifeJourney.updateMany({ where: { id: journeyId }, data: { status, updatedAt: new Date() } });',
       },
     ],
   },
