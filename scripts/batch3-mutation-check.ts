@@ -392,6 +392,42 @@ const mutations = [
       },
     ],
   },
+  {
+    id: 'M29 private /me aliases: unauthenticated profile request allowed without identity',
+    spec: IDENTITY_SPEC,
+    expectFailing: ['1.13'],
+    patches: [
+      {
+        file: CONTROLLERS,
+        old: "  @Get('me/profile')\n  profile(@Headers('x-goodnight-user-id') userId?: string) {\n    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));\n    const user = this.store.users.find((item) => item.id === runtimeId);\n    return { item: user ?? null };\n  }",
+        new: "  @Get('me/profile')\n  profile(@Headers('x-goodnight-user-id') _userId?: string) {\n    return { item: this.store.users[0] };\n  }",
+      },
+    ],
+  },
+  {
+    id: 'M30 admin token signature: forged bearer token accepted without HMAC verification',
+    spec: ADMIN_DISCLOSURE_SPEC,
+    expectFailing: ['1.7'],
+    patches: [
+      {
+        file: STORE,
+        old: "    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {\n      throw new UnauthorizedException('登录凭证签名无效');\n    }",
+        new: "    // mutation: signature check removed",
+      },
+    ],
+  },
+  {
+    id: 'M31 admin audited read: non-admin role permitted on memory detail read',
+    spec: ADMIN_DISCLOSURE_SPEC,
+    expectFailing: ['1.11'],
+    patches: [
+      {
+        file: CONTROLLERS,
+        old: "  @Get('memory/:id')\n  async memoryDetail(\n    @Headers('authorization') auth: string,\n    @Param('id') id: string,\n  ) {\n    const admin = this.admin(auth, ['super_admin', 'admin']);",
+        new: "  @Get('memory/:id')\n  async memoryDetail(\n    @Headers('authorization') auth: string,\n    @Param('id') id: string,\n  ) {\n    const admin = this.admin(auth);",
+      },
+    ],
+  },
 ];
 
 const countOccurrences = (haystack, needle) => haystack.split(needle).length - 1;

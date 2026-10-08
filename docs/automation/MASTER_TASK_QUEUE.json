@@ -235,25 +235,25 @@
       "id": "B3-R12",
       "phase": "Batch 3 review",
       "priority": "P1",
-      "status": "READY",
+      "status": "WAITING_REVIEW",
       "title": "Private /me aliases still reach demo data",
-      "implemented": "no",
-      "tested": "no",
-      "independentReview": "no",
-      "evidence": "Reviewer: /api/v1/me/letters, /me/diaries, /me/favorites, /me/profile, /me/data still delegate to demo-user reads/writes without an identity check, so R-06 is incomplete.",
-      "nextAction": "Require verified identity before the first read or write on every private alias, with negative tests."
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "All private /me aliases (/me/letters, /me/diaries, /me/diaries/months, POST /me/diaries, /me/favorites, /me/profile, /me/stats, /me/growth-card, /me/data, /me/month-report) require verified caller identity header (401 when absent) and are scoped to caller; tested with negative tests per alias; M29 proven.",
+      "nextAction": "Independent review."
     },
     {
       "id": "B3-R13",
       "phase": "Batch 3 review",
       "priority": "P1",
-      "status": "READY",
+      "status": "WAITING_REVIEW",
       "title": "Admin bearer check accepts a fabricated admin id",
-      "implemented": "no",
-      "tested": "no",
-      "independentReview": "no",
-      "evidence": "Reviewer: verifyToken base64-decodes the value, takes the first field and looks up that admin id, so a fabricated value naming an existing admin passes and the audited read discloses content.",
-      "nextAction": "Verify a server-stored session and enforce the permitted role before the detail read; add forged-token and role tests."
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "Server-issued HMAC-signed admin tokens with 24h TTL; secret loaded from environment with safe 401 refusal when missing; forged, tampered, and expired tokens refused; permitted admin role enforced on audited reads (403 for non-admin); M30 and M31 proven.",
+      "nextAction": "Independent review."
     },
     {
       "id": "B3-R14",
