@@ -1,6 +1,6 @@
 # Autonomous State
 
-**Branch:** `codex/post-recovery-validation`  **HEAD:** `d3cde21` (== origin)
+**Branch:** `codex/post-recovery-validation`  **HEAD:** `bb2a0e2` (== origin)
 **Last verified baseline:** full suite 7 failed / 27 passed files, 8 failed / 183 passed tests;
 `check:baseline-diff` SUCCESS, 0 new regressions. Unit 15/15. Typecheck and lint clean.
 
