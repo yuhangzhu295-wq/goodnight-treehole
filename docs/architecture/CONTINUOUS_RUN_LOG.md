@@ -310,3 +310,35 @@ _(pending)_
 ## PHASE 10 — DAPI live
 
 _(pending)_
+
+## PHASE 2 — Persistence Batch 3 (Self system): design gate PASSED
+
+`docs/architecture/BATCH3_SELF_SYSTEM_DESIGN.md` went through **ten independent review passes**. The
+first returned `REQUEST_CHANGES` with four P0 and four P1 findings; each subsequent pass verified the
+previous revision and found more, and the tenth approved:
+
+> `DESIGN_APPROVED` — "I would approve starting implementation."
+
+**What the ten passes found.** The pattern is the same one Batch 1 and Batch 2 showed: the plan's
+invariants were largely not implemented, and the design had to be corrected against the code rather
+than written from the plan.
+
+| Pass | What it found |
+| --- | --- |
+| 1 | Four escalations (scope, memory terminal state, decision states, admin disclosure) |
+| 2 | The `decided → outcome → archived` step was **inferred from a button label and is wrong** — the page treats the outcome as optional and archives directly; requiring it would break the product's normal action. Also: "use database time" is not a specification; graduation is not idempotent; there is no per-path lock table; the memory contract, the FutureSelf notification obligation, the audited admin read and the route-identity matrix were all missing. |
+| 3 | The cooldown identity had **no representation** (`DecisionRecord` has `cooldownUntil` but no `cooldownId`), so the predicate was undecidable. |
+| 4 | The release was bound to an id rather than an owner+decision; "unique by construction" ignored the cutover; **the completed-journey reopen is an API defect — the product's own copy says a completed journey cannot be restored**; the job kind was misspelled; supersession could be undone by the legacy mapper. |
+| 5 | A **second** reopen path existed (`PATCH /journeys/:id`); the mapper's terminal branch overwrites a terminal DB row from a stale array; an unlinked cooldown is created that way, not only left by a deletion. |
+| 6 | A read-time guard does not close the reopen — it must be a locked conditional write; and the two unlinked-cooldown cases have **opposite** outcomes, distinguishable only by a payload written at creation. |
+| 7 | The guard was `NOT IN ('completed')`, which still let a journey leave `archived`; and that payload was **not** durable, because the legacy mapper rewrites it. |
+| 8 | The mandated test interleaving was **unexecutable as written** (the barrier sat where graduation cannot be running), and same-status requests would have been broken by a blanket refusal. |
+| 9 | The ordering claim was proven only by a refusal, which a racy pre-lock guard also produces. |
+| 10 | The mutation proving that ordering could still leave a protective write predicate in place, so a passing test would not discriminate. |
+
+**Open product questions, recorded and not decided by the implementation:** whether an outcome
+should be required, whether a completed journey may ever reopen, and the re-consent UX detail. Each
+has an implementation default that does not change current product behaviour.
+
+**Gate position.** Design approved; implementation may start. `PERSISTENCE_BATCH3_STABLE` is **not**
+claimed — it requires the eight §4 gates plus an independent review of the implementation.
