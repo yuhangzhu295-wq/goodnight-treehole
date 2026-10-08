@@ -2181,7 +2181,8 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async createJourneyArchiveExport(journeyId: string, userId = this.getDemoUserId()) {
+  async createJourneyArchiveExport(journeyId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
     const archive = await this.journeyArchiveDetail(journeyId, userId);
     const generatedAt = now();
@@ -2751,7 +2752,7 @@ export class StoreService implements OnModuleInit {
    * existing unique constraint meaningful without inventing a preset feature.
    */
   async hugPost(postId: string, requestedUserId?: string) {
-    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
     const post = this.getPost(postId, true);
     const existing = await this.prisma.hugAction.findFirst({ where: { userId, postId } });
     // The displayed count predates this change (seeded posts show values like 28), so the
@@ -2772,7 +2773,7 @@ export class StoreService implements OnModuleInit {
 
   /** Removes this user's hug and re-derives the counter. */
   async unHugPost(postId: string, requestedUserId?: string) {
-    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
     const post = this.getPost(postId, true);
     const rowsBefore = await this.prisma.hugAction.count({ where: { postId } });
     const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
@@ -2811,12 +2812,15 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
-   * The project still uses its existing anonymous runtime identity adapter.
-   * Integration tests may select another persisted anonymous user explicitly;
-   * unknown identifiers are never created as a side effect of a request.
+   * Resolve an anonymous user id for user-scoped endpoints.
+   * R-06: Production requests MUST supply an identity header; requests with no
+   * identity are refused with 401 rather than falling back to demo user.
    */
   resolveRuntimeUserId(requestedUserId?: string) {
-    const userId = requestedUserId?.trim() || this.getDemoUserId();
+    if (!requestedUserId || !requestedUserId.trim()) {
+      throw new UnauthorizedException('缺少用户身份标识');
+    }
+    const userId = requestedUserId.trim();
     if (!/^[a-zA-Z0-9_-]{3,80}$/.test(userId) || !this.users.some((item) => item.id === userId)) {
       throw new NotFoundException('当前匿名会话用户不存在');
     }
@@ -3079,7 +3083,8 @@ export class StoreService implements OnModuleInit {
     return value === '正在整理的一件事' || /^.{1,12}里正在整理的一件事$/.test(value);
   }
 
-  async requireJourney(journeyId: string, userId = this.getDemoUserId()): Promise<LifeJourneyRecord> {
+  async requireJourney(journeyId: string, requestedUserId?: string): Promise<LifeJourneyRecord> {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const journey = await this.batch1Persistence.getJourneyByIdAndUser(journeyId, userId);
     if (!journey) throw new NotFoundException('旅程不存在或无权访问');
     return journey;
@@ -3578,17 +3583,20 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async listJourneyDetails(userId = this.getDemoUserId()) {
+  async listJourneyDetails(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const journeys = await this.batch1Persistence.listJourneysForUser(userId);
     return await Promise.all(journeys.map((j) => this.journeyDetail(j.id, userId)));
   }
 
-  async archiveJourneys(userId = this.getDemoUserId()) {
+  async archiveJourneys(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const journeys = await this.batch1Persistence.listArchivedJourneysForUser(userId);
     return await Promise.all(journeys.map((j) => this.journeyArchiveDetail(j.id, userId)));
   }
 
-  async journeyArchiveDetail(journeyId: string, userId = this.getDemoUserId()) {
+  async journeyArchiveDetail(journeyId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const detail = await this.journeyDetail(journeyId, userId);
     const { journey } = detail;
     if (!['archived', 'completed'].includes(journey.status)) {
@@ -3767,8 +3775,9 @@ export class StoreService implements OnModuleInit {
       intensity?: unknown;
       urgency?: unknown;
     },
+    requestedUserId?: string,
   ) {
-    const journey = await this.requireJourney(journeyId);
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const existingSnapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     if (!existingSnapshot) throw new NotFoundException('情境快照不存在');
     const previousIntensity = existingSnapshot.intensity;
@@ -3872,8 +3881,8 @@ export class StoreService implements OnModuleInit {
     return { item: snapshot };
   }
 
-  async reanalyzeSituation(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async reanalyzeSituation(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     if (!snapshot) throw new NotFoundException('经历指纹不存在');
     const source =
@@ -3912,8 +3921,8 @@ export class StoreService implements OnModuleInit {
     return { job, snapshot: updatedSnapshot };
   }
 
-  async acknowledgeSafety(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async acknowledgeSafety(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const updateId = id('journey_update');
     const { journey: updated } = await this.batch1Persistence.acknowledgeSafety({
       journeyId,
@@ -3947,8 +3956,9 @@ export class StoreService implements OnModuleInit {
   async addJourneyUpdate(
     journeyId: string,
     input: { content?: unknown; kind?: unknown; outcome?: Partial<JourneyOutcome> },
+    requestedUserId?: string,
   ) {
-    const journey = await this.requireJourney(journeyId);
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const outcome = input.outcome ?? {};
     const item = await this.batch1Persistence.addJourneyUpdate(journeyId, journey.userId, {
       id: id('journey_update'),
@@ -3983,8 +3993,13 @@ export class StoreService implements OnModuleInit {
    * request semantics genuinely differ and can be asserted on the AiJob rather than on the
    * generated text.
    */
-  async generateActionPlan(journeyId: string, content?: string, mode: 'initial' | 'smaller' = 'initial') {
-    const journey = await this.requireJourney(journeyId);
+  async generateActionPlan(
+    journeyId: string,
+    content?: string,
+    mode: 'initial' | 'smaller' = 'initial',
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 1);
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     const base = content?.trim() || updates[0]?.content || snapshot?.facts.join('、') || journey.title;
@@ -4113,8 +4128,9 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async requestAdaptiveAction(actionId: string, barrier: ActionBarrier) {
-    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, this.getDemoUserId());
+  async requestAdaptiveAction(actionId: string, barrier: ActionBarrier, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, userId);
     if (!action) throw new NotFoundException('行动不存在');
     const labels: Record<ActionBarrier, string> = {
       forgot: '忘了',
@@ -4140,22 +4156,28 @@ export class StoreService implements OnModuleInit {
   async createAdaptiveAction(
     actionId: string,
     input: { title?: unknown; description?: unknown; barrier?: ActionBarrier; dueAt?: unknown },
+    requestedUserId?: string,
   ) {
-    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, this.getDemoUserId());
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, userId);
     if (!action) throw new NotFoundException('原行动不存在');
     const barrier = input.barrier ?? 'other';
-    return await this.createActionCommitment(action.journeyId, {
-      title: input.title,
-      description: input.description,
-      dueAt: input.dueAt,
-      parentActionId: action.id,
-      adaptationReason: barrier,
-      attemptNumber: (action.attemptNumber ?? 1) + 1,
-    });
+    return await this.createActionCommitment(
+      action.journeyId,
+      {
+        title: input.title,
+        description: input.description,
+        dueAt: input.dueAt,
+        parentActionId: action.id,
+        adaptationReason: barrier,
+        attemptNumber: (action.attemptNumber ?? 1) + 1,
+      },
+      userId,
+    );
   }
 
-  async graduateJourney(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async graduateJourney(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const completed = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
     // Graduation is one-way and reports whether it happened, so the derived snapshot is appended
@@ -4185,11 +4207,11 @@ export class StoreService implements OnModuleInit {
         createdAt: now(),
       });
     await this.persistAndFlush();
-    return { ...(await this.journeyDetail(journeyId)), graduation: await this.graduationSummary(journeyId) };
+    return { ...(await this.journeyDetail(journeyId, journey.userId)), graduation: await this.graduationSummary(journeyId, journey.userId) };
   }
 
-  async graduationSummary(journeyId: string) {
-    const journey = await this.requireJourney(journeyId);
+  async graduationSummary(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     const completedActions = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     const followUps = this.followUpJobs.filter(
       (item) => item.journeyId === journeyId && ['delivered', 'completed'].includes(item.status),
@@ -4205,8 +4227,8 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async saveGraduationConsent(journeyId: string, decision: 'willing' | 'later' | 'no') {
-    const journey = await this.requireJourney(journeyId);
+  async saveGraduationConsent(journeyId: string, decision: 'willing' | 'later' | 'no', requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     if (journey.status !== 'completed') throw new BadRequestException('请先完成这段旅程');
     if (decision !== 'willing') return { decision, graduation: await this.graduationSummary(journeyId), draft: null };
     await this.privacyAllows(journey.userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名经验分享');
@@ -5638,8 +5660,11 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  async createDecision(input: { journeyId?: string; question?: unknown; options?: unknown; criteria?: unknown }) {
-    const userId = this.getDemoUserId();
+  async createDecision(
+    input: { journeyId?: string; question?: unknown; options?: unknown; criteria?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
     const values = (value: unknown) =>
       Array.isArray(value)
@@ -5675,9 +5700,11 @@ export class StoreService implements OnModuleInit {
       outcome?: unknown;
       status?: unknown;
     },
+    requestedUserId?: string,
   ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const item = this.decisionRecords.find(
-      (record) => record.id === decisionId && record.userId === this.getDemoUserId(),
+      (record) => record.id === decisionId && record.userId === userId,
     );
     if (!item) throw new NotFoundException('决策记录不存在');
     const values = (value: unknown) =>
@@ -5719,8 +5746,8 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  async decisionList() {
-    const userId = this.getDemoUserId();
+  async decisionList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     let changed = false;
     for (const item of this.decisionRecords.filter((record) => record.userId === userId)) {
       if (item.status === 'cooling' && item.cooldownUntil && Date.parse(item.cooldownUntil) <= Date.now()) {
@@ -5736,8 +5763,11 @@ export class StoreService implements OnModuleInit {
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
-  async createCooldown(input: { decisionId?: string; title?: unknown; reason?: unknown; hours?: number }) {
-    const userId = this.getDemoUserId();
+  async createCooldown(
+    input: { decisionId?: string; title?: unknown; reason?: unknown; hours?: number },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const decision = input.decisionId
       ? this.decisionRecords.find((item) => item.id === input.decisionId && item.userId === userId)
       : undefined;
@@ -5776,8 +5806,8 @@ export class StoreService implements OnModuleInit {
     return { item, followUp, queue };
   }
 
-  cooldownList() {
-    const userId = this.getDemoUserId();
+  cooldownList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     return this.cooldownItems
       .filter((item) => item.userId === userId)
       .map((item) => ({ ...item, status: Date.parse(item.releaseAt) <= Date.now() ? 'released' : item.status }));
@@ -5880,14 +5910,17 @@ export class StoreService implements OnModuleInit {
     return this.trustedContacts.filter((item) => item.userId === userId && item.enabled);
   }
 
-  async saveFutureMessage(input: {
-    journeyId?: string;
-    contextType?: unknown;
-    contextRefId?: unknown;
-    content?: unknown;
-    deliverAt?: unknown;
-  }) {
-    const userId = this.getDemoUserId();
+  async saveFutureMessage(
+    input: {
+      journeyId?: string;
+      contextType?: unknown;
+      contextRefId?: unknown;
+      content?: unknown;
+      deliverAt?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const legacyJourneyId =
       typeof input.journeyId === 'string' && input.journeyId.trim() ? input.journeyId.trim() : undefined;
     const selectedContextType =
@@ -5957,9 +5990,10 @@ export class StoreService implements OnModuleInit {
     return { item, followUp, queue };
   }
 
-  futureMessageList() {
+  futureMessageList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     return this.messagesToFutureSelf
-      .filter((item) => item.userId === this.getDemoUserId())
+      .filter((item) => item.userId === userId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   }
 

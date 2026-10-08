@@ -15,6 +15,7 @@ import {
   Put,
   Query,
   StreamableFile,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -138,6 +139,14 @@ class AdminAuthGuard implements CanActivate {
 
 function runtimeUserId(header?: string) {
   return header?.trim() || undefined;
+}
+
+function requireRuntimeUserId(header?: string): string {
+  const trimmed = header?.trim();
+  if (!trimmed) {
+    throw new UnauthorizedException('缺少用户身份标识');
+  }
+  return trimmed;
 }
 const FINGERPRINT = {
   gitCommitSha: process.env.GIT_COMMIT_SHA ?? 'unknown',
@@ -305,30 +314,35 @@ export class PublicController {
   }
 
   @Get('journeys')
-  async journeys() {
+  async journeys(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
     return {
-      items: await this.store.listJourneyDetails(),
+      items: await this.store.listJourneyDetails(runtimeId),
     };
   }
 
   @Get('archive/journeys')
   async archiveJourneys(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.archiveJourneys(runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.archiveJourneys(runtimeId) };
   }
 
   @Get('archive/journeys/:id')
   async archiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: await this.store.journeyArchiveDetail(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.journeyArchiveDetail(id, runtimeId) };
   }
 
   @Post('archive/journeys/:id/export')
   async exportArchiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: await this.store.createJourneyArchiveExport(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.createJourneyArchiveExport(id, runtimeId) };
   }
 
   @Post('archive/journeys/:id/restore')
   async restoreArchiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.restoreArchivedJourney(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.restoreArchivedJourney(id, runtimeId);
   }
 
   @Delete('archive/journeys/:id')
@@ -338,7 +352,8 @@ export class PublicController {
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
     if (body.confirmation !== 'DELETE_ARCHIVE') throw new BadRequestException('请完成第二次确认后再删除归档');
-    return await this.store.deleteJourneyArchive(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.deleteJourneyArchive(id, runtimeId);
   }
 
   @Post('journeys')
@@ -359,7 +374,8 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.createJourney(body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createJourney(body, runtimeId);
   }
 
   @Post('testing/cleanup-browser-fixtures')
@@ -380,12 +396,14 @@ export class PublicController {
 
   @Get('journeys/:id')
   async journey(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: await this.store.journeyDetail(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.journeyDetail(id, runtimeId) };
   }
 
   @Get('journeys/:id/fingerprint')
   async journeyFingerprint(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: await this.store.fingerprint(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.fingerprint(id, runtimeId) };
   }
 
   @Patch('journeys/:id/intent')
@@ -395,7 +413,8 @@ export class PublicController {
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
     if (!body.intent) throw new BadRequestException('请选择你现在最需要的支持');
-    return await this.store.setJourneyIntent(id, body.intent, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.setJourneyIntent(id, body.intent, runtimeId);
   }
 
   @Patch('journeys/:id')
@@ -410,7 +429,7 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userIdHeader?: string,
   ) {
-    const callerId = runtimeUserId(userIdHeader);
+    const callerId = requireRuntimeUserId(userIdHeader);
     const item = await this.store.patchJourney(id, body, callerId);
     if (body.status && !body.title && !body.summary) {
       return { journey: item };
@@ -440,8 +459,10 @@ export class PublicController {
       intensity?: number;
       urgency?: number;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.confirmSituation(id, body);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.confirmSituation(id, body, runtimeId);
   }
 
   @Post('journeys/:id/snapshots')
@@ -466,32 +487,43 @@ export class PublicController {
       intensity?: number;
       urgency?: number;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.confirmSituation(id, body);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.confirmSituation(id, body, runtimeId);
   }
 
   @Post('journeys/:id/situation/reanalyze')
-  async reanalyzeSituation(@Param('id') id: string) {
-    return await this.store.reanalyzeSituation(id);
+  async reanalyzeSituation(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.reanalyzeSituation(id, runtimeId);
   }
 
   @Post('journeys/:id/safety/acknowledge')
-  async acknowledgeSafety(@Param('id') id: string) {
-    return await this.store.acknowledgeSafety(id);
+  async acknowledgeSafety(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.acknowledgeSafety(id, runtimeId);
   }
 
   @Post('journeys/:id/updates')
   async journeyUpdate(
     @Param('id') id: string,
     @Body() body: { content?: string; kind?: string; outcome?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.addJourneyUpdate(id, body);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.addJourneyUpdate(id, body, runtimeId);
   }
 
   @Post('journeys/:id/action-plan')
-  async actionPlan(@Param('id') id: string, @Body() body: { content?: string; mode?: 'initial' | 'smaller' }) {
+  async actionPlan(
+    @Param('id') id: string,
+    @Body() body: { content?: string; mode?: 'initial' | 'smaller' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
     const mode = body.mode === 'smaller' ? 'smaller' : 'initial';
-    return await this.store.generateActionPlan(id, body.content, mode);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.generateActionPlan(id, body.content, mode, runtimeId);
   }
 
   @Post('journeys/:id/actions')
@@ -500,34 +532,48 @@ export class PublicController {
     @Body() body: { title?: string; description?: string; dueAt?: string; reminderAt?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.createActionCommitment(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createActionCommitment(id, body, runtimeId);
   }
 
   @Get('journeys/:id/actions')
   async journeyActions(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.journeyActions(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.journeyActions(id, runtimeId) };
   }
 
   @Get('journeys/:id/timeline')
   async journeyTimeline(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.journeyTimeline(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.journeyTimeline(id, runtimeId) };
   }
 
   @Patch('journeys/:id/status')
-  async journeyStatus(@Param('id') id: string, @Body() body: { status: 'active' | 'paused' | 'archived' }) {
-    return await this.store.updateJourneyStatus(id, body.status);
+  async journeyStatus(
+    @Param('id') id: string,
+    @Body() body: { status: 'active' | 'paused' | 'archived' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updateJourneyStatus(id, body.status, runtimeId);
   }
 
   @Post('journeys/:id/graduate')
-  async graduate(@Param('id') id: string) {
-    return await this.store.graduateJourney(id);
+  async graduate(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.graduateJourney(id, runtimeId);
   }
 
   @Post('journeys/:id/graduation-consent')
-  async graduationConsent(@Param('id') id: string, @Body() body: { decision?: 'willing' | 'later' | 'no' }) {
+  async graduationConsent(
+    @Param('id') id: string,
+    @Body() body: { decision?: 'willing' | 'later' | 'no' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
     if (!body.decision || !['willing', 'later', 'no'].includes(body.decision))
       throw new BadRequestException('请选择是否匿名分享');
-    return await this.store.saveGraduationConsent(id, body.decision);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.saveGraduationConsent(id, body.decision, runtimeId);
   }
 
   @Post('actions/:id/checkin')
@@ -544,7 +590,8 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.checkinAction(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.checkinAction(id, body, runtimeId);
   }
 
   @Post('actions/:id/checkins')
@@ -561,12 +608,14 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.checkinAction(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.checkinAction(id, body, runtimeId);
   }
 
   @Get('peers')
   async peers(@Headers('x-goodnight-user-id') userId?: string, @Query('matchId') matchId?: string) {
-    return { item: await this.store.peerNetwork(runtimeUserId(userId), matchId) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.peerNetwork(runtimeId, matchId) };
   }
 
   @Post('peer-experiences')
@@ -583,17 +632,20 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.createPeerExperience(body.journeyId, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createPeerExperience(body.journeyId, body, runtimeId);
   }
 
   @Post('journeys/:id/peer-matches')
   async peerMatches(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.suggestPeerMatches(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.suggestPeerMatches(id, runtimeId);
   }
 
   @Get('journeys/:id/peers')
   async journeyPeers(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.journeyPeers(id, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.journeyPeers(id, runtimeId) };
   }
 
   @Patch('peer-matches/:id')
@@ -607,7 +659,8 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.updatePeerMatch(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updatePeerMatch(id, body, runtimeId);
   }
 
   @Post('peer-matches/:id/respond')
@@ -616,17 +669,20 @@ export class PublicController {
     @Body() body: { status: 'connected' | 'declined' | 'blocked' },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.updatePeerMatch(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updatePeerMatch(id, body, runtimeId);
   }
 
   @Post('peer-matches/:id/consent')
   async peerMatchConsent(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.startPeerConversation(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.startPeerConversation(id, runtimeId);
   }
 
   @Get('peer-requests')
   async peerRequests(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.peerRequestList(runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.peerRequestList(runtimeId) };
   }
 
   @Patch('peer-experiences/:id')
@@ -643,35 +699,49 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.updatePeerExperience(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updatePeerExperience(id, body, runtimeId);
   }
 
   @Get('peer-experiences/:id')
   async peerExperience(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { item: await this.store.peerExperienceDetail(id, this.store.resolveRuntimeUserId(runtimeUserId(userId))) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.peerExperienceDetail(id, this.store.resolveRuntimeUserId(runtimeId)) };
   }
 
   @Post('actions/:id/adaptive-plan')
-  async adaptivePlan(@Param('id') id: string, @Body() body: { barrier: ActionBarrier }) {
-    return await this.store.requestAdaptiveAction(id, body.barrier);
+  async adaptivePlan(
+    @Param('id') id: string,
+    @Body() body: { barrier: ActionBarrier },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.requestAdaptiveAction(id, body.barrier, runtimeId);
   }
 
   @Post('actions/:id/adapt')
   async adaptiveAction(
     @Param('id') id: string,
     @Body() body: { title?: string; description?: string; barrier?: ActionBarrier; dueAt?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.createAdaptiveAction(id, body);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createAdaptiveAction(id, body, runtimeId);
   }
 
   @Post('decisions')
-  async decision(@Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[] }) {
-    return await this.store.createDecision(body);
+  async decision(
+    @Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[] },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createDecision(body, runtimeId);
   }
 
   @Get('decisions')
-  async decisions() {
-    return { items: await this.store.decisionList() };
+  async decisions(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.decisionList(runtimeId) };
   }
 
   @Patch('decisions/:id')
@@ -686,18 +756,25 @@ export class PublicController {
       outcome?: string;
       status?: string;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.updateDecision(id, body);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updateDecision(id, body, runtimeId);
   }
 
   @Post('cooldowns')
-  async cooldown(@Body() body: { decisionId?: string; title?: string; reason?: string; hours?: number }) {
-    return await this.store.createCooldown(body);
+  async cooldown(
+    @Body() body: { decisionId?: string; title?: string; reason?: string; hours?: number },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createCooldown(body, runtimeId);
   }
 
   @Get('cooldown')
-  cooldowns() {
-    return { items: this.store.cooldownList() };
+  cooldowns(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: this.store.cooldownList(runtimeId) };
   }
 
   @Post('handoffs')
@@ -705,7 +782,7 @@ export class PublicController {
     @Body() body: { journeyId?: string; recipient?: string; channel?: string; summary?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.RealityHandoff) {
       const item = await this.selfPersistence.createRealityHandoff({
         userId: runtimeId,
@@ -721,7 +798,7 @@ export class PublicController {
 
   @Post('handoffs/:id/share')
   async shareHandoff(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.RealityHandoff) {
       const item = await this.selfPersistence.shareRealityHandoff(id, runtimeId);
       return { item };
@@ -731,7 +808,7 @@ export class PublicController {
 
   @Get('handoffs')
   async handoffs(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.RealityHandoff) {
       const items = await this.selfPersistence.listRealityHandoffs(runtimeId);
       return { items };
@@ -744,7 +821,7 @@ export class PublicController {
     @Body() body: { nickname?: string; relation?: string; contactHint?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.TrustedContact) {
       const item = await this.selfPersistence.createTrustedContact({
         userId: runtimeId,
@@ -759,7 +836,7 @@ export class PublicController {
 
   @Get('trusted-contacts')
   async trustedContacts(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.TrustedContact) {
       const items = await this.selfPersistence.listTrustedContacts(runtimeId);
       return { items };
@@ -777,13 +854,16 @@ export class PublicController {
       content?: string;
       deliverAt?: string;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveFutureMessage(body);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.saveFutureMessage(body, runtimeId);
   }
 
   @Get('future-messages')
-  futureMessages() {
-    return { items: this.store.futureMessageList() };
+  futureMessages(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: this.store.futureMessageList(runtimeId) };
   }
 
   @Post('support-plans')
@@ -791,7 +871,7 @@ export class PublicController {
     @Body() body: { journeyId?: string | null; title?: string; plan?: Record<string, unknown> },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.PersonalSupportPlan) {
       const item = await this.selfPersistence.saveSupportPlan({
         userId: runtimeId,
@@ -806,7 +886,7 @@ export class PublicController {
 
   @Get('me/support-plan')
   async supportPlanCurrent(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.PersonalSupportPlan) {
       const item = await this.selfPersistence.getSupportPlan(runtimeId);
       return { item };
@@ -824,7 +904,7 @@ export class PublicController {
 
   @Get('me/stable-self')
   async stableSelfProfile(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.StableSelfProfile) {
       const item = await this.selfPersistence.getStableSelfProfile(runtimeId);
       return { item };
@@ -837,7 +917,7 @@ export class PublicController {
     @Body() body: { profile?: Record<string, unknown> },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.StableSelfProfile) {
       const item = await this.selfPersistence.saveStableSelfProfile({
         userId: runtimeId,
@@ -850,7 +930,7 @@ export class PublicController {
 
   @Get('me/recovery')
   async recovery(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     return { items: await this.store.recoveryList(runtimeId) };
   }
 
@@ -859,7 +939,7 @@ export class PublicController {
     @Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.RecoverySnapshot) {
       const item = await this.selfPersistence.appendRecoverySnapshot({
         userId: runtimeId,
@@ -879,18 +959,21 @@ export class PublicController {
 
   @Get('notifications')
   async notifications(@Headers('x-goodnight-user-id') userId?: string) {
-    const items = await this.store.notificationList(runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    const items = await this.store.notificationList(runtimeId);
     return { items, unreadCount: items.filter((item) => item.status === 'unread').length };
   }
 
   @Patch('notifications/:id/read')
   async readNotification(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.readNotification(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.readNotification(id, runtimeId);
   }
 
   @Get('peer-conversations')
   async peerConversations(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.conversationList(runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.conversationList(runtimeId) };
   }
 
   @Post('peer-conversations/:matchId/messages')
@@ -899,7 +982,8 @@ export class PublicController {
     @Body() body: { content?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.sendPeerMessage(matchId, body.content, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.sendPeerMessage(matchId, body.content, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/assist')
@@ -908,12 +992,14 @@ export class PublicController {
     @Body() body: { content?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.requestPeerResponseAssist(matchId, body.content, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.requestPeerResponseAssist(matchId, body.content, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/close')
   async closePeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.closePeerConversation(matchId, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.closePeerConversation(matchId, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/report')
@@ -922,12 +1008,14 @@ export class PublicController {
     @Body() body: { reason?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.reportPeerConversation(matchId, body.reason, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.reportPeerConversation(matchId, body.reason, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/block')
   async blockPeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.blockPeerConversation(matchId, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.blockPeerConversation(matchId, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/feedback')
@@ -936,17 +1024,19 @@ export class PublicController {
     @Body() body: { feedback?: string; note?: string; shareLater?: boolean },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.savePeerConversationFeedback(matchId, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.savePeerConversationFeedback(matchId, body, runtimeId);
   }
 
   @Get('memory')
   async memories(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.memoryList(false, runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.memoryList(false, runtimeId) };
   }
 
   @Get('me/memories')
   async memoriesAlias(@Headers('x-goodnight-user-id') userId?: string) {
-    const targetUserId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const targetUserId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     const userJobs = DIRECT_DB_MODELS.AIJob
       ? await this.batch1Persistence.listAiJobsForUser(targetUserId)
       : this.store.aiJobs.filter((job) => job.userId === targetUserId);
@@ -977,7 +1067,8 @@ export class PublicController {
     },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveMemory({ ...body, source: 'user_saved' }, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.saveMemory({ ...body, source: 'user_saved' }, runtimeId);
   }
 
   @Patch('me/memories/:id')
@@ -986,17 +1077,20 @@ export class PublicController {
     @Body() body: { title?: string; content?: string; days?: number; scope?: string; status?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.updateMemory(id, body, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updateMemory(id, body, runtimeId);
   }
 
   @Delete('memory/:id')
   async deleteMemory(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.deleteMemory(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.deleteMemory(id, runtimeId);
   }
 
   @Delete('me/memories/:id')
   async deleteMemoryAlias(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.deleteMemory(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.deleteMemory(id, runtimeId);
   }
 
   /**
@@ -1010,7 +1104,8 @@ export class PublicController {
     @Body() body: { days?: number },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.reactivateMemory(id, body?.days, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.reactivateMemory(id, body?.days, runtimeId);
   }
 
   @Get('posts/:id')
@@ -1854,7 +1949,7 @@ export class PublicController {
 
   @Get('settings/privacy')
   async privacy(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     if (DIRECT_DB_MODELS.PrivacySetting) {
       const item = await this.selfPersistence.getPrivacySettings(runtimeId);
       return { item };
@@ -1874,7 +1969,7 @@ export class PublicController {
 
   @Put('settings/privacy')
   async updatePrivacy(@Body() body: Partial<PrivacySetting>, @Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     const allowedKeys = [
       'defaultVisibility',
       'allowAnonymousPublic',
