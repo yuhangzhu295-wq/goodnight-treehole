@@ -1366,18 +1366,30 @@ export class SelfPersistenceService {
       // Requirement 3: The supersede rule
       // A new decision supersedes the previous open one for the same subject, atomically, in the same transaction.
       // Two concurrent supersedes must not both win. Use a conditional write (CAS) and return a conflict.
-      const subjectKey = (params.subject?.trim() || trimmedQuestion).trim();
-      const openWhere: Prisma.DecisionRecordWhereInput = {
-        userId: params.userId,
-        status: { in: ['draft', 'cooling', 'ready'] },
-        ...(params.supersedesId ? { id: params.supersedesId } : { question: subjectKey }),
-        ...(journeyIdSpecified && suppliedJourneyId ? { journeyId: suppliedJourneyId } : {}),
-      };
-
-      const previousOpen = await tx.decisionRecord.findFirst({
-        where: openWhere,
-        orderBy: { updatedAt: 'desc' },
-      });
+      let previousOpen: any = null;
+      if (params.supersedesId) {
+        const target = await tx.decisionRecord.findFirst({
+          where: { id: params.supersedesId, userId: params.userId },
+        });
+        if (!target) {
+          throw new NotFoundException('决策记录不存在或无权访问');
+        }
+        if (!['draft', 'cooling', 'ready'].includes(target.status)) {
+          throw new ConflictException('该决策已被并发更新或取代');
+        }
+        previousOpen = target;
+      } else {
+        const subjectKey = (params.subject?.trim() || trimmedQuestion).trim();
+        previousOpen = await tx.decisionRecord.findFirst({
+          where: {
+            userId: params.userId,
+            question: subjectKey,
+            status: { in: ['draft', 'cooling', 'ready'] },
+            ...(journeyIdSpecified && suppliedJourneyId ? { journeyId: suppliedJourneyId } : {}),
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+      }
 
       if (previousOpen) {
         // CAS update: conditional on the status read under the lock
@@ -1502,9 +1514,9 @@ export class SelfPersistenceService {
 
       if (journeyIdSpecified) {
         if (patch.journeyId === null) {
-          updateData.journey = { disconnect: true };
+          updateData.journeyId = null;
         } else if (suppliedJourneyId) {
-          updateData.journey = { connect: { id: suppliedJourneyId } };
+          updateData.journeyId = suppliedJourneyId;
         }
       }
 
