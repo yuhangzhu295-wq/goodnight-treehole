@@ -15,6 +15,8 @@ export interface BaselineFailureEntry {
 
 export interface BaselineDiffResult {
   isRegression: boolean;
+  previousRunFailureCount?: number | null;
+  newSinceLastRun?: ActualFailure[];
   totalActualFailures: number;
   knownFailuresCount: number;
   newRegressionsCount: number;
@@ -155,7 +157,68 @@ export function checkBaselineDiff(customReportPath?: string, customBaselinePath?
   const baselineMarkdown = fs.readFileSync(baselinePath, 'utf8');
   const baselineEntries = parseBaselineFailures(baselineMarkdown);
 
-  return compareFailuresAgainstBaseline(actualFailures, baselineEntries);
+  const result = compareFailuresAgainstBaseline(actualFailures, baselineEntries);
+  const { previousCount, newSinceLastRun } = compareWithPreviousRun(actualFailures);
+
+  return {
+    ...result,
+    previousRunFailureCount: previousCount,
+    newSinceLastRun,
+    // A failure that was passing in the previous run is a regression whatever the original set says,
+    // so the verdict is the union of the two comparisons.
+    isRegression: result.isRegression || newSinceLastRun.length > 0,
+  };
+}
+
+/**
+ * Compare this run's failures against the **previous run's** failures.
+ *
+ * The original-set comparison alone has a blind spot that hid a real regression: the baseline is a
+ * *set* of twelve test names from before Batch 1, so a test that had been passing for several batches
+ * and then broke again is "known" — the gate reported 0 new regressions while the failure count grew
+ * from 8 to 10. Membership in the original set is not evidence that a test is *still* supposed to
+ * fail.
+ *
+ * This records the failing set on disk after each check, so the next run can tell "the same failures
+ * as last time" from "a test that was passing last time and is not now". A failure that was passing
+ * in the previous run is a regression whatever the original baseline says.
+ */
+const LAST_RUN_PATH = () => path.resolve(path.resolve(__dirname, '..'), 'artifacts', 'runtime', 'last-run-failures.json');
+
+function failureKey(file: string, title: string): string {
+  return `${path.basename(file)}::${normalizeTitle(title)}`;
+}
+
+export function compareWithPreviousRun(actualFailures: ActualFailure[]): {
+  previousCount: number | null;
+  newSinceLastRun: ActualFailure[];
+} {
+  const lastRunPath = LAST_RUN_PATH();
+  let previousKeys: string[] | null = null;
+  let previousCount: number | null = null;
+  if (fs.existsSync(lastRunPath)) {
+    try {
+      const previous = JSON.parse(fs.readFileSync(lastRunPath, 'utf8'));
+      if (Array.isArray(previous.keys)) previousKeys = previous.keys as string[];
+      if (typeof previous.count === 'number') previousCount = previous.count;
+    } catch {
+      previousKeys = null;
+    }
+  }
+
+  const currentKeys = actualFailures.map((f) => failureKey(f.file, f.title));
+  const newSinceLastRun =
+    previousKeys === null
+      ? []
+      : actualFailures.filter((f) => !previousKeys!.includes(failureKey(f.file, f.title)));
+
+  fs.mkdirSync(path.dirname(lastRunPath), { recursive: true });
+  fs.writeFileSync(
+    lastRunPath,
+    JSON.stringify({ count: actualFailures.length, keys: currentKeys, recordedAt: new Date().toISOString() }, null, 2),
+  );
+
+  return { previousCount, newSinceLastRun };
 }
 
 // CLI execution entry point
@@ -183,6 +246,8 @@ function runCli() {
     console.log(`Total Failures in Suite Run: ${result.totalActualFailures}`);
     console.log(`Known Baseline Failures:     ${result.knownFailuresCount}`);
     console.log(`New Regressions:             ${result.newRegressionsCount}`);
+    console.log(`Previous Run Failures:       ${result.previousRunFailureCount ?? "(no record)"}`);
+    console.log(`New Since Previous Run:      ${result.newSinceLastRun?.length ?? 0}`);
     console.log('--------------------------------------------------------------------------------');
 
     if (result.knownFailures.length > 0) {
@@ -197,6 +262,16 @@ function runCli() {
       for (const u of result.unmatchedBaseline) {
         console.log(`  + [RESOLVED/PASSING] ${u.file} -> ${u.title}`);
       }
+    }
+
+    const newSince = result.newSinceLastRun ?? [];
+    if (newSince.length > 0) {
+      console.error(`
+[baseline-diff] REGRESSION DETECTED: ${newSince.length} test(s) were PASSING in the previous run and are failing now.`);
+      for (const reg of newSince) {
+        console.error(`  × [REGRESSED SINCE LAST RUN] ${reg.file} -> ${reg.title}`);
+      }
+      process.exit(1);
     }
 
     if (result.newRegressions.length > 0) {
