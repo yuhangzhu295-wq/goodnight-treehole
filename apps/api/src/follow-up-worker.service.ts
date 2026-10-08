@@ -133,27 +133,53 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
    * already gone, or the connection has already been quit, that wait does not necessarily end:
    * measured here as an `app.close()` that never returned, which surfaced as a test file failing
    * with zero failing tests. A shutdown that can hang forever is worse than one that drops the
-   * socket, so the graceful attempt is bounded and a hard `disconnect()` is the fallback. The
-   * fallback is reported, not silent.
+   * socket, so the graceful attempt is bounded and a forced close is the fallback. The fallback is
+   * reported to stderr, not silent.
+   *
+   * Interruption window this opens: `deliver()` claims a job as `delivered` in one transaction and
+   * writes its notification in a second. A forced close between the two loses that notification
+   * while the job already reads `delivered`, so a retry will not re-deliver it. That ordering is
+   * pre-existing; what this change adds is a bounded moment at which it can be interrupted instead
+   * of an unbounded hang. Closing it properly means making the notification part of the claim
+   * transaction, which is a change to the follow-up delivery path and is not made here.
    */
-  private async closeBounded(label: string, graceful: () => Promise<unknown>, hardClose: () => void) {
+  private async closeBounded(label: string, graceful: () => Promise<unknown>, forced: () => Promise<void> | void) {
     const budgetMs = 3000;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Deliberately NOT unref'd: the point of the bound is that it always fires. An unref'd timer
+    // would let an otherwise idle process exit before the forced close runs.
     const expired = new Promise<'expired'>((resolve) => {
       timer = setTimeout(() => resolve('expired'), budgetMs);
-      timer.unref?.();
     });
     try {
       const outcome = await Promise.race([graceful().then(() => 'closed' as const), expired]);
       if (outcome === 'expired') {
-        console.error(`[follow-up-worker] ${label} did not finish within ${budgetMs}ms; forcing disconnect`);
-        hardClose();
+        console.error(`[follow-up-worker] ${label} did not finish within ${budgetMs}ms; forcing close`);
+        this.forceClose(forced);
       }
     } catch (error) {
-      console.error(`[follow-up-worker] ${label} failed (${(error as Error).message}); forcing disconnect`);
-      hardClose();
+      console.error(`[follow-up-worker] ${label} failed (${(error as Error).message}); forcing close`);
+      this.forceClose(forced);
     } finally {
       if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The forced close is started but NOT awaited.
+   *
+   * Awaiting it would defeat the bound this method exists to provide: the forced path calls into
+   * the same Redis client layer that just failed to close, so it can stall for the same reason.
+   * A shutdown that has already exceeded its budget has to return; the socket is released when the
+   * process exits. Failures are still reported rather than swallowed.
+   */
+  private forceClose(forced: () => Promise<void> | void) {
+    try {
+      void Promise.resolve(forced()).catch((error) => {
+        console.error(`[follow-up-worker] forced close failed: ${(error as Error).message}`);
+      });
+    } catch (error) {
+      console.error(`[follow-up-worker] forced close threw: ${(error as Error).message}`);
     }
   }
 
@@ -161,7 +187,17 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     await this.closeBounded(
       'worker.close',
       () => this.worker?.close() ?? Promise.resolve(),
-      () => this.worker?.disconnect(),
+      async () => {
+        // A BullMQ Worker holds TWO Redis connections: the main one and a duplicated blocking one
+        // (`worker.blockingConnection`). The inherited `disconnect()` only touches the main
+        // connection, so the blocking connection is closed explicitly — with `force`, so it does
+        // not wait on the socket it is being closed for.
+        await this.worker?.disconnect();
+        const worker = this.worker as unknown as {
+          blockingConnection?: { close?: (force?: boolean) => Promise<void> };
+        };
+        await worker?.blockingConnection?.close?.(true);
+      },
     );
     await this.closeBounded(
       'connection.quit',

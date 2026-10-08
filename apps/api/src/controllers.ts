@@ -563,8 +563,8 @@ export class PublicController {
   }
 
   @Get('peers')
-  async peers(@Headers('x-goodnight-user-id') userId?: string) {
-    return { item: await this.store.peerNetwork(runtimeUserId(userId)) };
+  async peers(@Headers('x-goodnight-user-id') userId?: string, @Query('matchId') matchId?: string) {
+    return { item: await this.store.peerNetwork(runtimeUserId(userId), matchId) };
   }
 
   @Post('peer-experiences')

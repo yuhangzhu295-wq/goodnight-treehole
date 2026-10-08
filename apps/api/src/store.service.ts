@@ -4232,7 +4232,7 @@ export class StoreService implements OnModuleInit {
     return { item: this.peerExperienceSummary(created, updateCount, checkinCount) };
   }
 
-  async peerNetwork(requestedUserId?: string) {
+  async peerNetwork(requestedUserId?: string, focusMatchId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     const privacyEnabled = this.privacySettings[userId]?.allowPeerMatching === true;
     if (!privacyEnabled) return { privacyEnabled: false, experiences: [], matches: [], limited: false };
@@ -4250,8 +4250,7 @@ export class StoreService implements OnModuleInit {
     // id in this list, and a match a user has just been navigated to may not be among their three
     // highest-scoring ones, so a bare slice made those pages render their empty fallback. The three
     // highest-scoring matches come first (the network page renders exactly those), followed by the
-    // user's other in-flight matches — the ones the waiting/consent pages actually look up. The
-    // whole list is capped so the response stays bounded.
+    // user's other in-flight matches.
     const PEER_NETWORK_MATCH_LIMIT = 50;
     const sortedMatches = userMatches.sort((a, b) => b.score - a.score);
     const selectedMatches = sortedMatches.slice(0, 3);
@@ -4260,7 +4259,16 @@ export class StoreService implements OnModuleInit {
       if (selectedMatches.includes(match)) continue;
       selectedMatches.push(match);
     }
-    const topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);
+    let topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);
+
+    // A cap alone cannot guarantee that the page which was navigated to with a specific matchId can
+    // still find it: with enough in-flight matches, the target falls past the cap and the page
+    // renders its empty fallback. `focusMatchId` makes reachability independent of the cap — the
+    // requested match is included if it belongs to this user, even when the discovery list drops it.
+    if (focusMatchId && !topMatches.some((match) => match.id === focusMatchId)) {
+      const focused = sortedMatches.find((match) => match.id === focusMatchId);
+      if (focused) topMatches = [...topMatches, focused];
+    }
     const matchExpIds = topMatches.map((m) => m.peerExperienceId);
     const matchExps = DIRECT_DB_MODELS.PeerExperience
       ? await this.peerPersistence.getExperiencesByIds(matchExpIds)

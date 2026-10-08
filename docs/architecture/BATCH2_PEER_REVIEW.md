@@ -115,6 +115,13 @@ Notification-failure semantics must be stated explicitly: a failure after a comm
 transition leaves the peer state committed plus a **retryable notification obligation** — it must
 not be reported as an atomic failure, and the partial delivery must be exposed or logged.
 
+> **Recorded correction (post-fix).** The word "retryable" above is the reviewer's original
+> wording and is left as written so this document stays the record of what was raised. The
+> implemented semantics are narrower: the failure is recorded in process, reported as
+> `notificationPending` on the operations that have a response, and **nothing retries**. A
+> deterministic notification id makes an attempted retry idempotent; it does not create one, and
+> the expiry sweep has no response channel. See `BATCH2_LOCK_ORDER.md` §4.
+
 ## What the review confirmed as correct
 
 Recorded so the fixes do not disturb working behaviour:

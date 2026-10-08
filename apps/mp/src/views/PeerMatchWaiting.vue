@@ -27,7 +27,13 @@ const bothConsented = computed(() => Boolean(hasRequesterConsented.value && hasO
 
 async function load() {
   try {
-    const payload = (await api.get<{ item: { matches: Match[] } }>('/api/v1/peers')).item;
+    // `matchId` is passed so the server includes this match even when the capped discovery list
+    // would have dropped it — otherwise the page falls back to its empty state.
+    const payload = (
+      await api.get<{ item: { matches: Match[] } }>(
+        `/api/v1/peers?matchId=${encodeURIComponent(matchId.value)}`,
+      )
+    ).item;
     match.value = payload.matches.find((item) => item.id === matchId.value) ?? null;
     if (match.value?.status === 'connected') {
       const conversations = await api.get<{ items: Array<{ matchId: string }> }>('/api/v1/peer-conversations');

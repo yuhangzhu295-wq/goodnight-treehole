@@ -124,8 +124,8 @@ const mutations = [
     patches: [
       {
         file: STORE,
-        old: '    const selectedMatches = sortedMatches.slice(0, 3);\n    for (const match of sortedMatches) {\n      if (match.status === \'suggested\') continue;\n      if (selectedMatches.includes(match)) continue;\n      selectedMatches.push(match);\n    }\n    const topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);',
-        new: '    const topMatches = sortedMatches.slice(0, 3);',
+        old: '    const PEER_NETWORK_MATCH_LIMIT = 50;\n    const sortedMatches = userMatches.sort((a, b) => b.score - a.score);\n    const selectedMatches = sortedMatches.slice(0, 3);\n    for (const match of sortedMatches) {\n      if (match.status === \'suggested\') continue;\n      if (selectedMatches.includes(match)) continue;\n      selectedMatches.push(match);\n    }\n    let topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);',
+        new: '    const topMatches = userMatches.sort((a, b) => b.score - a.score).slice(0, 3);',
       },
     ],
   },
@@ -167,6 +167,17 @@ const mutations = [
       },
     ],
   },
+  {
+    id: 'M12 the focused match is not included past the cap (reachability)',
+    expectFailing: ['3.7'],
+    patches: [
+      {
+        file: STORE,
+        old: "    if (focusMatchId && !topMatches.some((match) => match.id === focusMatchId)) {\n      const focused = sortedMatches.find((match) => match.id === focusMatchId);\n      if (focused) topMatches = [...topMatches, focused];\n    }",
+        new: '    // mutation: focus match not appended',
+      },
+    ],
+  },
 ];
 
 const countOccurrences = (haystack, needle) => haystack.split(needle).length - 1;
@@ -200,14 +211,28 @@ function runSpec() {
     .map((line) => line.trim());
   return {
     output,
+    // The child's own outcome, not just the printed summary: a run that prints "0 failed" and then
+    // dies on a signal, times out, or fails to spawn must not be read as a green baseline.
+    status: run.status,
+    signal: run.signal,
+    spawnError: run.error ? String(run.error.message) : null,
     failed: summary ? Number(summary[1]) : null,
     passed: summary ? Number(summary[2]) : null,
     failedTests,
   };
 }
 
+const childOk = (run: { status: number | null; signal: string | null; spawnError: string | null }) =>
+  run.spawnError === null && run.signal === null && run.status !== null;
+
 console.log('=== baseline run (must be green before any mutation result is meaningful) ===');
 const baseline = runSpec();
+if (!childOk(baseline)) {
+  console.error(
+    `ABORT: the baseline run did not exit cleanly (status=${baseline.status} signal=${baseline.signal} spawnError=${baseline.spawnError}).`,
+  );
+  process.exit(1);
+}
 if (baseline.failed === null) {
   console.error('ABORT: could not parse the baseline summary; no mutation result would be interpretable.');
   console.error(baseline.output.split('\n').slice(-12).join('\n'));
@@ -220,7 +245,7 @@ if (baseline.failed > 0) {
   console.error(baseline.failedTests.slice(0, 8).join('\n'));
   process.exit(1);
 }
-console.log(`baseline green: ${baseline.passed} passed\n`);
+console.log(`baseline green: ${baseline.passed} passed (child exit status ${baseline.status})\n`);
 
 const results = [];
 
@@ -244,7 +269,10 @@ for (const mutation of mutations) {
 
     if (verdict !== 'PATCH-FAILED') {
       const run = runSpec();
-      if (run.failed === null) {
+      if (!childOk(run)) {
+        verdict = 'INCONCLUSIVE';
+        detail = `child did not exit cleanly: status=${run.status} signal=${run.signal} spawnError=${run.spawnError}`;
+      } else if (run.failed === null) {
         detail = 'could not parse the summary';
       } else if (run.failed === 0) {
         verdict = 'NOT PROVEN (test still passes)';

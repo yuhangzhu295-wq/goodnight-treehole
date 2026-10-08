@@ -16,7 +16,11 @@ async function load() {
   try {
     const [requestsRes, peersRes] = await Promise.allSettled([
       api.get<any>('/api/v1/peer-requests'),
-      api.get<{ item: { matches: any[] } }>('/api/v1/peers'),
+      // The `matchId` is passed so the server includes this match even when the capped discovery
+      // list would have dropped it. The request list is the primary source; this is the fallback.
+      api.get<{ item: { matches: any[] } }>(
+        `/api/v1/peers?matchId=${encodeURIComponent(matchId.value)}`,
+      ),
     ]);
     const fromRequests = requestsRes.status === 'fulfilled' ? requestsRes.value?.items?.find((item: any) => item.id === matchId.value) : null;
     const fromPeers = peersRes.status === 'fulfilled' ? peersRes.value?.item?.matches?.find((item: any) => item.id === matchId.value) : null;

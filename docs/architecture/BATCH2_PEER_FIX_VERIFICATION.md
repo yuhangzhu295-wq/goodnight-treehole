@@ -42,23 +42,24 @@ endpoints and never read the projection the views actually consume.
 as `PROVEN-UNRELATED`, not as proof, and the harness refuses to run at all unless its baseline run
 comes back green.
 
-Baseline before the run: **27 passed**.
+Baseline before the run: **28 passed**, child exit status checked.
 
 | Mutation | Verdict |
 | --- | --- |
-| M1 expire-on-send closure rolls back (P1-4) | **PROVEN** — 2 failed / 25 passed, includes `2.6a` |
-| M2a `respondMatch`: CAS removed, post-lock re-read kept | NOT PROVEN — 0 failed / 27 passed |
-| M2b `respondMatch`: post-lock re-read removed, CAS kept | NOT PROVEN — 0 failed / 27 passed |
-| M2c `respondMatch`: **both** guards removed (the original defect) | **PROVEN** — 1 failed / 26 passed, includes `2.1` |
-| M3 `createMatches` takes no root locks (P0-3) | **PROVEN** — 3 failed / 24 passed, includes `3.6` |
-| M4 peer draft persisted unredacted (P1-5) | **PROVEN** — 1 failed / 26 passed, includes `7.1` |
-| M5 response boundary stops redacting (P1-5) | **PROVEN** — 1 failed / 26 passed, includes `7.2` |
-| M6 match projection drops the consent fields | **PROVEN** — 1 failed / 26 passed, includes `3.2` |
-| M7 peer network truncates the match list | **PROVEN** — 1 failed / 26 passed, includes `3.2` |
-| M8 close notification throws after the commit | **PROVEN** — 1 failed / 26 passed, includes `6.1` |
-| M9 peer match leaves the registry (three exits) | **PROVEN** — 24 failed / 3 passed, includes `5.1` |
-| M10 journey reference not re-resolved under the lock | **PROVEN** — 1 failed / 26 passed, includes `3.5` |
-| M11 the deadline read as the transaction-start time again (P1-4) | **PROVEN** — 1 failed / 26 passed, includes `2.6c` |
+| M1 expire-on-send closure rolls back (P1-4) | **PROVEN** — 2 failed / 26 passed, includes `2.6a` |
+| M2a `respondMatch`: CAS removed, post-lock re-read kept | NOT PROVEN — 0 failed / 28 passed |
+| M2b `respondMatch`: post-lock re-read removed, CAS kept | NOT PROVEN — 0 failed / 28 passed |
+| M2c `respondMatch`: **both** guards removed (the original defect) | **PROVEN** — 1 failed / 27 passed, includes `2.1` |
+| M3 `createMatches` takes no root locks (P0-3) | **PROVEN** — 3 failed / 25 passed, includes `3.6` |
+| M4 peer draft persisted unredacted (P1-5) | **PROVEN** — 2 failed / 26 passed, includes `7.1` |
+| M5 response boundary stops redacting (P1-5) | **PROVEN** — 1 failed / 27 passed, includes `7.2` |
+| M6 match projection drops the consent fields | **PROVEN** — 1 failed / 27 passed, includes `3.2` |
+| M7 peer network truncates the match list | **PROVEN** — 2 failed / 26 passed, includes `3.2` |
+| M8 close notification throws after the commit | **PROVEN** — 1 failed / 27 passed, includes `6.1` |
+| M9 peer match leaves the registry (three exits) | **PROVEN** — 25 failed / 3 passed, includes `5.1` |
+| M10 journey reference not re-resolved under the lock | **PROVEN** — 1 failed / 27 passed, includes `3.5` |
+| M11 the deadline read as the transaction-start time again (P1-4) | **PROVEN** — 1 failed / 27 passed, includes `2.6c` |
+| M12 the focused match is not appended past the cap (reachability) | **PROVEN** — 1 failed / 27 passed, includes `3.7` |
 
 M2a/M2b are reported as **not proven on their own** on purpose. The post-lock re-read and the CAS
 predicate are two independent mechanisms that both stop the loser; either one alone is sufficient,
@@ -66,9 +67,15 @@ so removing either alone leaves the suite green. Removing both reproduces the re
 (M2c). The honest statement is therefore: *the state check and the write are connected by two
 independent mechanisms, and the test proves the conjunction, not each half.*
 
-M11 is the mutation that proves the second review round's finding was real: reverting
-`clock_timestamp()` to `NOW()` — the transaction-start clock — lets a send that began before the
-deadline write after it, and `2.6c` fails.
+Two mutations prove the later review rounds' findings were real. **M11** reverts
+`clock_timestamp()` to `NOW()` — the transaction-start clock — and lets a send that began before
+the deadline write after it; `2.6c` fails. **M12** removes the focus clause and `3.7` fails, which
+is the evidence that the cap alone could not guarantee reachability.
+
+**What a PROVEN verdict means here, and what it does not.** It means the named test fails when
+that guard is removed, and that the baseline run was green with a clean child exit. It is evidence
+of *sensitivity*, not a causal proof: a named test could in principle fail for a reason other than
+the guard's removal, and the harness does not diagnose why the failure happened.
 
 ## 4. Second review round: what it found, and what was corrected
 
@@ -129,7 +136,63 @@ waiting page's lookup but made the response unbounded. `peerNetwork` now returns
 highest-scoring matches first (the network page renders exactly those), then the user's other
 in-flight matches — the ones the waiting and consent pages look up — capped at 50.
 
-## 5. What the new tests do not prove
+## 5. Third review round: two more real defects, both fixed
+
+A third independent review of `c1fbc65` confirmed D1, D2 and C1/C2 closed, and raised two P1
+defects plus two P2 qualifications.
+
+**R1 — the cap did not guarantee the waiting page could reach its match (P1).** `peerNetwork`
+bounded the list at 50, but a requested/connected match beyond the cap is dropped, and
+`PeerMatchWaiting.vue` / `PeerConsent.vue` look their match up **solely** in that response — so the
+page would render its empty fallback. A cap alone cannot express reachability. `/api/v1/peers` now
+accepts `?matchId=`, which appends that match if it belongs to the caller, independently of the
+cap; both views pass it. Case `3.7` proves both halves: with 60 higher-scoring in-flight matches
+the target is genuinely absent from the plain response and genuinely present with `matchId`, and
+the response grows by exactly one. Mutation **M12** removes the focus clause and `3.7` fails.
+
+**R2 — the shutdown fallback did not close the worker (P1).** A BullMQ `Worker` holds **two** Redis
+connections: the main one and a duplicated blocking one (`worker.blockingConnection`). The
+inherited `disconnect()` only touches the main connection, so the fallback left the blocking
+connection open, and it did not await `disconnect()` at all. The timer was also `unref()`'d, so it
+could not keep an idle process alive long enough to fire. Fixed: the fallback awaits
+`worker.disconnect()` and then force-closes `worker.blockingConnection`, and the timer is no longer
+`unref()`'d.
+
+**The interruption window is now disclosed in the code.** `deliver()` claims a job as `delivered`
+in one transaction and writes its notification in a second. A forced close between the two loses
+that notification while the job already reads `delivered`, so a retry will not re-deliver it. That
+ordering is pre-existing; the bounded shutdown adds a bounded moment at which it can be
+interrupted instead of an unbounded hang. Closing it properly means folding the notification into
+the claim transaction, which is a change to the follow-up delivery path and is **not** made here.
+
+**R3 — the harness did not check the child's own outcome (P2).** A run that printed `0 failed` and
+then died on a signal, timed out, or failed to spawn would have passed the baseline gate. The
+harness now requires a clean child exit (`status` non-null, no signal, no spawn error) for the
+baseline and for every mutation run, and reports `INCONCLUSIVE` otherwise. It also states the
+verdict more narrowly: a named test failing when a guard is removed is evidence of **sensitivity**,
+not of causal proof.
+
+**R4 — "retryable" survived in two older documents (P2).** `BATCH2_PEER_DESIGN.md` §3.11 now
+carries the corrected semantics. `BATCH2_PEER_REVIEW.md` keeps the reviewer's original wording —
+it is the record of what was raised — with an explicit recorded correction beneath it.
+
+### Still open: `app.close()` can stall, and the cause is not fully identified
+
+Measured repeatedly, and **not** resolved:
+
+- `prisma.$disconnect()` 7–20 ms, `worker.onModuleDestroy` 4–5 ms (after the bound),
+  `prismaSvc.onModuleDestroy` 14–20 ms, `httpAdapter.close()` 0–1 ms, zero open connections.
+- `app.close()` itself then stalls — observed exceeding 30 s, 45 s and 120 s, and once returning in
+  21 ms. With the worker's shutdown bounded, one run in four still reported
+  `app.close did not finish within 45000ms`.
+
+The bounded worker close therefore reduced but did not eliminate the stall, which means the
+remaining cause is elsewhere in `app.close()` — after both provider hooks have returned — and is
+**not identified**. What is in place: the product's unbounded graceful Redis close is bounded and
+reports its fallback, and the test teardown is bounded and **reports** a stall to stderr without
+turning it into a failing file. This is recorded as an **open defect, not a fixed one**.
+
+## 6. What the new tests do not prove
 
 Recorded so the claims stay inside the evidence.
 
@@ -154,7 +217,7 @@ Recorded so the claims stay inside the evidence.
    `saveConversationFeedback` and `expireDueConversations`, but no test holds *those* transactions
    across a deadline; for them the change is argued, not measured.
 
-## 6. Suite results
+## 7. Suite results
 
 | Check | Result |
 | --- | --- |
@@ -215,7 +278,7 @@ when Redis is responsive the graceful close is what runs, and the budget is only
   two teardown hooks now carry an explicit 120 s timeout, which does not convert a failed close
   into a pass — if the close never completes, the hook still fails.
 
-## 7. Claim position
+## 8. Claim position
 
 `PERSISTENCE_BATCH2_STABLE` is claimed **only** for the peer models and only against the evidence
 above. `PEER_STATE_MACHINE_PASS`, `PEER_CONCURRENCY_PASS`, `PEER_MULTI_INSTANCE_SAFE`,

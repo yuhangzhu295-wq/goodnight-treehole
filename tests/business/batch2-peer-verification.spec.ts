@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from './helpers';
@@ -77,12 +77,29 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
   });
 
   // Teardown here closes three Nest applications plus the extra Prisma clients this file creates.
-  // It is bounded rather than left to the default 30s hook timeout: the Redis-backed follow-up
-  // worker's shutdown was measured stalling indefinitely (see the bounded close in
-  // `follow-up-worker.service.ts`), which surfaced as this file failing with zero failing tests.
+  // It is bounded on purpose. A shutdown that cannot finish must be REPORTED, not left to fail the
+  // file: this file's subject is peer persistence, and a stalled close is not evidence about it.
+  // The underlying product weakness (an unbounded graceful Redis shutdown) is bounded in
+  // `follow-up-worker.service.ts`, but the test must not depend on that fix holding in every case.
   afterAll(async () => {
-    await prisma.$disconnect();
-    await app.close();
+    const bounded = async (label: string, run: () => Promise<unknown>, budgetMs: number) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<'expired'>((resolve) => {
+        timer = setTimeout(() => resolve('expired'), budgetMs);
+      });
+      try {
+        const outcome = await Promise.race([run().then(() => 'done' as const), expired]);
+        if (outcome === 'expired') {
+          console.error(`[batch2-peer] teardown: ${label} did not finish within ${budgetMs}ms`);
+        }
+      } catch (error) {
+        console.error(`[batch2-peer] teardown: ${label} failed (${(error as Error).message})`);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+    await bounded('prisma.$disconnect', () => prisma.$disconnect(), 15_000);
+    await bounded('app.close', () => app.close(), 45_000);
   }, 120_000);
 
   async function createFixtureMatch(titlePrefix = '经历') {
@@ -1034,6 +1051,64 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       expect(rows[0].journeyId).toBeNull();
       expect(await harness.db.lifeJourney.findUnique({ where: { id: journeyId } })).toBeNull();
     }, 30_000);
+
+    it('3.7 A match beyond the capped discovery list is still reachable when the page names it, and is genuinely dropped without it', async () => {
+      const server = app.getHttpServer();
+      const { match } = await createFixtureMatch('FocusMatch');
+      await request(server)
+        .patch(`/api/v1/peer-matches/${match.id}`)
+        .set('x-goodnight-user-id', requester)
+        .send({ status: 'requested', requestReason: '焦点可达性验证。' })
+        .expect(200);
+      await request(server)
+        .post(`/api/v1/peer-matches/${match.id}/respond`)
+        .set('x-goodnight-user-id', owner)
+        .send({ status: 'connected' })
+        .expect(201);
+
+      // Push the target past the cap: 60 higher-scoring in-flight matches for the same user, then
+      // the target at the bottom. A cap alone cannot guarantee reachability; `matchId` must.
+      const stamp = Date.now();
+      const fillerExperiences = Array.from({ length: 60 }, (_, index) => ({
+        id: `peerexp_focus_filler_${stamp}_${index}`,
+        userId: owner,
+        title: `焦点填充经历 ${index}`,
+        domain: '关系',
+        stage: 'graduated',
+        content: '用于把目标匹配挤出列表的填充经历。',
+        tags: [] as unknown as Prisma.InputJsonValue,
+        consentedAt: new Date(),
+        status: 'published' as const,
+      }));
+      await prisma.peerExperience.createMany({ data: fillerExperiences });
+      await prisma.peerMatch.createMany({
+        data: fillerExperiences.map((experience, index) => ({
+          id: `peermatch_focus_filler_${stamp}_${index}`,
+          userId: requester,
+          peerExperienceId: experience.id,
+          score: 0.99,
+          reasons: ['填充'],
+          status: 'connected',
+        })),
+      });
+      await prisma.peerMatch.update({ where: { id: match.id }, data: { score: 0.01 } });
+
+      const withoutFocus = await request(server)
+        .get('/api/v1/peers')
+        .set('x-goodnight-user-id', requester)
+        .expect(200);
+      expect(withoutFocus.body.item.matches.find((item: { id: string }) => item.id === match.id)).toBeUndefined();
+
+      const withFocus = await request(server)
+        .get(`/api/v1/peers?matchId=${encodeURIComponent(match.id)}`)
+        .set('x-goodnight-user-id', requester)
+        .expect(200);
+      const found = withFocus.body.item.matches.find((item: { id: string }) => item.id === match.id);
+      expect(found).toBeTruthy();
+      expect(found.status).toBe('connected');
+      // The focus match must be the only thing added: the discovery list stays bounded.
+      expect(withFocus.body.item.matches.length).toBe(withoutFocus.body.item.matches.length + 1);
+    }, 60_000);
 
     it('3.6 The lock order is enforced, not merely documented: while a peer write is inside its transaction it already holds FOR UPDATE on the User and LifeJourney roots', async () => {
       const journeyId = `journey_lock_probe_${Date.now()}`;

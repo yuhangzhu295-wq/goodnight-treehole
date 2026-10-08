@@ -199,6 +199,40 @@ stderr. The delivery path is untouched.
 | `pnpm check:baseline-diff` | **SUCCESS** — 0 new regressions |
 | `pnpm typecheck` / `pnpm lint` | clean / 0 errors |
 
+### Third review round — two more real defects, one open
+
+A third independent review confirmed D1/D2 and C1/C2 closed and raised two P1 defects plus two P2
+qualifications. All are addressed; one finding is recorded as **open**.
+
+- **The cap did not guarantee reachability (P1, fixed).** `peerNetwork` bounded the list at 50, but
+  a requested/connected match beyond the cap is dropped and the waiting/consent pages look their
+  match up **solely** in that response. `/api/v1/peers` now accepts `?matchId=`, which appends that
+  match independently of the cap, and both views pass it. Case `3.7` proves both halves — with 60
+  higher-scoring in-flight matches the target is absent from the plain response and present with
+  `matchId` — and mutation **M12** removes the clause and fails it.
+- **The shutdown fallback did not close the worker (P1, fixed).** A BullMQ `Worker` holds two Redis
+  connections; the inherited `disconnect()` only touches the main one, the call was not awaited,
+  and the timer was `unref()`'d so it could not fire in an idle process. All three corrected.
+- **The harness did not check the child's own outcome (P2, fixed).** It now requires a clean child
+  exit for the baseline and every mutation run, and states its verdict as evidence of
+  *sensitivity*, not of causal proof.
+- **"retryable" survived in two older documents (P2, fixed).** The design doc carries the corrected
+  semantics; the review doc keeps the original wording with a recorded correction beneath it.
+- **`app.close()` can still stall (OPEN, not fixed).** With the worker's close bounded, one run in
+  four still reported `app.close did not finish within 45000ms`. Both provider hooks return in
+  milliseconds, the HTTP server has zero connections and closes in 0–1 ms, so the remaining cause
+  is elsewhere in `app.close()` and is **not identified**. The test teardown is bounded and reports
+  a stall instead of failing the file; the product-side unbounded graceful close is bounded. The
+  stall itself is recorded as an open defect.
+
+**Round-4 verification (orchestrator-measured):**
+
+| Check | Result |
+| --- | --- |
+| `batch2-peer-verification.spec.ts` | **28 / 28 pass**, 4 consecutive runs, all exit status 0 |
+| Mutation harness | see below — baseline green, 12 of 14 proven |
+| `pnpm typecheck` / `pnpm lint` | clean / 0 errors |
+
 ## Note — the visual baseline now encodes the aesthetic the UI contract removes
 
 `design_refs/` holds 26 tracked reference PNGs, and `docs/claude-page-by-page-visual-checklist.md`
