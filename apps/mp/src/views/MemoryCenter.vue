@@ -9,11 +9,21 @@ type MemoryItem = {
   content: string;
   source: string;
   scope: string;
-  status: 'active' | 'disabled' | 'expired';
+  status: 'active' | 'disabled' | 'expired' | 'deleted';
   createdAt: string;
   expiresAt: string;
+  deletedAt?: string | null;
   usages?: Array<{ jobId: string; taskType: string; at: string }>;
 };
+
+type EffectiveState = 'active' | 'disabled' | 'expired' | 'deleted';
+
+function effectiveState(item: MemoryItem): EffectiveState {
+  if (item.status === 'deleted' || Boolean(item.deletedAt)) return 'deleted';
+  if (item.status === 'expired' || Date.parse(item.expiresAt) <= Date.now()) return 'expired';
+  if (item.status === 'disabled') return 'disabled';
+  return 'active';
+}
 
 const router = useRouter();
 const items = ref<MemoryItem[]>([]);
@@ -32,7 +42,7 @@ const createDraft = reactive({ title: '', content: '', days: 90, scope: 'all_ai'
 const editDraft = reactive({ title: '', content: '', days: 90, scope: 'all_ai' });
 
 const activeCount = computed(
-  () => items.value.filter((item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now()).length,
+  () => items.value.filter((item) => effectiveState(item) === 'active').length,
 );
 const sourceLabel: Record<string, string> = {
   user_saved: '用户主动保存',
@@ -48,9 +58,19 @@ const scopeLabel: Record<string, string> = {
 };
 
 function daysLeft(item: MemoryItem) {
-  if (item.status === 'expired' || Date.parse(item.expiresAt) <= Date.now()) return '已到期';
+  const state = effectiveState(item);
+  if (state === 'deleted') return '已删除';
+  if (state === 'expired') return '已到期';
   const days = Math.max(1, Math.ceil((Date.parse(item.expiresAt) - Date.now()) / 86_400_000));
   return `${days} 天后自动删除`;
+}
+
+function statusBadgeLabel(item: MemoryItem) {
+  const state = effectiveState(item);
+  if (state === 'active') return '允许使用';
+  if (state === 'disabled') return '已暂停';
+  if (state === 'deleted') return '已删除';
+  return '已到期';
 }
 
 function showUsage(item: MemoryItem) {
@@ -99,9 +119,25 @@ async function createMemory() {
 }
 
 function beginEdit(item: MemoryItem) {
+  if (effectiveState(item) !== 'active') return;
   editingId.value = item.id;
   const remaining = Math.max(1, Math.ceil((Date.parse(item.expiresAt) - Date.now()) / 86_400_000));
   Object.assign(editDraft, { title: item.title, content: item.content, days: remaining, scope: item.scope });
+}
+
+async function reactivate(item: MemoryItem, days = 90) {
+  busyId.value = item.id;
+  error.value = '';
+  notice.value = '';
+  try {
+    await api.post(`/api/v1/me/memories/${item.id}/reactivate`, { days });
+    notice.value = '这条记忆已重新确认并恢复使用。';
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '记忆重新确认失败';
+  } finally {
+    busyId.value = '';
+  }
 }
 
 async function update(item: MemoryItem, patch: Record<string, unknown>, message: string) {
@@ -265,12 +301,12 @@ onMounted(load);
           <div class="record-header">
             <div class="record-title-wrap">
               <h2 class="record-title">{{ item.title }}</h2>
-              <span class="status-badge" :class="item.status">
-                {{ item.status === 'active' ? '允许使用' : item.status === 'disabled' ? '已暂停' : '已到期' }}
-              </span>
+              <span class="status-badge" :class="effectiveState(item)">{{ statusBadgeLabel(item) }}</span>
             </div>
             <button
+              v-if="effectiveState(item) === 'active'"
               class="edit-memory"
+              data-testid="memory-edit-btn"
               type="button"
               :aria-label="`编辑${item.title}`"
               @click="beginEdit(item)"
@@ -304,34 +340,54 @@ onMounted(load);
           </div>
 
           <!-- Actions -->
-          <div class="record-actions">
-            <button
-              v-if="item.status === 'active'"
-              class="action-link"
-              type="button"
-              @click="update(item, { status: 'disabled' }, '这条记忆已禁止未来使用。')"
-            >
-              以后不要用
-            </button>
-            <button
-              v-else-if="item.status === 'disabled'"
-              class="action-link"
-              type="button"
-              @click="update(item, { status: 'active' }, '这条记忆已恢复使用。')"
-            >
-              恢复使用
-            </button>
-            <button
-              v-if="item.status !== 'expired'"
-              class="action-link"
-              type="button"
-              @click="update(item, { status: 'expired' }, '这条记忆已立即到期。')"
-            >
-              立即过期
-            </button>
+          <div v-if="effectiveState(item) !== 'deleted'" class="record-actions">
+            <template v-if="effectiveState(item) === 'active'">
+              <button
+                class="action-link"
+                type="button"
+                @click="update(item, { status: 'disabled' }, '这条记忆已禁止未来使用。')"
+              >
+                以后不要用
+              </button>
+              <button
+                class="action-link"
+                type="button"
+                @click="update(item, { status: 'expired' }, '这条记忆已立即到期。')"
+              >
+                立即过期
+              </button>
+            </template>
+            <template v-else-if="effectiveState(item) === 'disabled'">
+              <button
+                class="action-link"
+                type="button"
+                @click="update(item, { status: 'active' }, '这条记忆已恢复使用。')"
+              >
+                恢复使用
+              </button>
+              <button
+                class="action-link"
+                type="button"
+                @click="update(item, { status: 'expired' }, '这条记忆已立即到期。')"
+              >
+                立即过期
+              </button>
+            </template>
+            <template v-else-if="effectiveState(item) === 'expired'">
+              <button
+                class="action-link action-reconsent"
+                data-testid="memory-reconsent"
+                type="button"
+                :disabled="busyId === item.id"
+                @click="reactivate(item)"
+              >
+                重新确认使用
+              </button>
+            </template>
             <button
               class="action-link action-danger"
               type="button"
+              :disabled="busyId === item.id"
               @click="remove(item)"
             >
               {{ pendingDeleteId === item.id ? '确认删除' : '删除' }}
@@ -340,7 +396,7 @@ onMounted(load);
 
           <!-- In-place Edit Form -->
           <form
-            v-if="editingId === item.id"
+            v-if="editingId === item.id && effectiveState(item) === 'active'"
             class="edit-inline-form"
             @submit.prevent="update(item, { ...editDraft }, '这条记忆已经更新。')"
           >
