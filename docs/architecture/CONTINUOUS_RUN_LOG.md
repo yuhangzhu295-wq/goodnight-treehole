@@ -373,3 +373,39 @@ what found the two defects:
 **Not claimed:** an independent review of this diff (the review agents were unreachable — network),
 and steps 2–5 (Memory, Recovery, Decision, Cooldown, FutureSelf, the worker).
 `PERSISTENCE_BATCH3_STABLE` is **not** claimed.
+
+### Batch 3 step 2a — the journey transition rule and idempotent graduation (`c0d0dda`/`e43bac4`)
+
+The design's A3/F3 restated the graduation invariant twice before it was right. The first version
+promised "at most one graduation snapshot per journey", which the verification showed was not
+achievable because `updateJourneyStatus` accepted a transition out of `completed`; the second
+restated it per-transition and blessed a reopen as legitimate; the third found that **the product
+itself says otherwise** — `Archive.vue` tells the user a completed Journey is kept as history and
+cannot be restored — so the reopen was an API defect, and the per-journey invariant stands.
+
+What shipped:
+
+- one `lockJourneyAndAssertTransition` helper, applied **under the LifeJourney row lock** by both
+  `patchJourney` and `updateJourneyStatus`, with the write conditional on the status read there;
+- a same-status request is a status-preserving write, so the existing hybrid PATCH contract keeps
+  working;
+- `graduateJourney` is a conditional one-way transition that reports `transitioned`, and the caller
+  appends the derived snapshot only on a real transition;
+- both entry points gained a `_onBeforeLock` hook so a barrier can hold a request before either
+  lock while a graduation commits completely.
+
+**Verification:** `batch3-journey-transition.spec.ts` 9/9; full suite 7 failed / 25 passed files and
+8 failed / 164 passed tests — exactly the baseline, `check:baseline-diff` SUCCESS, 0 new
+regressions; unit suite 15/15; typecheck and lint clean.
+
+**Mutations: 12 of 12 proven** (`pnpm test:batch3-mutation`). The ordering claim is carried by M9
+and M10, which move the guard before the lock **and** relax the write predicate — moving only the
+read would still be refused by the conditional write, so that weaker mutation would have proven
+nothing. M10 first reported `PROVEN-UNRELATED` because it mutated the endpoint that test 1.5 does
+not exercise; the **missing per-endpoint interleaving test was added** rather than retargeting the
+mutation to an easier test.
+
+**Still not claimed:** an independent review of the Batch 3 implementation diff (the review agents
+were unreachable — their upstream provider timed out while GitHub itself recovered), and steps 2b-5
+(Memory, Recovery, Decision, Cooldown, FutureSelf and the worker). `PERSISTENCE_BATCH3_STABLE` is
+**not** claimed.
