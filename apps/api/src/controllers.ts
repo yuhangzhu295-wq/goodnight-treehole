@@ -850,7 +850,8 @@ export class PublicController {
 
   @Get('me/recovery')
   async recovery(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.recoveryList(runtimeUserId(userId)) };
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    return { items: await this.store.recoveryList(runtimeId) };
   }
 
   @Post('me/recovery')
@@ -858,11 +859,21 @@ export class PublicController {
     @Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      const item = await this.selfPersistence.appendRecoverySnapshot({
+        userId: runtimeId,
+        journeyId: body.journeyId,
+        signals: body.signals ?? {},
+        summary: body.summary,
+      });
+      return { item };
+    }
     return await this.store.saveRecoveryCheckin(
       body.journeyId,
       body.signals ?? {},
       body.summary,
-      runtimeUserId(userId),
+      runtimeId,
     );
   }
 
@@ -2139,7 +2150,9 @@ export class AdminController {
           : this.store.peerConversations.filter(
               (item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now(),
             ).length,
-        recoveryRecords: this.store.recoverySnapshots.length,
+        recoveryRecords: DIRECT_DB_MODELS.RecoverySnapshot
+          ? await this.selfPersistence.countRecoverySnapshots()
+          : this.store.recoverySnapshots.length,
       },
       supportIntentDistribution: await this.batch1Persistence.getSupportIntentDistribution(),
       aiSuccessRate: aiMetrics.aiSuccessRate,

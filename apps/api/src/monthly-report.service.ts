@@ -202,9 +202,13 @@ export class MonthlyReportService {
     const checkins = dbCheckins.filter(
       (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.checkedAt, item.dueAt),
     );
-    const recoverySnapshots = this.store.recoverySnapshots.filter(
-      (item) => item.userId === userId && belongsToMonth(month, item.createdAt),
-    );
+    const recoverySnapshots = DIRECT_DB_MODELS.RecoverySnapshot
+      ? (await this.selfPersistence.listRecoverySnapshots(userId)).filter((item) =>
+          belongsToMonth(month, item.createdAt),
+        )
+      : this.store.recoverySnapshots.filter(
+          (item) => item.userId === userId && belongsToMonth(month, item.createdAt),
+        );
     let peerConversationCount = 0;
     if (DIRECT_DB_MODELS.PeerConversation) {
       const userConvs = await this.peerPersistence.listConversationsForUser(userId);
@@ -360,7 +364,12 @@ export class MonthlyReportService {
     for (const m of actionMonths) months.add(m);
     const checkinMonths = await this.batch1Persistence.getAvailableMonthsForCheckins(userId);
     for (const m of checkinMonths) months.add(m);
-    for (const item of this.store.recoverySnapshots) if (item.userId === userId) addMonths(item.createdAt);
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      const userSnapshots = await this.selfPersistence.listRecoverySnapshots(userId);
+      for (const item of userSnapshots) addMonths(item.createdAt);
+    } else {
+      for (const item of this.store.recoverySnapshots) if (item.userId === userId) addMonths(item.createdAt);
+    }
     for (const item of this.store.decisionRecords)
       if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.reviewedAt);
     if (DIRECT_DB_MODELS.PeerExperience) {

@@ -1513,6 +1513,23 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      delete data.recoverySnapshots;
+      Object.defineProperty(data, 'recoverySnapshots', {
+        get() {
+          throw new Error(
+            'StoreData.recoverySnapshots is disabled: RecoverySnapshot is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.recoverySnapshots is disabled: RecoverySnapshot is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
@@ -1753,6 +1770,11 @@ export class StoreService implements OnModuleInit {
     return this.data.memoryItems;
   }
   get recoverySnapshots() {
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      throw new Error(
+        'Direct DB model RecoverySnapshot: store.recoverySnapshots getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.recoverySnapshots;
   }
   get safetyEvents() {
@@ -2979,6 +3001,7 @@ export class StoreService implements OnModuleInit {
       if (key === 'personalSupportPlans' && DIRECT_DB_MODELS.PersonalSupportPlan) continue;
       if (key === 'stableSelfProfiles' && DIRECT_DB_MODELS.StableSelfProfile) continue;
       if (key === 'memoryItems' && DIRECT_DB_MODELS.MemoryItem) continue;
+      if (key === 'recoverySnapshots' && DIRECT_DB_MODELS.RecoverySnapshot) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
@@ -3387,7 +3410,9 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.MemoryItem) {
       this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
     }
-    this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
+    if (!DIRECT_DB_MODELS.RecoverySnapshot) {
+      this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
+    }
     this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
     this.data.followUpJobs = this.data.followUpJobs.filter(
       (item) =>
@@ -3546,7 +3571,9 @@ export class StoreService implements OnModuleInit {
       updates,
       commitments: await this.batch1Persistence.listActionsForJourney(journeyId),
       checkins: await this.batch1Persistence.listCheckinsForJourney(journeyId),
-      recovery: this.recoverySnapshots.filter((item) => item.journeyId === journeyId),
+      recovery: DIRECT_DB_MODELS.RecoverySnapshot
+        ? await this.selfPersistence.listRecoverySnapshotsForJourney(journeyId)
+        : this.recoverySnapshots.filter((item) => item.journeyId === journeyId),
       peerMatches: journeyMatches.map((item) => this.peerMatchForUser(item)),
     };
   }
@@ -3674,7 +3701,7 @@ export class StoreService implements OnModuleInit {
     this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
     if (!DIRECT_DB_MODELS.MemoryItem) this.data.memoryItems = detachJourney(this.data.memoryItems);
-    this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
+    if (!DIRECT_DB_MODELS.RecoverySnapshot) this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
     this.data.agentDecisionLogs = detachJourney(this.data.agentDecisionLogs);
     this.data.followUpJobs = detachJourney(this.data.followUpJobs);
 
@@ -4133,11 +4160,22 @@ export class StoreService implements OnModuleInit {
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
     // Graduation is one-way and reports whether it happened, so the derived snapshot is appended
     // only on a real transition: a duplicate or concurrent graduation must not append a second one.
-    const { transitioned } = await this.batch1Persistence.graduateJourney(journeyId, journey.userId);
     const allowRecovery = DIRECT_DB_MODELS.PrivacySetting
       ? (await this.selfPersistence.getPrivacySettings(journey.userId)).allowRecoveryData
       : this.privacySettings[journey.userId]?.allowRecoveryData;
-    if (transitioned && allowRecovery === true)
+    const snapshotPayload =
+      allowRecovery === true
+        ? {
+            summary: `已完成 ${completed} 个小行动，留下了可回看的变化记录。`,
+            signals: { completedActions: completed },
+          }
+        : undefined;
+    const { transitioned } = await this.batch1Persistence.graduateJourney(
+      journeyId,
+      journey.userId,
+      snapshotPayload,
+    );
+    if (!DIRECT_DB_MODELS.RecoverySnapshot && transitioned && allowRecovery === true)
       this.recoverySnapshots.unshift({
         id: id('recovery'),
         userId: journey.userId,
@@ -5566,6 +5604,15 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      const item = await this.selfPersistence.appendRecoverySnapshot({
+        userId,
+        journeyId,
+        signals,
+        summary: typeof summary === 'string' ? summary : undefined,
+      });
+      return { item };
+    }
     await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
     const journey = journeyId
       ? await this.requireJourney(journeyId, userId)
@@ -5872,9 +5919,11 @@ export class StoreService implements OnModuleInit {
       contextLabel = `决定：${decision.question}`;
     }
     if (selectedContextType === 'recovery') {
-      const recovery = this.recoverySnapshots.find(
-        (candidate) => candidate.id === contextRefId && candidate.userId === userId,
-      );
+      const recovery = DIRECT_DB_MODELS.RecoverySnapshot
+        ? await this.selfPersistence.getRecoverySnapshot(contextRefId!, userId)
+        : this.recoverySnapshots.find(
+            (candidate) => candidate.id === contextRefId && candidate.userId === userId,
+          );
       if (!recovery) throw new NotFoundException('关联的恢复记录不存在');
       contextLabel = `恢复：${recovery.summary}`;
     }
@@ -6053,6 +6102,9 @@ export class StoreService implements OnModuleInit {
   async recoveryList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      return await this.selfPersistence.listRecoverySnapshots(userId);
+    }
     return this.recoverySnapshots.filter((item) => item.userId === userId);
   }
 
