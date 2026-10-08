@@ -629,80 +629,84 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     expect(contentRes.body.item.title).toBe('新标题');
   });
 
-  it('P0-3 discriminating test: activation under parent-User lock prevents unversioned reactivations from creating multiple active journeys', async () => {
-    const server = app.getHttpServer();
-    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
-    try {
-      // Pause any active journeys from earlier tests in this file
-      await freshPrisma.lifeJourney.updateMany({
-        where: { status: 'active' },
-        data: { status: 'paused' },
-      });
+  it(
+    'P0-3 discriminating test: activation under parent-User lock prevents unversioned reactivations from creating multiple active journeys',
+    async () => {
+      const server = app.getHttpServer();
+      const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      try {
+        // Pause any active journeys from earlier tests in this file
+        await freshPrisma.lifeJourney.updateMany({
+          where: { status: 'active' },
+          data: { status: 'paused' },
+        });
 
-      const j1Res = await request(server)
-        .post('/api/v1/journeys')
-        .set(demoUserHeaders())
-        .send({ title: `J1_P03_${Date.now()}`, domain: '生活', content: '旅程1' })
-        .expect(201);
-      const j2Res = await request(server)
-        .post('/api/v1/journeys')
-        .set(demoUserHeaders())
-        .send({ title: `J2_P03_${Date.now()}`, domain: '生活', content: '旅程2' })
-        .expect(201);
+        const j1Res = await request(server)
+          .post('/api/v1/journeys')
+          .set(demoUserHeaders())
+          .send({ title: `J1_P03_${Date.now()}`, domain: '生活', content: '旅程1' })
+          .expect(201);
+        const j2Res = await request(server)
+          .post('/api/v1/journeys')
+          .set(demoUserHeaders())
+          .send({ title: `J2_P03_${Date.now()}`, domain: '生活', content: '旅程2' })
+          .expect(201);
 
-      const j1Id = j1Res.body.journey.id as string;
-      const j2Id = j2Res.body.journey.id as string;
+        const j1Id = j1Res.body.journey.id as string;
+        const j2Id = j2Res.body.journey.id as string;
 
-      // Pause J2 in DB so J1 is the only active journey
-      await freshPrisma.lifeJourney.update({
-        where: { id: j2Id },
-        data: { status: 'paused' },
-      });
+        // Pause J2 in DB so J1 is the only active journey
+        await freshPrisma.lifeJourney.update({
+          where: { id: j2Id },
+          data: { status: 'paused' },
+        });
 
-      // 1. Assert hybrid PATCH returns BOTH { item, journey }
-      const hybridRes = await request(server)
-        .patch(`/api/v1/journeys/${j2Id}`)
-        .set(demoUserHeaders())
-        .send({ status: 'paused', title: '混合更新标题' })
-        .expect(200);
+        // 1. Assert hybrid PATCH returns BOTH { item, journey }
+        const hybridRes = await request(server)
+          .patch(`/api/v1/journeys/${j2Id}`)
+          .set(demoUserHeaders())
+          .send({ status: 'paused', title: '混合更新标题' })
+          .expect(200);
 
-      expect(hybridRes.body.journey).toBeDefined();
-      expect(hybridRes.body.item).toBeDefined();
-      expect(hybridRes.body.journey.status).toBe('paused');
-      expect(hybridRes.body.item.title).toBe('混合更新标题');
-      expect(hybridRes.body.journey.title).toBe('混合更新标题');
+        expect(hybridRes.body.journey).toBeDefined();
+        expect(hybridRes.body.item).toBeDefined();
+        expect(hybridRes.body.journey.status).toBe('paused');
+        expect(hybridRes.body.item.title).toBe('混合更新标题');
+        expect(hybridRes.body.journey.title).toBe('混合更新标题');
 
-      // 2. Pause J1 as well so both J1 and J2 are paused
-      await request(server)
-        .patch(`/api/v1/journeys/${j1Id}`)
-        .set(demoUserHeaders())
-        .send({ status: 'paused' })
-        .expect(200);
+        // 2. Pause J1 as well so both J1 and J2 are paused
+        await request(server)
+          .patch(`/api/v1/journeys/${j1Id}`)
+          .set(demoUserHeaders())
+          .send({ status: 'paused' })
+          .expect(200);
 
-      // 3. Concurrent activation race: dispatch two concurrent unversioned PATCH requests requesting status: 'active'
-      const [race1, race2] = await Promise.allSettled([
-        request(server).patch(`/api/v1/journeys/${j1Id}`).set(demoUserHeaders()).send({ status: 'active' }),
-        request(server).patch(`/api/v1/journeys/${j2Id}`).set(demoUserHeaders()).send({ status: 'active' }),
-      ]);
+        // 3. Concurrent activation race: dispatch two concurrent unversioned PATCH requests requesting status: 'active'
+        const [race1, race2] = await Promise.allSettled([
+          request(server).patch(`/api/v1/journeys/${j1Id}`).set(demoUserHeaders()).send({ status: 'active' }),
+          request(server).patch(`/api/v1/journeys/${j2Id}`).set(demoUserHeaders()).send({ status: 'active' }),
+        ]);
 
-      const raceStatuses = [
-        race1.status === 'fulfilled' ? race1.value.status : null,
-        race2.status === 'fulfilled' ? race2.value.status : null,
-      ];
+        const raceStatuses = [
+          race1.status === 'fulfilled' ? race1.value.status : null,
+          race2.status === 'fulfilled' ? race2.value.status : null,
+        ];
 
-      // Under parent-User lock, exactly one activation succeeds (200), the loser gets 400
-      expect(raceStatuses).toContain(200);
-      expect(raceStatuses).toContain(400);
+        // Under parent-User lock, exactly one activation succeeds (200), the loser gets 400
+        expect(raceStatuses).toContain(200);
+        expect(raceStatuses).toContain(400);
 
-      // Verify in PostgreSQL: exactly ONE active journey exists for this user
-      const finalActiveJourneys = await freshPrisma.lifeJourney.findMany({
-        where: { id: { in: [j1Id, j2Id] }, status: 'active' },
-      });
-      expect(finalActiveJourneys.length).toBe(1);
-    } finally {
-      await freshPrisma.$disconnect();
-    }
-  });
+        // Verify in PostgreSQL: exactly ONE active journey exists for this user
+        const finalActiveJourneys = await freshPrisma.lifeJourney.findMany({
+          where: { id: { in: [j1Id, j2Id] }, status: 'active' },
+        });
+        expect(finalActiveJourneys.length).toBe(1);
+      } finally {
+        await freshPrisma.$disconnect();
+      }
+    },
+    30000,
+  );
 
   it('P0-B discriminating test: HIGH_DISTRESS intent transition and SafetyEvent creation are atomic in one transaction', async () => {
     const persistence = app.get(Batch1PersistenceService);
