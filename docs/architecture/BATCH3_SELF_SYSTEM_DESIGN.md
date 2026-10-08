@@ -483,7 +483,9 @@ So the invariant is **conditional on the cutover**, not free.
   is asserted by a test that seeds duplicates and observes exactly one survivor.
 - The invariant is claimed **only after** the legacy writer has exited for `CooldownItem`, which is
   the `SELF_FULL_FLUSH=false` gate: zero legacy INSERT/UPDATE/DELETE on the ten tables under a
-  forced flush. Until that gate holds, "exactly one active cooldown" is a target, not a fact.
+  forced flush. Until that gate holds, "at most one active cooldown per decision" is a target, not a
+  fact. *(Corrected from "exactly one" by §0.9/G4 and §0.10/I4: a decision with no current cooldown
+  has zero.)*
 
 ### F3 — The completed-journey reopen is an API defect, and the product already says so *(P1)*
 
@@ -709,6 +711,64 @@ rewriting a `superseded` row.
 
 ---
 
+## 0.10 Seventh pass — the verification of §0.9, and the last two blockers
+
+The verification of §0.9 confirmed H3 and H5 resolved and found the last two blockers. Both are
+narrow, and both are now closed.
+
+### I1 — The transition guard is a table, not `NOT IN ('completed')` *(P1)*
+
+§0.9/H1's predicate was too narrow: `NOT IN ('completed')` still allows a journey to leave
+`archived` through the general endpoints, while the product exposes a dedicated restore path for
+that one transition. The guard is therefore the **allowed-transition table**, applied under the
+`LifeJourney` lock by both general entry points:
+
+| From | Allowed targets through the general endpoints |
+| --- | --- |
+| `active` | `paused`, `archived` |
+| `paused` | `active`, `archived` |
+| `archived` | **none** — `archived → active` is only the explicit restore path |
+| `completed` | **none** |
+
+Anything not in the table is refused with an affected-row check on the conditional write, so the
+refusal is the write predicate and not a prior read. The explicit restore path keeps its own
+`archived`-only check, which the verification confirmed it already has.
+
+### I2 — The payload must be immutable, or H2's evidence is not durable *(P1)*
+
+H2 tells the two unlinked-cooldown cases apart by the job's creation-time `payload.decisionId`. The
+verification found that claim is false today: the legacy `FollowUpJob` mapper's **non-terminal**
+branch rewrites `payload` from the stale array (`relational-runtime.mapper.ts:2084–2099`). A stale
+snapshot could therefore erase the very evidence the rule depends on, and the orphaned cooldown
+would look like one that was created unlinked — and release.
+
+**Required: the job payload is immutable after creation.** The legacy mapper may still update a
+`FollowUpJob`'s scheduling fields (`userId`, `journeyId`, `dueAt`, `status`, `completedAt`) but not
+its `payload`, which is the job's instruction set and is written once, at creation, by the same
+transaction that creates the row it describes. This is a small change to a Batch 1 mapper path and
+is named as the fifth deviation in §5. The test forces a stale legacy flush whose array carries a
+different payload for a cooldown job and asserts the stored payload is unchanged.
+
+### I3 — The two forced interleavings §4 was missing *(P1)*
+
+The verification is right that a concurrent request with uncontrolled ordering does not prove the
+H1 race, and that the H2 cases alone do not prove payload immutability. §4 gains:
+
+- **per entry point** (`PATCH /journeys/:id` and the status endpoint), a barrier that holds the
+  status write **after its read and before its write** while a graduation commits, then releases:
+  the transition must be refused and the journey must remain `completed`. Without the forced
+  interleaving the test would pass on a read-time guard that is still racy.
+- a stale legacy flush whose `followUpJobs` array carries a different `payload` for a cooldown job:
+  the stored payload must be unchanged (I2).
+
+### I4 — "Exactly one active cooldown" removed *(P2)*
+
+The last surviving instance of the stronger phrasing (in F2's cutover note) now reads "at most one
+active cooldown per decision", matching G4.
+
+---
+
+
 ## 0. Scope and present state
 
 ### 0.1 What is wrong today
@@ -849,7 +909,7 @@ UI** until the named `MemoryCenter.vue` change lands.
 
 ## 5. Implementation boundary
 
-**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` for exactly four things, each named in §0.8: the atomic graduation/RecoverySnapshot insert, a necessary correction to its existing Self-FK detaches, the shared terminal-state guard for journey status used by **both** status entry points (§0.8/G1), and the `FollowUpJob` terminal-set plus terminal-branch guard (§0.8/G2). Plus targeted Self tests under `tests/business/`.
+**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` for exactly four things: the atomic graduation/RecoverySnapshot insert, a necessary correction to its existing Self-FK detaches, the shared **allowed-transition** guard for journey status used by **both** general status entry points (§0.9/H1, §0.10/I1), and nothing else. `relational-runtime.mapper.ts` for the `FollowUpJob` terminal-set plus terminal-branch guard (§0.8/G2) and the payload-immutability rule (§0.10/I2). Plus targeted Self tests under `tests/business/`.
 
 **Named UI/API contract changes that are part of this batch** (each one is required by a decision above, and none is smuggled in as an incidental persistence fix):
 
@@ -875,7 +935,11 @@ one: `superseded` is added to that mapper's terminal set **and the terminal bran
 (`relational-runtime.mapper.ts:2024–2026,2053–2055,2076–2099`). The set alone is insufficient —
 when the stale *array* says `delivered`, the terminal branch updates unconditionally by id and would
 rewrite a DB `superseded` back to `delivered`. `FollowUpJob`'s ownership is unchanged; its terminal
-statuses and the immutability of a terminal row to the legacy writer are what change.
+statuses, the immutability of a terminal row, and **the immutability of its `payload`** change.
+§0.10/I2 adds the payload rule: the mapper may still update scheduling fields, but not `payload`,
+because the payload is the durable evidence §0.9/H2 relies on to tell a cooldown created unlinked
+from one whose decision was deleted. Without it a stale array could erase that evidence and turn an
+orphaned cooldown into a releasing one.
 
 **Migration decision.** The §0.6/A2 predicates, §0.7/F1's association check, §0.7/F2's one-time
 duplicate normalisation, §0.7/F3's one-way graduation, A5's `deleted` spelling and A6's
@@ -887,8 +951,9 @@ cannot represent). A3 is explicitly **not** escalated to that, and F2's normalis
 transaction, not a constraint. Never edit an applied migration.
 
 **Must not change:** ownership or behaviour of the eight Batch 1 or five Batch 2 models — with the
-three named exceptions above (the journey terminal-state guard, the `FollowUpJob` terminal rule,
-and the graduation insert/detaches) — general Peer/AI/legacy content, applied migrations,
+five named deviations (the journey allowed-transition guard, the `FollowUpJob` terminal rule, the
+`FollowUpJob` payload immutability, the graduation insert/detaches, and the `CooldownItem`
+normalisation below) — general Peer/AI/legacy content, applied migrations,
 fixture/recovery scripts, the transaction timeout, or mini-program presentation as an incidental
 persistence fix.
 
