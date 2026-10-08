@@ -1,0 +1,3 @@
+{"at":"2026-10-09","task":"B3-R05","agent":"code-implementer","commit":"e4af158","result":"implemented+tested","review":"WAITING_REVIEW","note":"architecture-reviewer stream dropped mid-response; no verdict produced"}
+{"at":"2026-10-09","task":"B3-R02","agent":"orchestrator","commit":"8e6477b","result":"authorization half fixed","review":"pending","note":"display projections need an async call graph; recorded, not hidden"}
+{"at":"2026-10-09","task":"B3-R06","agent":"orchestrator","commit":null,"result":"started","review":"pending","note":"Self route identity matrix"}
