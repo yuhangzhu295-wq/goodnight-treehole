@@ -1186,7 +1186,7 @@ export class PublicController {
 
   @Post('posts/:id/replies')
   async reply(@Param('id') id: string, @Body() body: { content: string; anonymous?: boolean; visibility?: string }) {
-    const item = this.store.createReply(id, body);
+    const item = await this.store.createReply(id, body);
     await this.store.flush();
     return { item };
   }

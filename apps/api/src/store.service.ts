@@ -7898,10 +7898,14 @@ export class StoreService implements OnModuleInit {
     return text.replace(/我能治愈你/g, '我会陪你整理此刻的感受').replace(/你一定会好/g, '愿你一点点变得轻松');
   }
 
-  createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
+  async createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
     const post = this.getPost(postId, true);
+    // The owner's consent is read from the DATABASE, not from the process cache: a cache is
+    // per-process, so a revocation committed on another instance would otherwise still let a reply
+    // through here. This is an authorization gate, and the design's rule is that authorization reads
+    // the current committed row.
     const ownerPrivacy = DIRECT_DB_MODELS.PrivacySetting
-      ? this.selfPersistence.getCachedPrivacySettings(post.userId)
+      ? await this.selfPersistence.getPrivacySettings(post.userId)
       : this.privacySettings[post.userId];
     const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
     if (

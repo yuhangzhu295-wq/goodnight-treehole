@@ -235,6 +235,13 @@ export class SelfPersistenceService {
   // PrivacySetting
   // ==========================================
 
+  /**
+   * DISPLAY ONLY — never use this to decide whether an operation is permitted.
+   *
+   * It is a per-process snapshot, so a revocation committed on another instance is not visible here
+   * until this process reads again. Authorization must call `getPrivacySettings` (a database read)
+   * instead. The name says "cached" on purpose so that using it in a gate is visibly wrong.
+   */
   getCachedPrivacySettings(userId: string): PrivacySettingRecord {
     return this.privacyCache.get(userId) ?? defaultPrivacySettings(userId);
   }
