@@ -1,7 +1,7 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "b05b423",
+  "head": "pending",
   "updatedAt": "2026-10-09",
   "statusVocabulary": [
     "PENDING",
@@ -218,6 +218,78 @@
       "implemented": "yes",
       "tested": "yes",
       "commit": "0de5913"
+    },
+    {
+      "id": "B3-R11",
+      "phase": "Batch 3 review",
+      "priority": "P0",
+      "status": "BLOCKED_DEPENDENCY",
+      "title": "Known-ID impersonation: the identity header is not authentication",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "The reviewer: resolveRuntimeUserId verifies the id exists, not that the sender owns it, so a caller who knows any existing user id passes every ownership check. The forged-identity test only covers an UNKNOWN id.",
+      "nextAction": "Needs a session or signed anonymous credential before the per-resource ownership checks; out of reach of route guards and of this batch."
+    },
+    {
+      "id": "B3-R12",
+      "phase": "Batch 3 review",
+      "priority": "P1",
+      "status": "READY",
+      "title": "Private /me aliases still reach demo data",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "Reviewer: /api/v1/me/letters, /me/diaries, /me/favorites, /me/profile, /me/data still delegate to demo-user reads/writes without an identity check, so R-06 is incomplete.",
+      "nextAction": "Require verified identity before the first read or write on every private alias, with negative tests."
+    },
+    {
+      "id": "B3-R13",
+      "phase": "Batch 3 review",
+      "priority": "P1",
+      "status": "READY",
+      "title": "Admin bearer check accepts a fabricated admin id",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "Reviewer: verifyToken base64-decodes the value, takes the first field and looks up that admin id, so a fabricated value naming an existing admin passes and the audited read discloses content.",
+      "nextAction": "Verify a server-stored session and enforce the permitted role before the detail read; add forged-token and role tests."
+    },
+    {
+      "id": "B3-R14",
+      "phase": "Batch 3 review",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Baseline gate scope: a selected-spec run could poison the record",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "Fixed in this commit: the record carries its run scope, comparison is skipped when the scopes differ, and a narrower run cannot overwrite a broader record.",
+      "nextAction": "—"
+    },
+    {
+      "id": "B3-R15",
+      "phase": "Batch 3 review",
+      "priority": "P2",
+      "status": "READY",
+      "title": "UI refusal was verified with an intercepted 400",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "Reviewer: the walkthrough supplies a simulated 400, so it does not establish that a real server refusal produces that UI state, and it does not assert the absence of a success notice.",
+      "nextAction": "Add a real refusal scenario asserting the error and the absence of success feedback."
+    },
+    {
+      "id": "B3-FLAKE",
+      "phase": "Batch 3 review",
+      "priority": "P1",
+      "status": "READY",
+      "title": "batch1-journey P0-3 concurrency test times out under full-suite load",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "Passes 13/13 in isolation twice; under full-suite load it fails with Test timed out in 5000ms (not an assertion). Same class as BL-6.",
+      "nextAction": "Give the barrier-based test an explicit timeout, as the Batch 2 and 3 concurrency tests have."
     }
   ]
 }

@@ -16,6 +16,8 @@ export interface BaselineFailureEntry {
 export interface BaselineDiffResult {
   isRegression: boolean;
   previousRunFailureCount?: number | null;
+  previousRunScope?: string | null;
+  scopeMatches?: boolean;
   newSinceLastRun?: ActualFailure[];
   totalActualFailures: number;
   knownFailuresCount: number;
@@ -158,11 +160,17 @@ export function checkBaselineDiff(customReportPath?: string, customBaselinePath?
   const baselineEntries = parseBaselineFailures(baselineMarkdown);
 
   const result = compareFailuresAgainstBaseline(actualFailures, baselineEntries);
-  const { previousCount, newSinceLastRun } = compareWithPreviousRun(actualFailures);
+  // The scope is the number of test files the run covered. A selected-spec run records its own
+  // scope, so it can never be compared against a full run (nor the reverse): a one-file run has no
+  // failures and would otherwise make the next full run look clean.
+  const scope = `files:${reportData.totalFiles ?? actualFailures.length ? (reportData.totalFiles ?? 0) : 0}`;
+  const { previousCount, previousScope, scopeMatches, newSinceLastRun } = compareWithPreviousRun(actualFailures, scope);
 
   return {
     ...result,
     previousRunFailureCount: previousCount,
+    previousRunScope: previousScope,
+    scopeMatches,
     newSinceLastRun,
     // A failure that was passing in the previous run is a regression whatever the original set says,
     // so the verdict is the union of the two comparisons.
@@ -189,36 +197,50 @@ function failureKey(file: string, title: string): string {
   return `${path.basename(file)}::${normalizeTitle(title)}`;
 }
 
-export function compareWithPreviousRun(actualFailures: ActualFailure[]): {
+export function compareWithPreviousRun(
+  actualFailures: ActualFailure[],
+  scope: string,
+): {
   previousCount: number | null;
+  previousScope: string | null;
+  scopeMatches: boolean;
   newSinceLastRun: ActualFailure[];
 } {
   const lastRunPath = LAST_RUN_PATH();
   let previousKeys: string[] | null = null;
   let previousCount: number | null = null;
+  let previousScope: string | null = null;
   if (fs.existsSync(lastRunPath)) {
     try {
       const previous = JSON.parse(fs.readFileSync(lastRunPath, 'utf8'));
       if (Array.isArray(previous.keys)) previousKeys = previous.keys as string[];
       if (typeof previous.count === 'number') previousCount = previous.count;
+      if (typeof previous.scope === 'string') previousScope = previous.scope;
     } catch {
       previousKeys = null;
     }
   }
 
   const currentKeys = actualFailures.map((f) => failureKey(f.file, f.title));
+  const scopeMatches = previousScope !== null && previousScope === scope;
   const newSinceLastRun =
-    previousKeys === null
+    previousKeys === null || !scopeMatches
       ? []
       : actualFailures.filter((f) => !previousKeys!.includes(failureKey(f.file, f.title)));
 
-  fs.mkdirSync(path.dirname(lastRunPath), { recursive: true });
-  fs.writeFileSync(
-    lastRunPath,
-    JSON.stringify({ count: actualFailures.length, keys: currentKeys, recordedAt: new Date().toISOString() }, null, 2),
-  );
+  // Only a run at least as broad as the recorded one may replace it. A selected-spec run must not
+  // be able to overwrite a full run's record and hide the next full run's comparison.
+  const recordedScopeFiles = previousScope ? Number(previousScope.replace(/D/g, '')) : -1;
+  const currentScopeFiles = Number(scope.replace(/D/g, ''));
+  if (currentScopeFiles >= recordedScopeFiles) {
+    fs.mkdirSync(path.dirname(lastRunPath), { recursive: true });
+    fs.writeFileSync(
+      lastRunPath,
+      JSON.stringify({ scope, count: actualFailures.length, keys: currentKeys, recordedAt: new Date().toISOString() }, null, 2),
+    );
+  }
 
-  return { previousCount, newSinceLastRun };
+  return { previousCount, previousScope, scopeMatches, newSinceLastRun };
 }
 
 // CLI execution entry point
@@ -247,6 +269,7 @@ function runCli() {
     console.log(`Known Baseline Failures:     ${result.knownFailuresCount}`);
     console.log(`New Regressions:             ${result.newRegressionsCount}`);
     console.log(`Previous Run Failures:       ${result.previousRunFailureCount ?? "(no record)"}`);
+    console.log(`Previous Run Scope:          ${result.previousRunScope ?? "(none)"} ${result.scopeMatches ? "(comparable)" : "(NOT comparable — skipped)"}`);
     console.log(`New Since Previous Run:      ${result.newSinceLastRun?.length ?? 0}`);
     console.log('--------------------------------------------------------------------------------');
 
