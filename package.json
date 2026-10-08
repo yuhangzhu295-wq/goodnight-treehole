@@ -117,7 +117,8 @@
     "visual:fixture:stop": "tsx scripts/visual-fixture.ts stop",
     "visual:fixture:status": "tsx scripts/visual-fixture.ts status",
     "visual:fixture:verify": "tsx scripts/visual-fixture.ts verify",
-    "visual:fixture:run": "tsx scripts/visual-fixture-run.ts"
+    "visual:fixture:run": "tsx scripts/visual-fixture-run.ts",
+    "test:batch3-step1-mutation": "tsx scripts/batch3-step1-mutation-check.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",

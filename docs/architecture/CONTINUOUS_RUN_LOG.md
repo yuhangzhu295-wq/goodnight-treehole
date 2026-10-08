@@ -342,3 +342,34 @@ has an implementation default that does not change current product behaviour.
 
 **Gate position.** Design approved; implementation may start. `PERSISTENCE_BATCH3_STABLE` is **not**
 claimed — it requires the eight §4 gates plus an independent review of the implementation.
+
+### Batch 3 step 1 — five models registered, and what verifying them found
+
+`PrivacySetting`, `TrustedContact`, `StableSelfProfile`, `RealityHandoff` and
+`PersonalSupportPlan` are registered with the three exits (`06b3963`). The direct-write service and
+the reader conversions were already present in the working tree, uncommitted and unverified; they
+were **not** accepted on the strength of their own spec passing 22/22. Running the full suite is
+what found the two defects:
+
+1. **`privacyAllows` became async but eight of its sixteen call sites did not await it.** Every one
+   of those gates silently stopped enforcing — the `ForbiddenException` was thrown inside a floating
+   promise, so the request proceeded. `third-stage-privacy-2` caught it: a route that must return
+   403 returned 201. All eight now await.
+2. **Three test fixtures seeded privacy through the now-disabled in-memory map.** Two business specs
+   now seed through the database with a shared `setPrivacy` helper; the unit spec asserts the new
+   contract and stubs the privacy collaborator for its export test, because the gate itself is
+   covered against a real database in the business suite.
+
+**Verification (orchestrator-measured):**
+
+| Check | Result |
+| --- | --- |
+| `batch3-self-verification.spec.ts` | 22 / 22 pass |
+| Full business suite | **7 failed / 24 passed files, 8 failed / 155 passed tests** — exactly the baseline, `check:baseline-diff` SUCCESS, 0 new regressions |
+| Unit suite | 15 / 15 pass |
+| Mutation harness (`pnpm test:batch3-step1-mutation`) | **8 of 8 proven** — the three-case FK rule, the journey ownership check, the in-transaction privacy gate, the admin metadata-only list, the audit-before-disclosure read, both registry exits, and the export gate's `await` |
+| `pnpm typecheck` / `pnpm lint` | clean / 0 errors |
+
+**Not claimed:** an independent review of this diff (the review agents were unreachable — network),
+and steps 2–5 (Memory, Recovery, Decision, Cooldown, FutureSelf, the worker).
+`PERSISTENCE_BATCH3_STABLE` is **not** claimed.
