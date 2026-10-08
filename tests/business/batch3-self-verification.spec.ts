@@ -5,7 +5,6 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp, loginAdmin } from './helpers';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
 import { StoreService } from '../../apps/api/src/store.service';
-import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
 
 const SELF_TABLES = [
   'PrivacySetting',

@@ -15,6 +15,8 @@ const STORE = 'apps/api/src/store.service.ts';
 const REGISTRY = 'apps/api/src/direct-db-models.ts';
 const SELF_SPEC = 'tests/business/batch3-self-verification.spec.ts';
 const PRIVACY_SPEC = 'tests/business/third-stage-privacy-2.spec.ts';
+const TRANSITION_SPEC = 'tests/business/batch3-journey-transition.spec.ts';
+const B1 = 'apps/api/src/batch1-persistence.service.ts';
 
 const mutations = [
   {
@@ -106,6 +108,64 @@ const mutations = [
       },
     ],
   },
+  {
+    id: 'M9 patchJourney: guard before the lock AND an unconditional write (the ordering claim)',
+    spec: TRANSITION_SPEC,
+    expectFailing: ['1.5'],
+    patches: [
+      {
+        file: B1,
+        old: '      // The transition rule runs under the LifeJourney lock, so a graduation committing concurrently\n      // cannot slip between the check and the write.\n      const locked = await lockJourneyAndAssertTransition(tx, journeyId, body.status);',
+        new: '      const [preRow] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId}`;\n      const locked = { status: preRow.status } as any;\n      if (body.status && preRow.status !== body.status && !(ALLOWED_JOURNEY_TRANSITIONS[preRow.status] ?? []).includes(body.status)) {\n        throw new BadRequestException("mutation: pre-lock guard");\n      }',
+      },
+      {
+        file: B1,
+        old: "        const result = await tx.lifeJourney.updateMany({\n          where: { id: journeyId, status: locked.status },\n          data,\n        });\n        if (result.count === 0) {\n          throw new ConflictException('旅程状态已被并发更新，请刷新重试');\n        }",
+        new: '        await tx.lifeJourney.updateMany({ where: { id: journeyId }, data });',
+      },
+    ],
+  },
+  {
+    id: 'M10 updateJourneyStatus: guard before the lock AND an unconditional write',
+    spec: TRANSITION_SPEC,
+    expectFailing: ['1.6'],
+    patches: [
+      {
+        file: B1,
+        old: "      // The transition rule runs under the LifeJourney lock (the same helper both entry points use),\n      // and the write is conditional on the status that was read there.\n      const locked = await lockJourneyAndAssertTransition(tx, journeyId, status);\n\n      const updated = await tx.lifeJourney.updateMany({\n        where: { id: journeyId, status: locked.status },\n        data: { status, updatedAt: new Date() },\n      });\n      if (updated.count === 0) {\n        throw new ConflictException('旅程状态已被并发更新，请刷新重试');\n      }",
+        new: '      const [preRow] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId}`;\n      if (preRow.status !== status && !(ALLOWED_JOURNEY_TRANSITIONS[preRow.status] ?? []).includes(status)) {\n        throw new BadRequestException("mutation: pre-lock guard");\n      }\n      await tx.lifeJourney.updateMany({ where: { id: journeyId }, data: { status, updatedAt: new Date() } });',
+      },
+    ],
+  },
+  {
+    id: 'M11 graduation: unconditional transition (a repeat graduation counts as a second one)',
+    spec: TRANSITION_SPEC,
+    expectFailing: ['2.1'],
+    patches: [
+      {
+        file: B1,
+        old: "      if (journey.status === 'completed') {\n        return { journey: mapLifeJourneyRow(journey), transitioned: false };\n      }",
+        new: '      // mutation: no already-completed short circuit',
+      },
+      {
+        file: B1,
+        old: "      const updated = await tx.lifeJourney.updateMany({\n        where: { id: journeyId, status: { notIn: ['completed'] } },\n        data: {\n          status: 'completed',\n          stage: 'graduated',\n          completedAt: nowTime,\n          updatedAt: nowTime,\n        },\n      });\n      const finalRow = await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } });\n      return { journey: mapLifeJourneyRow(finalRow), transitioned: updated.count > 0 };",
+        new: "      await tx.lifeJourney.updateMany({\n        where: { id: journeyId },\n        data: { status: 'completed', stage: 'graduated', completedAt: nowTime, updatedAt: nowTime },\n      });\n      const finalRow = await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } });\n      return { journey: mapLifeJourneyRow(finalRow), transitioned: true };",
+      },
+    ],
+  },
+  {
+    id: 'M12 same-status requests refused (the hybrid PATCH contract breaks)',
+    spec: TRANSITION_SPEC,
+    expectFailing: ['1.4'],
+    patches: [
+      {
+        file: B1,
+        old: '  if (!target || row.status === target) return row;',
+        new: '  if (!target) return row;',
+      },
+    ],
+  },
 ];
 
 const countOccurrences = (haystack, needle) => haystack.split(needle).length - 1;
@@ -148,7 +208,15 @@ function runSpec(spec) {
 const childOk = (run: { status: number | null; signal: string | null; spawnError: string | null }) =>
   run.spawnError === null && run.signal === null && run.status !== null;
 
-const specs = [...new Set(mutations.map((m) => m.spec))];
+// Optional filter: `tsx scripts/batch3-mutation-check.ts M10` runs one mutation.
+const only = process.argv[2];
+const selected = only ? mutations.filter((m) => m.id.startsWith(only)) : mutations;
+if (!selected.length) {
+  console.error(`No mutation matches "${only}"`);
+  process.exit(1);
+}
+
+const specs = [...new Set(selected.map((m) => m.spec))];
 const baselines = new Map<string, ReturnType<typeof runSpec>>();
 console.log('=== baseline runs (each must be green before any mutation result is meaningful) ===');
 for (const spec of specs) {
@@ -165,7 +233,7 @@ console.log('');
 
 const results = [];
 
-for (const mutation of mutations) {
+for (const mutation of selected) {
   let verdict = 'INCONCLUSIVE';
   let detail = '';
   const originals = new Map();

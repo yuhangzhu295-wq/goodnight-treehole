@@ -520,6 +520,48 @@ export function mapSafetyEventRow(row: {
   };
 }
 
+/**
+ * The journey status transition rule, in one place, applied **under the LifeJourney row lock**.
+ *
+ * Both general status entry points must apply it — `patchJourney` (PATCH /journeys/:id) and
+ * `updateJourneyStatus` — because a rule enforced at one of them proves nothing: the other still
+ * writes. It also has to run under the lock rather than as a read before the write, or a graduation
+ * committing in between still turns a completed journey back into an active one, which is the same
+ * read-then-write disconnection Batch 2's P0-1 was about.
+ *
+ * `completed` and `archived` are terminal here. For `completed` this is not a new product decision:
+ * `apps/mp/src/views/Archive.vue` already tells the user that a completed Journey is kept as a
+ * complete history and cannot be restored to in-progress, and it offers the restore button only for
+ * `archived`. The API was the half that disagreed. Restoring an `archived` journey has its own
+ * explicit path and is unaffected.
+ *
+ * A request whose target equals the current status is **not** a transition: it is a
+ * status-preserving write that may still carry metadata changes, which the existing hybrid PATCH
+ * contract relies on (`batch1-journey.spec.ts` sends `paused` to an already-`paused` journey with a
+ * title and expects success).
+ */
+const ALLOWED_JOURNEY_TRANSITIONS: Record<string, readonly string[]> = {
+  active: ['paused', 'archived', 'completed'],
+  paused: ['active', 'archived', 'completed'],
+  archived: [],
+  completed: [],
+};
+
+async function lockJourneyAndAssertTransition(tx: any, journeyId: string, target?: string) {
+  const [row] = await tx.$queryRaw<any[]>`SELECT * FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`;
+  if (!row) throw new NotFoundException('旅程不存在或无权访问');
+  if (!target || row.status === target) return row;
+  const allowed = ALLOWED_JOURNEY_TRANSITIONS[row.status] ?? [];
+  if (!allowed.includes(target)) {
+    throw new BadRequestException(
+      row.status === 'completed'
+        ? '已完成的 Journey 保留为完整历史，不能恢复为进行中'
+        : '当前状态不支持这个切换，请刷新后再试',
+    );
+  }
+  return row;
+}
+
 @Injectable()
 export class Batch1PersistenceService {
   constructor(
@@ -1675,8 +1717,13 @@ export class Batch1PersistenceService {
     },
     expectedUpdatedAt: Date | string | undefined,
     userId: string,
+    hooks: { _onBeforeLock?: () => Promise<void> } = {},
   ): Promise<LifeJourneyRecord> {
     return await this.prisma.$transaction(async (tx) => {
+      // Test-only rendezvous point: fires inside the open transaction and before either lock, so a
+      // barrier can hold this request while a graduation commits completely. See §0.13 of the Batch
+      // 3 design — the ordering claim is proven by a mutation against this interleaving.
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
       // P0-3: If requested status is 'active', lock the parent User row FIRST before any read that informs the activation decision
       if (body.status === 'active') {
         await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
@@ -1693,6 +1740,10 @@ export class Batch1PersistenceService {
         throw new NotFoundException('旅程不存在或无权访问');
       }
 
+      // The transition rule runs under the LifeJourney lock, so a graduation committing concurrently
+      // cannot slip between the check and the write.
+      const locked = await lockJourneyAndAssertTransition(tx, journeyId, body.status);
+
       const data: Prisma.LifeJourneyUpdateInput = {};
       if (typeof body.title === 'string' && body.title.trim()) {
         data.title = body.title.trim().slice(0, 120);
@@ -1708,17 +1759,22 @@ export class Batch1PersistenceService {
       const expectedVersion = expectedUpdatedAt ?? (body as any).expectedUpdatedAt;
       if (expectedVersion) {
         const result = await tx.lifeJourney.updateMany({
-          where: { id: journeyId, updatedAt: new Date(expectedVersion) },
+          where: { id: journeyId, updatedAt: new Date(expectedVersion), status: locked.status },
           data,
         });
         if (result.count === 0) {
           throw new ConflictException('旅程已被并发更新，请刷新重试');
         }
       } else {
-        await tx.lifeJourney.update({
-          where: { id: journeyId },
+        // Conditional on the status that was read under the lock: the guard is the write predicate,
+        // not a prior read.
+        const result = await tx.lifeJourney.updateMany({
+          where: { id: journeyId, status: locked.status },
           data,
         });
+        if (result.count === 0) {
+          throw new ConflictException('旅程状态已被并发更新，请刷新重试');
+        }
       }
 
       const updated = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
@@ -2045,8 +2101,10 @@ export class Batch1PersistenceService {
     journeyId: string,
     status: 'active' | 'paused' | 'archived',
     userId?: string,
+    hooks: { _onBeforeLock?: () => Promise<void> } = {},
   ): Promise<LifeJourneyRecord> {
     return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
       const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
       if (!journey) throw new NotFoundException('旅程不存在');
       const targetUserId = userId ?? journey.userId;
@@ -2062,26 +2120,49 @@ export class Batch1PersistenceService {
         }
       }
 
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
+      // The transition rule runs under the LifeJourney lock (the same helper both entry points use),
+      // and the write is conditional on the status that was read there.
+      const locked = await lockJourneyAndAssertTransition(tx, journeyId, status);
 
-      const updated = await tx.lifeJourney.update({
-        where: { id: journeyId },
+      const updated = await tx.lifeJourney.updateMany({
+        where: { id: journeyId, status: locked.status },
         data: { status, updatedAt: new Date() },
       });
-      return mapLifeJourneyRow(updated);
+      if (updated.count === 0) {
+        throw new ConflictException('旅程状态已被并发更新，请刷新重试');
+      }
+      return mapLifeJourneyRow(await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } }));
     });
   }
 
-  async graduateJourney(journeyId: string, userId: string): Promise<LifeJourneyRecord> {
+  /**
+   * Graduation is a **one-way** transition, and it reports whether it happened.
+   *
+   * The caller appends the derived `RecoverySnapshot` only when `transitioned` is true, so a
+   * duplicate request — or two concurrent ones from separate instances — produces exactly one
+   * graduation snapshot per journey rather than one per call. The write is conditional on the
+   * status read under the lock, so the rule is the write predicate and not a prior read.
+   *
+   * Reaching `completed` from `archived` is refused by the shared transition rule, matching the
+   * product's own copy that an archived journey is restored through its explicit path and a
+   * completed one is kept as history.
+   */
+  async graduateJourney(
+    journeyId: string,
+    userId: string,
+  ): Promise<{ journey: LifeJourneyRecord; transitioned: boolean }> {
     return await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM "LifeJourney" WHERE id = ${journeyId} FOR UPDATE`);
-      const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
-      if (!journey || journey.userId !== userId) throw new NotFoundException('旅程不存在或无权访问');
+      const journey = await lockJourneyAndAssertTransition(tx, journeyId, 'completed');
+      if (journey.userId !== userId) throw new NotFoundException('旅程不存在或无权访问');
+
+      if (journey.status === 'completed') {
+        return { journey: mapLifeJourneyRow(journey), transitioned: false };
+      }
 
       const nowTime = new Date();
-      const updated = await tx.lifeJourney.update({
-        where: { id: journeyId },
+      const updated = await tx.lifeJourney.updateMany({
+        where: { id: journeyId, status: { notIn: ['completed'] } },
         data: {
           status: 'completed',
           stage: 'graduated',
@@ -2089,7 +2170,8 @@ export class Batch1PersistenceService {
           updatedAt: nowTime,
         },
       });
-      return mapLifeJourneyRow(updated);
+      const finalRow = await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } });
+      return { journey: mapLifeJourneyRow(finalRow), transitioned: updated.count > 0 };
     });
   }
 

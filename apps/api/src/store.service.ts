@@ -4128,11 +4128,13 @@ export class StoreService implements OnModuleInit {
     const journey = await this.requireJourney(journeyId);
     const completed = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
-    await this.batch1Persistence.graduateJourney(journeyId, journey.userId);
+    // Graduation is one-way and reports whether it happened, so the derived snapshot is appended
+    // only on a real transition: a duplicate or concurrent graduation must not append a second one.
+    const { transitioned } = await this.batch1Persistence.graduateJourney(journeyId, journey.userId);
     const allowRecovery = DIRECT_DB_MODELS.PrivacySetting
       ? (await this.selfPersistence.getPrivacySettings(journey.userId)).allowRecoveryData
       : this.privacySettings[journey.userId]?.allowRecoveryData;
-    if (allowRecovery === true)
+    if (transitioned && allowRecovery === true)
       this.recoverySnapshots.unshift({
         id: id('recovery'),
         userId: journey.userId,
