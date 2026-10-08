@@ -37,6 +37,7 @@ import { normalizeStoreEmotion, StoreService, type AIGenerateInput } from './sto
 import { MonthlyReportService } from './monthly-report.service.js';
 import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
+import { SelfPersistenceService } from './self-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -276,6 +277,7 @@ export class PublicController {
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(MonthlyReportService) private readonly reports: MonthlyReportService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+    @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
   ) {}
 
   @Get('posts')
@@ -699,28 +701,70 @@ export class PublicController {
   }
 
   @Post('handoffs')
-  async handoff(@Body() body: { journeyId?: string; recipient?: string; channel?: string; summary?: string }) {
-    return await this.store.createRealityHandoff(body);
+  async handoff(
+    @Body() body: { journeyId?: string; recipient?: string; channel?: string; summary?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.createRealityHandoff({
+        userId: runtimeId,
+        journeyId: body.journeyId,
+        recipient: body.recipient ?? '',
+        channel: body.channel ?? '',
+        summary: body.summary ?? '',
+      });
+      return { item };
+    }
+    return await this.store.createRealityHandoff(body, runtimeId);
   }
 
   @Post('handoffs/:id/share')
   async shareHandoff(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.shareRealityHandoff(id, runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.shareRealityHandoff(id, runtimeId);
+      return { item };
+    }
+    return await this.store.shareRealityHandoff(id, runtimeId);
   }
 
   @Get('handoffs')
-  handoffs(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.handoffList(runtimeUserId(userId)) };
+  async handoffs(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const items = await this.selfPersistence.listRealityHandoffs(runtimeId);
+      return { items };
+    }
+    return { items: await this.store.handoffList(runtimeId) };
   }
 
   @Post('trusted-contacts')
-  async trustedContact(@Body() body: { nickname?: string; relation?: string; contactHint?: string }) {
-    return await this.store.saveTrustedContact(body);
+  async trustedContact(
+    @Body() body: { nickname?: string; relation?: string; contactHint?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      const item = await this.selfPersistence.createTrustedContact({
+        userId: runtimeId,
+        nickname: body.nickname ?? '',
+        relation: body.relation ?? '',
+        contactHint: body.contactHint ?? '',
+      });
+      return { item };
+    }
+    return await this.store.saveTrustedContact(body, runtimeId);
   }
 
   @Get('trusted-contacts')
-  trustedContacts() {
-    return { items: this.store.trustedContactList() };
+  async trustedContacts(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      const items = await this.selfPersistence.listTrustedContacts(runtimeId);
+      return { items };
+    }
+    return { items: await this.store.trustedContactList(runtimeId) };
   }
 
   @Post('future-messages')
@@ -744,28 +788,48 @@ export class PublicController {
 
   @Post('support-plans')
   async supportPlan(
-    @Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> },
+    @Body() body: { journeyId?: string | null; title?: string; plan?: Record<string, unknown> },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveSupportPlan(body, runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      const item = await this.selfPersistence.saveSupportPlan({
+        userId: runtimeId,
+        journeyId: body.journeyId,
+        title: body.title,
+        plan: body.plan,
+      });
+      return { item };
+    }
+    return await this.store.saveSupportPlan(body, runtimeId);
   }
 
   @Get('me/support-plan')
-  supportPlanCurrent(@Headers('x-goodnight-user-id') userId?: string) {
-    return { item: this.store.supportPlan(runtimeUserId(userId)) };
+  async supportPlanCurrent(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      const item = await this.selfPersistence.getSupportPlan(runtimeId);
+      return { item };
+    }
+    return { item: await this.store.supportPlan(runtimeId) };
   }
 
   @Put('me/support-plan')
   async supportPlanPut(
-    @Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> },
+    @Body() body: { journeyId?: string | null; title?: string; plan?: Record<string, unknown> },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveSupportPlan(body, runtimeUserId(userId));
+    return await this.supportPlan(body, userId);
   }
 
   @Get('me/stable-self')
-  stableSelfProfile(@Headers('x-goodnight-user-id') userId?: string) {
-    return { item: this.store.stableSelfProfile(runtimeUserId(userId)) };
+  async stableSelfProfile(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      const item = await this.selfPersistence.getStableSelfProfile(runtimeId);
+      return { item };
+    }
+    return { item: await this.store.stableSelfProfile(runtimeId) };
   }
 
   @Put('me/stable-self')
@@ -773,12 +837,20 @@ export class PublicController {
     @Body() body: { profile?: Record<string, unknown> },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return await this.store.saveStableSelfProfile(body, runtimeUserId(userId));
+    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      const item = await this.selfPersistence.saveStableSelfProfile({
+        userId: runtimeId,
+        profile: body.profile ?? {},
+      });
+      return { item };
+    }
+    return await this.store.saveStableSelfProfile(body, runtimeId);
   }
 
   @Get('me/recovery')
-  recovery(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.recoveryList(runtimeUserId(userId)) };
+  async recovery(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.recoveryList(runtimeUserId(userId)) };
   }
 
   @Post('me/recovery')
@@ -1756,19 +1828,23 @@ export class PublicController {
   }
 
   @Get('settings/privacy')
-  privacy(@Headers('x-goodnight-user-id') userId?: string) {
+  async privacy(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      const item = await this.selfPersistence.getPrivacySettings(runtimeId);
+      return { item };
+    }
     return { item: this.store.privacySettings[runtimeId] };
   }
 
   @Get('me/privacy')
-  mePrivacy(@Headers('x-goodnight-user-id') userId?: string) {
-    return this.privacy(userId);
+  async mePrivacy(@Headers('x-goodnight-user-id') userId?: string) {
+    return await this.privacy(userId);
   }
 
   @Get('privacy-settings')
-  privacySettingsAlias(@Headers('x-goodnight-user-id') userId?: string) {
-    return this.privacy(userId);
+  async privacySettingsAlias(@Headers('x-goodnight-user-id') userId?: string) {
+    return await this.privacy(userId);
   }
 
   @Put('settings/privacy')
@@ -1790,14 +1866,18 @@ export class PublicController {
       'allowFutureSelfNotifications',
       'allowDataExport',
     ] as const;
-    const patch: Partial<PrivacySetting> = {};
+    const patch: any = {};
     for (const key of allowedKeys) {
       const value = body[key];
       if (key === 'defaultVisibility') {
         if (value === 'PRIVATE' || value === 'PUBLIC') patch.defaultVisibility = value;
       } else if (typeof value === 'boolean') {
-        (patch as Record<string, boolean>)[key] = value;
+        patch[key] = value;
       }
+    }
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      const item = await this.selfPersistence.updatePrivacySettings(runtimeId, patch);
+      return { item };
     }
     this.store.privacySettings[runtimeId] = { ...this.store.privacySettings[runtimeId], ...patch };
     this.store.persist();
@@ -1915,6 +1995,7 @@ export class AdminController {
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
     @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
+    @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
   ) {}
 
   private admin(auth?: string) {
@@ -2031,7 +2112,9 @@ export class AdminController {
           ? await this.peerPersistence.countPublishedExperiences()
           : this.store.peerExperiences.filter((item) => item.status === 'published').length,
         safetyEvents: await this.store.countHighRiskSafetyEvents(),
-        supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
+        supportPlans: DIRECT_DB_MODELS.PersonalSupportPlan
+          ? await this.selfPersistence.countActiveSupportPlans()
+          : this.store.personalSupportPlans.filter((item) => item.active).length,
         followUps: this.store.followUpJobs.filter((item) => ['pending', 'scheduled'].includes(item.status)).length,
         unreadNotifications: await this.store.countUnreadNotifications(),
         peerRequests: DIRECT_DB_MODELS.PeerMatch
@@ -2480,19 +2563,35 @@ export class AdminController {
   }
 
   @Get('support/plans')
-  supportPlans(
+  async supportPlans(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      return await this.selfPersistence.listSupportPlansForAdmin({
+        q,
+        page: page ? parseInt(page, 10) : undefined,
+        pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      });
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.personalSupportPlans.filter(
       (item) =>
         !needle || this.matchesNeedle([item.id, item.userId, item.title, JSON.stringify(item.plan ?? {})], needle),
     );
     return this.list(items, page, pageSize);
+  }
+
+  @Get('support/plans/:id')
+  async supportPlanDetail(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+  ) {
+    const admin = this.admin(auth);
+    return await this.selfPersistence.getAuditedSupportPlanForAdmin(id, admin.id);
   }
 
   @Get('memory')
@@ -2569,8 +2668,11 @@ export class AdminController {
   }
 
   @Get('users/:id')
-  user(@Param('id') id: string) {
-    return { item: this.store.users.find((u) => u.id === id), privacy: this.store.privacySettings[id] };
+  async user(@Param('id') id: string) {
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(id)
+      : this.store.privacySettings[id];
+    return { item: this.store.users.find((u) => u.id === id), privacy };
   }
   @Patch('users/:id/status')
   async userStatus(
@@ -3466,8 +3568,12 @@ export class AdminController {
         updatedAt: new Date().toISOString(),
       };
       if (key === 'defaultVisibility') {
-        for (const userId in this.store.privacySettings) {
-          this.store.privacySettings[userId].defaultVisibility = value as 'PUBLIC' | 'PRIVATE';
+        if (DIRECT_DB_MODELS.PrivacySetting) {
+          await this.selfPersistence.updateDefaultVisibilityFanOut(value as 'PUBLIC' | 'PRIVATE');
+        } else {
+          for (const userId in this.store.privacySettings) {
+            this.store.privacySettings[userId].defaultVisibility = value as 'PUBLIC' | 'PRIVATE';
+          }
         }
       }
     }

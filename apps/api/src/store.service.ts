@@ -32,6 +32,7 @@ import {
   isGeneratedJourneyTitle,
 } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
+import { SelfPersistenceService, type PrivacySettingRecord } from './self-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1253,6 +1254,8 @@ export class StoreService implements OnModuleInit {
     private readonly batch1Persistence: Batch1PersistenceService = new Batch1PersistenceService(prisma as any),
     @Inject(PeerPersistenceService)
     private readonly peerPersistence: PeerPersistenceService = new PeerPersistenceService(prisma as any),
+    @Inject(SelfPersistenceService)
+    public readonly selfPersistence: SelfPersistenceService = new SelfPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1437,12 +1440,88 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      delete data.privacySettings;
+      Object.defineProperty(data, 'privacySettings', {
+        get() {
+          throw new Error('StoreData.privacySettings is disabled: PrivacySetting is database-authoritative (Batch 3)');
+        },
+        set(_val) {
+          throw new Error('StoreData.privacySettings is disabled: PrivacySetting is database-authoritative (Batch 3)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      delete data.trustedContacts;
+      Object.defineProperty(data, 'trustedContacts', {
+        get() {
+          throw new Error('StoreData.trustedContacts is disabled: TrustedContact is database-authoritative (Batch 3)');
+        },
+        set(_val) {
+          throw new Error('StoreData.trustedContacts is disabled: TrustedContact is database-authoritative (Batch 3)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      delete data.stableSelfProfiles;
+      Object.defineProperty(data, 'stableSelfProfiles', {
+        get() {
+          throw new Error(
+            'StoreData.stableSelfProfiles is disabled: StableSelfProfile is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.stableSelfProfiles is disabled: StableSelfProfile is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      delete data.realityHandoffs;
+      Object.defineProperty(data, 'realityHandoffs', {
+        get() {
+          throw new Error('StoreData.realityHandoffs is disabled: RealityHandoff is database-authoritative (Batch 3)');
+        },
+        set(_val) {
+          throw new Error('StoreData.realityHandoffs is disabled: RealityHandoff is database-authoritative (Batch 3)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      delete data.personalSupportPlans;
+      Object.defineProperty(data, 'personalSupportPlans', {
+        get() {
+          throw new Error(
+            'StoreData.personalSupportPlans is disabled: PersonalSupportPlan is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.personalSupportPlans is disabled: PersonalSupportPlan is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     this.data = persisted ?? this.loadLegacyStore();
     this.isolateDirectDbModels(this.data);
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      await this.selfPersistence.repairPrivacyDefaults();
+    }
     await this.migrateAiJobs();
     await this.recoverInterruptedAiJobs();
     this.reconcileFavoriteCounts();
@@ -1491,6 +1570,11 @@ export class StoreService implements OnModuleInit {
     return this.data.adminUsers;
   }
   get privacySettings() {
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      throw new Error(
+        'Direct DB model PrivacySetting: store.privacySettings getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.privacySettings;
   }
   get moods() {
@@ -1631,18 +1715,38 @@ export class StoreService implements OnModuleInit {
     return this.data.cooldownItems;
   }
   get realityHandoffs() {
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      throw new Error(
+        'Direct DB model RealityHandoff: store.realityHandoffs getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.realityHandoffs;
   }
   get trustedContacts() {
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      throw new Error(
+        'Direct DB model TrustedContact: store.trustedContacts getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.trustedContacts;
   }
   get messagesToFutureSelf() {
     return this.data.messagesToFutureSelf;
   }
   get personalSupportPlans() {
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      throw new Error(
+        'Direct DB model PersonalSupportPlan: store.personalSupportPlans getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.personalSupportPlans;
   }
   get stableSelfProfiles() {
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      throw new Error(
+        'Direct DB model StableSelfProfile: store.stableSelfProfiles getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.stableSelfProfiles;
   }
   get memoryItems() {
@@ -1990,7 +2094,7 @@ export class StoreService implements OnModuleInit {
   }
 
   async createDiaryExport(userId = this.getDemoUserId()) {
-    this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
+    await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
     const generatedAt = now();
     const diaries = this.diaries
       .filter((item) => item.userId === userId)
@@ -2056,7 +2160,7 @@ export class StoreService implements OnModuleInit {
   }
 
   async createJourneyArchiveExport(journeyId: string, userId = this.getDemoUserId()) {
-    this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
+    await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
     const archive = await this.journeyArchiveDetail(journeyId, userId);
     const generatedAt = now();
     const assetId = id('export');
@@ -2146,14 +2250,18 @@ export class StoreService implements OnModuleInit {
     const assetId = id('export');
     const storageKey = `user-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
     const target = path.join(uploadsDirectory, storageKey);
-    const users = this.users.map((user) => ({
-      id: user.id,
-      nickname: user.nickname,
-      anonymousCode: user.anonymousCode,
-      status: user.status,
-      createdAt: user.createdAt,
-      privacy: this.privacySettings[user.id] ?? null,
-    }));
+    const users = await Promise.all(
+      this.users.map(async (user) => ({
+        id: user.id,
+        nickname: user.nickname,
+        anonymousCode: user.anonymousCode,
+        status: user.status,
+        createdAt: user.createdAt,
+        privacy: DIRECT_DB_MODELS.PrivacySetting
+          ? await this.selfPersistence.getPrivacySettings(user.id)
+          : this.privacySettings[user.id] ?? null,
+      })),
+    );
     const asset: MediaAsset = {
       id: assetId,
       userId: this.getDemoUserId(),
@@ -2283,7 +2391,9 @@ export class StoreService implements OnModuleInit {
   decoratePost(post: PostItem) {
     const attachmentIds = post.attachmentIds ?? [];
     post.attachments = this.mediaByIds(attachmentIds);
-    const ownerPrivacy = this.privacySettings[post.userId];
+    const ownerPrivacy = DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(post.userId)
+      : this.privacySettings[post.userId];
     const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
     post.allowHumanReplies =
       post.visibility === 'PUBLIC' &&
@@ -2864,29 +2974,35 @@ export class StoreService implements OnModuleInit {
       if (key === 'outcomeCheckins' && DIRECT_DB_MODELS.OutcomeCheckin) continue;
       if (key === 'peerExperiences' && DIRECT_DB_MODELS.PeerExperience) continue;
       if (key === 'peerMatches' && DIRECT_DB_MODELS.PeerMatch) continue;
+      if (key === 'realityHandoffs' && DIRECT_DB_MODELS.RealityHandoff) continue;
+      if (key === 'trustedContacts' && DIRECT_DB_MODELS.TrustedContact) continue;
+      if (key === 'personalSupportPlans' && DIRECT_DB_MODELS.PersonalSupportPlan) continue;
+      if (key === 'stableSelfProfiles' && DIRECT_DB_MODELS.StableSelfProfile) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
       }
     }
-    for (const userId of Object.keys(this.data.privacySettings)) {
-      const privacy = this.data.privacySettings[userId] as PrivacySetting & Record<string, unknown>;
-      const defaults: Record<string, boolean> = {
-        allowPeerMatching: false,
-        allowAnonymousExperienceStats: false,
-        allowRecoveryData: false,
-        allowJourneyLongTermAnalysis: false,
-        allowLongTermMemory: false,
-        allowAiMemoryUse: false,
-        allowAnonymousExperienceShare: false,
-        allowJourneyArchiveRetention: false,
-        allowFutureSelfNotifications: false,
-        allowDataExport: false,
-      };
-      for (const [key, fallback] of Object.entries(defaults)) {
-        if (privacy[key] === undefined) {
-          privacy[key] = fallback;
-          changed = true;
+    if (!DIRECT_DB_MODELS.PrivacySetting) {
+      for (const userId of Object.keys(this.data.privacySettings)) {
+        const privacy = this.data.privacySettings[userId] as PrivacySetting & Record<string, unknown>;
+        const defaults: Record<string, boolean> = {
+          allowPeerMatching: false,
+          allowAnonymousExperienceStats: false,
+          allowRecoveryData: false,
+          allowJourneyLongTermAnalysis: false,
+          allowLongTermMemory: false,
+          allowAiMemoryUse: false,
+          allowAnonymousExperienceShare: false,
+          allowJourneyArchiveRetention: false,
+          allowFutureSelfNotifications: false,
+          allowDataExport: false,
+        };
+        for (const [key, fallback] of Object.entries(defaults)) {
+          if (privacy[key] === undefined) {
+            privacy[key] = fallback;
+            changed = true;
+          }
         }
       }
     }
@@ -2959,8 +3075,13 @@ export class StoreService implements OnModuleInit {
     return parsed.toISOString();
   }
 
-  private privacyAllows(userId: string, key: keyof PrivacySetting, message: string) {
-    if (this.privacySettings[userId]?.[key] !== true) throw new ForbiddenException(message);
+  private async privacyAllows(userId: string, key: keyof PrivacySettingRecord, message: string) {
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      const privacy = await this.selfPersistence.getPrivacySettings(userId);
+      if (privacy[key] !== true) throw new ForbiddenException(message);
+      return;
+    }
+    if ((this.privacySettings[userId] as any)?.[key] !== true) throw new ForbiddenException(message);
   }
 
   async tonightHome(userId = this.getDemoUserId()) {
@@ -3215,7 +3336,7 @@ export class StoreService implements OnModuleInit {
       journeys: await this.batch1Persistence.countTotalJourneys(),
       actions: await this.batch1Persistence.countTotalActions(),
       jobs: DIRECT_DB_MODELS.AIJob ? 0 : this.aiJobs.length,
-      handoffs: this.realityHandoffs.length,
+      handoffs: DIRECT_DB_MODELS.RealityHandoff ? 0 : this.realityHandoffs.length,
       decisions: this.decisionRecords.length,
       cooldowns: this.cooldownItems.length,
     };
@@ -3251,13 +3372,17 @@ export class StoreService implements OnModuleInit {
         !explicitCooldownIds.has(item.id) &&
         !(legacy && item.userId === demoUserId && fixtureText.test(`${item.title}\n${item.reason ?? ''}`)),
     );
-    this.data.realityHandoffs = this.data.realityHandoffs.filter(
-      (item) =>
-        !hasJourney(item.journeyId) &&
-        !(legacy && item.userId === demoUserId && fixtureText.test(`${item.recipient}\n${item.summary}`)),
-    );
+    if (!DIRECT_DB_MODELS.RealityHandoff) {
+      this.data.realityHandoffs = this.data.realityHandoffs.filter(
+        (item) =>
+          !hasJourney(item.journeyId) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(`${item.recipient}\n${item.summary}`)),
+      );
+    }
     this.data.messagesToFutureSelf = this.data.messagesToFutureSelf.filter((item) => !hasJourney(item.journeyId));
-    this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
+    if (!DIRECT_DB_MODELS.PersonalSupportPlan) {
+      this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
+    }
     this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
     this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
     this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
@@ -3299,7 +3424,7 @@ export class StoreService implements OnModuleInit {
       actions: actionIds.size,
       notifications: deletedNotifications.count,
       jobs: deletedJobsCount,
-      handoffs: before.handoffs - this.realityHandoffs.length,
+      handoffs: DIRECT_DB_MODELS.RealityHandoff ? 0 : before.handoffs - this.realityHandoffs.length,
       decisions: before.decisions - this.decisionRecords.length,
       cooldowns: before.cooldowns - this.cooldownItems.length,
     };
@@ -3542,9 +3667,9 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.PeerExperience) this.data.peerExperiences = detachJourney(this.data.peerExperiences);
     if (!DIRECT_DB_MODELS.PeerMatch) this.data.peerMatches = detachJourney(this.data.peerMatches);
     this.data.decisionRecords = detachJourney(this.data.decisionRecords);
-    this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
+    if (!DIRECT_DB_MODELS.RealityHandoff) this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
     this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
-    this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
+    if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
     this.data.memoryItems = detachJourney(this.data.memoryItems);
     this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
     this.data.agentDecisionLogs = detachJourney(this.data.agentDecisionLogs);
@@ -3570,7 +3695,7 @@ export class StoreService implements OnModuleInit {
 
   async journeyPeers(journeyId: string, requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
-    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中允许同路人匹配');
+    await this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中允许同路人匹配');
     const matches = DIRECT_DB_MODELS.PeerMatch
       ? await this.peerPersistence.listMatchesForJourney(journey.id)
       : this.peerMatches.filter((item) => item.journeyId === journey.id);
@@ -4004,7 +4129,10 @@ export class StoreService implements OnModuleInit {
     const completed = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
     await this.batch1Persistence.graduateJourney(journeyId, journey.userId);
-    if (this.privacySettings[journey.userId]?.allowRecoveryData === true)
+    const allowRecovery = DIRECT_DB_MODELS.PrivacySetting
+      ? (await this.selfPersistence.getPrivacySettings(journey.userId)).allowRecoveryData
+      : this.privacySettings[journey.userId]?.allowRecoveryData;
+    if (allowRecovery === true)
       this.recoverySnapshots.unshift({
         id: id('recovery'),
         userId: journey.userId,
@@ -4038,7 +4166,7 @@ export class StoreService implements OnModuleInit {
     const journey = await this.requireJourney(journeyId);
     if (journey.status !== 'completed') throw new BadRequestException('请先完成这段旅程');
     if (decision !== 'willing') return { decision, graduation: await this.graduationSummary(journeyId), draft: null };
-    this.privacyAllows(journey.userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名经验分享');
+    await this.privacyAllows(journey.userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名经验分享');
     const existing = DIRECT_DB_MODELS.PeerExperience
       ? await this.peerPersistence.findPendingReviewExperienceByJourneyAndUser(journeyId, journey.userId)
       : this.peerExperiences.find(
@@ -4167,7 +4295,7 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
+    await this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
     if (input.consented !== true) throw new BadRequestException('发布经历前必须明确同意匿名分享');
     const journey = journeyId ? await this.requireJourney(journeyId, userId) : undefined;
     const sourceSnapshot = journey ? await this.batch1Persistence.getSnapshotByJourneyId(journey.id) : undefined;
@@ -4234,7 +4362,10 @@ export class StoreService implements OnModuleInit {
 
   async peerNetwork(requestedUserId?: string, focusMatchId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const privacyEnabled = this.privacySettings[userId]?.allowPeerMatching === true;
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(userId)
+      : this.privacySettings[userId];
+    const privacyEnabled = privacy?.allowPeerMatching === true;
     if (!privacyEnabled) return { privacyEnabled: false, experiences: [], matches: [], limited: false };
     const published = DIRECT_DB_MODELS.PeerExperience
       ? await this.peerPersistence.getPublishedExperiences(100, userId)
@@ -4306,7 +4437,9 @@ export class StoreService implements OnModuleInit {
     checkinCountOverride?: number,
   ) {
     if (!experience) return undefined;
-    const derivedStatisticsAllowed = this.privacySettings[experience.userId]?.allowAnonymousExperienceStats === true;
+    const derivedStatisticsAllowed = (DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(experience.userId)
+      : this.privacySettings[experience.userId])?.allowAnonymousExperienceStats === true;
     const timelineCount = derivedStatisticsAllowed && experience.journeyId ? (timelineCountOverride ?? 0) : 0;
     const checkinCount = derivedStatisticsAllowed && experience.journeyId ? (checkinCountOverride ?? 0) : 0;
     const laterRecordCount =
@@ -4387,7 +4520,7 @@ export class StoreService implements OnModuleInit {
 
   async suggestPeerMatches(journeyId: string, requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
-    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    await this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
     const userMatches = DIRECT_DB_MODELS.PeerMatch
       ? await this.peerPersistence.listMatchesForUser(journey.userId)
       : this.peerMatches.filter((item) => item.userId === journey.userId);
@@ -4925,7 +5058,10 @@ export class StoreService implements OnModuleInit {
     }
     if (!experience) throw new NotFoundException('这段同路经历不存在');
     if (viewerId && experience.userId !== viewerId) {
-      if (this.privacySettings[viewerId]?.allowPeerMatching !== true) {
+      const viewerPrivacy = DIRECT_DB_MODELS.PrivacySetting
+        ? await this.selfPersistence.getPrivacySettings(viewerId)
+        : this.privacySettings[viewerId];
+      if (viewerPrivacy?.allowPeerMatching !== true) {
         throw new ForbiddenException('请先在隐私设置中允许同路匹配');
       }
       let related = false;
@@ -5287,7 +5423,7 @@ export class StoreService implements OnModuleInit {
     if (DIRECT_DB_MODELS.PeerConversation && DIRECT_DB_MODELS.PeerExperience) {
       let shareData: any = undefined;
       if (input.shareLater === true) {
-        this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
+        await this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
         const match = await this.peerPersistence.getMatchById(matchId);
         const source = match ? await this.peerPersistence.getExperienceById(match.peerExperienceId) : null;
         const journeyId = match?.userId === userId ? match.journeyId : source?.journeyId;
@@ -5340,7 +5476,7 @@ export class StoreService implements OnModuleInit {
     conversation.feedbackNote = note || undefined;
     let sharedExperience: PeerExperienceRecord | undefined;
     if (input.shareLater === true) {
-      this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
+      await this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
       const match = this.peerMatches.find((item) => item.id === matchId);
       const source = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
       const journeyId = match?.userId === userId ? match.journeyId : source?.journeyId;
@@ -5425,7 +5561,7 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
     const journey = journeyId
       ? await this.requireJourney(journeyId, userId)
       : await this.batch1Persistence.getActiveJourneyForUser(userId);
@@ -5595,8 +5731,21 @@ export class StoreService implements OnModuleInit {
       .map((item) => ({ ...item, status: Date.parse(item.releaseAt) <= Date.now() ? 'released' : item.status }));
   }
 
-  async createRealityHandoff(input: { journeyId?: string; recipient?: unknown; channel?: unknown; summary?: unknown }) {
-    const userId = this.getDemoUserId();
+  async createRealityHandoff(
+    input: { journeyId?: string; recipient?: unknown; channel?: unknown; summary?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.createRealityHandoff({
+        userId,
+        journeyId: input.journeyId,
+        recipient: this.text(input.recipient, '交接对象', 80),
+        channel: this.text(input.channel, '联系渠道', 40),
+        summary: this.text(input.summary, '交接摘要', 1000),
+      });
+      return { item };
+    }
     const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
     const item: RealityHandoff = {
       id: id('handoff'),
@@ -5616,6 +5765,10 @@ export class StoreService implements OnModuleInit {
 
   async shareRealityHandoff(idValue: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.shareRealityHandoff(idValue, userId);
+      return { item };
+    }
     const item = this.realityHandoffs.find((handoff) => handoff.id === idValue && handoff.userId === userId);
     if (!item) throw new NotFoundException('现实交接不存在');
     item.status = 'shared';
@@ -5630,15 +5783,31 @@ export class StoreService implements OnModuleInit {
    * most sensitive text in the product (a person saying they are not coping), and it was
    * previously returned for the demo user to every caller (product audit ISSUE-019).
    */
-  handoffList(requestedUserId?: string) {
+  async handoffList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      return await this.selfPersistence.listRealityHandoffs(userId);
+    }
     return this.realityHandoffs.filter((item) => item.userId === userId);
   }
 
-  async saveTrustedContact(input: { nickname?: unknown; relation?: unknown; contactHint?: unknown }) {
+  async saveTrustedContact(
+    input: { nickname?: unknown; relation?: unknown; contactHint?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      const item = await this.selfPersistence.createTrustedContact({
+        userId,
+        nickname: this.text(input.nickname, '联系人称呼', 60),
+        relation: this.text(input.relation, '关系', 40),
+        contactHint: this.text(input.contactHint, '联系方式提示', 120),
+      });
+      return { item };
+    }
     const item: TrustedContact = {
       id: id('contact'),
-      userId: this.getDemoUserId(),
+      userId,
       nickname: this.text(input.nickname, '联系人称呼', 60),
       relation: this.text(input.relation, '关系', 40),
       contactHint: this.text(input.contactHint, '联系方式提示', 120),
@@ -5651,8 +5820,12 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  trustedContactList() {
-    return this.trustedContacts.filter((item) => item.userId === this.getDemoUserId() && item.enabled);
+  async trustedContactList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      return await this.selfPersistence.listTrustedContacts(userId);
+    }
+    return this.trustedContacts.filter((item) => item.userId === userId && item.enabled);
   }
 
   async saveFutureMessage(input: {
@@ -5737,11 +5910,21 @@ export class StoreService implements OnModuleInit {
   }
 
   async saveSupportPlan(
-    input: { journeyId?: string; title?: unknown; plan?: Record<string, unknown> },
+    input: { journeyId?: string | null; title?: unknown; plan?: Record<string, unknown> },
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存支持计划');
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      const title = input.title !== undefined ? this.text(input.title, '支持计划标题', 100) : undefined;
+      const item = await this.selfPersistence.saveSupportPlan({
+        userId,
+        journeyId: input.journeyId,
+        title,
+        plan: input.plan,
+      });
+      return { item };
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存支持计划');
     const journey = input.journeyId
       ? await this.requireJourney(input.journeyId, userId)
       : await this.batch1Persistence.getActiveJourneyForUser(userId);
@@ -5770,20 +5953,57 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  supportPlan(requestedUserId?: string) {
+  async supportPlan(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      return await this.selfPersistence.getSupportPlan(userId);
+    }
     return this.personalSupportPlans.find((item) => item.userId === userId && item.active) ?? null;
   }
 
-  stableSelfProfile(requestedUserId?: string) {
+  async stableSelfProfile(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      return await this.selfPersistence.getStableSelfProfile(userId);
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
     return this.stableSelfProfiles.find((item) => item.userId === userId) ?? null;
   }
 
   async saveStableSelfProfile(input: { profile?: Record<string, unknown> }, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      const source = input.profile ?? {};
+      const textValue = (key: string, limit = 500) =>
+        typeof source[key] === 'string' ? String(source[key]).trim().slice(0, limit) : '';
+      const listValue = (key: string) =>
+        Array.isArray(source[key])
+          ? (source[key] as unknown[])
+              .map(String)
+              .map((value) => value.trim())
+              .filter(Boolean)
+              .slice(0, 12)
+              .map((value) => value.slice(0, 80))
+          : [];
+      const profile = {
+        stableDescription: textValue('stableDescription'),
+        sleepPattern: textValue('sleepPattern', 300),
+        eatingPattern: textValue('eatingPattern', 300),
+        focusPattern: textValue('focusPattern', 300),
+        bodyState: textValue('bodyState', 300),
+        contactPeople: listValue('contactPeople'),
+        usualLikes: listValue('usualLikes'),
+        recoverySigns: listValue('recoverySigns'),
+        stabilityAnchors: listValue('stabilityAnchors'),
+        realityReminder: textValue('realityReminder'),
+      };
+      const item = await this.selfPersistence.saveStableSelfProfile({
+        userId,
+        profile,
+      });
+      return { item };
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
     const source = input.profile ?? {};
     const textValue = (key: string, limit = 500) =>
       typeof source[key] === 'string' ? String(source[key]).trim().slice(0, limit) : '';
@@ -5825,9 +6045,9 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
-  recoveryList(requestedUserId?: string) {
+  async recoveryList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
     return this.recoverySnapshots.filter((item) => item.userId === userId);
   }
 
@@ -5852,7 +6072,7 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowLongTermMemory', '请先在隐私设置中允许保存有限记忆');
+    await this.privacyAllows(userId, 'allowLongTermMemory', '请先在隐私设置中允许保存有限记忆');
     const days = Math.max(1, Math.min(3650, Number(input.days ?? 90)));
     const journey = input.journeyId
       ? await this.requireJourney(input.journeyId, userId)
@@ -5937,7 +6157,10 @@ export class StoreService implements OnModuleInit {
   }
 
   private activeMemoriesForTask(userId: string, taskType: string, contentType: string) {
-    if (this.privacySettings[userId]?.allowAiMemoryUse !== true) return [];
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(userId)
+      : this.privacySettings[userId];
+    if (privacy?.allowAiMemoryUse !== true) return [];
     const normalizedContentType = contentType.toLowerCase();
     const scopeAllowed = (scope: string) =>
       scope === 'all_ai' ||
@@ -5954,7 +6177,7 @@ export class StoreService implements OnModuleInit {
   async updateJourneyStatus(journeyId: string, status: 'active' | 'paused' | 'archived', requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, requestedUserId);
     if (status === 'archived')
-      this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
+      await this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
     const updated = await this.batch1Persistence.updateJourneyStatus(journeyId, status, journey.userId);
     return { journey: updated };
   }
@@ -5971,7 +6194,7 @@ export class StoreService implements OnModuleInit {
   ) {
     const journey = await this.requireJourney(journeyId, requestedUserId);
     if (body.status === 'archived') {
-      this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
+      await this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
     }
     const item = await this.batch1Persistence.patchJourney(journeyId, body, body.expectedUpdatedAt, journey.userId);
     return item;
@@ -7559,7 +7782,9 @@ export class StoreService implements OnModuleInit {
 
   createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
     const post = this.getPost(postId, true);
-    const ownerPrivacy = this.privacySettings[post.userId];
+    const ownerPrivacy = DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(post.userId)
+      : this.privacySettings[post.userId];
     const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
     if (
       post.visibility !== 'PUBLIC' ||

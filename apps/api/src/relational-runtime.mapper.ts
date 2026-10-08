@@ -74,7 +74,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     peerReports,
     adminUserNotes,
   ] = await Promise.all([
-    db.user.findMany({ include: { privacySetting: true }, orderBy: { createdAt: 'desc' } }),
+    db.user.findMany({ include: { privacySetting: !DIRECT_DB_MODELS.PrivacySetting }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
     db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     db.post.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -112,11 +112,15 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.peerReputation.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.decisionRecord.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.cooldownItem.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.realityHandoff.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.trustedContact.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.RealityHandoff ? Promise.resolve([]) : db.realityHandoff.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.TrustedContact ? Promise.resolve([]) : db.trustedContact.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.messageToFutureSelf.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.personalSupportPlan.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.stableSelfProfile.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.PersonalSupportPlan
+      ? Promise.resolve([])
+      : db.personalSupportPlan.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.StableSelfProfile
+      ? Promise.resolve([])
+      : db.stableSelfProfile.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.memoryItem.findMany({ orderBy: { createdAt: 'desc' } }),
     db.recoverySnapshot.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.SafetyEvent ? Promise.resolve([]) : db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -154,44 +158,46 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       status: item.status,
       lastLoginAt: item.lastLoginAt ? iso(item.lastLoginAt) : undefined,
     })),
-    privacySettings: Object.fromEntries(
-      users.map((item: any) => [
-        item.id,
-        item.privacySetting
-          ? {
-              defaultVisibility: item.privacySetting.defaultVisibility,
-              allowAnonymousPublic: item.privacySetting.allowAnonymousPublic,
-              allowHumanReplies: item.privacySetting.allowHumanReplies,
-              allowMonthlyReportShare: item.privacySetting.allowMonthlyReportShare,
-              allowPeerMatching: item.privacySetting.allowPeerMatching,
-              allowAnonymousExperienceStats: item.privacySetting.allowAnonymousExperienceStats,
-              allowRecoveryData: item.privacySetting.allowRecoveryData,
-              allowJourneyLongTermAnalysis: item.privacySetting.allowJourneyLongTermAnalysis,
-              allowLongTermMemory: item.privacySetting.allowLongTermMemory,
-              allowAiMemoryUse: item.privacySetting.allowAiMemoryUse,
-              allowAnonymousExperienceShare: item.privacySetting.allowAnonymousExperienceShare,
-              allowJourneyArchiveRetention: item.privacySetting.allowJourneyArchiveRetention,
-              allowFutureSelfNotifications: item.privacySetting.allowFutureSelfNotifications,
-              allowDataExport: item.privacySetting.allowDataExport,
-            }
-          : {
-              defaultVisibility: 'PRIVATE',
-              allowAnonymousPublic: true,
-              allowHumanReplies: true,
-              allowMonthlyReportShare: true,
-              allowPeerMatching: false,
-              allowAnonymousExperienceStats: false,
-              allowRecoveryData: false,
-              allowJourneyLongTermAnalysis: false,
-              allowLongTermMemory: false,
-              allowAiMemoryUse: false,
-              allowAnonymousExperienceShare: false,
-              allowJourneyArchiveRetention: false,
-              allowFutureSelfNotifications: false,
-              allowDataExport: false,
-            },
-      ]),
-    ),
+    privacySettings: DIRECT_DB_MODELS.PrivacySetting
+      ? {}
+      : Object.fromEntries(
+          users.map((item: any) => [
+            item.id,
+            item.privacySetting
+              ? {
+                  defaultVisibility: item.privacySetting.defaultVisibility,
+                  allowAnonymousPublic: item.privacySetting.allowAnonymousPublic,
+                  allowHumanReplies: item.privacySetting.allowHumanReplies,
+                  allowMonthlyReportShare: item.privacySetting.allowMonthlyReportShare,
+                  allowPeerMatching: item.privacySetting.allowPeerMatching,
+                  allowAnonymousExperienceStats: item.privacySetting.allowAnonymousExperienceStats,
+                  allowRecoveryData: item.privacySetting.allowRecoveryData,
+                  allowJourneyLongTermAnalysis: item.privacySetting.allowJourneyLongTermAnalysis,
+                  allowLongTermMemory: item.privacySetting.allowLongTermMemory,
+                  allowAiMemoryUse: item.privacySetting.allowAiMemoryUse,
+                  allowAnonymousExperienceShare: item.privacySetting.allowAnonymousExperienceShare,
+                  allowJourneyArchiveRetention: item.privacySetting.allowJourneyArchiveRetention,
+                  allowFutureSelfNotifications: item.privacySetting.allowFutureSelfNotifications,
+                  allowDataExport: item.privacySetting.allowDataExport,
+                }
+              : {
+                  defaultVisibility: 'PRIVATE',
+                  allowAnonymousPublic: true,
+                  allowHumanReplies: true,
+                  allowMonthlyReportShare: true,
+                  allowPeerMatching: false,
+                  allowAnonymousExperienceStats: false,
+                  allowRecoveryData: false,
+                  allowJourneyLongTermAnalysis: false,
+                  allowLongTermMemory: false,
+                  allowAiMemoryUse: false,
+                  allowAnonymousExperienceShare: false,
+                  allowJourneyArchiveRetention: false,
+                  allowFutureSelfNotifications: false,
+                  allowDataExport: false,
+                },
+          ]),
+        ),
     moods: moods.map((item: any) => ({
       id: item.id,
       userId: item.userId,
@@ -595,28 +601,32 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       status: item.status,
       createdAt: iso(item.createdAt),
     })),
-    realityHandoffs: handoffs.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      journeyId: item.journeyId ?? undefined,
-      recipient: item.recipient,
-      channel: item.channel,
-      summary: item.summary,
-      status: item.status,
-      sharedAt: item.sharedAt ? iso(item.sharedAt) : undefined,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
-    trustedContacts: contacts.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      nickname: item.nickname,
-      relation: item.relation,
-      contactHint: item.contactHint,
-      enabled: item.enabled,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
+    realityHandoffs: DIRECT_DB_MODELS.RealityHandoff
+      ? []
+      : handoffs.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          journeyId: item.journeyId ?? undefined,
+          recipient: item.recipient,
+          channel: item.channel,
+          summary: item.summary,
+          status: item.status,
+          sharedAt: item.sharedAt ? iso(item.sharedAt) : undefined,
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
+    trustedContacts: DIRECT_DB_MODELS.TrustedContact
+      ? []
+      : contacts.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          nickname: item.nickname,
+          relation: item.relation,
+          contactHint: item.contactHint,
+          enabled: item.enabled,
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
     messagesToFutureSelf: futureMessages.map((item: any) => ({
       id: item.id,
       userId: item.userId,
@@ -629,23 +639,27 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       deliveredAt: item.deliveredAt ? iso(item.deliveredAt) : undefined,
       createdAt: iso(item.createdAt),
     })),
-    personalSupportPlans: supportPlans.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      journeyId: item.journeyId ?? undefined,
-      title: item.title,
-      plan: item.plan ?? {},
-      active: item.active,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
-    stableSelfProfiles: stableSelfProfiles.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      profile: item.profile ?? {},
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
+    personalSupportPlans: DIRECT_DB_MODELS.PersonalSupportPlan
+      ? []
+      : supportPlans.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          journeyId: item.journeyId ?? undefined,
+          title: item.title,
+          plan: item.plan ?? {},
+          active: item.active,
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
+    stableSelfProfiles: DIRECT_DB_MODELS.StableSelfProfile
+      ? []
+      : stableSelfProfiles.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          profile: item.profile ?? {},
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
     memoryItems: memories.map((item: any) => ({
       id: item.id,
       userId: item.userId,
@@ -940,9 +954,9 @@ export async function saveRelationalRuntimeState(
           ...asArray(state.posts).map((item: any) => item.journeyId),
           ...asArray(state.diaries).map((item: any) => item.journeyId),
           ...asArray(state.decisionRecords).map((item: any) => item.journeyId),
-          ...asArray(state.realityHandoffs).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.RealityHandoff ? [] : asArray(state.realityHandoffs).map((item: any) => item.journeyId)),
           ...asArray(state.messagesToFutureSelf).map((item: any) => item.journeyId),
-          ...asArray(state.personalSupportPlans).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.PersonalSupportPlan ? [] : asArray(state.personalSupportPlans).map((item: any) => item.journeyId)),
           ...asArray(state.memoryItems).map((item: any) => item.journeyId),
           ...asArray(state.recoverySnapshots).map((item: any) => item.journeyId),
           ...asArray(state.agentDecisionLogs).map((item: any) => item.journeyId),
@@ -1031,44 +1045,46 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
-      for (const item of users) {
-        const privacy = state.privacySettings?.[item.id] ?? {};
-        await tx.privacySetting.upsert({
-          where: { userId: item.id },
-          create: {
-            userId: item.id,
-            defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
-            allowAnonymousPublic: privacy.allowAnonymousPublic ?? true,
-            allowHumanReplies: privacy.allowHumanReplies ?? true,
-            allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true,
-            allowPeerMatching: privacy.allowPeerMatching ?? false,
-            allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false,
-            allowRecoveryData: privacy.allowRecoveryData ?? false,
-            allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false,
-            allowLongTermMemory: privacy.allowLongTermMemory ?? false,
-            allowAiMemoryUse: privacy.allowAiMemoryUse ?? false,
-            allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false,
-            allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false,
-            allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false,
-            allowDataExport: privacy.allowDataExport ?? false,
-          },
-          update: {
-            defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
-            allowAnonymousPublic: privacy.allowAnonymousPublic ?? true,
-            allowHumanReplies: privacy.allowHumanReplies ?? true,
-            allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true,
-            allowPeerMatching: privacy.allowPeerMatching ?? false,
-            allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false,
-            allowRecoveryData: privacy.allowRecoveryData ?? false,
-            allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false,
-            allowLongTermMemory: privacy.allowLongTermMemory ?? false,
-            allowAiMemoryUse: privacy.allowAiMemoryUse ?? false,
-            allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false,
-            allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false,
-            allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false,
-            allowDataExport: privacy.allowDataExport ?? false,
-          },
-        });
+      if (!DIRECT_DB_MODELS.PrivacySetting) {
+        for (const item of users) {
+          const privacy = state.privacySettings?.[item.id] ?? {};
+          await tx.privacySetting.upsert({
+            where: { userId: item.id },
+            create: {
+              userId: item.id,
+              defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+              allowAnonymousPublic: privacy.allowAnonymousPublic ?? true,
+              allowHumanReplies: privacy.allowHumanReplies ?? true,
+              allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true,
+              allowPeerMatching: privacy.allowPeerMatching ?? false,
+              allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false,
+              allowRecoveryData: privacy.allowRecoveryData ?? false,
+              allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false,
+              allowLongTermMemory: privacy.allowLongTermMemory ?? false,
+              allowAiMemoryUse: privacy.allowAiMemoryUse ?? false,
+              allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false,
+              allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false,
+              allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false,
+              allowDataExport: privacy.allowDataExport ?? false,
+            },
+            update: {
+              defaultVisibility: valid(privacy.defaultVisibility, ['PRIVATE', 'PUBLIC'] as const, 'PRIVATE'),
+              allowAnonymousPublic: privacy.allowAnonymousPublic ?? true,
+              allowHumanReplies: privacy.allowHumanReplies ?? true,
+              allowMonthlyReportShare: privacy.allowMonthlyReportShare ?? true,
+              allowPeerMatching: privacy.allowPeerMatching ?? false,
+              allowAnonymousExperienceStats: privacy.allowAnonymousExperienceStats ?? false,
+              allowRecoveryData: privacy.allowRecoveryData ?? false,
+              allowJourneyLongTermAnalysis: privacy.allowJourneyLongTermAnalysis ?? false,
+              allowLongTermMemory: privacy.allowLongTermMemory ?? false,
+              allowAiMemoryUse: privacy.allowAiMemoryUse ?? false,
+              allowAnonymousExperienceShare: privacy.allowAnonymousExperienceShare ?? false,
+              allowJourneyArchiveRetention: privacy.allowJourneyArchiveRetention ?? false,
+              allowFutureSelfNotifications: privacy.allowFutureSelfNotifications ?? false,
+              allowDataExport: privacy.allowDataExport ?? false,
+            },
+          });
+        }
       }
       for (const item of asArray(state.assets)) {
         const storageKey = item.storageKey ?? item.objectKey ?? `legacy/${item.id}`;
@@ -1809,52 +1825,56 @@ export async function saveRelationalRuntimeState(
             status: item.status ?? 'active',
           },
         });
-      for (const item of asArray(state.realityHandoffs))
-        await tx.realityHandoff.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            recipient: item.recipient,
-            channel: item.channel,
-            summary: item.summary,
-            status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'),
-            sharedAt: item.sharedAt ? date(item.sharedAt) : null,
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            userId: item.userId,
-            ...fkUpdate('journeyId', item.journeyId, journeyIds),
-            recipient: item.recipient,
-            channel: item.channel,
-            summary: item.summary,
-            status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'),
-            sharedAt: item.sharedAt ? date(item.sharedAt) : null,
-          },
-        });
-      for (const item of asArray(state.trustedContacts))
-        await tx.trustedContact.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            nickname: item.nickname,
-            relation: item.relation,
-            contactHint: item.contactHint,
-            enabled: item.enabled !== false,
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            userId: item.userId,
-            nickname: item.nickname,
-            relation: item.relation,
-            contactHint: item.contactHint,
-            enabled: item.enabled !== false,
-          },
-        });
+      if (!DIRECT_DB_MODELS.RealityHandoff) {
+        for (const item of asArray(state.realityHandoffs))
+          await tx.realityHandoff.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              recipient: item.recipient,
+              channel: item.channel,
+              summary: item.summary,
+              status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'),
+              sharedAt: item.sharedAt ? date(item.sharedAt) : null,
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              userId: item.userId,
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
+              recipient: item.recipient,
+              channel: item.channel,
+              summary: item.summary,
+              status: valid(item.status, ['draft', 'ready', 'shared', 'completed'] as const, 'draft'),
+              sharedAt: item.sharedAt ? date(item.sharedAt) : null,
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.TrustedContact) {
+        for (const item of asArray(state.trustedContacts))
+          await tx.trustedContact.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              nickname: item.nickname,
+              relation: item.relation,
+              contactHint: item.contactHint,
+              enabled: item.enabled !== false,
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              userId: item.userId,
+              nickname: item.nickname,
+              relation: item.relation,
+              contactHint: item.contactHint,
+              enabled: item.enabled !== false,
+            },
+          });
+      }
       for (const item of asArray(state.messagesToFutureSelf))
         await tx.messageToFutureSelf.upsert({
           where: { id: item.id },
@@ -1881,39 +1901,43 @@ export async function saveRelationalRuntimeState(
             deliveredAt: item.deliveredAt ? date(item.deliveredAt) : null,
           },
         });
-      for (const item of asArray(state.personalSupportPlans))
-        await tx.personalSupportPlan.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            title: item.title,
-            plan: json(item.plan ?? {}),
-            active: item.active !== false,
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            userId: item.userId,
-            ...fkUpdate('journeyId', item.journeyId, journeyIds),
-            title: item.title,
-            plan: json(item.plan ?? {}),
-            active: item.active !== false,
-          },
-        });
-      for (const item of asArray(state.stableSelfProfiles))
-        await tx.stableSelfProfile.upsert({
-          where: { userId: item.userId },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            profile: json(item.profile ?? {}),
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: { profile: json(item.profile ?? {}) },
-        });
+      if (!DIRECT_DB_MODELS.PersonalSupportPlan) {
+        for (const item of asArray(state.personalSupportPlans))
+          await tx.personalSupportPlan.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              title: item.title,
+              plan: json(item.plan ?? {}),
+              active: item.active !== false,
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              userId: item.userId,
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
+              title: item.title,
+              plan: json(item.plan ?? {}),
+              active: item.active !== false,
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.StableSelfProfile) {
+        for (const item of asArray(state.stableSelfProfiles))
+          await tx.stableSelfProfile.upsert({
+            where: { userId: item.userId },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              profile: json(item.profile ?? {}),
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: { profile: json(item.profile ?? {}) },
+          });
+      }
       for (const item of asArray(state.memoryItems))
         await tx.memoryItem.upsert({
           where: { id: item.id },
@@ -2471,26 +2495,30 @@ export async function saveRelationalRuntimeState(
         tx.decisionRecord,
         asArray(state.decisionRecords).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.realityHandoff,
-        asArray(state.realityHandoffs).map((item: any) => item.id),
-      );
-      await deleteAbsent(
-        tx.trustedContact,
-        asArray(state.trustedContacts).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.RealityHandoff)
+        await deleteAbsent(
+          tx.realityHandoff,
+          asArray(state.realityHandoffs).map((item: any) => item.id),
+        );
+      if (!DIRECT_DB_MODELS.TrustedContact)
+        await deleteAbsent(
+          tx.trustedContact,
+          asArray(state.trustedContacts).map((item: any) => item.id),
+        );
       await deleteAbsent(
         tx.messageToFutureSelf,
         asArray(state.messagesToFutureSelf).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.personalSupportPlan,
-        asArray(state.personalSupportPlans).map((item: any) => item.id),
-      );
-      await deleteAbsent(
-        tx.stableSelfProfile,
-        asArray(state.stableSelfProfiles).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.PersonalSupportPlan)
+        await deleteAbsent(
+          tx.personalSupportPlan,
+          asArray(state.personalSupportPlans).map((item: any) => item.id),
+        );
+      if (!DIRECT_DB_MODELS.StableSelfProfile)
+        await deleteAbsent(
+          tx.stableSelfProfile,
+          asArray(state.stableSelfProfiles).map((item: any) => item.id),
+        );
       await deleteAbsent(
         tx.memoryItem,
         asArray(state.memoryItems).map((item: any) => item.id),

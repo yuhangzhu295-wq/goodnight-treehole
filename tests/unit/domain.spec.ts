@@ -16,17 +16,27 @@ describe('domain services', () => {
     expect(fallback.status).toBe('fallback');
     expect(fallback.providerId).toBe(store.aiRoutes.find((route) => route.style === 'warm')?.fallbackTemplateId);
   });
-  it('keeps privacy settings separate from system defaults', () => {
+  it('keeps privacy settings out of the store: they are database-authoritative from Batch 3', () => {
     const store = new StoreService({ saveRuntimeState: async () => undefined } as any);
     store.systemSettings.defaultVisibility.value = 'PUBLIC';
-    expect(store.privacySettings.user_demo.defaultVisibility).toBe('PRIVATE');
+    // PrivacySetting is a registered direct-DB model, so the store no longer holds a privacy map at
+    // all. The previous assertion read that map; it is replaced by an assertion about the contract
+    // that exists now. Reading a privacy *value* needs a database, so those assertions live in the
+    // business suite instead of here.
+    expect(() => (store as any).privacySettings).toThrow(/is disabled/);
+    expect(() => (store as any).data.privacySettings).toThrow(/is disabled/);
   });
 
   it('writes a diary export as a persisted downloadable media asset', async () => {
     const snapshots: unknown[] = [];
     const persistence = { saveRuntimeState: async (payload: unknown) => { snapshots.push(payload); } };
     const store = new StoreService(persistence as any);
-    store.privacySettings.user_demo.allowDataExport = true;
+    // The export gate reads privacy from the database now, so this unit test stubs that one
+    // collaborator: it is testing the export asset pipeline, not the gate. The gate itself is
+    // covered against a real database by `third-stage-privacy-2.spec.ts`.
+    (store as any).selfPersistence = {
+      getPrivacySettings: async () => ({ allowDataExport: true }),
+    };
     const result = await store.createDiaryExport();
     const download = store.getDiaryExportDownload(result.asset.id);
 

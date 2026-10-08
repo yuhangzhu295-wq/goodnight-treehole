@@ -4,6 +4,7 @@ import { normalizeStoreEmotion, StoreService } from './store.service.js';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
+import { SelfPersistenceService } from './self-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 
 type MonthlyRecord = {
@@ -139,6 +140,7 @@ export class MonthlyReportService {
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
     @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
+    @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService = new SelfPersistenceService(prisma as any),
   ) {}
 
   private recordsFor(userId: string, month: string): MonthlyRecord[] {
@@ -167,7 +169,10 @@ export class MonthlyReportService {
     // Recovery snapshots, decisions and check-ins are only allowed into the report when the
     // user has switched on `allowRecoveryData`. Every other recovery read in the product is
     // gated the same way, and this one was not (product audit ISSUE-021).
-    if (this.store.privacySettings[userId]?.allowRecoveryData !== true) {
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(userId)
+      : this.store.privacySettings[userId];
+    if (privacy?.allowRecoveryData !== true) {
       return {
         journeyCount: 0,
         completedJourneyCount: 0,
@@ -389,7 +394,10 @@ export class MonthlyReportService {
     const month = assertMonth(value);
     const userId = this.store.resolveRuntimeUserId(requestedUserId);
     const statistics = await this.statisticsFor(userId, month);
-    const analysisAllowed = this.store.privacySettings[userId]?.allowJourneyLongTermAnalysis === true;
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(userId)
+      : this.store.privacySettings[userId];
+    const analysisAllowed = privacy?.allowJourneyLongTermAnalysis === true;
     const sourceSignature = signatureFor({ userId, ...statistics });
     let report = await this.prisma.monthlyReport.findUnique({ where: { userId_month: { userId, month } } });
     let metadata = report ? readMetadata(report.keywordsJson) : {};
@@ -533,7 +541,10 @@ export class MonthlyReportService {
 
   async poster(value: string, requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requestedUserId);
-    if (!this.store.privacySettings[userId]?.allowMonthlyReportShare)
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(userId)
+      : this.store.privacySettings[userId];
+    if (!privacy?.allowMonthlyReportShare)
       throw new ForbiddenException('当前隐私设置未允许生成月报分享图');
     const monthly = await this.monthly(value);
     if (!monthly.item.summary || !['succeeded', 'fallback'].includes(String(monthly.item.aiJobStatus))) {

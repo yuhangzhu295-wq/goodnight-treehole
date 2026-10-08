@@ -12,6 +12,11 @@ export const DIRECT_DB_MODELS = {
   PeerConversation: 'peerConversations',
   PeerMessage: 'peerMessages',
   PeerReport: 'peerReports',
+  PrivacySetting: 'privacySettings',
+  TrustedContact: 'trustedContacts',
+  StableSelfProfile: 'stableSelfProfiles',
+  RealityHandoff: 'realityHandoffs',
+  PersonalSupportPlan: 'personalSupportPlans',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

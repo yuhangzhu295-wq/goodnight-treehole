@@ -3,6 +3,24 @@ import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { createApiTestApp, loginAdmin, auth } from './helpers';
+/**
+ * PrivacySetting is database-authoritative from Batch 3, so the in-memory map is disabled and a
+ * fixture must seed through the database. Seeding the map would throw, and seeding a *copy* would
+ * silently test nothing.
+ */
+async function setPrivacy(url: string, userId: string, patch: Record<string, unknown>) {
+  const client = new PrismaClient({ datasources: { db: { url } } });
+  try {
+    await client.privacySetting.upsert({
+      where: { userId },
+      create: { userId, ...patch } as never,
+      update: patch as never,
+    });
+  } finally {
+    await client.$disconnect();
+  }
+}
+
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
@@ -537,10 +555,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       });
 
       // Ensure User A's allowJourneyArchiveRetention is false
-      store.privacySettings[userA] = {
-        ...store.privacySettings[userA],
-        allowJourneyArchiveRetention: false,
-      } as any;
+      await setPrivacy(dbUrl, userA, { allowJourneyArchiveRetention: false });
 
       // User A attempts to archive via PATCH without consent -> must be rejected with 403
       const archiveWithoutConsentRes = await request(server)
@@ -551,7 +566,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       expect(archiveWithoutConsentRes.body.message).toContain('请先在隐私设置中允许保留旅程归档');
 
       // User A enables consent -> archive succeeds
-      store.privacySettings[userA].allowJourneyArchiveRetention = true;
+      await setPrivacy(dbUrl, userA, { allowJourneyArchiveRetention: true });
       const archiveWithConsentRes = await request(server)
         .patch(`/api/v1/journeys/${journeyAId}`)
         .set('x-goodnight-user-id', userA)

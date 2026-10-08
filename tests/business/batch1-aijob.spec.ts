@@ -3,6 +3,24 @@ import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { createApiTestApp, loginAdmin, auth } from './helpers';
+/**
+ * PrivacySetting is database-authoritative from Batch 3, so the in-memory map is disabled and a
+ * fixture must seed through the database. Seeding the map would throw, and seeding a *copy* would
+ * silently test nothing.
+ */
+async function setPrivacy(url: string, userId: string, patch: Record<string, unknown>) {
+  const client = new PrismaClient({ datasources: { db: { url } } });
+  try {
+    await client.privacySetting.upsert({
+      where: { userId },
+      create: { userId, ...patch } as never,
+      update: patch as never,
+    });
+  } finally {
+    await client.$disconnect();
+  }
+}
+
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { MonthlyReportService } from '../../apps/api/src/monthly-report.service';
@@ -156,10 +174,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     expect(saveDecomposeRes.body.ok).toBe(true);
 
     // Path G: Memory alias reads usages from database (GET /api/v1/me/memories)
-    store.privacySettings[testUserId] = {
-      ...(store.privacySettings[testUserId] ?? {}),
-      allowLongTermMemory: true,
-    } as any;
+    await setPrivacy(dbUrl, testUserId, { allowLongTermMemory: true });
     await store.saveMemory(
       {
         category: '工作',
@@ -985,11 +1000,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const testUserId = store.getDemoUserId();
 
     // Ensure privacy allows report analysis
-    store.privacySettings[testUserId] = {
-      ...(store.privacySettings[testUserId] ?? {}),
-      allowJourneyLongTermAnalysis: true,
-      allowMonthlyReportShare: true,
-    } as any;
+    await setPrivacy(dbUrl, testUserId, { allowJourneyLongTermAnalysis: true, allowMonthlyReportShare: true });
 
     const month = '2026-09';
     // Call advice - which queues a monthly_recovery_summary job and awaits awaitJobCommit
