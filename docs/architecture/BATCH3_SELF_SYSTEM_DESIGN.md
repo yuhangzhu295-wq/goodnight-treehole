@@ -1,6 +1,6 @@
 # Persistence Batch 3 — Self System Design
 
-**Status: DESIGN GATE NOT PASSED as written — the four escalations below are resolved by orchestrator decision in §0.4, and implementation proceeds on that basis.**
+**Status: the design has been through nine independent review passes. Every substantive finding is closed in §0.4–§0.12; the only items left open are three product questions, each recorded as open and each deliberately not decided by the implementation. See the gate position at the end of §0.12.**
 **A second independent review of this document returned `REQUEST_CHANGES` with four P0 and four P1 findings. All eight are adjudicated in §0.5, which supersedes §0.4 wherever the two disagree.**
 **Reviewed checkouts:** the first review read HEAD `a004541`; the second read HEAD `446b57a`. Both were read-only. Citations are `file:line` as checked at each review.
 
@@ -767,13 +767,13 @@ The verification is right that a concurrent request with uncontrolled ordering d
 H1 race, and that the H2 cases alone do not prove payload immutability. §4 gains:
 
 - **per entry point** (`PATCH /journeys/:id` and the status endpoint), the barrier is placed
-  **before the request acquires the `LifeJourney` lock**, so the request may hold a stale
-  preliminary read; graduation is then allowed to commit **completely**, and only then is the
-  request released. It must take the lock, re-read, and **refuse**, and the journey must still be
-  `completed`. A barrier placed after the guarded read could not establish this order at all — with
-  the lock held before the read, graduation cannot commit in between — so that formulation is
-  withdrawn (§0.10/J1). The test proves the guard is evaluated *after* the lock, which is the whole
-  point.
+  **before the request acquires either lock** — the `User` lock first, because graduation takes
+  `User → LifeJourney` — so the request may hold a stale preliminary read. Graduation is then
+  allowed to commit **completely**, and only then is the request released: it must take both locks,
+  re-read under them, and **refuse**, leaving the journey `completed`. Refusal alone does not prove
+  the ordering — a guard that read before locking would also refuse — so the ordering claim is
+  carried by a **mutation** (§0.12/K1): moving the guard to a pre-lock read must make this test
+  fail, because the stale read sees `active` and lets the transition through.
 - a stale legacy flush whose `followUpJobs` array carries a different `payload` for a cooldown job:
   the stored payload must be unchanged (I2).
 
@@ -1024,3 +1024,46 @@ the requested status **differs** from the current one and the pair is not in the
 questions (A1's "should an outcome be required", A3's "may a completed journey ever reopen",
 A5's re-consent UX), each recorded as open and each deliberately **not** decided by the
 implementation. Nothing else is design-blocking.
+
+---
+
+## 0.12 Ninth pass — the ordering proof obligation
+
+The ninth verification confirmed J2, J3 and the open-product-question framing, and left exactly one
+blocking gap: §0.11/J1's test proves that the request is **refused**, but not that the guard is
+evaluated **after** the lock. A guard that reads the status before locking would also see `completed`
+and refuse, so the test as written cannot tell the two implementations apart.
+
+### K1 — The ordering is proven by a mutation, not by the refusal *(the last blocker)*
+
+**Corrected test.** Per entry point:
+
+1. the barrier sits **before the request acquires either lock** — the `User` lock first, because
+   graduation takes `User → LifeJourney` (§0.9/H1). A barrier after the `LifeJourney` lock could
+   never be reached, since graduation holds it;
+2. the request is allowed to take a **stale preliminary read** and then park;
+3. graduation is allowed to commit **completely**;
+4. the request is released. It must acquire both locks, re-read under them, and **refuse**, and the
+   journey must still be `completed` at the end.
+
+**And the named mutation that makes this evidence.** The guard is temporarily moved to a pre-lock
+read — decide the transition from the status observed before the locks are taken. With the barrier
+held, that stale read sees the pre-graduation status and lets the write through, so the test fails.
+Restoring the guard makes it pass. Without this mutation the test is satisfied by exactly the racy
+implementation the rule exists to forbid, which is the same "a green test is not evidence until it
+has been shown to fail" discipline the whole programme uses.
+
+**Not claimed:** a final `completed` row and a refusal are *necessary* but not *sufficient*. The
+sufficiency is the mutation.
+
+### K2 — Gate position
+
+With K1 stated, every substantive finding from the nine passes is closed. The items left open are
+three product questions — whether an outcome should be required (A1), whether a completed journey
+may ever reopen (A3), and the re-consent UX detail (A5) — each with an implementation default that
+does **not** change current product behaviour, and each explicitly recorded as a product decision
+rather than one the implementation may take.
+
+**`PERSISTENCE_BATCH3_STABLE` is not claimed by this document.** It is claimed only after
+implementation, with the seven-plus-one gates in §4 holding and an independent review of the
+implementation. This document's own gate is: design approved, implementation may start.
