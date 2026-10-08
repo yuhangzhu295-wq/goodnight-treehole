@@ -463,9 +463,11 @@ CooldownItem.status = 'active'  AND  CooldownItem.releaseAt <= clock_timestamp()
 DecisionRecord.id = payload.decisionId  AND  DecisionRecord.userId = the same owner
 ```
 
-If any term fails, the job closes as `superseded` and **nothing else is written**. The
-intentionally-unlinked case is explicit: a cooldown whose `decisionId` is `NULL` (its decision was
-deleted) is closed as `superseded` and releases nothing, because there is no decision left to move.
+If any term fails, the job closes as `superseded` and **nothing else is written**.
+
+> **Corrected by §0.9/H2.** The sentence that stood here said a `NULL`-decision cooldown "was
+> deleted" and always closes as `superseded`. That is only one of two cases, and the two have
+> opposite outcomes. See §0.9/H2 for the durable distinction.
 
 ### F2 — "Unique by construction" is only true after the cutover, and pre-existing duplicates must be normalised *(P1)*
 
@@ -596,7 +598,8 @@ association check reduces to `FollowUpJob.userId = CooldownItem.userId` and
 `payload.cooldownId = CooldownItem.id`, the decision-side terms are vacuous, and the release writes
 only the cooldown — never a decision. A cooldown that *lost* its decision to an authorised deletion
 is closed as `superseded` instead, because the job it belongs to can no longer be validated against
-a decision. Both cases are covered by name in the test matrix.
+a decision. **The two cases are told apart by the job's durable payload, and the rule is in
+§0.9/H2**, which supersedes the "always `superseded`" wording this paragraph replaced.
 
 ### G4 — "Exactly one active cooldown" is wrong; it is **at most one** *(P2)*
 
@@ -628,6 +631,81 @@ rows with separate id sets.
 - §5's "must not change production/development data" gains the one exception F2 requires: the
   idempotent historical-duplicate normalisation of `CooldownItem` active rows, which is a data
   change by definition and is therefore listed rather than implied.
+
+---
+
+## 0.9 Sixth pass — the verification of §0.8, and what it still found
+
+The verification of §0.8 confirmed G2 resolved and found three blocking gaps: the terminal-transition
+race, a contradiction this document introduced between §0.6/F1 and §0.8/G3, and a data-change
+exception that forbids the very writes it needs. All three are resolved here.
+
+### H1 — A read-time guard does not close the reopen; it must be a locked conditional write *(P0)*
+
+G1's shared guard was described as a check. A check is not enough: `patchJourney` and
+`updateJourneyStatus` both read the journey and then write it, and a graduation committing between
+those two steps still turns a `completed` journey into `active` — the same read-then-write
+disconnection Batch 2's P0-1 was about.
+
+**Required — the guard is the write predicate, not a prior read:**
+
+```
+lock User(owner)  ->  lock LifeJourney(id)  ->  re-read status under the lock
+transition out of a terminal status  =>  refuse
+```
+
+- both entry points use the same helper, which takes the two locks in the established order and
+  performs a **conditional update** (`WHERE id = :id AND status NOT IN ('completed')`, with an
+  affected-row check) rather than an unconditional write after a read;
+- graduation performs its own conditional transition under the same `LifeJourney` lock, so the two
+  serialize against each other instead of racing;
+- the review's warning is recorded: a read-time guard would leave
+  `completed → paused/archived` reachable when graduation commits in between.
+
+The writers of `LifeJourney.status` in the product are `patchJourney`, `updateJourneyStatus`,
+graduation, and the guarded legacy mapper; the explicit restore path already accepts only
+`archived`. The two reopen routes are the ones that need the guard, and the mapper is already
+conditional.
+
+### H2 — The two unlinked-cooldown cases have opposite outcomes, and the payload tells them apart *(P0)*
+
+§0.6/F1 said a `NULL`-decision cooldown closes as `superseded`; §0.8/G3 said it releases. Both
+cannot be true, and the review is right that the difference must be durable and decidable.
+
+**The distinction is the job's payload, which is written at creation and never rewritten:**
+
+| Case | `CooldownItem.decisionId` | `FollowUpJob.payload.decisionId` | Outcome |
+| --- | --- | --- | --- |
+| **Created unlinked** — a standalone cooldown with no decision | `NULL` at creation | absent or `NULL` | **releases** the cooldown; the decision-side terms are vacuous and no decision is written |
+| **Lost its decision** — an authorised decision deletion cleared the FK | `NULL` now | **a non-null decision id** | **closes as `superseded`** and releases nothing: the association existed and can no longer be validated |
+| **Linked and intact** | non-null | the same id | the full association check in §0.7/F1 applies; release on the deadline |
+
+The payload is the durable evidence because it is written in the same transaction that creates the
+cooldown and is never updated afterwards. Reading the *current* `decisionId` alone cannot
+distinguish the cases — which is exactly why the earlier wording was wrong. Both cases are named
+in the test matrix (§4).
+
+### H3 — The data-change exception must cover the rows the normalisation actually writes *(P0)*
+
+F2's normalisation supersedes duplicate `active` `CooldownItem` rows **and closes their outstanding
+`FollowUpJob` rows**. The §5 exception said "confined to that one table", which forbids half of what
+the normalisation must do. **Corrected:** the exception covers `CooldownItem` rows and the
+`FollowUpJob` rows belonging to the superseded cooldowns, and nothing else. It remains a single,
+idempotent, re-runnable normalisation, and it is still the only exception to "must not change
+production/development data" in this batch.
+
+### H4 — The three tests the earlier passes promised are now named *(P1)*
+
+§4's matrix gains: a cooldown **created unlinked** whose job releases it; a cooldown whose decision
+was **deleted** whose job closes as `superseded`; and the reopen refusal asserted through
+**`PATCH /journeys/:id`** as well as the status endpoint. Without the first two the H2 distinction
+is untested, and without the third G1's "both entry points" claim is untested.
+
+### H5 — §5's mapper deviation described half the change *(P2)*
+
+The deviation paragraph said only that the terminal *set* grows. It now also names the **terminal
+branch's DB-status guard** (§0.8/G2), which is the half that actually stops a stale array from
+rewriting a `superseded` row.
 
 ---
 
@@ -744,6 +822,8 @@ Leased databases created by tracked `prisma migrate deploy`, two independently i
 | Reopen a completed journey via the status endpoint | **refused**, matching the product copy in `Archive.vue`; the row is unchanged and no snapshot is appended (§0.7/F3) |
 | Cooldown superseded by a new one; its job firing afterwards; the old item's terminal state; a job whose payload names a different decision or owner | the old `CooldownItem` ends `superseded`, never `active`; the mismatched job closes as `superseded` and moves nothing; **at most one** `active` cooldown exists per decision — zero when none is current — asserted after the duplicate normalisation (§0.6/A2, §0.7/F1/F2, §0.8/G4) |
 | A `disabled` memory whose `expiresAt` has passed, re-enabled in place | refused; the only path back is the explicit re-consent action with a fresh `consentedAt` and a future `expiresAt` (§0.6/A5) |
+| A cooldown **created unlinked** (no `decisionId` at creation); a cooldown whose decision was **deleted** afterwards | the first releases on its deadline and writes no decision; the second closes as `superseded` and releases nothing — told apart by the job payload, not by the current `decisionId` (§0.9/H2) |
+| Reopening a completed journey through **`PATCH /journeys/:id`** as well as through the status endpoint | both routes refuse under the `LifeJourney` lock, and a graduation committing concurrently still leaves the journey completed (§0.9/H1) |
 | Crash between the delivery claim and the notification; delivery with consent off; delivery with consent on | with consent on the notification is in the claim's transaction, so the pair is atomic; with consent off the absence of a row is the intended state and no reconciler invents one (§0.5/A6) |
 | Every Self route called with a foreign id, and with no identity at all | the §0.5/A8 matrix holds: no route decides ownership from the demo-user fallback |
 
@@ -789,10 +869,13 @@ It is a defect fix against a stated product rule, not a new product decision, an
 the per-journey graduation invariant enforceable without a migration. It is listed here rather than
 folded silently into "must not change Batch 1 behaviour".
 
-**And one change to the legacy `FollowUpJob` mapper.** §0.7/F5 requires `superseded` to be added to
-that mapper's terminal set (`relational-runtime.mapper.ts:2024–2026,2053–2055`), because
-`FollowUpJob` stays outside the registry and its legacy writer would otherwise rewrite a superseded
-row from a stale array. `FollowUpJob`'s ownership is unchanged; only its terminal-status set grows.
+**And one change to the legacy `FollowUpJob` mapper.** §0.7/F5 and §0.8/G2 require two things, not
+one: `superseded` is added to that mapper's terminal set **and the terminal branch gains the same
+`status: { notIn: TERMINAL_FOLLOW_UP_STATUSES }` guard the non-terminal branch already has**
+(`relational-runtime.mapper.ts:2024–2026,2053–2055,2076–2099`). The set alone is insufficient —
+when the stale *array* says `delivered`, the terminal branch updates unconditionally by id and would
+rewrite a DB `superseded` back to `delivered`. `FollowUpJob`'s ownership is unchanged; its terminal
+statuses and the immutability of a terminal row to the legacy writer are what change.
 
 **Migration decision.** The §0.6/A2 predicates, §0.7/F1's association check, §0.7/F2's one-time
 duplicate normalisation, §0.7/F3's one-way graduation, A5's `deleted` spelling and A6's
@@ -811,7 +894,8 @@ persistence fix.
 
 **One deliberate data change, named rather than implied:** §0.7/F2's idempotent normalisation of
 historical duplicate `active` `CooldownItem` rows changes existing production/development rows. It
-is confined to that one table, keeps the latest row per decision, is re-runnable without further
+covers **`CooldownItem` rows and the `FollowUpJob` rows belonging to the cooldowns it supersedes**
+(§0.9/H3) and nothing else; it keeps the latest row per decision, is re-runnable without further
 effect, and is the only exception to "must not change production/development data" in this batch.
 
 **Review order:** product decisions (§0.4, §0.5) → reference-safety approval → atomic Decision/Cooldown and FutureSelf/worker boundaries → individual triple exits and DB-only reads → route identity matrix → privacy/admin disclosure → strict-barrier races, fault injection and SQL-scope measurement → independent Batch 3 gate. Each predicate in §0.5/A2 and A3 carries a named mutation; a green suite is not the gate.
