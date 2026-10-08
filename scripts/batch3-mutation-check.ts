@@ -19,6 +19,8 @@ const PRIVACY_SPEC = 'tests/business/third-stage-privacy-2.spec.ts';
 const TRANSITION_SPEC = 'tests/business/batch3-journey-transition.spec.ts';
 const RECOVERY_SPEC = 'tests/business/batch3-recovery-atomicity.spec.ts';
 const IDENTITY_SPEC = 'tests/business/batch3-identity-matrix.spec.ts';
+const ADMIN_DISCLOSURE_SPEC = 'tests/business/batch3-admin-disclosure.spec.ts';
+const RECONSENT_SPEC = 'tests/business/batch3-memory-reconsent.spec.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
 
@@ -322,6 +324,71 @@ const mutations = [
         file: SELF,
         old: "  async deleteMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {\n    return await this.prisma.$transaction(async (tx) => {\n      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      await lockSelfWriteRoots(tx, [userId]);\n      if (hooks._onAfterLock) await hooks._onAfterLock();\n      const existing = await tx.memoryItem.findFirst({ where: { id, userId } });",
         new: "  async deleteMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {\n    return await this.prisma.$transaction(async (tx) => {\n      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      await lockSelfWriteRoots(tx, [userId]);\n      if (hooks._onAfterLock) await hooks._onAfterLock();\n      const existing = await tx.memoryItem.findFirst({ where: { id } });",
+      },
+    ],
+  },
+  {
+    id: 'M24 admin audited memory read: content returned without persisting the audit row',
+    spec: ADMIN_DISCLOSURE_SPEC,
+    expectFailing: ['1.3'],
+    patches: [
+      {
+        file: SELF,
+        old: "    await this.prisma.auditLog.create({\n      data: {\n        id: genId('audit'),\n        adminUserId,\n        action: 'MEMORY_READ_FULL',",
+        new: "    if (false) await this.prisma.auditLog.create({\n      data: {\n        id: genId('audit'),\n        adminUserId,\n        action: 'MEMORY_READ_FULL',",
+      },
+    ],
+  },
+  {
+    id: 'M25 admin memory list: memory content returned in list response',
+    spec: ADMIN_DISCLOSURE_SPEC,
+    expectFailing: ['1.1'],
+    patches: [
+      {
+        file: SELF,
+        old: "          category: true,\n          scope: true,",
+        new: "          category: true,\n          content: true,\n          scope: true,",
+      },
+      {
+        file: SELF,
+        old: "        category: row.category,\n        scope: row.scope,",
+        new: "        category: row.category,\n        content: (row as any).content,\n        scope: row.scope,",
+      },
+    ],
+  },
+  {
+    id: 'M26 re-consent: expired memory allowed to be edited in place',
+    spec: RECONSENT_SPEC,
+    expectFailing: ['1.3'],
+    patches: [
+      {
+        file: SELF,
+        old: "      if (memoryDatePassed(existing)) {\n        // §0.5/A5: an effectively expired row allows read, delete and explicit re-consent only.\n        // Disabling or re-expiring it is not in that set, and allowing it would let an expired row\n        // be moved around as if it were live.\n        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');\n      }\n      if (memoryDatePassed(existing)) {\n        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');\n      }\n\n      const data: Prisma.MemoryItemUpdateInput = {};",
+        new: "      // mutation: in-place edit allowed on expired memory\n      const data: Prisma.MemoryItemUpdateInput = {};",
+      },
+    ],
+  },
+  {
+    id: 'M27 re-consent: deleted memory allowed to be reactivated',
+    spec: RECONSENT_SPEC,
+    expectFailing: ['1.5'],
+    patches: [
+      {
+        file: SELF,
+        old: "      const existing = await tx.memoryItem.findFirst({ where: { id, userId } });\n      if (!existing) throw new NotFoundException('记忆不存在');\n      if (existing.status === 'deleted') throw new BadRequestException('已删除的记忆不能恢复');\n\n      const nowTime = new Date();\n      const retention = Math.max(1, Math.min(3650, days));\n      const updated = await tx.memoryItem.updateMany({\n        where: { id: existing.id, status: { not: 'deleted' } },",
+        new: "      const existing = await tx.memoryItem.findFirst({ where: { id, userId } });\n      if (!existing) throw new NotFoundException('记忆不存在');\n\n      const nowTime = new Date();\n      const retention = Math.max(1, Math.min(3650, days));\n      const updated = await tx.memoryItem.updateMany({\n        where: { id: existing.id },",
+      },
+    ],
+  },
+  {
+    id: 'M28 admin guard on memory routes: unauthenticated caller permitted',
+    spec: ADMIN_DISCLOSURE_SPEC,
+    expectFailing: ['1.6'],
+    patches: [
+      {
+        file: STORE,
+        old: "  verifyToken(token?: string) {\n    if (!token) throw new UnauthorizedException('缺少登录凭证');",
+        new: "  verifyToken(token?: string) {\n    if (!token) return this.adminUsers[0];",
       },
     ],
   },
