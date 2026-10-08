@@ -2700,10 +2700,9 @@ export class AdminController {
       });
     }
     const needle = q?.trim().toLowerCase();
-    const items = this.store.personalSupportPlans.filter(
-      (item) =>
-        !needle || this.matchesNeedle([item.id, item.userId, item.title, JSON.stringify(item.plan ?? {})], needle),
-    );
+    const items = this.store.personalSupportPlans
+      .filter((item) => !needle || this.matchesNeedle([item.id, item.userId, item.title], needle))
+      .map(({ plan: _plan, ...rest }: any) => rest);
     return this.list(items, page, pageSize);
   }
 
@@ -2714,6 +2713,15 @@ export class AdminController {
   ) {
     const admin = this.admin(auth);
     return await this.selfPersistence.getAuditedSupportPlanForAdmin(id, admin.id);
+  }
+
+  @Get('memory/:id')
+  async memoryDetail(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+  ) {
+    const admin = this.admin(auth);
+    return await this.selfPersistence.getAuditedMemoryForAdmin(id, admin.id);
   }
 
   @Get('memory')
@@ -2734,15 +2742,14 @@ export class AdminController {
       });
     }
     const needle = q?.trim().toLowerCase();
-    return this.list(
-      this.store.memoryItems.filter(
+    const items = this.store.memoryItems
+      .filter(
         (item) =>
           !item.deletedAt &&
-          (!needle || this.matchesNeedle([item.id, item.userId, item.category, item.title, item.content], needle)),
-      ),
-      page,
-      pageSize,
-    );
+          (!needle || this.matchesNeedle([item.id, item.userId, item.category, item.title], needle)),
+      )
+      .map(({ content: _content, ...rest }: any) => rest);
+    return this.list(items, page, pageSize);
   }
 
   @Get('dashboard/ai-summary')

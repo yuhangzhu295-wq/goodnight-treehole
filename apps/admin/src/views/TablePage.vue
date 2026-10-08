@@ -71,6 +71,9 @@ const endpoints: Record<Resource, string> = {
 const items = ref<any[]>([]);
 const selectedId = ref('');
 const detailOpen = ref(false);
+const detailRecord = ref<any>(null);
+const detailLoading = ref(false);
+const detailError = ref<string | null>(null);
 const search = ref('');
 const filter = ref('all');
 const actionText = ref('');
@@ -502,14 +505,51 @@ async function load() {
   }
 }
 
+async function loadDetailForResource(row: any) {
+  if (!row?.id) {
+    detailRecord.value = null;
+    return;
+  }
+  if (props.resource === 'support-plans') {
+    detailLoading.value = true;
+    detailError.value = null;
+    try {
+      const res = await adminApi.get<any>(`/api/admin/v1/support/plans/${row.id}`);
+      detailRecord.value = res.item ?? null;
+    } catch (err: any) {
+      detailError.value = err?.message ?? '获取支持计划详情失败';
+      detailRecord.value = null;
+    } finally {
+      detailLoading.value = false;
+    }
+  } else if (props.resource === 'memory') {
+    detailLoading.value = true;
+    detailError.value = null;
+    try {
+      const res = await adminApi.get<any>(`/api/admin/v1/memory/${row.id}`);
+      detailRecord.value = res.item ?? null;
+    } catch (err: any) {
+      detailError.value = err?.message ?? '获取记忆详情失败';
+      detailRecord.value = null;
+    } finally {
+      detailLoading.value = false;
+    }
+  } else {
+    detailRecord.value = null;
+  }
+}
+
 function selectRow(row: any) {
   selectedId.value = row.__rowId;
   detailOpen.value = true;
   status.value = `已选择 ${row.id ?? row.key ?? row.style}`;
+  loadDetailForResource(row);
 }
 
 function closeDetail() {
   detailOpen.value = false;
+  detailRecord.value = null;
+  detailError.value = null;
 }
 
 function changePage(nextPage: number) {
@@ -877,24 +917,40 @@ const detailGroups = computed<DetailGroup[]>(() => {
       { label: '处理备注', value: text(row.note) || '-' },
       { label: '创建时间', value: time(row.createdAt) },
     ] }],
-    'support-plans': () => [{ title: '个人支持计划', entries: [
-      { label: '用户', value: userName(row.userId) },
-      { label: '计划名称', value: row.title },
-      // `plan` is a JSON object; rendering it directly printed the literal "[object Object]"
-      // so the operator could not read the one thing this resource exists for (ISSUE-024).
-      // It is shown as its real fields.
-      ...planEntries(row.plan),
-      // `PersonalSupportPlan` has no `status` column, only `active`, so the previous binding
-      // always rendered '-'.
-      { label: '状态', value: row.active === false ? '已停用' : '生效中' },
-      { label: '更新时间', value: time(row.updatedAt) },
-    ] }],
-    memory: () => [{ title: '有限记忆', entries: [
-      { label: '用户', value: userName(row.userId) },
-      { label: '类型', value: row.category },
-      { label: '内容', value: row.content },
-      { label: '到期时间', value: time(row.expiresAt) },
-    ] }],
+    'support-plans': () => {
+      const plan = detailRecord.value?.id === row.id ? detailRecord.value.plan : undefined;
+      return [{ title: '个人支持计划', entries: [
+        { label: '用户', value: userName(row.userId) },
+        { label: '计划名称', value: row.title },
+        // Minimal disclosure (§0.4/S4, §0.5/A7): plan content is NOT expanded from list rows.
+        // It is loaded on demand from the audited single-record route when the operator asks for detail.
+        ...(detailLoading.value && detailRecord.value?.id !== row.id
+          ? [{ label: '计划内容', value: '加载中...' }]
+          : detailError.value && detailRecord.value?.id !== row.id
+          ? [{ label: '计划内容', value: detailError.value }]
+          : planEntries(plan)),
+        { label: '状态', value: row.active === false ? '已停用' : '生效中' },
+        { label: '更新时间', value: time(row.updatedAt) },
+      ] }];
+    },
+    memory: () => {
+      const content = detailRecord.value?.id === row.id ? detailRecord.value.content : undefined;
+      return [{ title: '有限记忆', entries: [
+        { label: '用户', value: userName(row.userId) },
+        { label: '类型', value: row.category },
+        // Minimal disclosure (§0.4/S4, §0.5/A7): memory content is NOT expanded from list rows.
+        // It is loaded on demand from the audited single-record route when the operator asks for detail.
+        {
+          label: '内容',
+          value: detailLoading.value && detailRecord.value?.id !== row.id
+            ? '加载中...'
+            : detailError.value && detailRecord.value?.id !== row.id
+            ? detailError.value
+            : text(content),
+        },
+        { label: '到期时间', value: time(row.expiresAt) },
+      ] }];
+    },
   };
   return map[props.resource]();
 });
@@ -904,8 +960,21 @@ watch(() => props.resource, async () => {
   filter.value = 'all';
   selectedId.value = '';
   detailOpen.value = false;
+  detailRecord.value = null;
+  detailError.value = null;
   await load();
 });
+
+watch(
+  [selected, detailOpen],
+  ([row, open]) => {
+    if (open && row && (props.resource === 'support-plans' || props.resource === 'memory')) {
+      if (detailRecord.value?.id !== row.id) {
+        loadDetailForResource(row);
+      }
+    }
+  },
+);
 
 watch([search, filter], () => {
   page.value = 1;
