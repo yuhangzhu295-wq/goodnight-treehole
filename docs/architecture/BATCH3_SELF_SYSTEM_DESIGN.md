@@ -1067,3 +1067,36 @@ rather than one the implementation may take.
 **`PERSISTENCE_BATCH3_STABLE` is not claimed by this document.** It is claimed only after
 implementation, with the seven-plus-one gates in §4 holding and an independent review of the
 implementation. This document's own gate is: design approved, implementation may start.
+
+---
+
+## 0.13 Tenth pass — making K1's mutation actually discriminate
+
+The tenth verification accepted K1's barrier placement, the opening/closing consistency and the
+gate scoping, and left one precise gap: the mutation as specified could still leave a protective
+write predicate in place, so a **passing** test would not prove the ordering.
+
+Three things could make the mutant pass for the wrong reason, and all three are now excluded:
+
+1. **The conditional write's status predicate.** §0.9/H1 requires the update to be conditional
+   (`WHERE id = :id AND <allowed transition>`). If only the *read* is moved pre-lock and the write
+   stays conditional, the write still refuses and the mutant passes. The mutation must move the
+   guard **and** relax the write predicate to a plain `WHERE id = :id` — otherwise the test proves
+   the predicate, not the ordering.
+2. **The optional version check.** A request carrying `expectedUpdatedAt` can fail on the version
+   comparison rather than on the guard, so the test must **omit** `expectedUpdatedAt`.
+3. **The requested target must be legal pre-graduation.** If the test asked for a target that is
+   illegal from `active` too, a pre-lock guard would refuse for the wrong reason. The test asks for
+   **`paused`**, which is a legal target from `active` (§0.10/I1) — so a pre-lock guard sees
+   `active`, decides the transition is allowed, and writes; the journey must then end `paused`
+   instead of `completed`, and the test fails.
+
+**So the named mutation is: move the guard to a pre-lock read AND replace the conditional write
+predicate with a plain id-only update.** With the barrier held, the journey ends `paused` and the
+test fails. Restoring both makes it pass. This is the same rule the whole programme uses — a green
+test is only evidence once it has been shown to fail — applied to a lock-ordering claim rather than
+to a business guard.
+
+The test therefore asserts, per entry point: the request targets `paused`, carries no
+`expectedUpdatedAt`, is parked before either lock, graduation commits fully, the request is
+released, and the final row is **`completed`** (not `paused`) with the request refused.
