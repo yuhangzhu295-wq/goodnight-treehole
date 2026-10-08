@@ -37,11 +37,33 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
     const completedAt = new Date();
 
     const messageId = typeof input.payload?.messageId === 'string' ? input.payload.messageId : undefined;
-    const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
     const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
 
     // 1. Transaction A: Claim FollowUpJob together with legacy-model updates atomically
     const claimResult = await this.prisma.$transaction(async (tx) => {
+      if (input.kind === 'DECISION_COOLDOWN') {
+        await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${input.userId} FOR UPDATE`;
+        if (decisionId) {
+          await tx.$executeRaw`SELECT 1 FROM "DecisionRecord" WHERE id = ${decisionId} FOR UPDATE`;
+        }
+        const [dueCheck] = await tx.$queryRaw<Array<{ passed: boolean }>>`
+          SELECT ("dueAt" <= clock_timestamp()) AS passed FROM "FollowUpJob" WHERE id = ${input.id}
+        `;
+        if (!dueCheck?.passed) {
+          return { count: 0 };
+        }
+        const claim = await tx.followUpJob.updateMany({
+          where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
+          data: { status: 'delivered', completedAt },
+        });
+        if (claim.count === 0) return claim;
+        const res = await this.store.selfPersistence.deliverCooldownJob(tx, input, completedAt);
+        if (res.status !== 'delivered') {
+          return { count: 0 };
+        }
+        return claim;
+      }
+
       const claim = await tx.followUpJob.updateMany({
         where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
         data: { status: 'delivered', completedAt },
@@ -52,18 +74,6 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
           await tx.messageToFutureSelf.updateMany({
             where: { id: messageId, userId: input.userId },
             data: { deliveredAt: completedAt },
-          });
-        }
-        if (cooldownId) {
-          await tx.cooldownItem.updateMany({
-            where: { id: cooldownId, userId: input.userId },
-            data: { status: 'released' },
-          });
-        }
-        if (decisionId) {
-          await tx.decisionRecord.updateMany({
-            where: { id: decisionId, userId: input.userId, status: 'cooling' },
-            data: { status: 'ready', reviewedAt: completedAt },
           });
         }
       }

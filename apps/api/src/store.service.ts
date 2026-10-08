@@ -1544,6 +1544,40 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      delete data.decisionRecords;
+      Object.defineProperty(data, 'decisionRecords', {
+        get() {
+          throw new Error(
+            'StoreData.decisionRecords is disabled: DecisionRecord is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.decisionRecords is disabled: DecisionRecord is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      delete data.cooldownItems;
+      Object.defineProperty(data, 'cooldownItems', {
+        get() {
+          throw new Error(
+            'StoreData.cooldownItems is disabled: CooldownItem is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.cooldownItems is disabled: CooldownItem is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
@@ -1740,9 +1774,19 @@ export class StoreService implements OnModuleInit {
     return this.data.peerReputations;
   }
   get decisionRecords() {
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      throw new Error(
+        'Direct DB model DecisionRecord: store.decisionRecords getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.decisionRecords;
   }
   get cooldownItems() {
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      throw new Error(
+        'Direct DB model CooldownItem: store.cooldownItems getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.cooldownItems;
   }
   get realityHandoffs() {
@@ -3051,6 +3095,8 @@ export class StoreService implements OnModuleInit {
       if (key === 'stableSelfProfiles' && DIRECT_DB_MODELS.StableSelfProfile) continue;
       if (key === 'memoryItems' && DIRECT_DB_MODELS.MemoryItem) continue;
       if (key === 'recoverySnapshots' && DIRECT_DB_MODELS.RecoverySnapshot) continue;
+      if (key === 'decisionRecords' && DIRECT_DB_MODELS.DecisionRecord) continue;
+      if (key === 'cooldownItems' && DIRECT_DB_MODELS.CooldownItem) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
@@ -3411,8 +3457,8 @@ export class StoreService implements OnModuleInit {
       actions: await this.batch1Persistence.countTotalActions(),
       jobs: DIRECT_DB_MODELS.AIJob ? 0 : this.aiJobs.length,
       handoffs: DIRECT_DB_MODELS.RealityHandoff ? 0 : this.realityHandoffs.length,
-      decisions: this.decisionRecords.length,
-      cooldowns: this.cooldownItems.length,
+      decisions: DIRECT_DB_MODELS.DecisionRecord ? 0 : this.decisionRecords.length,
+      cooldowns: DIRECT_DB_MODELS.CooldownItem ? 0 : this.cooldownItems.length,
     };
     const hasJourney = (journeyId?: string) => Boolean(journeyId && journeyIds.has(journeyId));
     const hasAction = (actionId?: string) => Boolean(actionId && actionIds.has(actionId));
@@ -3435,17 +3481,21 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.PeerMatch) {
       this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
     }
-    this.data.decisionRecords = this.data.decisionRecords.filter(
-      (item) =>
-        !explicitDecisionIds.has(item.id) &&
-        !hasJourney(item.journeyId) &&
-        !(legacy && item.userId === demoUserId && fixtureText.test(item.question)),
-    );
-    this.data.cooldownItems = this.data.cooldownItems.filter(
-      (item) =>
-        !explicitCooldownIds.has(item.id) &&
-        !(legacy && item.userId === demoUserId && fixtureText.test(`${item.title}\n${item.reason ?? ''}`)),
-    );
+    if (!DIRECT_DB_MODELS.DecisionRecord) {
+      this.data.decisionRecords = this.data.decisionRecords.filter(
+        (item) =>
+          !explicitDecisionIds.has(item.id) &&
+          !hasJourney(item.journeyId) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(item.question)),
+      );
+    }
+    if (!DIRECT_DB_MODELS.CooldownItem) {
+      this.data.cooldownItems = this.data.cooldownItems.filter(
+        (item) =>
+          !explicitCooldownIds.has(item.id) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(`${item.title}\n${item.reason ?? ''}`)),
+      );
+    }
     if (!DIRECT_DB_MODELS.RealityHandoff) {
       this.data.realityHandoffs = this.data.realityHandoffs.filter(
         (item) =>
@@ -3503,8 +3553,8 @@ export class StoreService implements OnModuleInit {
       notifications: deletedNotifications.count,
       jobs: deletedJobsCount,
       handoffs: DIRECT_DB_MODELS.RealityHandoff ? 0 : before.handoffs - this.realityHandoffs.length,
-      decisions: before.decisions - this.decisionRecords.length,
-      cooldowns: before.cooldowns - this.cooldownItems.length,
+      decisions: DIRECT_DB_MODELS.DecisionRecord ? 0 : before.decisions - this.decisionRecords.length,
+      cooldowns: DIRECT_DB_MODELS.CooldownItem ? 0 : before.cooldowns - this.cooldownItems.length,
     };
   }
 
@@ -3664,9 +3714,11 @@ export class StoreService implements OnModuleInit {
     } else {
       conversations = this.peerConversations.filter((item) => linkedMatchIds.has(item.matchId));
     }
-    const decisions = this.decisionRecords
-      .filter((item) => item.userId === userId && item.journeyId === journeyId)
-      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+    const decisions = DIRECT_DB_MODELS.DecisionRecord
+      ? await this.selfPersistence.listDecisionsForJourney(journeyId, userId)
+      : this.decisionRecords
+          .filter((item) => item.userId === userId && item.journeyId === journeyId)
+          .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
     const timeline = detail.updates
       .map((item) => ({
         id: item.id,
@@ -3749,7 +3801,7 @@ export class StoreService implements OnModuleInit {
     this.data.posts = detachJourney(this.data.posts as Array<any>);
     if (!DIRECT_DB_MODELS.PeerExperience) this.data.peerExperiences = detachJourney(this.data.peerExperiences);
     if (!DIRECT_DB_MODELS.PeerMatch) this.data.peerMatches = detachJourney(this.data.peerMatches);
-    this.data.decisionRecords = detachJourney(this.data.decisionRecords);
+    if (!DIRECT_DB_MODELS.DecisionRecord) this.data.decisionRecords = detachJourney(this.data.decisionRecords);
     if (!DIRECT_DB_MODELS.RealityHandoff) this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
     this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
@@ -5710,6 +5762,16 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      const item = await this.selfPersistence.createDecision({
+        userId,
+        journeyId: input.journeyId,
+        question: input.question,
+        options: input.options,
+        criteria: input.criteria,
+      });
+      return { item };
+    }
     const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
     const values = (value: unknown) =>
       Array.isArray(value)
@@ -5748,6 +5810,10 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      const item = await this.selfPersistence.updateDecision(decisionId, userId, input);
+      return { item };
+    }
     const item = this.decisionRecords.find(
       (record) => record.id === decisionId && record.userId === userId,
     );
@@ -5793,6 +5859,9 @@ export class StoreService implements OnModuleInit {
 
   async decisionList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      return await this.selfPersistence.listDecisions(userId);
+    }
     let changed = false;
     for (const item of this.decisionRecords.filter((record) => record.userId === userId)) {
       if (item.status === 'cooling' && item.cooldownUntil && Date.parse(item.cooldownUntil) <= Date.now()) {
@@ -5813,6 +5882,17 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      const { item, followUp } = await this.selfPersistence.createCooldown({
+        userId,
+        decisionId: input.decisionId,
+        title: input.title,
+        reason: input.reason,
+        hours: input.hours,
+      });
+      const queue = await scheduleFollowUp(followUp);
+      return { item, followUp, queue };
+    }
     const decision = input.decisionId
       ? this.decisionRecords.find((item) => item.id === input.decisionId && item.userId === userId)
       : undefined;
@@ -5851,8 +5931,11 @@ export class StoreService implements OnModuleInit {
     return { item, followUp, queue };
   }
 
-  cooldownList(requestedUserId?: string) {
+  async cooldownList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      return await this.selfPersistence.listCooldowns(userId);
+    }
     return this.cooldownItems
       .filter((item) => item.userId === userId)
       .map((item) => ({ ...item, status: Date.parse(item.releaseAt) <= Date.now() ? 'released' : item.status }));
@@ -5990,9 +6073,11 @@ export class StoreService implements OnModuleInit {
       contextLabel = `旅程：${journey.title}`;
     }
     if (selectedContextType === 'decision') {
-      const decision = this.decisionRecords.find(
-        (candidate) => candidate.id === contextRefId && candidate.userId === userId,
-      );
+      const decision = DIRECT_DB_MODELS.DecisionRecord
+        ? await this.selfPersistence.getDecision(contextRefId!, userId)
+        : this.decisionRecords.find(
+            (candidate) => candidate.id === contextRefId && candidate.userId === userId,
+          );
       if (!decision) throw new NotFoundException('关联的决定不存在');
       contextLabel = `决定：${decision.question}`;
     }

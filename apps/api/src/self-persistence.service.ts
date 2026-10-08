@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 
@@ -73,6 +73,33 @@ export type RecoverySnapshotRecord = {
   journeyId?: string;
   summary: string;
   signals: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type DecisionRecordItem = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  question: string;
+  options: string[];
+  criteria: string[];
+  decision?: string;
+  status: 'draft' | 'cooling' | 'ready' | 'decided' | 'archived' | 'superseded';
+  cooldownUntil?: string;
+  outcome?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CooldownItemRecord = {
+  id: string;
+  userId: string;
+  decisionId?: string;
+  title: string;
+  reason?: string;
+  releaseAt: string;
+  status: 'active' | 'released' | 'superseded';
   createdAt: string;
 };
 
@@ -195,6 +222,37 @@ export function mapRecoverySnapshotRow(row: any): RecoverySnapshotRecord {
     journeyId: row.journeyId ?? undefined,
     summary: row.summary,
     signals: row.signals && typeof row.signals === 'object' ? row.signals : {},
+    createdAt: iso(row.createdAt),
+  };
+}
+
+export function mapDecisionRecordRow(row: any): DecisionRecordItem {
+  return {
+    id: row.id,
+    userId: row.userId,
+    journeyId: row.journeyId ?? undefined,
+    question: row.question,
+    options: Array.isArray(row.options) ? row.options.map(String) : [],
+    criteria: Array.isArray(row.criteria) ? row.criteria.map(String) : [],
+    decision: row.decision ?? undefined,
+    status: row.status as DecisionRecordItem['status'],
+    cooldownUntil: row.cooldownUntil ? iso(row.cooldownUntil) : undefined,
+    outcome: row.outcome ?? undefined,
+    reviewedAt: row.reviewedAt ? iso(row.reviewedAt) : undefined,
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+  };
+}
+
+export function mapCooldownItemRow(row: any): CooldownItemRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    decisionId: row.decisionId ?? undefined,
+    title: row.title,
+    reason: row.reason ?? undefined,
+    releaseAt: iso(row.releaseAt),
+    status: row.status as CooldownItemRecord['status'],
     createdAt: iso(row.createdAt),
   };
 }
@@ -1251,6 +1309,570 @@ export class SelfPersistenceService {
     });
 
     return { item: mapMemoryItemRow(row) };
+  }
+
+  // ==========================================
+  // DecisionRecord & CooldownItem (Batch 3 B3-S3)
+  // ==========================================
+
+  async createDecision(
+    params: {
+      userId: string;
+      journeyId?: string | null;
+      question: unknown;
+      options?: unknown;
+      criteria?: unknown;
+      subject?: string;
+      supersedesId?: string;
+    },
+    hooks: SelfWriteHooks = {},
+  ): Promise<DecisionRecordItem> {
+    const trimmedQuestion =
+      typeof params.question === 'string' && params.question.trim()
+        ? params.question.trim().slice(0, 400)
+        : '决策问题';
+
+    const parseValues = (val: unknown) =>
+      Array.isArray(val)
+        ? val
+            .map(String)
+            .map((p) => p.trim())
+            .filter(Boolean)
+            .slice(0, 10)
+        : [];
+
+    const options = parseValues(params.options);
+    const criteria = parseValues(params.criteria);
+
+    const journeyIdSpecified = params.journeyId !== undefined;
+    const suppliedJourneyId =
+      typeof params.journeyId === 'string' && params.journeyId.trim() ? params.journeyId.trim() : null;
+
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [params.userId], suppliedJourneyId ? [suppliedJourneyId] : []);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const user = await tx.user.findUnique({ where: { id: params.userId } });
+      if (!user) throw new NotFoundException('用户不存在');
+
+      if (suppliedJourneyId) {
+        const journey = await tx.lifeJourney.findUnique({ where: { id: suppliedJourneyId } });
+        if (!journey || journey.userId !== params.userId) {
+          throw new NotFoundException('旅程不存在或无权访问');
+        }
+      }
+
+      // Requirement 3: The supersede rule
+      // A new decision supersedes the previous open one for the same subject, atomically, in the same transaction.
+      // Two concurrent supersedes must not both win. Use a conditional write (CAS) and return a conflict.
+      const subjectKey = (params.subject?.trim() || trimmedQuestion).trim();
+      const openWhere: Prisma.DecisionRecordWhereInput = {
+        userId: params.userId,
+        status: { in: ['draft', 'cooling', 'ready'] },
+        ...(params.supersedesId ? { id: params.supersedesId } : { question: subjectKey }),
+        ...(journeyIdSpecified && suppliedJourneyId ? { journeyId: suppliedJourneyId } : {}),
+      };
+
+      const previousOpen = await tx.decisionRecord.findFirst({
+        where: openWhere,
+        orderBy: { updatedAt: 'desc' },
+      });
+
+      if (previousOpen) {
+        // CAS update: conditional on the status read under the lock
+        const cas = await tx.decisionRecord.updateMany({
+          where: {
+            id: previousOpen.id,
+            status: previousOpen.status,
+          },
+          data: {
+            status: 'superseded',
+            updatedAt: new Date(),
+          },
+        });
+        if (cas.count === 0) {
+          throw new ConflictException('该决策已被并发更新或取代');
+        }
+
+        // Close outstanding active CooldownItems and their FollowUpJobs
+        await tx.cooldownItem.updateMany({
+          where: { decisionId: previousOpen.id, status: 'active' },
+          data: { status: 'superseded' },
+        });
+        await tx.followUpJob.updateMany({
+          where: {
+            userId: params.userId,
+            status: { in: ['pending', 'scheduled'] },
+            kind: 'DECISION_COOLDOWN',
+          },
+          data: { status: 'superseded' },
+        });
+      }
+
+      let createJourneyId: string | null = null;
+      if (journeyIdSpecified) {
+        createJourneyId = suppliedJourneyId;
+      }
+
+      const id = genId('decision');
+      const created = await tx.decisionRecord.create({
+        data: {
+          id,
+          userId: params.userId,
+          journeyId: createJourneyId,
+          question: trimmedQuestion,
+          options: options as Prisma.InputJsonValue,
+          criteria: criteria as Prisma.InputJsonValue,
+          status: 'draft',
+        },
+      });
+      return mapDecisionRecordRow(created);
+    });
+  }
+
+  async updateDecision(
+    id: string,
+    userId: string,
+    patch: {
+      journeyId?: string | null;
+      question?: unknown;
+      options?: unknown;
+      criteria?: unknown;
+      decision?: unknown;
+      outcome?: unknown;
+      status?: unknown;
+    },
+    hooks: SelfWriteHooks = {},
+  ): Promise<DecisionRecordItem> {
+    const journeyIdSpecified = patch.journeyId !== undefined;
+    const suppliedJourneyId =
+      typeof patch.journeyId === 'string' && patch.journeyId.trim() ? patch.journeyId.trim() : null;
+
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId], suppliedJourneyId ? [suppliedJourneyId] : []);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const existing = await tx.decisionRecord.findFirst({
+        where: { id, userId },
+      });
+      if (!existing) {
+        throw new NotFoundException('决策记录不存在或无权访问');
+      }
+
+      await tx.$executeRaw`SELECT 1 FROM "DecisionRecord" WHERE id = ${id} FOR UPDATE`;
+
+      if (suppliedJourneyId) {
+        const journey = await tx.lifeJourney.findUnique({ where: { id: suppliedJourneyId } });
+        if (!journey || journey.userId !== userId) {
+          throw new NotFoundException('旅程不存在或无权访问');
+        }
+      }
+
+      const updateData: Prisma.DecisionRecordUpdateInput = {};
+
+      const parseValues = (val: unknown) =>
+        Array.isArray(val)
+          ? val
+              .map(String)
+              .map((p) => p.trim())
+              .filter(Boolean)
+              .slice(0, 10)
+          : undefined;
+
+      if (['draft', 'cooling', 'ready'].includes(existing.status)) {
+        if (typeof patch.question === 'string' && patch.question.trim()) {
+          updateData.question = patch.question.trim().slice(0, 400);
+        }
+        const options = parseValues(patch.options);
+        const criteria = parseValues(patch.criteria);
+        if (options) updateData.options = options as Prisma.InputJsonValue;
+        if (criteria) updateData.criteria = criteria as Prisma.InputJsonValue;
+      }
+
+      if (typeof patch.decision === 'string') {
+        const trimmed = patch.decision.trim().slice(0, 400);
+        updateData.decision = trimmed || null;
+      }
+      if (typeof patch.outcome === 'string') {
+        const trimmed = patch.outcome.trim().slice(0, 800);
+        updateData.outcome = trimmed || null;
+      }
+
+      if (journeyIdSpecified) {
+        if (patch.journeyId === null) {
+          updateData.journey = { disconnect: true };
+        } else if (suppliedJourneyId) {
+          updateData.journey = { connect: { id: suppliedJourneyId } };
+        }
+      }
+
+      if (typeof patch.status === 'string' && patch.status !== existing.status) {
+        const requested = patch.status;
+        if (requested === 'ready' && existing.status === 'cooling') {
+          // Clock check: MUST use clock_timestamp() under the lock
+          const [check] = await tx.$queryRaw<Array<{ passed: boolean }>>`
+            SELECT ("cooldownUntil" IS NOT NULL AND "cooldownUntil" <= clock_timestamp()) AS passed
+            FROM "DecisionRecord"
+            WHERE id = ${id}
+          `;
+          if (!check?.passed) {
+            throw new BadRequestException('冷静时间还没有结束');
+          }
+          updateData.status = 'ready';
+          updateData.reviewedAt = new Date();
+        } else if (requested === 'decided' && existing.status === 'ready') {
+          const effectiveDecision = (typeof patch.decision === 'string' ? patch.decision.trim() : undefined) ?? existing.decision;
+          if (!effectiveDecision) {
+            throw new BadRequestException('请先写下你自己作出的决定');
+          }
+          updateData.status = 'decided';
+          updateData.reviewedAt = new Date();
+        } else if (requested === 'archived' && (existing.status === 'decided' || existing.status === 'outcome')) {
+          updateData.status = 'archived';
+        } else if (requested === 'outcome' && (existing.status === 'decided' || existing.status === 'ready')) {
+          updateData.status = 'outcome';
+        } else {
+          throw new BadRequestException(`不能从 ${existing.status} 变更为 ${requested}`);
+        }
+      }
+
+      updateData.updatedAt = new Date();
+
+      // Conditional write (CAS)
+      const res = await tx.decisionRecord.updateMany({
+        where: { id, status: existing.status },
+        data: updateData,
+      });
+      if (res.count === 0) {
+        throw new ConflictException('决策状态已被并发更新，请刷新重试');
+      }
+
+      const updated = await tx.decisionRecord.findUniqueOrThrow({ where: { id } });
+      return mapDecisionRecordRow(updated);
+    });
+  }
+
+  async getDecision(id: string, userId: string): Promise<DecisionRecordItem | null> {
+    const row = await this.prisma.decisionRecord.findFirst({
+      where: { id, userId },
+    });
+    return row ? mapDecisionRecordRow(row) : null;
+  }
+
+  async listDecisions(userId: string): Promise<DecisionRecordItem[]> {
+    return await this.prisma.$transaction(async (tx) => {
+      // Auto-transition cooling decisions whose deadline passed to ready using clock_timestamp()
+      await tx.$executeRaw`
+        UPDATE "DecisionRecord"
+        SET status = 'ready', "reviewedAt" = clock_timestamp(), "updatedAt" = clock_timestamp()
+        WHERE "userId" = ${userId}
+          AND status = 'cooling'
+          AND "cooldownUntil" IS NOT NULL
+          AND "cooldownUntil" <= clock_timestamp()
+          AND NOT EXISTS (
+            SELECT 1 FROM "CooldownItem"
+            WHERE "decisionId" = "DecisionRecord".id AND status = 'active'
+          )
+      `;
+
+      const rows = await tx.decisionRecord.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+      });
+      return rows.map(mapDecisionRecordRow);
+    });
+  }
+
+  async listDecisionsForJourney(journeyId: string, userId: string): Promise<DecisionRecordItem[]> {
+    const rows = await this.prisma.decisionRecord.findMany({
+      where: { journeyId, userId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(mapDecisionRecordRow);
+  }
+
+  async countDecisionsInMonth(userId: string, month: string): Promise<number> {
+    const rows = await this.prisma.decisionRecord.findMany({
+      where: { userId },
+      select: { createdAt: true, updatedAt: true, reviewedAt: true },
+    });
+    const belongsToMonth = (targetMonth: string, ...dates: Array<Date | null | undefined>) => {
+      return dates.some((d) => d && d.toISOString().slice(0, 7) === targetMonth);
+    };
+    return rows.filter((r) => belongsToMonth(month, r.createdAt, r.updatedAt, r.reviewedAt)).length;
+  }
+
+  async createCooldown(
+    params: {
+      userId: string;
+      decisionId?: string | null;
+      title?: unknown;
+      reason?: unknown;
+      hours?: number;
+    },
+    hooks: SelfWriteHooks = {},
+  ): Promise<{ item: CooldownItemRecord; followUp: any }> {
+    const title =
+      typeof params.title === 'string' && params.title.trim()
+        ? params.title.trim().slice(0, 120)
+        : '冷静事项';
+    const reason =
+      typeof params.reason === 'string' && params.reason.trim()
+        ? params.reason.trim().slice(0, 400)
+        : undefined;
+    const hours = Math.max(1, Math.min(168, Number(params.hours ?? 24)));
+
+    const suppliedDecisionId =
+      typeof params.decisionId === 'string' && params.decisionId.trim() ? params.decisionId.trim() : null;
+
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+
+      // Lock User root first
+      await lockSelfWriteRoots(tx, [params.userId]);
+
+      const user = await tx.user.findUnique({ where: { id: params.userId } });
+      if (!user) throw new NotFoundException('用户不存在');
+
+      let decisionRow: any = null;
+      if (suppliedDecisionId) {
+        decisionRow = await tx.decisionRecord.findFirst({
+          where: { id: suppliedDecisionId, userId: params.userId },
+        });
+        if (!decisionRow) {
+          throw new NotFoundException('决策记录不存在或无权访问');
+        }
+
+        // Lock DecisionRecord row
+        await tx.$executeRaw`SELECT 1 FROM "DecisionRecord" WHERE id = ${suppliedDecisionId} FOR UPDATE`;
+
+        if (decisionRow.journeyId) {
+          await tx.$executeRaw`SELECT 1 FROM "LifeJourney" WHERE id = ${decisionRow.journeyId} FOR UPDATE`;
+        }
+
+        // Status check
+        if (!['draft', 'cooling'].includes(decisionRow.status)) {
+          throw new BadRequestException('这个决定已经结束冷静期');
+        }
+
+        // If cooling: check if cooldownUntil passed using clock_timestamp()
+        if (decisionRow.status === 'cooling') {
+          const [deadlineCheck] = await tx.$queryRaw<Array<{ passed: boolean }>>`
+            SELECT ("cooldownUntil" IS NOT NULL AND "cooldownUntil" <= clock_timestamp()) AS passed
+            FROM "DecisionRecord"
+            WHERE id = ${suppliedDecisionId}
+          `;
+          if (deadlineCheck?.passed) {
+            throw new BadRequestException('这个决定已经结束冷静期');
+          }
+        }
+
+        if (hooks._onAfterLock) await hooks._onAfterLock();
+
+        // Supersede previous active CooldownItem for this decision (§0.6/A2 lines 319-322)
+        await tx.cooldownItem.updateMany({
+          where: { decisionId: suppliedDecisionId, status: 'active' },
+          data: { status: 'superseded' },
+        });
+        // Supersede outstanding FollowUpJob(s) for that decision's cooldowns
+        await tx.followUpJob.updateMany({
+          where: {
+            userId: params.userId,
+            status: { in: ['pending', 'scheduled'] },
+            kind: 'DECISION_COOLDOWN',
+          },
+          data: { status: 'superseded' },
+        });
+      } else {
+        if (hooks._onAfterLock) await hooks._onAfterLock();
+      }
+
+      const releaseAt = new Date(Date.now() + hours * 3_600_000);
+      const cooldownId = genId('cooldown');
+      const createdCooldown = await tx.cooldownItem.create({
+        data: {
+          id: cooldownId,
+          userId: params.userId,
+          decisionId: suppliedDecisionId,
+          title,
+          reason: reason ?? null,
+          releaseAt,
+          status: 'active',
+        },
+      });
+
+      if (decisionRow) {
+        await tx.decisionRecord.update({
+          where: { id: decisionRow.id },
+          data: {
+            status: 'cooling',
+            cooldownUntil: releaseAt,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      const followUpId = genId('follow_up');
+      const followUp = await tx.followUpJob.create({
+        data: {
+          id: followUpId,
+          userId: params.userId,
+          journeyId: decisionRow?.journeyId ?? null,
+          kind: 'DECISION_COOLDOWN',
+          dueAt: releaseAt,
+          status: 'pending',
+          payload: { cooldownId, decisionId: decisionRow?.id } as Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        item: mapCooldownItemRow(createdCooldown),
+        followUp: {
+          id: followUp.id,
+          userId: followUp.userId,
+          journeyId: followUp.journeyId ?? undefined,
+          kind: followUp.kind,
+          dueAt: iso(followUp.dueAt),
+          status: followUp.status,
+          payload: followUp.payload && typeof followUp.payload === 'object' ? followUp.payload : {},
+          createdAt: iso(followUp.createdAt),
+        },
+      };
+    });
+  }
+
+  async listCooldowns(userId: string): Promise<CooldownItemRecord[]> {
+    return await this.prisma.$transaction(async (tx) => {
+      const [nowRow] = await tx.$queryRaw<Array<{ db_now: Date }>>`SELECT clock_timestamp() as db_now`;
+      const dbNow = nowRow?.db_now ?? new Date();
+
+      const rows = await tx.cooldownItem.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return rows.map((row) => {
+        const item = mapCooldownItemRow(row);
+        if (item.status === 'active' && new Date(item.releaseAt).getTime() <= dbNow.getTime()) {
+          return { ...item, status: 'released' as const };
+        }
+        return item;
+      });
+    });
+  }
+
+  async deliverCooldownJob(
+    tx: any,
+    input: {
+      id: string;
+      userId: string;
+      payload?: Record<string, unknown>;
+    },
+    completedAt: Date,
+  ): Promise<{ status: 'delivered' | 'superseded' | 'skipped' }> {
+    const cooldownId = typeof input.payload?.cooldownId === 'string' ? input.payload.cooldownId : undefined;
+    const decisionId = typeof input.payload?.decisionId === 'string' ? input.payload.decisionId : undefined;
+
+    if (!cooldownId) {
+      return { status: 'skipped' };
+    }
+
+    // Lock roots
+    await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${input.userId} FOR UPDATE`;
+    if (decisionId) {
+      await tx.$executeRaw`SELECT 1 FROM "DecisionRecord" WHERE id = ${decisionId} FOR UPDATE`;
+    }
+
+    // Check CooldownItem
+    const cd = await tx.cooldownItem.findUnique({ where: { id: cooldownId } });
+    if (!cd || cd.userId !== input.userId) {
+      // Mismatched owner: close job as superseded
+      await tx.followUpJob.update({
+        where: { id: input.id },
+        data: { status: 'superseded', completedAt: null },
+      });
+      return { status: 'superseded' };
+    }
+
+    // Check deadline using clock_timestamp()
+    const [cdCheck] = await tx.$queryRaw<Array<{ passed: boolean }>>`
+      SELECT ("releaseAt" <= clock_timestamp()) AS passed
+      FROM "CooldownItem"
+      WHERE id = ${cooldownId}
+    `;
+
+    if (!cdCheck?.passed || cd.status !== 'active') {
+      // Cooldown not due yet or not active (e.g. was superseded)
+      await tx.followUpJob.update({
+        where: { id: input.id },
+        data: { status: 'superseded', completedAt: null },
+      });
+      return { status: 'superseded' };
+    }
+
+    // Association check (§0.7/F1 & §0.9/H2):
+    if (decisionId) {
+      // Linked at creation
+      if (cd.decisionId !== decisionId) {
+        // Lost its decision (cd.decisionId is null due to delete) or mismatched
+        await tx.followUpJob.update({
+          where: { id: input.id },
+          data: { status: 'superseded', completedAt: null },
+        });
+        return { status: 'superseded' };
+      }
+
+      const dec = await tx.decisionRecord.findUnique({ where: { id: decisionId } });
+      if (!dec || dec.userId !== input.userId) {
+        await tx.followUpJob.update({
+          where: { id: input.id },
+          data: { status: 'superseded', completedAt: null },
+        });
+        return { status: 'superseded' };
+      }
+
+      // Check decision deadline as well using clock_timestamp()
+      const [decCheck] = await tx.$queryRaw<Array<{ passed: boolean }>>`
+        SELECT ("cooldownUntil" IS NULL OR "cooldownUntil" <= clock_timestamp()) AS passed
+        FROM "DecisionRecord"
+        WHERE id = ${decisionId}
+      `;
+      if (!decCheck?.passed) {
+        await tx.followUpJob.update({
+          where: { id: input.id },
+          data: { status: 'superseded', completedAt: null },
+        });
+        return { status: 'superseded' };
+      }
+
+      // Release cooldown and mark decision ready
+      await tx.cooldownItem.update({
+        where: { id: cooldownId },
+        data: { status: 'released' },
+      });
+      await tx.decisionRecord.updateMany({
+        where: { id: decisionId, userId: input.userId, status: 'cooling' },
+        data: { status: 'ready', reviewedAt: completedAt },
+      });
+      return { status: 'delivered' };
+    } else {
+      // Created unlinked (Case 1 in §0.9/H2)
+      if (cd.decisionId === null) {
+        await tx.cooldownItem.update({
+          where: { id: cooldownId },
+          data: { status: 'released' },
+        });
+        return { status: 'delivered' };
+      } else {
+        await tx.followUpJob.update({
+          where: { id: input.id },
+          data: { status: 'superseded', completedAt: null },
+        });
+        return { status: 'superseded' };
+      }
+    }
   }
 }
 

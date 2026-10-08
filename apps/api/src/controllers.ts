@@ -773,9 +773,9 @@ export class PublicController {
   }
 
   @Get('cooldown')
-  cooldowns(@Headers('x-goodnight-user-id') userId?: string) {
+  async cooldowns(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = requireRuntimeUserId(userId);
-    return { items: this.store.cooldownList(runtimeId) };
+    return { items: await this.store.cooldownList(runtimeId) };
   }
 
   @Post('handoffs')

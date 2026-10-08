@@ -110,8 +110,12 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       : db.peerExperience.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.PeerMatch ? Promise.resolve([]) : db.peerMatch.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.peerReputation.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.decisionRecord.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.cooldownItem.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.DecisionRecord
+      ? Promise.resolve([])
+      : db.decisionRecord.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.CooldownItem
+      ? Promise.resolve([])
+      : db.cooldownItem.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.RealityHandoff ? Promise.resolve([]) : db.realityHandoff.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.TrustedContact ? Promise.resolve([]) : db.trustedContact.findMany({ orderBy: { updatedAt: 'desc' } }),
     db.messageToFutureSelf.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -578,31 +582,35 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       restrictedUntil: item.restrictedUntil ? iso(item.restrictedUntil) : undefined,
       updatedAt: iso(item.updatedAt),
     })),
-    decisionRecords: decisions.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      journeyId: item.journeyId ?? undefined,
-      question: item.question,
-      options: asArray(item.options).map(String),
-      criteria: asArray(item.criteria).map(String),
-      decision: item.decision ?? undefined,
-      status: item.status,
-      cooldownUntil: item.cooldownUntil ? iso(item.cooldownUntil) : undefined,
-      outcome: item.outcome ?? undefined,
-      reviewedAt: item.reviewedAt ? iso(item.reviewedAt) : undefined,
-      createdAt: iso(item.createdAt),
-      updatedAt: iso(item.updatedAt),
-    })),
-    cooldownItems: cooldowns.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      decisionId: item.decisionId ?? undefined,
-      title: item.title,
-      reason: item.reason ?? undefined,
-      releaseAt: iso(item.releaseAt),
-      status: item.status,
-      createdAt: iso(item.createdAt),
-    })),
+    decisionRecords: DIRECT_DB_MODELS.DecisionRecord
+      ? []
+      : decisions.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          journeyId: item.journeyId ?? undefined,
+          question: item.question,
+          options: asArray(item.options).map(String),
+          criteria: asArray(item.criteria).map(String),
+          decision: item.decision ?? undefined,
+          status: item.status,
+          cooldownUntil: item.cooldownUntil ? iso(item.cooldownUntil) : undefined,
+          outcome: item.outcome ?? undefined,
+          reviewedAt: item.reviewedAt ? iso(item.reviewedAt) : undefined,
+          createdAt: iso(item.createdAt),
+          updatedAt: iso(item.updatedAt),
+        })),
+    cooldownItems: DIRECT_DB_MODELS.CooldownItem
+      ? []
+      : cooldowns.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          decisionId: item.decisionId ?? undefined,
+          title: item.title,
+          reason: item.reason ?? undefined,
+          releaseAt: iso(item.releaseAt),
+          status: item.status,
+          createdAt: iso(item.createdAt),
+        })),
     realityHandoffs: DIRECT_DB_MODELS.RealityHandoff
       ? []
       : handoffs.map((item: any) => ({
@@ -908,7 +916,9 @@ export async function saveRelationalRuntimeState(
   const fallbackCommitmentIds = DIRECT_DB_MODELS.ActionCommitment
     ? new Set<string>()
     : new Set(asArray(state.actionCommitments).map((item: any) => item.id));
-  const decisionIds = new Set(asArray(state.decisionRecords).map((item: any) => item.id));
+  const decisionIds = DIRECT_DB_MODELS.DecisionRecord
+    ? new Set<string>()
+    : new Set(asArray(state.decisionRecords).map((item: any) => item.id));
   const peerExperienceIds = DIRECT_DB_MODELS.PeerExperience
     ? new Set<string>()
     : new Set(asArray(state.peerExperiences).map((item: any) => item.id));
@@ -957,7 +967,7 @@ export async function saveRelationalRuntimeState(
           ...asArray(state.moods).map((item: any) => item.journeyId),
           ...asArray(state.posts).map((item: any) => item.journeyId),
           ...asArray(state.diaries).map((item: any) => item.journeyId),
-          ...asArray(state.decisionRecords).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.DecisionRecord ? [] : asArray(state.decisionRecords).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.RealityHandoff ? [] : asArray(state.realityHandoffs).map((item: any) => item.journeyId)),
           ...asArray(state.messagesToFutureSelf).map((item: any) => item.journeyId),
           ...(DIRECT_DB_MODELS.PersonalSupportPlan ? [] : asArray(state.personalSupportPlans).map((item: any) => item.journeyId)),
@@ -1774,61 +1784,65 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
-      for (const item of asArray(state.decisionRecords))
-        await tx.decisionRecord.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            question: item.question,
-            options: json(item.options ?? []),
-            criteria: json(item.criteria ?? []),
-            decision: item.decision ?? null,
-            status: item.status ?? 'draft',
-            cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null,
-            outcome: item.outcome ?? null,
-            reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null,
-            createdAt: date(item.createdAt),
-            updatedAt: date(item.updatedAt),
-          },
-          update: {
-            userId: item.userId,
-            ...fkUpdate('journeyId', item.journeyId, journeyIds),
-            question: item.question,
-            options: json(item.options ?? []),
-            criteria: json(item.criteria ?? []),
-            decision: item.decision ?? null,
-            status: item.status ?? 'draft',
-            cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null,
-            outcome: item.outcome ?? null,
-            reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null,
-          },
-        });
-      for (const item of asArray(state.cooldownItems).filter(
-        (item: any) => !item.decisionId || decisionIds.has(item.decisionId),
-      ))
-        await tx.cooldownItem.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null,
-            title: item.title,
-            reason: item.reason ?? null,
-            releaseAt: date(item.releaseAt),
-            status: item.status ?? 'active',
-            createdAt: date(item.createdAt),
-          },
-          update: {
-            userId: item.userId,
-            ...fkUpdate('decisionId', item.decisionId, decisionIds),
-            title: item.title,
-            reason: item.reason ?? null,
-            releaseAt: date(item.releaseAt),
-            status: item.status ?? 'active',
-          },
-        });
+      if (!DIRECT_DB_MODELS.DecisionRecord) {
+        for (const item of asArray(state.decisionRecords))
+          await tx.decisionRecord.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              question: item.question,
+              options: json(item.options ?? []),
+              criteria: json(item.criteria ?? []),
+              decision: item.decision ?? null,
+              status: item.status ?? 'draft',
+              cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null,
+              outcome: item.outcome ?? null,
+              reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null,
+              createdAt: date(item.createdAt),
+              updatedAt: date(item.updatedAt),
+            },
+            update: {
+              userId: item.userId,
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
+              question: item.question,
+              options: json(item.options ?? []),
+              criteria: json(item.criteria ?? []),
+              decision: item.decision ?? null,
+              status: item.status ?? 'draft',
+              cooldownUntil: item.cooldownUntil ? date(item.cooldownUntil) : null,
+              outcome: item.outcome ?? null,
+              reviewedAt: item.reviewedAt ? date(item.reviewedAt) : null,
+            },
+          });
+      }
+      if (!DIRECT_DB_MODELS.CooldownItem) {
+        for (const item of asArray(state.cooldownItems).filter(
+          (item: any) => !item.decisionId || decisionIds.has(item.decisionId),
+        ))
+          await tx.cooldownItem.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              decisionId: decisionIds.has(item.decisionId) ? item.decisionId : null,
+              title: item.title,
+              reason: item.reason ?? null,
+              releaseAt: date(item.releaseAt),
+              status: item.status ?? 'active',
+              createdAt: date(item.createdAt),
+            },
+            update: {
+              userId: item.userId,
+              ...fkUpdate('decisionId', item.decisionId, decisionIds),
+              title: item.title,
+              reason: item.reason ?? null,
+              releaseAt: date(item.releaseAt),
+              status: item.status ?? 'active',
+            },
+          });
+      }
       if (!DIRECT_DB_MODELS.RealityHandoff) {
         for (const item of asArray(state.realityHandoffs))
           await tx.realityHandoff.upsert({
@@ -2052,7 +2066,7 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
-      const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed'] as const;
+      const TERMINAL_FOLLOW_UP_STATUSES = ['delivered', 'completed', 'superseded'] as const;
       for (const item of asArray(state.followUpJobs)) {
         const existing = await tx.followUpJob.findUnique({ where: { id: item.id } });
         if (!existing) {
@@ -2116,7 +2130,7 @@ export async function saveRelationalRuntimeState(
             await tx.followUpJob.updateMany({
               where: {
                 id: item.id,
-                status: { notIn: ['delivered', 'completed'] },
+                status: { notIn: ['delivered', 'completed', 'superseded'] },
               },
               data: {
                 userId: item.userId,
@@ -2494,14 +2508,16 @@ export async function saveRelationalRuntimeState(
           tx.situationSnapshot,
           asArray(state.situationSnapshots).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.cooldownItem,
-        asArray(state.cooldownItems).map((item: any) => item.id),
-      );
-      await deleteAbsent(
-        tx.decisionRecord,
-        asArray(state.decisionRecords).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.CooldownItem)
+        await deleteAbsent(
+          tx.cooldownItem,
+          asArray(state.cooldownItems).map((item: any) => item.id),
+        );
+      if (!DIRECT_DB_MODELS.DecisionRecord)
+        await deleteAbsent(
+          tx.decisionRecord,
+          asArray(state.decisionRecords).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.RealityHandoff)
         await deleteAbsent(
           tx.realityHandoff,

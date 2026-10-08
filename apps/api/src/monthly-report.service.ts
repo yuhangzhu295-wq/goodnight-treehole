@@ -239,9 +239,14 @@ export class MonthlyReportService {
         (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.consentedAt),
       ).length;
     }
-    const decisionCount = this.store.decisionRecords.filter(
-      (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.reviewedAt),
-    ).length;
+    let decisionCount = 0;
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      decisionCount = await this.selfPersistence.countDecisionsInMonth(userId, month);
+    } else {
+      decisionCount = this.store.decisionRecords.filter(
+        (item) => item.userId === userId && belongsToMonth(month, item.createdAt, item.updatedAt, item.reviewedAt),
+      ).length;
+    }
     const journeysById = new Map(journeys.map((item) => [item.id, item]));
     const intensityCheckins = checkins.filter((item) => Number.isFinite(Number(item.intensity)));
     const completedActions = actions
@@ -370,8 +375,13 @@ export class MonthlyReportService {
     } else {
       for (const item of this.store.recoverySnapshots) if (item.userId === userId) addMonths(item.createdAt);
     }
-    for (const item of this.store.decisionRecords)
-      if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.reviewedAt);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      const userDecisions = await this.selfPersistence.listDecisions(userId);
+      for (const item of userDecisions) addMonths(item.createdAt, item.updatedAt, item.reviewedAt);
+    } else {
+      for (const item of this.store.decisionRecords)
+        if (item.userId === userId) addMonths(item.createdAt, item.updatedAt, item.reviewedAt);
+    }
     if (DIRECT_DB_MODELS.PeerExperience) {
       const userExps = await this.prisma.peerExperience.findMany({ where: { userId } });
       for (const item of userExps) {

@@ -19,6 +19,8 @@ export const DIRECT_DB_MODELS = {
   PersonalSupportPlan: 'personalSupportPlans',
   MemoryItem: 'memoryItems',
   RecoverySnapshot: 'recoverySnapshots',
+  DecisionRecord: 'decisionRecords',
+  CooldownItem: 'cooldownItems',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;
