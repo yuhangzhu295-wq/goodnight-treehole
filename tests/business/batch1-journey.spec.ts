@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth } from './helpers';
+import { createApiTestApp, loginAdmin, auth, demoUserHeaders } from './helpers';
 /**
  * PrivacySetting is database-authoritative from Batch 3, so the in-memory map is disabled and a
  * fixture must seed through the database. Seeding the map would throw, and seeding a *copy* would
@@ -123,7 +123,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     expect(tonightRes.body.item.journey.title).toBe('数据库门禁专用旅程标题');
 
     // 2. Read through GET /api/v1/journeys (user journey list)
-    const listRes = await request(server).get('/api/v1/journeys').expect(200);
+    const listRes = await request(server).get('/api/v1/journeys').set(demoUserHeaders()).expect(200);
     const matched = listRes.body.items.find((item: any) => item.journey.id === journeyId);
     expect(matched).toBeDefined();
     expect(matched.journey.title).toBe('数据库门禁专用旅程标题');
@@ -131,18 +131,18 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     expect(matched.updates.some((u: any) => u.id === updateId)).toBe(true);
 
     // 3. Read through GET /api/v1/journeys/:id (journey detail)
-    const detailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).expect(200);
+    const detailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).expect(200);
     expect(detailRes.body.item.journey.title).toBe('数据库门禁专用旅程标题');
     expect(detailRes.body.item.snapshot.subDomain).toBe('工作压力');
     expect(detailRes.body.item.updates.some((u: any) => u.id === updateId)).toBe(true);
 
     // 4. Read through GET /api/v1/journeys/:id/fingerprint (fingerprint read path)
-    const fpRes = await request(server).get(`/api/v1/journeys/${journeyId}/fingerprint`).expect(200);
+    const fpRes = await request(server).get(`/api/v1/journeys/${journeyId}/fingerprint`).set(demoUserHeaders()).expect(200);
     expect(fpRes.body.item.journey.id).toBe(journeyId);
     expect(fpRes.body.item.snapshot.facts).toContain('事实1：直接写入数据库');
 
     // 5. Read through GET /api/v1/journeys/:id/timeline (timeline read path)
-    const timelineRes = await request(server).get(`/api/v1/journeys/${journeyId}/timeline`).expect(200);
+    const timelineRes = await request(server).get(`/api/v1/journeys/${journeyId}/timeline`).set(demoUserHeaders()).expect(200);
     expect(timelineRes.body.items.some((u: any) => u.id === updateId)).toBe(true);
 
     // 6. Admin read paths: admin journeys and overview
@@ -188,6 +188,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const journeyTitle = `CONFIRM_JOURNEY_${Date.now()}`;
     const createRes = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: journeyTitle, domain: '生活', content: '初始生活困境描述' })
       .expect(201);
     const journeyId = createRes.body.journey.id as string;
@@ -197,6 +198,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const confirmedFeelings = ['感到踏实', '稍微松了口气'];
     const confirmRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}/situation`)
+      .set(demoUserHeaders())
       .send({
         facts: confirmedFacts,
         feelings: confirmedFeelings,
@@ -243,7 +245,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         constraints: ['约束：无法立即辞职'],
         risks: ['风险：焦虑加剧'],
         intensity: 4,
-      }),
+      }, userId),
       persistence.applySituationAnalysisAiCompletion({
         journeyId,
         userId,
@@ -278,6 +280,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const initialContent = '持久化耐久性验证内容';
     const created = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: initialTitle, domain: '生活', content: initialContent })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -288,6 +291,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const patchedSummary = '用户明确确认的持久化总结内容';
     const patchRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
+      .set(demoUserHeaders())
       .send({ title: patchedTitle, summary: patchedSummary })
       .expect(200);
 
@@ -339,6 +343,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: `BASE_CONCUR_${Date.now()}`, domain: '生活', content: '初始内容' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -348,8 +353,8 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
     // Writer 1 PATCHes only title; Writer 2 PATCHes only summary
     const [res1, res2] = await Promise.all([
-      request(server).patch(`/api/v1/journeys/${journeyId}`).send({ title: writer1Title }),
-      request(server).patch(`/api/v1/journeys/${journeyId}`).send({ summary: writer2Summary }),
+      request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({ title: writer1Title }),
+      request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({ summary: writer2Summary }),
     ]);
 
     expect(res1.status).toBe(200);
@@ -367,11 +372,11 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       const versionBeforeConflict = finalRow!.updatedAt.toISOString();
 
       const [casRes1, casRes2] = await Promise.all([
-        request(server).patch(`/api/v1/journeys/${journeyId}`).send({
+        request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({
           title: `CAS_WINNER_${Date.now()}`,
           expectedUpdatedAt: versionBeforeConflict,
         }),
-        request(server).patch(`/api/v1/journeys/${journeyId}`).send({
+        request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({
           title: `CAS_LOSER_${Date.now()}`,
           expectedUpdatedAt: versionBeforeConflict,
         }),
@@ -392,10 +397,12 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     // Create two journeys for the demo user
     const j1Res = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: `J1_RESTORE_${Date.now()}`, domain: '生活', content: '旅程1' })
       .expect(201);
     const j2Res = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: `J2_RESTORE_${Date.now()}`, domain: '生活', content: '旅程2' })
       .expect(201);
 
@@ -420,8 +427,8 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
     // Concurrently trigger restore for both archived journeys
     const [result1, result2] = await Promise.allSettled([
-      request(server).post(`/api/v1/archive/journeys/${j1Id}/restore`),
-      request(server).post(`/api/v1/archive/journeys/${j2Id}/restore`),
+      request(server).post(`/api/v1/archive/journeys/${j1Id}/restore`).set(demoUserHeaders()),
+      request(server).post(`/api/v1/archive/journeys/${j2Id}/restore`).set(demoUserHeaders()),
     ]);
 
     const statuses = [
@@ -443,7 +450,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
       // Create vs restore invariant: while an active journey exists, restore is rejected
       const theArchivedId = activeJourneys[0].id === j1Id ? j2Id : j1Id;
-      const rejectRestore = await request(server).post(`/api/v1/archive/journeys/${theArchivedId}/restore`);
+      const rejectRestore = await request(server).post(`/api/v1/archive/journeys/${theArchivedId}/restore`).set(demoUserHeaders());
       expect(rejectRestore.status).toBe(400);
       expect(rejectRestore.body.message).toContain('请先结束或暂停当前旅程，再恢复这段归档');
     } finally {
@@ -455,15 +462,16 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: `J_P0A_${Date.now()}`, domain: '生活', content: '初始生活困境' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
-    const initialVersion = created.body.journey.updatedAt;
 
     // 1. Sending { status: 'paused', title: '...' } with a stale expectedUpdatedAt must receive 409 Conflict
     const staleVersion = new Date(Date.now() - 3600000).toISOString();
     const staleRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
+      .set(demoUserHeaders())
       .send({
         status: 'paused',
         title: '试图在过期版本上修改标题',
@@ -472,13 +480,22 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     expect(staleRes.status).toBe(409);
 
     // 2. Sending { status: 'paused', title: '...' } with matching expectedUpdatedAt must update BOTH status and title
+    const checkDb = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    let currentVersion: string;
+    try {
+      const row = await checkDb.lifeJourney.findUnique({ where: { id: journeyId } });
+      currentVersion = row!.updatedAt.toISOString();
+    } finally {
+      await checkDb.$disconnect();
+    }
     const updatedTitle = `UPDATED_TITLE_P0A_${Date.now()}`;
     const validRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
+      .set(demoUserHeaders())
       .send({
         status: 'paused',
         title: updatedTitle,
-        expectedUpdatedAt: initialVersion,
+        expectedUpdatedAt: currentVersion,
       })
       .expect(200);
 
@@ -582,6 +599,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
+      .set(demoUserHeaders())
       .send({ title: `J_SHAPE_${Date.now()}`, domain: '生活', content: '测试返回形状' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -589,6 +607,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     // Status-only PATCH must return { journey }
     const statusOnlyRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
+      .set(demoUserHeaders())
       .send({ status: 'paused' })
       .expect(200);
 
@@ -599,6 +618,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     // Content-bearing PATCH must return { item } (and { journey } for hybrid)
     const contentRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
+      .set(demoUserHeaders())
       .send({ title: '新标题' })
       .expect(200);
 
@@ -618,10 +638,12 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
       const j1Res = await request(server)
         .post('/api/v1/journeys')
+        .set(demoUserHeaders())
         .send({ title: `J1_P03_${Date.now()}`, domain: '生活', content: '旅程1' })
         .expect(201);
       const j2Res = await request(server)
         .post('/api/v1/journeys')
+        .set(demoUserHeaders())
         .send({ title: `J2_P03_${Date.now()}`, domain: '生活', content: '旅程2' })
         .expect(201);
 
@@ -637,6 +659,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       // 1. Assert hybrid PATCH returns BOTH { item, journey }
       const hybridRes = await request(server)
         .patch(`/api/v1/journeys/${j2Id}`)
+        .set(demoUserHeaders())
         .send({ status: 'paused', title: '混合更新标题' })
         .expect(200);
 
@@ -649,13 +672,14 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       // 2. Pause J1 as well so both J1 and J2 are paused
       await request(server)
         .patch(`/api/v1/journeys/${j1Id}`)
+        .set(demoUserHeaders())
         .send({ status: 'paused' })
         .expect(200);
 
       // 3. Concurrent activation race: dispatch two concurrent unversioned PATCH requests requesting status: 'active'
       const [race1, race2] = await Promise.allSettled([
-        request(server).patch(`/api/v1/journeys/${j1Id}`).send({ status: 'active' }),
-        request(server).patch(`/api/v1/journeys/${j2Id}`).send({ status: 'active' }),
+        request(server).patch(`/api/v1/journeys/${j1Id}`).set(demoUserHeaders()).send({ status: 'active' }),
+        request(server).patch(`/api/v1/journeys/${j2Id}`).set(demoUserHeaders()).send({ status: 'active' }),
       ]);
 
       const raceStatuses = [
@@ -728,7 +752,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       expect(dbSafety).toBeNull();
 
       // 2. Successful store.setJourneyIntent with HIGH_DISTRESS commits both atomically
-      const successRes = await store.setJourneyIntent(journeyId, 'HIGH_DISTRESS');
+      const successRes = await store.setJourneyIntent(journeyId, 'HIGH_DISTRESS', userId);
       expect(successRes.journey.stage).toBe('safety_first');
 
       const dbJourneySuccess = await freshPrisma.lifeJourney.findUnique({ where: { id: journeyId } });
@@ -1290,29 +1314,27 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       expect(bReadOwnJ.body.item.journey.id).toBe(journeyBId);
 
       // --- Anonymous case: with no x-goodnight-user-id header at all ---
-      // Behavior rule: The runtime defaults anonymous callers to demoUserId ('user_demo').
-      // Therefore, accessing journeyA (owned by demo user) succeeds (200),
-      // while accessing journeyB (owned by user_guest) MUST return 404 (never silently leaked to anonymous caller).
+      // R-06: Unauthenticated requests without identity header MUST be refused with 401
+      // instead of silently falling back to user_demo.
       const anonReadA = await request(server).get(`/api/v1/journeys/${journeyAId}`);
-      expect(anonReadA.status).toBe(200);
+      expect(anonReadA.status).toBe(401);
 
       const anonReadB = await request(server).get(`/api/v1/journeys/${journeyBId}`);
-      expect(anonReadB.status).toBe(404);
-      expect(anonReadB.body.message).toContain('旅程不存在或无权访问');
+      expect(anonReadB.status).toBe(401);
 
       const anonFpB = await request(server).get(`/api/v1/journeys/${journeyBId}/fingerprint`);
-      expect(anonFpB.status).toBe(404);
+      expect(anonFpB.status).toBe(401);
 
       const anonTlB = await request(server).get(`/api/v1/journeys/${journeyBId}/timeline`);
-      expect(anonTlB.status).toBe(404);
+      expect(anonTlB.status).toBe(401);
 
       const anonActB = await request(server).get(`/api/v1/journeys/${journeyBId}/actions`);
-      expect(anonActB.status).toBe(404);
+      expect(anonActB.status).toBe(401);
 
       const anonWriteB = await request(server)
         .post(`/api/v1/journeys/${journeyBId}/actions`)
-        .send({ title: '匿名写入尝试' });
-      expect(anonWriteB.status).toBe(404);
+        .send({ title: '匿名非法写入' });
+      expect(anonWriteB.status).toBe(401);
     } finally {
       await freshPrisma.$disconnect();
     }

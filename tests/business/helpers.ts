@@ -70,11 +70,21 @@ export function auth(token: string) {
   return `Bearer ${token}`;
 }
 
-export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 120_000) {
+export const DEMO_USER_ID = 'user_demo';
+
+export function demoUserHeaders() {
+  return { 'x-goodnight-user-id': DEMO_USER_ID };
+}
+
+export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 120_000, userId = DEMO_USER_ID) {
   const deadline = Date.now() + timeoutMs;
   let response: request.Response | undefined;
   while (Date.now() < deadline) {
-    response = await request(server).get(`/api/v1/ai/tasks/${jobId}`).expect(200);
+    let req = request(server).get(`/api/v1/ai/tasks/${jobId}`);
+    if (userId) {
+      req = req.set('x-goodnight-user-id', userId);
+    }
+    response = await req.expect(200);
     if (!['queued', 'running'].includes(response.body.status)) return response.body;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }

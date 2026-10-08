@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth } from './helpers';
+import { createApiTestApp, loginAdmin, auth, demoUserHeaders } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { MonthlyReportService } from '../../apps/api/src/monthly-report.service';
@@ -102,11 +102,11 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
     expect(homeDueCheckins.some((c: { id: string }) => c.id === checkinId)).toBe(true);
 
     // Read path 2: GET /api/v1/journeys/:id/actions
-    const journeyActionsRes = await request(server).get(`/api/v1/journeys/${journeyId}/actions`).expect(200);
+    const journeyActionsRes = await request(server).get(`/api/v1/journeys/${journeyId}/actions`).set(demoUserHeaders()).expect(200);
     expect(journeyActionsRes.body.items.some((a: { id: string }) => a.id === actionId)).toBe(true);
 
     // Read path 3: GET /api/v1/journeys/:id (Journey Detail)
-    const journeyDetailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).expect(200);
+    const journeyDetailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).expect(200);
     expect(journeyDetailRes.body.item.commitments.some((a: { id: string }) => a.id === actionId)).toBe(true);
     expect(journeyDetailRes.body.item.checkins.some((c: { id: string }) => c.id === checkinId)).toBe(true);
 
@@ -205,8 +205,8 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
 
       // 2. Concurrent checkinAction: two concurrent checkins on the same action
       const [checkinRes1, checkinRes2] = await Promise.all([
-        store.checkinAction(actionId, { status: 'completed', reflection: '并发打卡1' }),
-        store.checkinAction(actionId, { status: 'completed', reflection: '并发打卡2' }),
+        store.checkinAction(actionId, { status: 'completed', reflection: '并发打卡1' }, userId),
+        store.checkinAction(actionId, { status: 'completed', reflection: '并发打卡2' }, userId),
       ]);
 
       expect(checkinRes1.action.status).toBe('completed');
@@ -253,7 +253,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       const createRes = await store.createActionCommitment(journeyId, {
         title: '初始测试行动',
         dueAt: new Date(Date.now() + 86400000).toISOString(),
-      });
+      }, userId);
       const actId = createRes.item.id;
 
       // 2. Perform first checkin
@@ -262,7 +262,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         reflection: '最初的真实感悟内容',
         result: '第一版结果',
         intensity: 8,
-      });
+      }, userId);
 
       expect(firstCheckin.action.status).toBe('completed');
       expect(firstCheckin.checkin.status).toBe('completed');
@@ -288,7 +288,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         reflection: '试图非法覆写的篡改内容',
         result: '篡改结果',
         intensity: 2,
-      });
+      }, userId);
 
       // Idempotent: must return the original reflection and original checkedAt
       expect(secondCheckin.checkin.reflection).toBe('最初的真实感悟内容');
@@ -336,11 +336,11 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // Direction 1: Action completed first, then retried with status: 'missed'
       const action1 = await store.createActionCommitment(journeyId, {
         title: '行动1：已完成',
-      });
+      }, userId);
       const firstRes1 = await store.checkinAction(action1.item.id, {
         status: 'completed',
         reflection: '完成感悟',
-      });
+      }, userId);
       expect(firstRes1.checkin.status).toBe('completed');
       expect(firstRes1.adaptive.required).toBe(false);
 
@@ -349,19 +349,19 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         status: 'missed',
         reflection: '试图报告未完成',
         barrier: 'forgot',
-      });
+      }, userId);
       expect(retryMissed.checkin.status).toBe('completed');
       expect(retryMissed.adaptive.required).toBe(false);
 
       // Direction 2: Action missed first, then retried with status: 'completed'
       const action2 = await store.createActionCommitment(journeyId, {
         title: '行动2：未完成',
-      });
+      }, userId);
       const firstRes2 = await store.checkinAction(action2.item.id, {
         status: 'missed',
         reflection: '未完成感悟',
         barrier: 'too_hard',
-      });
+      }, userId);
       expect(firstRes2.checkin.status).toBe('missed');
       expect(firstRes2.adaptive.required).toBe(true);
       expect((firstRes2.adaptive as any).nextRoute).toContain('barrier');
@@ -370,7 +370,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       const retryCompleted = await store.checkinAction(action2.item.id, {
         status: 'completed',
         reflection: '试图报告已完成',
-      });
+      }, userId);
       expect(retryCompleted.checkin.status).toBe('missed');
       expect(retryCompleted.adaptive.required).toBe(true);
       expect((retryCompleted.adaptive as any).nextRoute).toContain('barrier');
@@ -541,7 +541,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         title: '高风险成功旅程',
         domain: '情绪',
         content: highRiskText,
-      });
+      }, userId);
 
       const successJourneyId = created.journey.id;
       const successDbJourney = await freshPrisma.lifeJourney.findUnique({ where: { id: successJourneyId } });
@@ -1104,7 +1104,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         archiveRoute: `/pages/journey/detail?id=${journeyId}`,
         _onLockedJourney: async () => {
           // Attempt concurrent action insert in background: must block because LifeJourney is locked!
-          store.createActionCommitment(journeyId, { title: concurrentActionTitle })
+          store.createActionCommitment(journeyId, { title: concurrentActionTitle }, userId)
             .then(() => { concurrentActionCompleted = true; })
             .catch(() => { concurrentActionCompleted = true; });
 
@@ -1184,7 +1184,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // Under global Journey -> Action lock ordering, both transactions lock LifeJourney first.
       // They serialize cleanly without deadlock (no 40P01).
       const [checkinRes, deleteRes] = await Promise.allSettled([
-        store.checkinAction(actionId, { status: 'completed', reflection: '竞争打卡' }),
+        store.checkinAction(actionId, { status: 'completed', reflection: '竞争打卡' }, userId),
         persistence.deleteJourneyArchive({
           journeyId,
           userId,
@@ -1377,7 +1377,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
         store.createActionCommitment(journeyId, {
           title: '并发创建行动',
           dueAt: new Date(Date.now() + 86400000).toISOString(),
-        }),
+        }, userId),
         saveRelationalRuntimeState(freshPrisma, staleState),
       ]);
 
@@ -1575,14 +1575,12 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       expect(userBCheckinRes.body.checkin.status).toBe('completed');
 
       // --- Anonymous case: with no x-goodnight-user-id header at all ---
-      // Behavior rule: The runtime defaults anonymous callers to demoUserId ('user_demo').
-      // Therefore, checking in an action owned by userB with NO header evaluates as user_demo -> MUST return 404!
-      // It must never mistakenly update userB's action.
+      // R-06: Unauthenticated requests without identity header MUST be refused with 401
+      // instead of silently falling back to user_demo.
       const anonCheckinB = await request(server)
         .post(`/api/v1/actions/${actionBId}/checkin`)
         .send({ status: 'completed', reflection: '匿名冒名打卡尝试' });
-      expect(anonCheckinB.status).toBe(404);
-      expect(anonCheckinB.body.message).toContain('行动不存在');
+      expect(anonCheckinB.status).toBe(401);
     } finally {
       await freshPrisma.$disconnect();
     }

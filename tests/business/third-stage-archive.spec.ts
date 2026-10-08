@@ -132,13 +132,13 @@ describe('third-stage journey archive business loop', () => {
     expect(afterReload.body.item.actionStats).toMatchObject({ completed: 1, missed: 1, adjusted: 1 });
 
     await request(server).post(`/api/v1/archive/journeys/${journeyId}/restore`).set('x-goodnight-user-id', demo).send({}).expect(201);
-    expect((await request(server).get(`/api/v1/journeys/${journeyId}`).expect(200)).body.item.journey.status).toBe('active');
-    expect((await request(server).get('/api/v1/archive/journeys').expect(200)).body.items.some((item: any) => item.journey.id === journeyId)).toBe(false);
+    expect((await request(server).get(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', demo).expect(200)).body.item.journey.status).toBe('active');
+    expect((await request(server).get('/api/v1/archive/journeys').set('x-goodnight-user-id', demo).expect(200)).body.items.some((item: any) => item.journey.id === journeyId)).toBe(false);
 
-    await request(server).patch(`/api/v1/journeys/${journeyId}/status`).send({ status: 'archived' }).expect(200);
-    await request(server).delete(`/api/v1/archive/journeys/${journeyId}`).send({ confirmation: 'wrong' }).expect(400);
-    await request(server).delete(`/api/v1/archive/journeys/${journeyId}`).send({ confirmation: 'DELETE_ARCHIVE' }).expect(200);
-    expect((await request(server).get('/api/v1/archive/journeys').expect(200)).body.items.some((item: any) => item.journey.id === journeyId)).toBe(false);
+    await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set('x-goodnight-user-id', demo).send({ status: 'archived' }).expect(200);
+    await request(server).delete(`/api/v1/archive/journeys/${journeyId}`).set('x-goodnight-user-id', demo).send({ confirmation: 'wrong' }).expect(400);
+    await request(server).delete(`/api/v1/archive/journeys/${journeyId}`).set('x-goodnight-user-id', demo).send({ confirmation: 'DELETE_ARCHIVE' }).expect(200);
+    expect((await request(server).get('/api/v1/archive/journeys').set('x-goodnight-user-id', demo).expect(200)).body.items.some((item: any) => item.journey.id === journeyId)).toBe(false);
     expect(await prisma.lifeJourney.findUnique({ where: { id: journeyId } })).toBeNull();
     expect(await prisma.journeyUpdate.count({ where: { journeyId } })).toBe(0);
     expect(await prisma.actionCommitment.count({ where: { journeyId } })).toBe(0);
