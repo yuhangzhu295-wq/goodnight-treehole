@@ -2978,6 +2978,7 @@ export class StoreService implements OnModuleInit {
       if (key === 'trustedContacts' && DIRECT_DB_MODELS.TrustedContact) continue;
       if (key === 'personalSupportPlans' && DIRECT_DB_MODELS.PersonalSupportPlan) continue;
       if (key === 'stableSelfProfiles' && DIRECT_DB_MODELS.StableSelfProfile) continue;
+      if (key === 'memoryItems' && DIRECT_DB_MODELS.MemoryItem) continue;
       if (!Array.isArray((this.data as any)[key])) {
         (this.data as any)[key] = [];
         changed = true;
@@ -3383,7 +3384,9 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) {
       this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
     }
-    this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
+    if (!DIRECT_DB_MODELS.MemoryItem) {
+      this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
+    }
     this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
     this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
     this.data.followUpJobs = this.data.followUpJobs.filter(
@@ -3670,7 +3673,7 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.RealityHandoff) this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
     this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
-    this.data.memoryItems = detachJourney(this.data.memoryItems);
+    if (!DIRECT_DB_MODELS.MemoryItem) this.data.memoryItems = detachJourney(this.data.memoryItems);
     this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
     this.data.agentDecisionLogs = detachJourney(this.data.agentDecisionLogs);
     this.data.followUpJobs = detachJourney(this.data.followUpJobs);
@@ -6053,8 +6056,9 @@ export class StoreService implements OnModuleInit {
     return this.recoverySnapshots.filter((item) => item.userId === userId);
   }
 
-  memoryList(includeInactive = true, requestedUserId?: string) {
+  async memoryList(includeInactive = true, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) return await this.selfPersistence.listMemories(userId, includeInactive);
     return this.memoryItems
       .filter((item) => item.userId === userId && !item.deletedAt)
       .filter((item) => includeInactive || (item.status === 'active' && Date.parse(item.expiresAt) > Date.now()))
@@ -6106,6 +6110,19 @@ export class StoreService implements OnModuleInit {
       createdAt,
       updatedAt: createdAt,
     };
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      const created = await this.selfPersistence.createMemory({
+        userId,
+        journeyId: journey?.id ?? null,
+        category: item.category,
+        title: item.title,
+        content: item.content,
+        source: item.source,
+        scope: item.scope,
+        days,
+      });
+      return { item: created as unknown as MemoryItem };
+    }
     this.memoryItems.unshift(item);
     await this.persistAndFlush();
     return { item };
@@ -6117,6 +6134,28 @@ export class StoreService implements OnModuleInit {
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // 'disabled' / 'expired' / 'active' are the user's own switches, and each maps to a distinct
+      // service operation. 'active' on an effectively expired row is the explicit re-consent action
+      // — the only path back — which writes a fresh consentedAt and a future expiresAt.
+      const days = input.days === undefined ? 90 : Math.max(1, Math.min(3650, Number(input.days)));
+      if (input.status === 'disabled') {
+        return { item: (await this.selfPersistence.disableMemory(idValue, userId)) as unknown as MemoryItem };
+      }
+      if (input.status === 'expired') {
+        return { item: (await this.selfPersistence.expireMemory(idValue, userId)) as unknown as MemoryItem };
+      }
+      if (input.status === 'active') {
+        return { item: (await this.selfPersistence.reactivateMemory(idValue, userId, days)) as unknown as MemoryItem };
+      }
+      const updated = await this.selfPersistence.updateMemory(idValue, userId, {
+        title: input.title === undefined ? undefined : this.text(input.title, '记忆标题', 100),
+        content: input.content === undefined ? undefined : this.text(input.content, '记忆内容', 500),
+        days: input.days === undefined ? undefined : days,
+        scope: input.scope === undefined ? undefined : String(input.scope),
+      });
+      return { item: updated as unknown as MemoryItem };
+    }
     const item = this.memoryItems.find(
       (memory) => memory.id === idValue && memory.userId === userId && !memory.deletedAt,
     );
@@ -6147,8 +6186,26 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
+  /**
+   * The explicit re-consent action, exposed as its own route. It is the only path from an
+   * effectively expired memory back to usable, and it writes a fresh consent timestamp.
+   */
+  async reactivateMemory(idValue: string, days?: unknown, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (!DIRECT_DB_MODELS.MemoryItem) throw new BadRequestException('记忆重新确认仅在数据库权威模式下可用');
+    const retention = Math.max(1, Math.min(3650, Number(days ?? 90)));
+    const item = await this.selfPersistence.reactivateMemory(idValue, userId, retention);
+    return { item: item as unknown as MemoryItem };
+  }
+
   async deleteMemory(idValue: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // Deletion is terminal: the service writes status='deleted' plus deletedAt, and no path may
+      // move a row back out of 'deleted'.
+      const deleted = await this.selfPersistence.deleteMemory(idValue, userId);
+      return { ok: true, item: deleted as unknown as MemoryItem };
+    }
     const item = this.memoryItems.find((memory) => memory.id === idValue && memory.userId === userId);
     if (!item) throw new NotFoundException('记忆不存在');
     item.deletedAt = now();
@@ -6158,7 +6215,12 @@ export class StoreService implements OnModuleInit {
     return { ok: true, item };
   }
 
-  private activeMemoriesForTask(userId: string, taskType: string, contentType: string) {
+  private async activeMemoriesForTask(userId: string, taskType: string, contentType: string) {
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // One owner-scoped query carrying all four predicates, on the database clock, plus the scope
+      // allowlist. It fails closed: no consent, no rows.
+      return (await this.selfPersistence.listAiEligibleMemories(userId, taskType, contentType)) as unknown as MemoryItem[];
+    }
     const privacy = DIRECT_DB_MODELS.PrivacySetting
       ? this.selfPersistence.getCachedPrivacySettings(userId)
       : this.privacySettings[userId];
@@ -6891,7 +6953,7 @@ export class StoreService implements OnModuleInit {
       return job;
     }
 
-    const memoryContext = this.activeMemoriesForTask(input.userId, taskType, input.contentType);
+    const memoryContext = await this.activeMemoriesForTask(input.userId, taskType, input.contentType);
     if (memoryContext.length) {
       this.appendAiTrace(job, {
         event: 'memory-context',

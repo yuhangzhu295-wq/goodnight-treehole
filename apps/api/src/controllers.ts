@@ -929,8 +929,8 @@ export class PublicController {
   }
 
   @Get('memory')
-  memories(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.memoryList(false, runtimeUserId(userId)) };
+  async memories(@Headers('x-goodnight-user-id') userId?: string) {
+    return { items: await this.store.memoryList(false, runtimeUserId(userId)) };
   }
 
   @Get('me/memories')
@@ -939,7 +939,7 @@ export class PublicController {
     const userJobs = DIRECT_DB_MODELS.AIJob
       ? await this.batch1Persistence.listAiJobsForUser(targetUserId)
       : this.store.aiJobs.filter((job) => job.userId === targetUserId);
-    const items = this.store.memoryList(true, targetUserId).map((item) => {
+    const items = (await this.store.memoryList(true, targetUserId)).map((item) => {
       const usages = userJobs.flatMap((job) =>
         (job.traceJson ?? [])
           .filter(
@@ -986,6 +986,20 @@ export class PublicController {
   @Delete('me/memories/:id')
   async deleteMemoryAlias(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
     return await this.store.deleteMemory(id, runtimeUserId(userId));
+  }
+
+  /**
+   * The explicit re-consent action. It is a separate route on purpose: it is the only way an
+   * effectively expired memory becomes usable again, and it writes a fresh consent timestamp, so it
+   * must not be reachable as a side effect of an ordinary edit (§0.5/A5, §0.6/A5).
+   */
+  @Post('me/memories/:id/reactivate')
+  async reactivateMemory(
+    @Param('id') id: string,
+    @Body() body: { days?: number },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    return await this.store.reactivateMemory(id, body?.days, runtimeUserId(userId));
   }
 
   @Get('posts/:id')
@@ -2595,13 +2609,22 @@ export class AdminController {
   }
 
   @Get('memory')
-  adminMemory(
+  async adminMemory(
     @Headers('authorization') auth: string,
     @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     this.admin(auth);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // Metadata only, and the search never runs over the memory text (§0.4/S4, §0.5/A7). Full
+      // content is a separate audited single-record read.
+      return await this.selfPersistence.listMemoriesForAdmin({
+        q,
+        page: Number(page ?? 1),
+        pageSize: Number(pageSize ?? 20),
+      });
+    }
     const needle = q?.trim().toLowerCase();
     return this.list(
       this.store.memoryItems.filter(

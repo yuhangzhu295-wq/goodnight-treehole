@@ -12,6 +12,7 @@ const SELF_TABLES = [
   'StableSelfProfile',
   'RealityHandoff',
   'PersonalSupportPlan',
+  'MemoryItem',
 ];
 
 describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () => {
@@ -667,7 +668,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
   });
 
   describe('5. SQL Scope & Zero-Legacy-Write Verification (§5, §0.4/A7)', () => {
-    it('5.1 The legacy flush writes nothing at all against the five Self tables: no upsert, no absence sweep', async () => {
+    it('5.1 The legacy flush writes nothing at all against the registered Self tables: no upsert, no absence sweep', async () => {
       const queries: string[] = [];
       const tracedPrisma = new PrismaClient({
         datasources: { db: { url: process.env.DATABASE_URL } },

@@ -17,6 +17,7 @@ export const DIRECT_DB_MODELS = {
   StableSelfProfile: 'stableSelfProfiles',
   RealityHandoff: 'realityHandoffs',
   PersonalSupportPlan: 'personalSupportPlans',
+  MemoryItem: 'memoryItems',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

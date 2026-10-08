@@ -18,7 +18,15 @@ function createStore(remote: { generate: ReturnType<typeof vi.fn> }) {
     generate: vi.fn(() => { throw new Error('local generation must never run'); }),
   };
   const store = new StoreService(
-    { loadRuntimeState: async () => null, saveRuntimeState: async () => undefined } as any,
+    // MemoryItem became database-authoritative in Batch 3, so the AI-context read now queries the
+    // database. This spec is about provider policy, not memory, so the stub answers with "no
+    // consent": the eligibility query then returns nothing without touching MemoryItem at all.
+    {
+      loadRuntimeState: async () => null,
+      saveRuntimeState: async () => undefined,
+      privacySetting: { findUnique: async () => null },
+      $queryRaw: async () => [],
+    } as any,
     { primaryDefinition: () => definitions.primaryDefinition(), secondaryDefinition: () => definitions.secondaryDefinition(), canFailOver: () => true, ...remote } as any,
   );
   store.enforceRemoteAiProviderPolicy();

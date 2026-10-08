@@ -724,4 +724,376 @@ export class SelfPersistenceService {
 
     return { item: mapPersonalSupportPlanRow(row) };
   }
+
+  // ==========================================
+  // MemoryItem (Batch 3 §0.5/A5, §0.6/A5)
+  // ==========================================
+
+  /**
+   * The user's memories. `includeInactive` decides whether the effectively-expired ones are shown;
+   * deletion is terminal, so a deleted row never appears here at all.
+   */
+  async listMemories(userId: string, includeInactive = true): Promise<MemoryItemRecord[]> {
+    const rows = await this.prisma.memoryItem.findMany({
+      where: { userId, deletedAt: null },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.filter((row) => includeInactive || !memoryIsEffectivelyExpired(row)).map(mapMemoryItemRow);
+  }
+
+  async createMemory(
+    params: {
+      userId: string;
+      journeyId?: string | null;
+      category: string;
+      title: string;
+      content: string;
+      source: string;
+      scope: string;
+      days: number;
+    },
+    hooks: SelfWriteHooks = {},
+  ): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [params.userId], [params.journeyId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const user = await tx.user.findUnique({ where: { id: params.userId } });
+      if (!user) throw new NotFoundException('用户不存在');
+
+      if (params.journeyId) {
+        const journey = await tx.lifeJourney.findUnique({ where: { id: params.journeyId } });
+        if (!journey || journey.userId !== params.userId) throw new NotFoundException('旅程不存在或无权访问');
+      }
+
+      const nowTime = new Date();
+      const created = await tx.memoryItem.create({
+        data: {
+          id: genId('memory'),
+          userId: params.userId,
+          journeyId: params.journeyId ?? null,
+          category: params.category,
+          title: params.title,
+          content: params.content,
+          source: params.source,
+          scope: params.scope,
+          status: 'active',
+          consentedAt: nowTime,
+          expiresAt: new Date(nowTime.getTime() + params.days * 86_400_000),
+        },
+      });
+      return mapMemoryItemRow(created);
+    });
+  }
+
+  /**
+   * Edit a memory. Two rules the design is explicit about:
+   *
+   *  - an **effectively expired** row is not editable — its only routes are deletion or the explicit
+   *    re-consent action below, so an edit cannot be the thing that quietly revives it;
+   *  - extending the retention window **never** restores eligibility. A `disabled` row stays
+   *    disabled; the stored status is what the user chose and only `reactivateMemory` changes it.
+   */
+  async updateMemory(
+    id: string,
+    userId: string,
+    input: { title?: string; content?: string; days?: number; scope?: string },
+    hooks: SelfWriteHooks = {},
+  ): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (memoryIsEffectivelyExpired(existing)) {
+        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
+      }
+
+      const data: Prisma.MemoryItemUpdateInput = {};
+      if (input.title !== undefined) data.title = input.title;
+      if (input.content !== undefined) data.content = input.content;
+      if (input.scope !== undefined) {
+        if (!MEMORY_SCOPES.includes(input.scope as (typeof MEMORY_SCOPES)[number])) {
+          throw new BadRequestException('记忆使用范围无效');
+        }
+        data.scope = input.scope;
+      }
+      if (input.days !== undefined) {
+        const days = Math.max(1, Math.min(3650, input.days));
+        data.expiresAt = new Date(Date.now() + days * 86_400_000);
+        // Deliberately no status write: extending the window is not consent to use it again.
+      }
+      data.updatedAt = new Date();
+
+      const updated = await tx.memoryItem.update({ where: { id: existing.id }, data });
+      return mapMemoryItemRow(updated);
+    });
+  }
+
+  /**
+   * Expire a memory now. Expiry is an *effective* state decided by the date, not a status the user
+   * flips, so this moves the date rather than writing 'expired': the row then fails the eligibility
+   * predicate like any other expired one, and only the explicit re-consent action can bring it back.
+   */
+  async expireMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      const nowTime = new Date();
+      const updated = await tx.memoryItem.update({
+        where: { id: existing.id },
+        data: { expiresAt: nowTime, updatedAt: nowTime },
+      });
+      return mapMemoryItemRow(updated);
+    });
+  }
+
+  /** Switch a memory off without deleting it. */
+  async disableMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      const updated = await tx.memoryItem.update({
+        where: { id: existing.id },
+        data: { status: 'disabled', updatedAt: new Date() },
+      });
+      return mapMemoryItemRow(updated);
+    });
+  }
+
+  /**
+   * Deletion is **terminal**: `status='deleted'` plus `deletedAt`, and no update path may move a row
+   * out of `deleted`. The old behaviour wrote `status='expired'`, which the plan's `deleted` state
+   * had no representation for.
+   */
+  async deleteMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') {
+        // Idempotent: a second delete is a no-op, not an error and not a resurrection.
+        return mapMemoryItemRow(existing);
+      }
+      const nowTime = new Date();
+      const updated = await tx.memoryItem.update({
+        where: { id: existing.id },
+        data: { status: 'deleted', deletedAt: nowTime, updatedAt: nowTime },
+      });
+      return mapMemoryItemRow(updated);
+    });
+  }
+
+  /**
+   * The **only** path from an effectively expired or disabled row back to `active`.
+   *
+   * It is a distinct, explicit act rather than a side effect of editing or extending, and it writes
+   * a fresh `consentedAt` and a future `expiresAt` in one conditional update — so the consent that
+   * authorises AI use is always the one the user just gave, never carried over from before.
+   *
+   * Whether a `disabled` row whose date has passed may be re-enabled *in place* is decided by
+   * **effective** state, not by the stored status: if the date has passed, re-enabling would produce
+   * an active-but-ineffective row, so that case goes through this same re-consent action.
+   */
+  async reactivateMemory(id: string, userId: string, days: number, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new BadRequestException('已删除的记忆不能恢复');
+
+      const nowTime = new Date();
+      const retention = Math.max(1, Math.min(3650, days));
+      const updated = await tx.memoryItem.updateMany({
+        where: { id: existing.id, status: { not: 'deleted' } },
+        data: {
+          status: 'active',
+          consentedAt: nowTime,
+          expiresAt: new Date(nowTime.getTime() + retention * 86_400_000),
+          updatedAt: nowTime,
+        },
+      });
+      if (updated.count === 0) throw new BadRequestException('已删除的记忆不能恢复');
+      return mapMemoryItemRow(await tx.memoryItem.findUniqueOrThrow({ where: { id: existing.id } }));
+    });
+  }
+
+  /**
+   * The AI-eligibility query. One owner-scoped statement carrying all four predicates the design
+   * requires, evaluated on the **database** clock: `status='active'`, `deletedAt IS NULL`,
+   * `expiresAt > clock_timestamp()`, and the current `allowAiMemoryUse`. The scope allowlist is
+   * applied afterwards because it depends on the task rather than on the row.
+   *
+   * `allowLongTermMemory` governs *saving*; it is not by itself permission to inject existing
+   * material into a prompt, which is why it does not appear here.
+   */
+  async listAiEligibleMemories(userId: string, taskType: string, contentType: string): Promise<MemoryItemRecord[]> {
+    const privacy = await this.prisma.privacySetting.findUnique({ where: { userId } });
+    if (privacy?.allowAiMemoryUse !== true) return [];
+
+    const rows = await this.prisma.$queryRaw<any[]>`
+      SELECT * FROM "MemoryItem"
+      WHERE "userId" = ${userId}
+        AND status = 'active'
+        AND "deletedAt" IS NULL
+        AND "expiresAt" > clock_timestamp()
+      ORDER BY "updatedAt" DESC
+      LIMIT 8
+    `;
+
+    const normalizedContentType = contentType.toLowerCase();
+    const scopeAllowed = (scope: string) =>
+      scope === 'all_ai' ||
+      (scope === 'journey' && normalizedContentType.includes('journey')) ||
+      (scope === 'recovery' && taskType === 'recovery_summary') ||
+      (scope === 'support' && ['support_plan', 'risk_analysis', 'barrier_analysis'].includes(taskType));
+
+    return rows.filter((row) => scopeAllowed(row.scope)).map(mapMemoryItemRow);
+  }
+
+  /** Admin list: metadata only, no content — §0.4/S4 applies to memories as well as to plans. */
+  async listMemoriesForAdmin(options: {
+    q?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number; totalPages: number }> {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
+    const where: Prisma.MemoryItemWhereInput = {};
+    if (options.q?.trim()) {
+      const needle = options.q.trim();
+      where.OR = [
+        { id: { contains: needle, mode: 'insensitive' } },
+        { userId: { contains: needle, mode: 'insensitive' } },
+        { category: { contains: needle, mode: 'insensitive' } },
+      ];
+    }
+    const [total, rows] = await Promise.all([
+      this.prisma.memoryItem.count({ where }),
+      this.prisma.memoryItem.findMany({
+        where,
+        select: {
+          id: true,
+          userId: true,
+          journeyId: true,
+          category: true,
+          scope: true,
+          status: true,
+          expiresAt: true,
+          deletedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        journeyId: row.journeyId ?? undefined,
+        category: row.category,
+        scope: row.scope,
+        status: row.status,
+        expiresAt: row.expiresAt.toISOString(),
+        deletedAt: row.deletedAt ? row.deletedAt.toISOString() : undefined,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize) || 1,
+    };
+  }
+
+  /** The audited single-record read: audit first, content only if that write committed. */
+  async getAuditedMemoryForAdmin(id: string, adminUserId: string): Promise<{ item: MemoryItemRecord }> {
+    const row = await this.prisma.memoryItem.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('记忆不存在');
+
+    await this.prisma.auditLog.create({
+      data: {
+        id: genId('audit'),
+        adminUserId,
+        action: 'MEMORY_READ_FULL',
+        resourceType: 'MemoryItem',
+        resourceId: id,
+        beforeJson: Prisma.JsonNull,
+        afterJson: { targetUserId: row.userId, category: row.category } as Prisma.InputJsonValue,
+        ip: '127.0.0.1',
+        userAgent: 'admin-console',
+      },
+    });
+
+    return { item: mapMemoryItemRow(row) };
+  }
+}
+
+// ==========================================
+// MemoryItem (Batch 3 §0.5/A5, §0.6/A5)
+// ==========================================
+
+export type MemoryItemRecord = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  category: string;
+  title: string;
+  content: string;
+  source: string;
+  scope: 'all_ai' | 'journey' | 'recovery' | 'support' | string;
+  status: 'active' | 'disabled' | 'expired' | 'deleted' | string;
+  consentedAt: string;
+  expiresAt: string;
+  deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function mapMemoryItemRow(row: any): MemoryItemRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    journeyId: row.journeyId ?? undefined,
+    category: row.category,
+    title: row.title,
+    content: row.content,
+    source: row.source,
+    scope: row.scope,
+    status: row.status,
+    consentedAt: iso(row.consentedAt),
+    expiresAt: iso(row.expiresAt),
+    deletedAt: row.deletedAt ? iso(row.deletedAt) : undefined,
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+  };
+}
+
+const MEMORY_SCOPES = ['all_ai', 'journey', 'recovery', 'support'] as const;
+
+/** A memory whose date has passed is effectively expired whatever its stored status says. */
+function memoryIsEffectivelyExpired(row: { status: string; expiresAt: Date | string; deletedAt?: Date | null }) {
+  if (row.status !== 'active') return true;
+  if (row.deletedAt) return true;
+  return new Date(row.expiresAt).getTime() <= Date.now();
 }

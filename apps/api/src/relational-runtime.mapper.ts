@@ -121,7 +121,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.StableSelfProfile
       ? Promise.resolve([])
       : db.stableSelfProfile.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.memoryItem.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.MemoryItem ? Promise.resolve([]) : db.memoryItem.findMany({ orderBy: { createdAt: 'desc' } }),
     db.recoverySnapshot.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.SafetyEvent ? Promise.resolve([]) : db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
     db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -1939,6 +1939,7 @@ export async function saveRelationalRuntimeState(
           });
       }
       for (const item of asArray(state.memoryItems))
+        if (!DIRECT_DB_MODELS.MemoryItem)
         await tx.memoryItem.upsert({
           where: { id: item.id },
           create: {
@@ -2519,10 +2520,11 @@ export async function saveRelationalRuntimeState(
           tx.stableSelfProfile,
           asArray(state.stableSelfProfiles).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.memoryItem,
-        asArray(state.memoryItems).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.MemoryItem)
+        await deleteAbsent(
+          tx.memoryItem,
+          asArray(state.memoryItems).map((item: any) => item.id),
+        );
       await deleteAbsent(
         tx.recoverySnapshot,
         asArray(state.recoverySnapshots).map((item: any) => item.id),

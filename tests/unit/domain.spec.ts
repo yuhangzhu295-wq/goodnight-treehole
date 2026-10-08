@@ -3,11 +3,23 @@ import fs from 'node:fs';
 import { StoreService } from '../../apps/api/src/store.service.js';
 import { RemoteAiProviderService } from '../../apps/api/src/remote-ai-provider.service.js';
 
+/**
+ * A StoreService persistence stub that answers the one database read these unit tests now reach:
+ * the AI memory-eligibility query. It answers "no consent", so the query returns nothing without
+ * touching MemoryItem — these tests are about routing and export, not about memory.
+ */
+const stubPersistence = {
+  saveRuntimeState: async () => undefined,
+  privacySetting: { findUnique: async () => null },
+  $queryRaw: async () => [],
+};
+
+
 describe('domain services', () => {
   it('routes AI through primary, backup, then template fallback', async () => {
     const definitions = new RemoteAiProviderService();
     const remote = { primaryDefinition: () => definitions.primaryDefinition(), secondaryDefinition: () => definitions.secondaryDefinition(), canFailOver: () => true, generate: async () => ({ model: 'remote-unit-model', result: '这是远程模型生成的测试回应。', durationMs: 12 }) } as any;
-    const store = new StoreService({ saveRuntimeState: async () => undefined } as any, remote);
+    const store = new StoreService(stubPersistence as any, remote);
     store.enforceRemoteAiProviderPolicy();
     const ok = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi' });
     expect(ok.modelName).toBe('remote-unit-model');
@@ -17,7 +29,7 @@ describe('domain services', () => {
     expect(fallback.providerId).toBe(store.aiRoutes.find((route) => route.style === 'warm')?.fallbackTemplateId);
   });
   it('keeps privacy settings out of the store: they are database-authoritative from Batch 3', () => {
-    const store = new StoreService({ saveRuntimeState: async () => undefined } as any);
+    const store = new StoreService(stubPersistence as any);
     store.systemSettings.defaultVisibility.value = 'PUBLIC';
     // PrivacySetting is a registered direct-DB model, so the store no longer holds a privacy map at
     // all. The previous assertion read that map; it is replaced by an assertion about the contract
@@ -56,7 +68,7 @@ describe('domain services', () => {
   });
 
   it('moderates replies out of public response list', () => {
-    const store = new StoreService({ saveRuntimeState: async () => undefined } as any);
+    const store = new StoreService(stubPersistence as any);
     const reply = store.createReply('post_1', { content: '我也在这里', anonymous: true });
     store.moderateReply('admin_1', reply.id, 'block');
     expect(store.replies.filter((item) => item.postId === 'post_1' && item.status === 'published').some((item) => item.id === reply.id)).toBe(false);
