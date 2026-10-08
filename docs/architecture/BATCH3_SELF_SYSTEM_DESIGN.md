@@ -649,6 +649,10 @@ G1's shared guard was described as a check. A check is not enough: `patchJourney
 those two steps still turns a `completed` journey into `active` — the same read-then-write
 disconnection Batch 2's P0-1 was about.
 
+> **The predicate below is superseded by §0.10/I1**, which replaces `NOT IN ('completed')` with
+> an allowed-transition table, and by §0.10/J2, which defines same-status requests. The *shape* —
+> lock, re-read under the lock, conditional write — stands.
+
 **Required — the guard is the write predicate, not a prior read:**
 
 ```
@@ -734,6 +738,14 @@ Anything not in the table is refused with an affected-row check on the condition
 refusal is the write predicate and not a prior read. The explicit restore path keeps its own
 `archived`-only check, which the verification confirmed it already has.
 
+**Same-status requests are not transitions (§0.10/J2).** The table governs a change *between
+*distinct* states. A request whose target status equals the current status is accepted as a
+status-preserving write: it applies any accompanying metadata change (`title`, `summary`) and leaves
+the status alone. This keeps the existing hybrid PATCH contract working — `batch1-journey.spec.ts:616–632`
+sends `paused` to an already-`paused` journey together with metadata and expects success — and it is
+why a blanket "refuse anything not in the table" would be wrong. The refusal applies only when the
+requested status differs from the current one and the pair is not in the table.
+
 ### I2 — The payload must be immutable, or H2's evidence is not durable *(P1)*
 
 H2 tells the two unlinked-cooldown cases apart by the job's creation-time `payload.decisionId`. The
@@ -754,10 +766,14 @@ different payload for a cooldown job and asserts the stored payload is unchanged
 The verification is right that a concurrent request with uncontrolled ordering does not prove the
 H1 race, and that the H2 cases alone do not prove payload immutability. §4 gains:
 
-- **per entry point** (`PATCH /journeys/:id` and the status endpoint), a barrier that holds the
-  status write **after its read and before its write** while a graduation commits, then releases:
-  the transition must be refused and the journey must remain `completed`. Without the forced
-  interleaving the test would pass on a read-time guard that is still racy.
+- **per entry point** (`PATCH /journeys/:id` and the status endpoint), the barrier is placed
+  **before the request acquires the `LifeJourney` lock**, so the request may hold a stale
+  preliminary read; graduation is then allowed to commit **completely**, and only then is the
+  request released. It must take the lock, re-read, and **refuse**, and the journey must still be
+  `completed`. A barrier placed after the guarded read could not establish this order at all — with
+  the lock held before the read, graduation cannot commit in between — so that formulation is
+  withdrawn (§0.10/J1). The test proves the guard is evaluated *after* the lock, which is the whole
+  point.
 - a stale legacy flush whose `followUpJobs` array carries a different `payload` for a cooldown job:
   the stored payload must be unchanged (I2).
 
@@ -909,9 +925,9 @@ UI** until the named `MemoryCenter.vue` change lands.
 
 ## 5. Implementation boundary
 
-**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` for exactly four things: the atomic graduation/RecoverySnapshot insert, a necessary correction to its existing Self-FK detaches, the shared **allowed-transition** guard for journey status used by **both** general status entry points (§0.9/H1, §0.10/I1), and nothing else. `relational-runtime.mapper.ts` for the `FollowUpJob` terminal-set plus terminal-branch guard (§0.8/G2) and the payload-immutability rule (§0.10/I2). Plus targeted Self tests under `tests/business/`.
+**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` for exactly three things: the atomic graduation/RecoverySnapshot insert, a necessary correction to its existing Self-FK detaches, and the shared **allowed-transition** guard for journey status used by **both** general status entry points (§0.9/H1, §0.10/I1, §0.10/J2) — and nothing else. `relational-runtime.mapper.ts` for the `FollowUpJob` terminal-set plus terminal-branch guard (§0.8/G2) and the payload-immutability rule (§0.10/I2). Plus targeted Self tests under `tests/business/`.
 
-**Named UI/API contract changes that are part of this batch** (each one is required by a decision above, and none is smuggled in as an incidental persistence fix):
+**Named UI/API contract changes that are part of this batch** (each one is required by a decision above, and none is smuggled in as an incidental persistence fix). The mini-program views `MemoryCenter.vue`, `FutureSelf.vue` and the admin view `TablePage.vue` are therefore **in the permitted-file boundary** as well, for exactly the changes listed here and nothing else:
 
 | Change | Required by |
 | --- | --- |
@@ -964,3 +980,47 @@ covers **`CooldownItem` rows and the `FollowUpJob` rows belonging to the cooldow
 effect, and is the only exception to "must not change production/development data" in this batch.
 
 **Review order:** product decisions (§0.4, §0.5) → reference-safety approval → atomic Decision/Cooldown and FutureSelf/worker boundaries → individual triple exits and DB-only reads → route identity matrix → privacy/admin disclosure → strict-barrier races, fault injection and SQL-scope measurement → independent Batch 3 gate. Each predicate in §0.5/A2 and A3 carries a named mutation; a green suite is not the gate.
+
+---
+
+## 0.11 Eighth pass — the last two blockers, and the editorial boundary
+
+The verification of §0.10 confirmed I2 and I4 resolved and found two remaining blockers plus three
+editorial corrections. All are closed.
+
+### J1 — The mandated interleaving was unexecutable as written *(P1)*
+
+§0.10/I3 said the barrier holds the status write "after its read and before its write". That cannot
+establish the order it claims: §0.9/H1 also requires the `LifeJourney` lock to be taken **before**
+the read, and a graduation cannot commit while that lock is held — so a barrier at that point would
+be waiting for something that cannot happen.
+
+**Corrected.** The barrier sits **before the request acquires the `LifeJourney` lock**. The request
+may then hold a stale preliminary read; graduation is allowed to commit **completely**; only then is
+the request released. It must take the lock, re-read under it, and **refuse**, leaving the journey
+`completed`. That ordering is what proves the guard is evaluated after the lock — which is the
+entire point of the rule. The withdrawn formulation is marked as such in §4.
+
+### J2 — Same-status requests are not transitions *(P1)*
+
+The allowed-transition table governs a change between **distinct** states. A request whose target
+status equals the current status is a status-preserving write: it applies any accompanying metadata
+change and leaves the status alone. Without this, "refuse anything not in the table" would break the
+existing hybrid PATCH contract — `batch1-journey.spec.ts:616–632` sends `paused` to an
+already-`paused` journey together with metadata and expects success. The refusal applies only when
+the requested status **differs** from the current one and the pair is not in the table.
+
+### J3 — Editorial boundary corrections *(P2, deferrable but done)*
+
+- §5's permitted-file sentence said "exactly four things" for `batch1-persistence.service.ts` while
+  enumerating three; it now says three, and the mapper changes are named against
+  `relational-runtime.mapper.ts` where they live.
+- The three UI files the named-changes table requires are now listed in the permission boundary as
+  well, so the boundary and the table cannot disagree.
+- §0.9/H1's `NOT IN ('completed')` predicate is marked superseded rather than left standing as a
+  second normative instruction.
+
+**Design gate position.** With J1-J3 closed, the remaining open items in this document are product
+questions (A1's "should an outcome be required", A3's "may a completed journey ever reopen",
+A5's re-consent UX), each recorded as open and each deliberately **not** decided by the
+implementation. Nothing else is design-blocking.
