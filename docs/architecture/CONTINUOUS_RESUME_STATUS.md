@@ -3,7 +3,7 @@
 Per-task state for the persistence programme, so progress does not live only in a session context.
 `IMPLEMENTED` is **not** `DONE`: the columns are separate on purpose.
 
-**HEAD at this writing:** `207b514` on `codex/post-recovery-validation`, pushed. Last verified
+**HEAD at this writing:** `8e6477b` on `codex/post-recovery-validation`, pushed. Last verified
 baseline: full suite 7 failed / 26 passed files, 8 failed / 173 passed tests, `check:baseline-diff`
 SUCCESS with 0 new regressions; unit suite 15/15; typecheck and lint clean.
 
