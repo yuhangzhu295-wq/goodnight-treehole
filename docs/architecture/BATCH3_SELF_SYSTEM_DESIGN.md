@@ -547,6 +547,90 @@ as a required walk, `decision_cooldown`) returns nothing.
 
 ---
 
+## 0.8 Fifth pass — the verification of §0.7, and what it still found
+
+The verification of §0.7 found three blocking gaps and two overstated claims. All are resolved
+here. Two of them are the same mistake twice: a rule that was fixed at one entry point while a
+second entry point kept the old behaviour.
+
+### G1 — `patchJourney` is a second reopen path, and F3 only fixed one of them *(P1)*
+
+F3 named `updateJourneyStatus`. The verification found that `PATCH /journeys/:id` reaches
+`patchJourney` (`controllers.ts:399–417`), which accepts `status: 'active'` and **does not look at
+the current status at all** before writing (`batch1-persistence.service.ts:1668–1726`). Refusing the
+transition in one entry point while the other still allows it proves nothing about the invariant.
+
+**Required.** One shared terminal-state guard, used by **both** status entry points, refusing any
+transition out of `completed` (and out of `archived` except the explicit restore path, which the
+product does allow for `archived`). The guard lives in one place so a third entry point cannot be
+added without it. The test matrix asserts the refusal through **each** route, not through one.
+
+### G2 — The legacy `FollowUpJob` mapper overwrites a terminal DB row from a stale array *(P1)*
+
+F5 added `superseded` to the mapper's terminal set. The verification showed that is not enough:
+when the **array** says `delivered`/`completed`, the mapper updates the row **unconditionally** by
+id (`relational-runtime.mapper.ts:2076–2086`), so a stale snapshot rewrites a DB `superseded` back
+to `delivered`. The non-terminal branch is already guarded by `status: { notIn: [...] }`
+(`:2087–2099`); the terminal branch is not.
+
+**Required — the precedence rule, not just a longer list.** A DB row that is already in the terminal
+set is **never** rewritten by the legacy flush, whichever branch would run:
+
+- `superseded` joins `delivered` and `completed` in `TERMINAL_FOLLOW_UP_STATUSES`;
+- the terminal branch gains the same `status: { notIn: TERMINAL_FOLLOW_UP_STATUSES }` guard the
+  non-terminal branch already has, so a terminal row's status and completion are immutable to the
+  legacy writer.
+
+Tests: a stale array whose entry says `delivered` while the DB row is `superseded` leaves the row
+`superseded`; and the same for `completed`. This is a change to a Batch 1 mapper path and is named
+as a deviation in §5.
+
+### G3 — An unlinked cooldown is created that way, not only left behind by a deletion *(P1)*
+
+F1 described the `NULL`-decision cooldown as "its decision was deleted". The verification is right
+that `createCooldown` accepts a cooldown with no decision in the first place
+(`store.service.ts:5551–5582`). The rule is the same either way, but the framing was wrong.
+
+**Corrected:** a cooldown may legitimately have no `decisionId` at creation. For such a cooldown the
+association check reduces to `FollowUpJob.userId = CooldownItem.userId` and
+`payload.cooldownId = CooldownItem.id`, the decision-side terms are vacuous, and the release writes
+only the cooldown — never a decision. A cooldown that *lost* its decision to an authorised deletion
+is closed as `superseded` instead, because the job it belongs to can no longer be validated against
+a decision. Both cases are covered by name in the test matrix.
+
+### G4 — "Exactly one active cooldown" is wrong; it is **at most one** *(P2)*
+
+A decision that has never been cooled, or whose cooldown has been released, has **zero** active
+cooldowns. The invariant is "**at most one `active` `CooldownItem` per decision**", and the
+normalisation in F2 is "keep the latest, supersede the rest", which yields one or zero. Corrected
+everywhere the stronger phrasing appeared.
+
+### G5 — The cleanup does not remove the job for every row it removes *(P2)*
+
+F6 said the fixture cleanup "removes associated follow-up jobs". The verification is right that it
+does not hold for every deleted cooldown or decision: it filters follow-up jobs by their own
+criteria (`store.service.ts:3243–3269`), so a job belonging to a removed cooldown can survive.
+
+**Corrected, and narrowed to what will be true after the change:** the cleanup must name, for every
+row it deletes, the follow-up jobs it also deletes — by the same explicit id sets — and the design
+asserts only that: *the rows the cleanup names are deleted, and no row it did not name is.* It does
+not claim that removing a cooldown removes "its" job, because a job and a cooldown are separate
+rows with separate id sets.
+
+### G6 — §2's write set and §5's file boundary were incomplete *(P1)*
+
+- §2's cooldown-create row now lists the **old** `CooldownItem`'s supersede and the **new**
+  `FollowUpJob`'s insert, which the earlier wording omitted.
+- §5's permitted-file list still described the Batch 1 changes as graduation + FK detach only. It
+  now names all three: the graduation insert, the Self-FK detaches, **the shared terminal-state
+  guard for journey status (G1)**, and **the `FollowUpJob` terminal-set and terminal-branch guard
+  (G2)**.
+- §5's "must not change production/development data" gains the one exception F2 requires: the
+  idempotent historical-duplicate normalisation of `CooldownItem` active rows, which is a data
+  change by definition and is therefore listed rather than implied.
+
+---
+
 ## 0. Scope and present state
 
 ### 0.1 What is wrong today
@@ -593,7 +677,7 @@ PostgreSQL is authoritative for a model after its complete triple exit. Each ope
 | Privacy preference change | one owner's `PrivacySetting` changed fields only |
 | Memory save/update/delete | one `MemoryItem`; save/update reads current privacy **in** the transaction; delete is a conditional soft delete |
 | Decision create/edit/transition | one `DecisionRecord`; `cooling→ready` is a DB-clock-guarded transition, and archive is accepted from **both** `decided` and `outcome` (see §0.5/A1 and §0.6/A1 — `outcome` is optional, not a required step) |
-| Cooldown create | one `CooldownItem` + the owning `DecisionRecord`'s state + **every** outstanding `FollowUpJob` for that decision, all marked `superseded` (§0.7/F1), atomic; schedule Redis **after** commit |
+| Cooldown create | the **previous** `active` `CooldownItem` for that decision (superseded), its outstanding `FollowUpJob`(s) (superseded), the owning `DecisionRecord`'s state, the **new** `CooldownItem`, and the **new** `FollowUpJob` — all in one transaction (§0.7/F1, §0.8/G6); schedule Redis **after** commit |
 | Reality handoff create/share | one `RealityHandoff` |
 | Trusted contact create | one `TrustedContact` |
 | Future message create | one `MessageToFutureSelf` + one `FollowUpJob`, atomic, after owner-scoped context validation; enqueue after commit |
@@ -658,7 +742,7 @@ Leased databases created by tracked `prisma migrate deploy`, two independently i
 | Stale/superseded cooldown job firing after the decision was re-cooled; two workers racing the same job; job whose item deadline has not arrived | no early release, no early `ready`, the superseded job closes without moving anything (§0.5/A2) |
 | Duplicate graduation request; two concurrent graduations from separate instances | at most one graduation-derived `RecoverySnapshot` per **journey** (§0.7/F3); the second call returns the completed journey and appends nothing |
 | Reopen a completed journey via the status endpoint | **refused**, matching the product copy in `Archive.vue`; the row is unchanged and no snapshot is appended (§0.7/F3) |
-| Cooldown superseded by a new one; its job firing afterwards; the old item's terminal state; a job whose payload names a different decision or owner | the old `CooldownItem` ends `superseded`, never `active`; the mismatched job closes as `superseded` and moves nothing; exactly one `active` cooldown exists per decision, asserted after the duplicate normalisation (§0.6/A2, §0.7/F1/F2) |
+| Cooldown superseded by a new one; its job firing afterwards; the old item's terminal state; a job whose payload names a different decision or owner | the old `CooldownItem` ends `superseded`, never `active`; the mismatched job closes as `superseded` and moves nothing; **at most one** `active` cooldown exists per decision — zero when none is current — asserted after the duplicate normalisation (§0.6/A2, §0.7/F1/F2, §0.8/G4) |
 | A `disabled` memory whose `expiresAt` has passed, re-enabled in place | refused; the only path back is the explicit re-consent action with a fresh `consentedAt` and a future `expiresAt` (§0.6/A5) |
 | Crash between the delivery claim and the notification; delivery with consent off; delivery with consent on | with consent on the notification is in the claim's transaction, so the pair is atomic; with consent off the absence of a row is the intended state and no reconciler invents one (§0.5/A6) |
 | Every Self route called with a foreign id, and with no identity at all | the §0.5/A8 matrix holds: no route decides ownership from the demo-user fallback |
@@ -685,7 +769,7 @@ UI** until the named `MemoryCenter.vue` change lands.
 
 ## 5. Implementation boundary
 
-**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` **only** for an identified atomic graduation/RecoverySnapshot insert or a necessary correction to its existing Self-FK detaches, and targeted Self tests under `tests/business/`.
+**Permitted after approval:** `direct-db-models.ts`, `relational-runtime.mapper.ts`, `store.service.ts`, `controllers.ts`, `monthly-report.service.ts`, `follow-up-worker.service.ts`, `follow-up-queue.ts`, `app.module.ts`, one new Self persistence/reconciliation service (or a separately justified narrow pair), `batch1-persistence.service.ts` for exactly four things, each named in §0.8: the atomic graduation/RecoverySnapshot insert, a necessary correction to its existing Self-FK detaches, the shared terminal-state guard for journey status used by **both** status entry points (§0.8/G1), and the `FollowUpJob` terminal-set plus terminal-branch guard (§0.8/G2). Plus targeted Self tests under `tests/business/`.
 
 **Named UI/API contract changes that are part of this batch** (each one is required by a decision above, and none is smuggled in as an incidental persistence fix):
 
@@ -720,8 +804,14 @@ cannot represent). A3 is explicitly **not** escalated to that, and F2's normalis
 transaction, not a constraint. Never edit an applied migration.
 
 **Must not change:** ownership or behaviour of the eight Batch 1 or five Batch 2 models — with the
-two named exceptions above — general Peer/AI/legacy content, applied migrations,
-production/development data, fixture/recovery scripts, the transaction timeout, or mini-program
-presentation as an incidental persistence fix.
+three named exceptions above (the journey terminal-state guard, the `FollowUpJob` terminal rule,
+and the graduation insert/detaches) — general Peer/AI/legacy content, applied migrations,
+fixture/recovery scripts, the transaction timeout, or mini-program presentation as an incidental
+persistence fix.
+
+**One deliberate data change, named rather than implied:** §0.7/F2's idempotent normalisation of
+historical duplicate `active` `CooldownItem` rows changes existing production/development rows. It
+is confined to that one table, keeps the latest row per decision, is re-runnable without further
+effect, and is the only exception to "must not change production/development data" in this batch.
 
 **Review order:** product decisions (§0.4, §0.5) → reference-safety approval → atomic Decision/Cooldown and FutureSelf/worker boundaries → individual triple exits and DB-only reads → route identity matrix → privacy/admin disclosure → strict-barrier races, fault injection and SQL-scope measurement → independent Batch 3 gate. Each predicate in §0.5/A2 and A3 carries a named mutation; a green suite is not the gate.
