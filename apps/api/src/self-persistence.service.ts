@@ -738,7 +738,7 @@ export class SelfPersistenceService {
       where: { userId, deletedAt: null },
       orderBy: { updatedAt: 'desc' },
     });
-    return rows.filter((row) => includeInactive || !memoryIsEffectivelyExpired(row)).map(mapMemoryItemRow);
+    return rows.filter((row) => includeInactive || memoryIsUsable(row)).map(mapMemoryItemRow);
   }
 
   async createMemory(
@@ -809,7 +809,7 @@ export class SelfPersistenceService {
       const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
       if (!existing) throw new NotFoundException('记忆不存在');
       if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
-      if (memoryIsEffectivelyExpired(existing)) {
+      if (memoryDatePassed(existing)) {
         throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
       }
 
@@ -893,6 +893,33 @@ export class SelfPersistenceService {
       const updated = await tx.memoryItem.update({
         where: { id: existing.id },
         data: { status: 'deleted', deletedAt: nowTime, updatedAt: nowTime },
+      });
+      return mapMemoryItemRow(updated);
+    });
+  }
+
+  /**
+   * Re-enable a memory the user had switched off, **without** a new consent — its consent has not
+   * lapsed, so asking for it again would be noise.
+   *
+   * It refuses when the date has passed: re-enabling there would produce an active-but-ineffective
+   * row, which is exactly the state §0.6/A5 says must not exist. That case goes through
+   * `reactivateMemory` instead, which is the only path that writes a fresh consent.
+   */
+  async enableMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      if (memoryDatePassed(existing)) {
+        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
+      }
+      const updated = await tx.memoryItem.update({
+        where: { id: existing.id },
+        data: { status: 'active', updatedAt: new Date() },
       });
       return mapMemoryItemRow(updated);
     });
@@ -1091,9 +1118,22 @@ export function mapMemoryItemRow(row: any): MemoryItemRecord {
 
 const MEMORY_SCOPES = ['all_ai', 'journey', 'recovery', 'support'] as const;
 
-/** A memory whose date has passed is effectively expired whatever its stored status says. */
-function memoryIsEffectivelyExpired(row: { status: string; expiresAt: Date | string; deletedAt?: Date | null }) {
-  if (row.status !== 'active') return true;
-  if (row.deletedAt) return true;
+/**
+ * Two different questions, and conflating them was a bug this batch's own test caught.
+ *
+ * `memoryDatePassed` is about the **date**: it is what decides whether the row may still be edited
+ * and whether a plain re-enable is enough. A row the user merely switched off keeps a future date
+ * and stays editable.
+ *
+ * `memoryIsUsable` is about **eligibility**: the row is only usable when the user left it active,
+ * did not delete it, and the date has not passed.
+ */
+function memoryDatePassed(row: { expiresAt: Date | string }) {
   return new Date(row.expiresAt).getTime() <= Date.now();
+}
+
+function memoryIsUsable(row: { status: string; expiresAt: Date | string; deletedAt?: Date | null }) {
+  if (row.status !== 'active') return false;
+  if (row.deletedAt) return false;
+  return !memoryDatePassed(row);
 }

@@ -6146,7 +6146,9 @@ export class StoreService implements OnModuleInit {
         return { item: (await this.selfPersistence.expireMemory(idValue, userId)) as unknown as MemoryItem };
       }
       if (input.status === 'active') {
-        return { item: (await this.selfPersistence.reactivateMemory(idValue, userId, days)) as unknown as MemoryItem };
+        // The user's own switch: re-enable in place while the memory still has time on it. A row
+        // whose date has passed refuses here and must go through the re-consent route instead.
+        return { item: (await this.selfPersistence.enableMemory(idValue, userId)) as unknown as MemoryItem };
       }
       const updated = await this.selfPersistence.updateMemory(idValue, userId, {
         title: input.title === undefined ? undefined : this.text(input.title, '记忆标题', 100),
