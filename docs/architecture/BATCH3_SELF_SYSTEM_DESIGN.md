@@ -305,6 +305,8 @@ still carried the old instruction, §2 is rewritten rather than overridden.
 
 ### A2 (reopened, P0) — "the decision's current cooldown" had no representation
 
+> **Extended by §0.7/F1** (bind the release to one owner and one decision, not just an id) and **§0.7/F2** (normalise pre-existing duplicates; the invariant holds only after the legacy writer exits).
+
 The review is right: `DecisionRecord` has `cooldownUntil` but **no `cooldownId`**, and
 `CooldownItem` only carries the reverse `decisionId` (`schema.prisma:587–625,774–787`). "The job's
 `payload.cooldownId` equals the decision's current cooldown id" therefore had nothing to compare
@@ -317,7 +319,7 @@ inside the transaction that already locks the decision row, first closes whateve
 lock User(owner) -> LifeJourney if any -> DecisionRecord -> its active CooldownItem -> its outstanding FollowUpJob
 CooldownItem(active, this decision)  -> status='superseded'
 FollowUpJob(pending|scheduled, payload.cooldownId = that cooldown) -> status='superseded'
-insert the new CooldownItem(status='active', releaseAt) + FollowUpJob(kind='decision_cooldown', payload={decisionId, cooldownId})
+insert the new CooldownItem(status='active', releaseAt) + FollowUpJob(kind='DECISION_COOLDOWN', payload={decisionId, cooldownId})
 ```
 
 "Current cooldown for a decision" is then exactly **the row with `status='active'` for that
@@ -349,6 +351,10 @@ cooldown job is never matched by the check-in path and vice versa. A `CooldownIt
 released, since there is no decision left to move.
 
 ### A3 (reopened, P0) — the promise is per transition, and the reopen path exists
+
+> **Superseded by §0.7/F3.** The reopen path is an **API defect**, not a legitimate second
+> transition: the product's own archive sheet says a completed journey cannot be restored. The
+> endpoint is corrected to refuse it, which restores the per-journey invariant below.
 
 The review found that `updateJourneyStatus` accepts `'active' | 'paused' | 'archived'`
 (`batch1-persistence.service.ts:2044–2071`) and does **not** exclude a `completed` journey, so a
@@ -382,6 +388,8 @@ The page's status type and action area do not know `outcome` (`DecisionVault.vue
   decision about whether an outcome is a separate step. Recorded as open, per A1.
 
 ### A4 (reopened, P1) — two missing writers, and per-field classification
+
+> **Extended by §0.7/F6**, which adds the boot privacy-default repair and re-expresses "cleanup by id" as explicit SQL id sets.
 
 The review found two writers absent from the lock table:
 
@@ -431,6 +439,114 @@ place, not merely overridden:
 
 ---
 
+## 0.7 Fourth pass — the verification of §0.6, and what it still found
+
+A verification of §0.6 confirmed A1 and A5 resolved and found A2, A3 and A4 still partly closed,
+plus four new findings. All are resolved here. The most important one is not a persistence detail
+at all: the product already states the rule that A3 was missing.
+
+### F1 — The cooldown release must be bound to one owner **and** one decision *(P1)*
+
+§0.6 checked `CooldownItem.id = payload.cooldownId` but not that the item belongs to the decision
+the job names, nor that both belong to the job's owner. A malformed or stale payload could
+therefore release one decision's cooldown while readying another. The current code already updates
+the two independently (`follow-up-worker.service.ts:57–67`), so nothing prevents it today.
+
+**Required — every cooldown job handler checks the whole association before either write**, inside
+the transaction that locks `User(owner)`:
+
+```
+FollowUpJob.userId            = CooldownItem.userId
+FollowUpJob.payload.decisionId = CooldownItem.decisionId
+FollowUpJob.payload.cooldownId = CooldownItem.id
+CooldownItem.status = 'active'  AND  CooldownItem.releaseAt <= clock_timestamp()
+DecisionRecord.id = payload.decisionId  AND  DecisionRecord.userId = the same owner
+```
+
+If any term fails, the job closes as `superseded` and **nothing else is written**. The
+intentionally-unlinked case is explicit: a cooldown whose `decisionId` is `NULL` (its decision was
+deleted) is closed as `superseded` and releases nothing, because there is no decision left to move.
+
+### F2 — "Unique by construction" is only true after the cutover, and pre-existing duplicates must be normalised *(P1)*
+
+The schema has no unique-active constraint on `CooldownItem`, today's creation path permits
+repeated `active` rows (`store.service.ts:5551–5586`), and while `CooldownItem` is still
+legacy-owned the mapper can persist a status from its array (`relational-runtime.mapper.ts:1788–1810`).
+So the invariant is **conditional on the cutover**, not free.
+
+**Required.**
+- A **one-time normalisation** in the same transaction that first applies the new rule: for each
+  decision with more than one `active` cooldown, keep the latest by `createdAt` (tie-break id) and
+  mark the rest `superseded`, closing their outstanding jobs. The normalisation is idempotent and
+  is asserted by a test that seeds duplicates and observes exactly one survivor.
+- The invariant is claimed **only after** the legacy writer has exited for `CooldownItem`, which is
+  the `SELF_FULL_FLUSH=false` gate: zero legacy INSERT/UPDATE/DELETE on the ten tables under a
+  forced flush. Until that gate holds, "exactly one active cooldown" is a target, not a fact.
+
+### F3 — The completed-journey reopen is an API defect, and the product already says so *(P1)*
+
+§0.6 treated `completed → active` as a legitimate reopen and therefore restated the graduation
+invariant as per-transition. The verification found the product's own copy: the archive sheet tells
+the user **"已完成的 Journey 保留为完整历史，不能恢复为进行中。"** and offers the restore button only
+for `archived` (`apps/mp/src/views/Archive.vue:283–286`). The general status endpoint accepting
+`completed → active` (`batch1-persistence.service.ts:2044–2071`) contradicts what the product
+promises the user.
+
+**Resolution: align the API with the product rule rather than redesigning around it.**
+- `updateJourneyStatus` refuses `completed → active` (and any transition out of `completed`), with a
+  test asserting the refusal and the unchanged row. This is a defect fix against the product's own
+  stated rule, not a new product decision.
+- Graduation is then one-way in practice, so **the original invariant stands: at most one
+  graduation-derived `RecoverySnapshot` per journey.** The mechanism is still the conditional
+  Journey update with an affected-row check (§0.6/A3), and the invariant no longer needs the
+  reopen-and-regraduate case to be blessed as a second transition.
+- No migration: the uniqueness is enforced by the transition being one-way, not by an index.
+- If the product later decides completed journeys may reopen, that decision reopens A3 with it, and
+  the once-per-journey claim must then be re-derived. Recorded, not assumed.
+
+### F4 — The cooldown job kind is `DECISION_COOLDOWN` *(P2)*
+
+§0.6 wrote `decision_cooldown`; the canonical value in the code is **`DECISION_COOLDOWN`**
+(`store.service.ts:5578`), and the check-in family is `action_checkin`
+(`batch1-persistence.service.ts:2721`). The design uses the existing canonical value, and the
+worker validates that a job's `kind` matches the handler it is running rather than dispatching on a
+payload field.
+
+### F5 — Supersession must survive the legacy `FollowUpJob` writer *(P2)*
+
+`FollowUpJob` stays outside the registry (§0.4/S1), so its legacy mapper keeps writing it during the
+cutover — and that mapper treats only `delivered` and `completed` as terminal
+(`relational-runtime.mapper.ts:2024–2026,2053–2055,2084–2098`), which means a stale array can rewrite
+a `superseded` row back to a live status. The claim predicates alone do not make that safe.
+
+**Required:** `superseded` is added to the mapper's terminal set for `FollowUpJob` in the same
+change that introduces it, and a test forces a legacy flush over a stale array containing a
+pre-supersession snapshot and asserts the row stays `superseded`. Without this, §0.6's claim that
+"nothing treats an unknown status as actionable" is true of the worker and false of the mapper.
+
+### F6 — Two more writers, and what "cleanup by id" actually selects *(P1)*
+
+§0.6/A4 listed the admin `defaultVisibility` fan-out and the fixture cleanup, but the cleanup is not
+merely "the ids we were given": it also selects by `journeyId` and, in legacy mode, by fixture-text
+match, and it removes associated follow-up jobs (`store.service.ts:3158–3199,3243–3269`). And a
+third writer is named in §1 but was absent from the lock table: the **boot privacy-default repair**
+(`store.service.ts:2872–2892`).
+
+| Path | Roots locked first | Then | Notes |
+| --- | --- | --- | --- |
+| Boot privacy-default repair | the affected `User`s, sorted, in batches | `PrivacySetting` | it must not recreate a row for every user on every boot; after registration it repairs only rows it can show to be missing, and it never overrides an existing value |
+| Fixture / test cleanup | none (no FK column is written) | only the rows it can name | the selection must be re-expressed in SQL as explicit id sets: the ids supplied by the caller, the ids reached through a named `journeyId`, and — for the legacy fixture-text mode — the ids the test itself created. A text-match sweep over a private table is not an acceptable post-migration mechanism; the mode is retired or narrowed to test-owned ids |
+
+### F7 — §2 consistency, completed
+
+Beyond the two paragraphs already rewritten, §2's cooldown-create row said "one existing
+`FollowUpJob`" where the rule supersedes **every** outstanding job for that decision, and its worker
+paragraph still required reconciling a delivered message's missing notification. Both are corrected
+in place. A grep of the document for the superseded phrasings (`retryable`, `decided→outcome→archived`
+as a required walk, `decision_cooldown`) returns nothing.
+
+---
+
 ## 0. Scope and present state
 
 ### 0.1 What is wrong today
@@ -477,7 +593,7 @@ PostgreSQL is authoritative for a model after its complete triple exit. Each ope
 | Privacy preference change | one owner's `PrivacySetting` changed fields only |
 | Memory save/update/delete | one `MemoryItem`; save/update reads current privacy **in** the transaction; delete is a conditional soft delete |
 | Decision create/edit/transition | one `DecisionRecord`; `cooling→ready` is a DB-clock-guarded transition, and archive is accepted from **both** `decided` and `outcome` (see §0.5/A1 and §0.6/A1 — `outcome` is optional, not a required step) |
-| Cooldown create | one `CooldownItem` + optional linked `DecisionRecord` + one existing `FollowUpJob`, atomic; schedule Redis **after** commit |
+| Cooldown create | one `CooldownItem` + the owning `DecisionRecord`'s state + **every** outstanding `FollowUpJob` for that decision, all marked `superseded` (§0.7/F1), atomic; schedule Redis **after** commit |
 | Reality handoff create/share | one `RealityHandoff` |
 | Trusted contact create | one `TrustedContact` |
 | Future message create | one `MessageToFutureSelf` + one `FollowUpJob`, atomic, after owner-scoped context validation; enqueue after commit |
@@ -502,7 +618,7 @@ External AI, Redis and filesystem work never runs inside a long transaction. Loc
 
 **Reload strategy.** `reloadRuntimeState` may refresh unrelated legacy tables but must neither assign registered Self collections nor reconstruct them from JSON/seed. **Do not remove the worker's full reload until all three worker-touched Self models — message, cooldown, decision — are registered and their reads are direct**; it exists to keep those legacy arrays consistent before notification visibility (`follow-up-worker.service.ts:43–75`).
 
-**Worker strategy.** Target: the transaction commits `MessageToFutureSelf` + its pending `FollowUpJob` first; the deterministic job id equals the durable follow-up id; enqueue only after commit. On enqueue error the DB job stays pending and a **bounded startup and periodic reconciler** re-enqueues idempotently. `removeOnComplete:false` (`follow-up-queue.ts:25–29`) requires an explicit policy for reconciling an already-completed BullMQ id — do not assume `Queue.add` recreates it. A `delivered` row missing its notification is reconciled separately, never regressed to pending. The worker loads the current DB job rather than trusting a stale payload.
+**Worker strategy.** Target: the transaction commits `MessageToFutureSelf` + its pending `FollowUpJob` first; the deterministic job id equals the durable follow-up id; enqueue only after commit. On enqueue error the DB job stays pending and a **bounded startup and periodic reconciler** re-enqueues idempotently. `removeOnComplete:false` (`follow-up-queue.ts:25–29`) requires an explicit policy for reconciling an already-completed BullMQ id — do not assume `Queue.add` recreates it. **A `delivered` row whose notification is absent is not reconciled and not regressed to pending** (§0.6/A6): with the notification in the claim transaction the pair is atomic, and an absent row means consent was off. The worker loads the current DB job rather than trusting a stale payload, and validates that the job's `kind` matches the handler it is running (§0.7/F4).
 
 **Failure semantics.** HTTP success requires its specified DB write to commit. DB-commit/Redis-failure is a **pending durable scheduling obligation**, not a rolled-back message. **A delivered message with a missing notification is not a case that needs reconciling** (§0.6/A6): when consent was on, the notification is written in the claim's own transaction, so the pair is atomic; when consent was off, the absent row is the intended state and no reconciler may invent one. A failed graduation-derived insert rolls back graduation if that history was promised. AI context selection fails **closed** on missing or revoked consent.
 
@@ -540,9 +656,9 @@ Leased databases created by tracked `prisma migrate deploy`, two independently i
 | Batch 1 archive delete vs a Self create/update with a Journey FK; stale `undefined`, explicit `null`, supplied valid/foreign id; Decision removal vs Cooldown | no surviving FK silently cleared, no deleted Journey resurrected, no Cooldown lost; no unexpected `40P01` |
 | Admin disclosure and owner/safety readback with guessed ids and changed privacy | admin sees only approved fields (§0.4/S4); owner sees only their own full plan; authorised safety readback remains available |
 | Stale/superseded cooldown job firing after the decision was re-cooled; two workers racing the same job; job whose item deadline has not arrived | no early release, no early `ready`, the superseded job closes without moving anything (§0.5/A2) |
-| Duplicate graduation request; two concurrent graduations from separate instances | at most one graduation-derived `RecoverySnapshot` per **graduation transition** (§0.6/A3); the second call returns the completed journey and appends nothing |
-| Reopen a completed journey and graduate it again | exactly one further snapshot, asserted explicitly so the per-transition scope is documented rather than accidental (§0.6/A3) |
-| Cooldown superseded by a new one; its job firing afterwards; the old item's terminal state | the old `CooldownItem` ends `superseded`, never `active`; its job closes as `superseded` and moves nothing; exactly one `active` cooldown exists per decision (§0.6/A2) |
+| Duplicate graduation request; two concurrent graduations from separate instances | at most one graduation-derived `RecoverySnapshot` per **journey** (§0.7/F3); the second call returns the completed journey and appends nothing |
+| Reopen a completed journey via the status endpoint | **refused**, matching the product copy in `Archive.vue`; the row is unchanged and no snapshot is appended (§0.7/F3) |
+| Cooldown superseded by a new one; its job firing afterwards; the old item's terminal state; a job whose payload names a different decision or owner | the old `CooldownItem` ends `superseded`, never `active`; the mismatched job closes as `superseded` and moves nothing; exactly one `active` cooldown exists per decision, asserted after the duplicate normalisation (§0.6/A2, §0.7/F1/F2) |
 | A `disabled` memory whose `expiresAt` has passed, re-enabled in place | refused; the only path back is the explicit re-consent action with a fresh `consentedAt` and a future `expiresAt` (§0.6/A5) |
 | Crash between the delivery claim and the notification; delivery with consent off; delivery with consent on | with consent on the notification is in the claim's transaction, so the pair is atomic; with consent off the absence of a row is the intended state and no reconciler invents one (§0.5/A6) |
 | Every Self route called with a foreign id, and with no identity at all | the §0.5/A8 matrix holds: no route decides ownership from the demo-user fallback |
@@ -581,8 +697,31 @@ UI** until the named `MemoryCenter.vue` change lands.
 | `MemoryItem.status='deleted'` becomes an accepted value in the app-level type and update validation (the column is already `String`) | §0.4/S2 |
 | Every Self route that silently falls back to the demo user is corrected or explicitly recorded as single-user-by-design | §0.5/A8 |
 
-**Migration decision.** The §0.5/A2 predicates, A3's transaction-level graduation idempotency, A5's `deleted` spelling and A6's same-transaction notification all fit the existing columns and the existing `FollowUpJob` index — **no new migration is proposed**. A migration becomes necessary only if the approved policy demands a database-enforced constraint or a new field (a partial unique active-plan constraint, a per-message queue marker, or re-consent metadata `consentedAt` cannot represent), and A3 is explicitly **not** escalated to that. Never edit an applied migration.
+**One change to a Batch 1 path, named as a deviation.** §0.7/F3 requires `updateJourneyStatus`
+(`batch1-persistence.service.ts:2044–2071`) to refuse a transition out of `completed`. That is a
+change to a Batch 1-owned path, and it is required because the endpoint contradicts the product's
+own copy (`apps/mp/src/views/Archive.vue:283–286`: "已完成的 Journey 保留为完整历史，不能恢复为进行中。").
+It is a defect fix against a stated product rule, not a new product decision, and it is what makes
+the per-journey graduation invariant enforceable without a migration. It is listed here rather than
+folded silently into "must not change Batch 1 behaviour".
 
-**Must not change:** ownership or behaviour of the eight Batch 1 or five Batch 2 models, general Peer/AI/legacy content, applied migrations, production/development data, fixture/recovery scripts, the transaction timeout, or mini-program presentation as an incidental persistence fix.
+**And one change to the legacy `FollowUpJob` mapper.** §0.7/F5 requires `superseded` to be added to
+that mapper's terminal set (`relational-runtime.mapper.ts:2024–2026,2053–2055`), because
+`FollowUpJob` stays outside the registry and its legacy writer would otherwise rewrite a superseded
+row from a stale array. `FollowUpJob`'s ownership is unchanged; only its terminal-status set grows.
+
+**Migration decision.** The §0.6/A2 predicates, §0.7/F1's association check, §0.7/F2's one-time
+duplicate normalisation, §0.7/F3's one-way graduation, A5's `deleted` spelling and A6's
+same-transaction notification all fit the existing columns and the existing `FollowUpJob` index —
+**no new migration is proposed**. A migration becomes necessary only if the approved policy demands
+a database-enforced constraint or a new field (a partial unique active-plan constraint, a partial
+unique active-cooldown constraint, a per-message queue marker, or re-consent metadata `consentedAt`
+cannot represent). A3 is explicitly **not** escalated to that, and F2's normalisation is a
+transaction, not a constraint. Never edit an applied migration.
+
+**Must not change:** ownership or behaviour of the eight Batch 1 or five Batch 2 models — with the
+two named exceptions above — general Peer/AI/legacy content, applied migrations,
+production/development data, fixture/recovery scripts, the transaction timeout, or mini-program
+presentation as an incidental persistence fix.
 
 **Review order:** product decisions (§0.4, §0.5) → reference-safety approval → atomic Decision/Cooldown and FutureSelf/worker boundaries → individual triple exits and DB-only reads → route identity matrix → privacy/admin disclosure → strict-barrier races, fault injection and SQL-scope measurement → independent Batch 3 gate. Each predicate in §0.5/A2 and A3 carries a named mutation; a green suite is not the gate.
