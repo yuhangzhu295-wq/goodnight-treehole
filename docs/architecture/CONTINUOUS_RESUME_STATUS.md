@@ -15,7 +15,7 @@ SUCCESS with 0 new regressions; unit suite 15/15; typecheck and lint clean.
 | 4 | Batch 3 step 1 (PrivacySetting, TrustedContact, StableSelfProfile, RealityHandoff, PersonalSupportPlan) | yes | yes | **no** | 8/8 mutations; review findings 2, 6, 7, 8 below touch it |
 | 5 | Batch 3 step 2a (journey transition rule, idempotent graduation) | yes | yes | **no** | 12/12 mutations after M9/M10 were repaired |
 | 6 | Batch 3 step 2b (MemoryItem state machine) | yes | yes | **no** | 9 cases; the review found the eligibility query and two state-table defects, both fixed |
-| 7 | Batch 3 RecoverySnapshot | no | no | no | next; also unblocks the graduation atomicity finding |
+| 7 | Batch 3 RecoverySnapshot | yes | yes | **no** | 6/6 mutations (M13-M18); closes finding 5 |
 | 8 | Batch 3 DecisionRecord + CooldownItem | no | no | no | |
 | 9 | Batch 3 MessageToFutureSelf + worker | no | no | no | |
 | 10 | Batch 3 route identity / admin disclosure matrix | partial | partial | no | findings 6 and 7 |
@@ -36,8 +36,7 @@ SUCCESS with 0 new regressions; unit suite 15/15; typecheck and lint clean.
    `createReply`, so a cross-instance revocation can lag. The write gate must read the database.
 3. **Fixed** (`207b514`) — memory state operations now refuse on an effectively expired row.
 4. **Fixed** (`207b514`) — the journey root lock is unconditional in both entry points.
-5. **Open (P1)** — graduation commits before its derived snapshot is written, so they are not one
-   transaction. Needs RecoverySnapshot registered first.
+5. **Fixed** — RecoverySnapshot registered with three exits; graduation and derived snapshot are one atomic transaction.
 6. **Open (P1)** — Self routes still silently fall back to the demo user.
 7. **Open (P1)** — the audited admin memory read has no route, and the admin table still expands
    content from list rows.

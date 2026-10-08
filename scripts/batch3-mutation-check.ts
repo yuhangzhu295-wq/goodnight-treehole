@@ -16,7 +16,9 @@ const REGISTRY = 'apps/api/src/direct-db-models.ts';
 const SELF_SPEC = 'tests/business/batch3-self-verification.spec.ts';
 const PRIVACY_SPEC = 'tests/business/third-stage-privacy-2.spec.ts';
 const TRANSITION_SPEC = 'tests/business/batch3-journey-transition.spec.ts';
+const RECOVERY_SPEC = 'tests/business/batch3-recovery-atomicity.spec.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
+const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
 
 const mutations = [
   {
@@ -162,8 +164,8 @@ const mutations = [
       },
       {
         file: B1,
-        old: "      const updated = await tx.lifeJourney.updateMany({\n        where: { id: journeyId, status: { notIn: ['completed'] } },\n        data: {\n          status: 'completed',\n          stage: 'graduated',\n          completedAt: nowTime,\n          updatedAt: nowTime,\n        },\n      });\n      const finalRow = await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } });\n      return { journey: mapLifeJourneyRow(finalRow), transitioned: updated.count > 0 };",
-        new: "      await tx.lifeJourney.updateMany({\n        where: { id: journeyId },\n        data: { status: 'completed', stage: 'graduated', completedAt: nowTime, updatedAt: nowTime },\n      });\n      const finalRow = await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } });\n      return { journey: mapLifeJourneyRow(finalRow), transitioned: true };",
+        old: "      const updated = await tx.lifeJourney.updateMany({\n        where: { id: journeyId, status: { notIn: ['completed'] } },\n        data: {\n          status: 'completed',\n          stage: 'graduated',\n          completedAt: nowTime,\n          updatedAt: nowTime,\n        },\n      });",
+        new: "      const updated = { count: 1 };\n      await tx.lifeJourney.updateMany({\n        where: { id: journeyId },\n        data: { status: 'completed', stage: 'graduated', completedAt: nowTime, updatedAt: nowTime },\n      });",
       },
     ],
   },
@@ -176,6 +178,88 @@ const mutations = [
         file: B1,
         old: '  if (!target || row.status === target) return row;',
         new: '  if (!target) return row;',
+      },
+    ],
+  },
+  {
+    id: 'M13 recovery: absence sweep guard removed in legacy mapper',
+    spec: RECOVERY_SPEC,
+    expectFailing: ['1.5'],
+    patches: [
+      {
+        file: MAPPER,
+        old: '      if (!DIRECT_DB_MODELS.RecoverySnapshot)\n        await deleteAbsent(\n          tx.recoverySnapshot,\n          asArray(state.recoverySnapshots).map((item: any) => item.id),\n        );',
+        new: '      await deleteAbsent(\n        tx.recoverySnapshot,\n        asArray(state.recoverySnapshots).map((item: any) => item.id),\n      );',
+      },
+    ],
+  },
+  {
+    id: 'M14 recovery: legacy upsert guard removed in legacy mapper',
+    spec: RECOVERY_SPEC,
+    expectFailing: ['1.6'],
+    patches: [
+      {
+        file: MAPPER,
+        old: '      if (!DIRECT_DB_MODELS.RecoverySnapshot) {\n        for (const item of asArray(state.recoverySnapshots))',
+        new: '      if (true) {\n        for (const item of asArray(state.recoverySnapshots))',
+      },
+    ],
+  },
+  {
+    id: 'M15 recovery: graduation commits before snapshot failure (non-atomic graduation)',
+    spec: RECOVERY_SPEC,
+    expectFailing: ['1.2'],
+    patches: [
+      {
+        file: B1,
+        old: "      let snapshotRecord: RecoverySnapshotRecord | undefined;\n      if (updated.count > 0 && snapshotPayload) {\n        if (snapshotPayload._failDuringSnapshotInsert) {\n          throw new Error('Simulated failure during graduation snapshot insert');\n        }",
+        new: '      let snapshotRecord: RecoverySnapshotRecord | undefined;\n      if (updated.count > 0 && snapshotPayload) {\n        // mutation: no in-tx failure check',
+      },
+      {
+        file: B1,
+        old: '      return {\n        journey: mapLifeJourneyRow(finalRow),\n        transitioned: updated.count > 0,\n        snapshot: snapshotRecord,\n      };\n    });',
+        new: "      return {\n        journey: mapLifeJourneyRow(finalRow),\n        transitioned: updated.count > 0,\n        snapshot: snapshotRecord,\n      };\n    });\n    if (snapshotPayload?._failDuringSnapshotInsert) {\n      throw new Error('Simulated failure during graduation snapshot insert');\n    }",
+      },
+    ],
+  },
+  {
+    id: 'M16 recovery: duplicate graduation appends an extra snapshot',
+    spec: RECOVERY_SPEC,
+    expectFailing: ['1.3'],
+    patches: [
+      {
+        file: B1,
+        old: "      if (journey.status === 'completed') {\n        return { journey: mapLifeJourneyRow(journey), transitioned: false };\n      }",
+        new: '      // mutation: no already-completed check on duplicate graduation',
+      },
+      {
+        file: B1,
+        old: '      if (updated.count > 0 && snapshotPayload) {',
+        new: '      if (snapshotPayload) {',
+      },
+    ],
+  },
+  {
+    id: 'M17 registry: RecoverySnapshot unregistered from DIRECT_DB_MODELS',
+    spec: RECOVERY_SPEC,
+    expectFailing: ['1.7'],
+    patches: [
+      {
+        file: REGISTRY,
+        old: "  RecoverySnapshot: 'recoverySnapshots',\n",
+        new: '',
+      },
+    ],
+  },
+  {
+    id: 'M18 recovery: journey ownership check removed in appendRecoverySnapshot',
+    spec: RECOVERY_SPEC,
+    expectFailing: ['1.10'],
+    patches: [
+      {
+        file: SELF,
+        old: "          const journey = await tx.lifeJourney.findUnique({ where: { id: suppliedJourneyId } });\n          if (!journey || journey.userId !== params.userId) {\n            throw new NotFoundException('旅程不存在或无权访问');\n          }",
+        new: '          // mutation: journey ownership not checked in appendRecoverySnapshot',
       },
     ],
   },
