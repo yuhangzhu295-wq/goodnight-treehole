@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "pending",
-  "updatedAt": "2026-10-09",
+  "head": "9146413",
+  "updatedAt": "2026-10-08T22:43:13.334Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -131,7 +131,8 @@
       "title": "Batch 3 final gate (SELF_FULL_FLUSH=false, SELF_DUAL_WRITER=false, RECOVERY_ATOMICITY_PASS, DECISION_CONCURRENCY_PASS, FUTURE_SELF_QUEUE_PASS, MEMORY_STATE_PASS, PRIVACY_REVOCATION_PASS, IDENTITY_MATRIX_PASS, ADMIN_DISCLOSURE_PASS, INDEPENDENT_REVIEW_APPROVED)",
       "implemented": "no",
       "tested": "no",
-      "independentReview": "no"
+      "independentReview": "no",
+      "nextAction": "Blocked by B3-R11 (P0): the identity header is not authentication."
     },
     {
       "id": "P3",
@@ -239,9 +240,9 @@
       "title": "Private /me aliases still reach demo data",
       "implemented": "yes",
       "tested": "yes",
-      "independentReview": "pending",
-      "evidence": "All private /me aliases (/me/letters, /me/diaries, /me/diaries/months, POST /me/diaries, /me/favorites, /me/profile, /me/stats, /me/growth-card, /me/data, /me/month-report) require verified caller identity header (401 when absent) and are scoped to caller; tested with negative tests per alias; M29 proven.",
-      "nextAction": "Independent review."
+      "independentReview": "no",
+      "evidence": "Ten private /me aliases now require x-goodnight-user-id before the first read or write: profile, stats, growth-card, DELETE data, diaries, diaries/months, POST diaries, favorites, letters, month-report. The public GET /letters and GET /favorites keep the demo fallback by design. batch3-identity-matrix.spec.ts 1.13 and 3.9 cover refusal and cross-user isolation; 26/26 pass.",
+      "nextAction": "Independent review of the route inventory and of the public/private boundary call."
     },
     {
       "id": "B3-R13",
@@ -251,9 +252,9 @@
       "title": "Admin bearer check accepts a fabricated admin id",
       "implemented": "yes",
       "tested": "yes",
-      "independentReview": "pending",
-      "evidence": "Server-issued HMAC-signed admin tokens with 24h TTL; secret loaded from environment with safe 401 refusal when missing; forged, tampered, and expired tokens refused; permitted admin role enforced on audited reads (403 for non-admin); M30 and M31 proven.",
-      "nextAction": "Independent review."
+      "independentReview": "no",
+      "evidence": "verifyToken no longer accepts a caller-composed value: admin login issues an HMAC-SHA256 token over adminId:timestamp with a 24h TTL, verified with timingSafeEqual, and the secret is required (an unset secret refuses the request rather than falling back). The audited memory and support-plan reads now require role super_admin or admin. batch3-admin-disclosure.spec.ts 1.7-1.12 cover the old fabricated format, a tampered signature, expiry, a missing secret, a non-admin role, and the positive case; 12/12 pass.",
+      "nextAction": "Independent review, including whether a 24h token without revocation is acceptable."
     },
     {
       "id": "B3-R14",
@@ -261,10 +262,10 @@
       "priority": "P1",
       "status": "DONE",
       "title": "Baseline gate scope: a selected-spec run could poison the record",
-      "implemented": "no",
-      "tested": "no",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "no",
-      "evidence": "Fixed in this commit: the record carries its run scope, comparison is skipped when the scopes differ, and a narrower run cannot overwrite a broader record.",
+      "evidence": "First attempt (f352429) was defective: the write condition used /D/g instead of /\\D/g, so Number('files:37') was NaN, the record was never written again, and the previous-run comparison was inert. Fixed in 9146413 with an explicit parseScopeFileCount() and nine unit tests in tests/unit/baseline-diff.spec.ts. Reverse proof: restoring the old expression fails four named tests. The stale files:1 record was repaired to files:37 by re-running the gate.",
       "nextAction": "—"
     },
     {
