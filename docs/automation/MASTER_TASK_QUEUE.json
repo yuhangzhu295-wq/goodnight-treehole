@@ -1,7 +1,7 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "bb2a0e2",
+  "head": "b05b423",
   "updatedAt": "2026-10-09",
   "statusVocabulary": [
     "PENDING",
@@ -57,24 +57,27 @@
       "id": "B3-R07",
       "phase": "Batch 3 review",
       "priority": "P1",
-      "status": "READY",
+      "status": "WAITING_REVIEW",
       "title": "Admin memory detail read must be authorized, audited, and not disclose content in the list",
-      "implemented": "partial",
-      "tested": "partial",
-      "independentReview": "no",
-      "evidence": "The audited method exists in self-persistence.service.ts; no route calls it; TablePage.vue still expands content from list rows.",
-      "nextAction": "Add the audited single-record route and change the admin view."
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "audited admin memory route; list metadata-only; TablePage fetches on demand; 6/6 spec; M24/M25/M28 proven; Playwright DOM walkthrough",
+      "nextAction": "Independent review.",
+      "commit": "20e8a29"
     },
     {
       "id": "B3-R08",
       "phase": "Batch 3 review",
       "priority": "P1",
-      "status": "READY",
+      "status": "WAITING_REVIEW",
       "title": "MemoryCenter must call the real re-consent flow",
-      "implemented": "no",
-      "tested": "no",
-      "independentReview": "no",
-      "nextAction": "Wire the view to POST /me/memories/:id/reactivate and branch by effective state."
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "nextAction": "Independent review.",
+      "commit": "5c5702f",
+      "evidence": "effective-state branching; re-consent calls the real route and reflects refusals; 6/6 spec; M26/M27 proven; Playwright DOM walkthrough"
     },
     {
       "id": "B3-R10",
@@ -208,10 +211,13 @@
       "id": "B3-BASELINE-GAP",
       "phase": "Cross-cutting",
       "priority": "P0",
-      "status": "READY",
+      "status": "DONE",
       "title": "check:baseline-diff cannot see a re-appearing failure",
-      "evidence": "R-06 broke goodnight-2-incremental 2/3 -> 3/3 and the gate still said 0 new regressions, because the baseline is a set of 12 names and the broken test was one of them.",
-      "nextAction": "Make the gate compare the failure count and names against the last recorded run, not only membership in the original set."
+      "evidence": "compares against the previous run as well as the original set; reverse-proved by removing one entry from the recorded set, which makes it exit 1",
+      "nextAction": "Make the gate compare the failure count and names against the last recorded run, not only membership in the original set.",
+      "implemented": "yes",
+      "tested": "yes",
+      "commit": "0de5913"
     }
   ]
 }

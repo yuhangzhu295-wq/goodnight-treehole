@@ -1,6 +1,6 @@
 # Autonomous State
 
-**Branch:** `codex/post-recovery-validation`  **HEAD:** `bb2a0e2` (== origin)
+**Branch:** `codex/post-recovery-validation`  **HEAD:** `b05b423` (== origin)
 **Last verified baseline:** full suite 7 failed / 27 passed files, 8 failed / 183 passed tests;
 `check:baseline-diff` SUCCESS, 0 new regressions. Unit 15/15. Typecheck and lint clean.
 
@@ -23,6 +23,10 @@
 
 `B3-R07` — admin memory disclosure (metadata only in list/search, audited single-record read).
 
+## Also fixed this run
+
+The baseline gate itself (`0de5913`): it compared against the original set of twelve test names, so a test that had been passing and broke again counted as known. It now also compares against the previous run and fails on `[REGRESSED SINCE LAST RUN]`, reverse-proved by removing one entry from the recorded set.
+
 ## Waiting
 
 `B3-R05` — implemented and test-verified, but the independent review stream dropped. Marked
@@ -39,9 +43,9 @@
 | 5 graduation atomicity | fixed `e4af158`; review pending |
 | 6 Self route demo fallback | fixed |
 | 7 admin memory disclosure | open, next READY task |
-| 8 MemoryCenter re-consent | open |
+| 8 MemoryCenter re-consent | fixed `5c5702f`; browser-verified; review pending |
 | 9 M9/M10 discrimination | fixed `7314db3` |
-| 10 mutation coverage | open |
+| 10 mutation coverage | partial: M24-M28 added for the admin read, list disclosure, re-consent and deleted terminality; the harness still matches tests by substring |
 
 ## Not claimed
 
