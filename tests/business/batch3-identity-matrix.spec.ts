@@ -178,6 +178,19 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       await request(server).post('/api/v1/peer-conversations/dummy/block').expect(401);
       await request(server).post('/api/v1/peer-conversations/dummy/feedback').send({ feedback: 'helpful' }).expect(401);
     });
+
+    it('1.13 Private /me aliases: unauthenticated request is refused with 401', async () => {
+      await request(server).get('/api/v1/me/letters').expect(401);
+      await request(server).get('/api/v1/me/diaries').expect(401);
+      await request(server).get('/api/v1/me/diaries/months').expect(401);
+      await request(server).post('/api/v1/me/diaries').send({ content: '未认证日记' }).expect(401);
+      await request(server).get('/api/v1/me/favorites').expect(401);
+      await request(server).get('/api/v1/me/profile').expect(401);
+      await request(server).get('/api/v1/me/stats').expect(401);
+      await request(server).get('/api/v1/me/growth-card').expect(401);
+      await request(server).delete('/api/v1/me/data').expect(401);
+      await request(server).get('/api/v1/me/month-report').expect(401);
+    });
   });
 
   describe('2. Unknown or forged identity header is refused with 404', () => {
@@ -412,6 +425,49 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
         .post('/api/v1/me/recovery')
         .set('x-goodnight-user-id', userB)
         .send({ journeyId, summary: 'B试图在A的旅程打卡' })
+        .expect(404);
+    });
+
+    it('3.9 Private /me aliases: User A owns data; User B is isolated', async () => {
+      // User A creates diary through /me/diaries
+      const diaryRes = await request(server)
+        .post('/api/v1/me/diaries')
+        .set('x-goodnight-user-id', userA)
+        .send({ content: 'A的私密日记内容', emotion: '开心' })
+        .expect(201);
+      const diaryId = diaryRes.body.item.id as string;
+
+      // User A reads their diaries through /me/diaries
+      const aDiaries = await request(server)
+        .get('/api/v1/me/diaries')
+        .set('x-goodnight-user-id', userA)
+        .expect(200);
+      expect(aDiaries.body.items.some((d: any) => d.id === diaryId)).toBe(true);
+
+      // User B cannot see User A's diary through /me/diaries
+      const bDiaries = await request(server)
+        .get('/api/v1/me/diaries')
+        .set('x-goodnight-user-id', userB)
+        .expect(200);
+      expect(bDiaries.body.items.some((d: any) => d.id === diaryId)).toBe(false);
+
+      // User A profile and stats are scoped
+      const aProfile = await request(server)
+        .get('/api/v1/me/profile')
+        .set('x-goodnight-user-id', userA)
+        .expect(200);
+      expect(aProfile.body.item.id).toBe(userA);
+
+      const aStats = await request(server)
+        .get('/api/v1/me/stats')
+        .set('x-goodnight-user-id', userA)
+        .expect(200);
+      expect(aStats.body.item.diaryCount).toBeGreaterThanOrEqual(1);
+
+      // Unknown user is refused with 404
+      await request(server)
+        .get('/api/v1/me/profile')
+        .set('x-goodnight-user-id', unknownUser)
         .expect(404);
     });
   });

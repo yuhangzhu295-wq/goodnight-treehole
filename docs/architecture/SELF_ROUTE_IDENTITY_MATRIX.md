@@ -114,7 +114,44 @@ Consequently, unauthenticated requests with no identity could read, mutate, or d
 | POST | `/api/v1/peer-conversations/:matchId/report` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation report` |
 | POST | `/api/v1/peer-conversations/:matchId/block` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation block` |
 | POST | `/api/v1/peer-conversations/:matchId/feedback` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation feedback` |
+| **Private /me Aliases (Review Finding B3-R12)** | | | | | | |
+| GET | `/api/v1/me/letters` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/diaries` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/diaries/months` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| POST | `/api/v1/me/diaries` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/favorites` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/profile` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/stats` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/growth-card` | `x-goodnight-user-id` | Hardcoded card | Refused 401 | Identity verified | `PrivateMe: unauthenticated request is refused with 401` |
+| DELETE | `/api/v1/me/data` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/month-report` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
 | **Admin Sensitive Reads** | | | | | | |
 | GET | `/api/admin/v1/support/plans` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; returns metadata only, no plan JSON | `AdminSensitive: normal user or missing token refused with 401` |
-| GET | `/api/admin/v1/support/plans/:id` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; persists audit log before returning content | `AdminSensitive: normal user or missing token refused with 401` |
+| GET | `/api/admin/v1/support/plans/:id` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; enforces permitted admin role (`super_admin`, `admin`); persists audit log before returning content | `AdminSensitive: normal user or missing token refused with 401` |
 | GET | `/api/admin/v1/memory` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; returns metadata only, no memory content | `AdminSensitive: normal user or missing token refused with 401` |
+| GET | `/api/admin/v1/memory/:id` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; enforces permitted admin role (`super_admin`, `admin`); persists audit log before returning content | `AdminSensitive: normal user or missing token refused with 401` |
+
+---
+
+## 3. Genuinely Public Routes (By Design)
+
+The following endpoints do not expose private personal data and are intentionally public without requiring caller identity:
+
+| Method | Path | Intended Purpose / Design Rationale |
+|---|---|---|
+| GET | `/api/health` | Service health probe and deployment fingerprint; returns operational status without user context. |
+| GET | `/api/v1/posts` | Public square feed of approved anonymous posts (`publicPosts`). |
+| GET | `/api/v1/posts/:id/replies` | Public comments on square posts. |
+| GET | `/api/v1/letters` | General letters mailbox read for the default/public experience (private letters accessed via `/api/v1/me/letters` or `/api/v1/letters/:id`). |
+| GET | `/api/v1/letters/today` | Today's public letter prompt. |
+| GET | `/api/v1/config` | Application configuration defaults (features, flags). |
+| GET | `/api/v1/tonight` | Tonight summary and inspirational quote. |
+| GET | `/api/v1/debug/fingerprint` | Build version and runtime instance identifier. |
+| GET | `/api/v1/tools` | Available AI tool catalog and descriptors. |
+| GET | `/api/v1/reply-presets` | Community reply chip presets. |
+| GET | `/api/v1/feedback/categories` | Feedback categorization taxonomy. |
+| GET | `/api/v1/feedback/faqs` | Frequently asked questions list. |
+| POST | `/api/admin/v1/login` | Admin authentication endpoint (issues signed bearer token). |
+| POST | `/api/admin/v1/auth/login` | Alias for admin authentication. |
+| POST | `/api/admin/v1/auth/logout` | Admin logout endpoint. |
+

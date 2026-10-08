@@ -1392,8 +1392,8 @@ export class PublicController {
   }
 
   @Get('letters')
-  letters(@Query('status') status?: string) {
-    const userId = this.store.getDemoUserId();
+  letters(@Query('status') status?: string, requestedUserId?: string) {
+    const userId = requestedUserId || this.store.getDemoUserId();
     let items = this.store.letters.filter((item) => item.userId === userId);
     if (status === 'unread') items = items.filter((item) => item.status === 'unread');
     if (status === 'favorited' || status === 'fav')
@@ -1672,37 +1672,44 @@ export class PublicController {
   }
 
   @Get('me/profile')
-  profile() {
-    return { item: this.store.users[0] };
+  profile(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    const user = this.store.users.find((item) => item.id === runtimeId);
+    return { item: user ?? null };
   }
 
   @Get('me/stats')
-  stats() {
+  stats(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     const month = currentMonth();
+    const userDiaries = this.store.diaries.filter((item) => item.userId === runtimeId);
+    const userLetters = this.store.letters.filter((item) => item.userId === runtimeId);
+    const userFavorites = this.store.favorites.filter((item) => item.userId === runtimeId);
     return {
       item: {
-        diaryCount: this.store.diaries.length,
-        letterCount: this.store.letters.length,
-        favoriteCount: this.store.favorites.filter((item) => item.userId === this.store.getDemoUserId()).length,
+        diaryCount: userDiaries.length,
+        letterCount: userLetters.length,
+        favoriteCount: userFavorites.length,
         growthDays: 21,
-        streakDays: Math.min(7, Math.max(1, this.store.diaries.length + 3)),
-        replyCount: this.store.letters.length,
-        monthlyDiaryCount: this.store.diaries.filter((item) => item.createdAt.startsWith(month)).length,
+        streakDays: Math.min(7, Math.max(1, userDiaries.length + 3)),
+        replyCount: userLetters.length,
+        monthlyDiaryCount: userDiaries.filter((item) => item.createdAt.startsWith(month)).length,
       },
     };
   }
 
   @Get('me/growth-card')
-  growthCard() {
+  growthCard(@Headers('x-goodnight-user-id') userId?: string) {
+    this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     return { item: { title: '情绪成长卡', streak: 7, sentence: '你在认真照顾自己。' } };
   }
 
   @Delete('me/data')
-  async clearData() {
-    const userId = this.store.getDemoUserId();
-    this.store.clearFavoritesForUser(userId);
-    this.store.diaries = this.store.diaries.filter((item) => item.userId !== userId);
-    this.store.letters = this.store.letters.filter((item) => item.userId !== userId);
+  async clearData(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    this.store.clearFavoritesForUser(runtimeId);
+    this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
+    this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
     await this.store.persistAndFlush();
     return { ok: true };
   }
@@ -1718,10 +1725,12 @@ export class PublicController {
       source?: string;
       toolResult?: unknown;
     },
+    requestedUserId?: string,
   ) {
+    const targetUserId = requestedUserId || this.store.getDemoUserId();
     const diary = {
       id: `diary_${Date.now()}`,
-      userId: this.store.getDemoUserId(),
+      userId: targetUserId,
       letterId: body.letterId,
       emotion: normalizeEmotion(body.emotion),
       content: body.content?.trim() || '今天认真照顾了自己的心情。',
@@ -1801,21 +1810,28 @@ export class PublicController {
   }
 
   @Get('diaries')
-  diaries(@Query('month') month?: string, @Query('emotion') emotion?: string, @Query('hasLetter') hasLetter?: string) {
+  diaries(
+    @Query('month') month?: string,
+    @Query('emotion') emotion?: string,
+    @Query('hasLetter') hasLetter?: string,
+    requestedUserId?: string,
+  ) {
+    const userId = requestedUserId || this.store.getDemoUserId();
     const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
-    const items = this.diaryEntries(this.store.getDemoUserId())
+    const items = this.diaryEntries(userId)
       .filter((item) => !month || item.createdAt.startsWith(month))
-      .filter((item) => !emotion || emotion === '全部' || emotion === '鍏ㄩ儴' || item.emotion === normalizedEmotion)
+      .filter((item) => !emotion || emotion === '全部' || emotion === '全部' || item.emotion === normalizedEmotion)
       .filter((item) => !hasLetter || String(item.hasLetter) === hasLetter)
       .map((item) => this.decorateDiaryEntry(item));
     return { items };
   }
 
   @Get('diaries/months')
-  diaryMonths() {
+  diaryMonths(requestedUserId?: string) {
+    const userId = requestedUserId || this.store.getDemoUserId();
     const items = [
       ...new Set(
-        this.diaryEntries(this.store.getDemoUserId())
+        this.diaryEntries(userId)
           .map((item) => item.createdAt.slice(0, 7))
           .filter(Boolean),
       ),
@@ -1828,13 +1844,16 @@ export class PublicController {
     @Query('month') month?: string,
     @Query('emotion') emotion?: string,
     @Query('hasLetter') hasLetter?: string,
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return this.diaries(month, emotion, hasLetter);
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.diaries(month, emotion, hasLetter, runtimeId);
   }
 
   @Get('me/diaries/months')
-  meDiaryMonths() {
-    return this.diaryMonths();
+  meDiaryMonths(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.diaryMonths(runtimeId);
   }
 
   @Post('me/diaries')
@@ -1848,8 +1867,10 @@ export class PublicController {
       source?: string;
       toolResult?: unknown;
     },
+    @Headers('x-goodnight-user-id') userId?: string,
   ) {
-    return this.createDiary(body);
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.createDiary(body, runtimeId);
   }
 
   @Get('diaries/:id')
@@ -1866,8 +1887,8 @@ export class PublicController {
   }
 
   @Get('favorites')
-  favorites(@Query('type') type?: string) {
-    const userId = this.store.getDemoUserId();
+  favorites(@Query('type') type?: string, requestedUserId?: string) {
+    const userId = requestedUserId || this.store.getDemoUserId();
     const items = this.store.favorites
       .filter((item) => item.userId === userId && (!type || item.targetType === type))
       .map((item) => {
@@ -1896,13 +1917,15 @@ export class PublicController {
   }
 
   @Get('me/favorites')
-  meFavorites(@Query('type') type?: string) {
-    return this.favorites(type);
+  meFavorites(@Query('type') type?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.favorites(type, runtimeId);
   }
 
   @Get('me/letters')
-  meLetters(@Query('status') status?: string) {
-    return this.letters(status);
+  meLetters(@Query('status') status?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.letters(status, runtimeId);
   }
 
   @Delete('favorites/:id')
@@ -1929,7 +1952,8 @@ export class PublicController {
 
   @Get('me/month-report')
   async meMonthReport(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.monthly(month, userId);
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return await this.monthly(month, runtimeId);
   }
 
   @Get('reports/monthly/:month/advice')
