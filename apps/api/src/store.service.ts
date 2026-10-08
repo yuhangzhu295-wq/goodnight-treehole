@@ -58,6 +58,20 @@ function isSupportedAiReplyStyle(value: unknown): value is AIStyle {
   return typeof value === 'string' && SUPPORTED_AI_REPLY_STYLES.includes(value as AIStyle);
 }
 
+const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getAdminTokenSecret(): string {
+  const secret = process.env.ADMIN_TOKEN_SECRET || process.env.JWT_SECRET;
+  if (!secret || !secret.trim()) {
+    throw new UnauthorizedException('管理令牌密钥未配置');
+  }
+  return secret.trim();
+}
+
+function computeAdminTokenHmac(adminId: string, timestamp: number, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(`${adminId}:${timestamp}`).digest('hex');
+}
+
 const MOOD_KEY_TO_EMOTION: Record<string, string> = {
   anxious: '焦虑',
   anxiety: '焦虑',
@@ -2827,13 +2841,20 @@ export class StoreService implements OnModuleInit {
     return userId;
   }
 
+  issueAdminToken(adminId: string, customTimestamp?: number): string {
+    const secret = getAdminTokenSecret();
+    const timestamp = customTimestamp ?? Date.now();
+    const signature = computeAdminTokenHmac(adminId, timestamp, secret);
+    return Buffer.from(`${adminId}:${timestamp}:${signature}`).toString('base64url');
+  }
+
   login(username: string, password: string) {
     const admin = this.adminUsers.find(
       (item) => item.username === username && item.passwordHash === `plain:${password}`,
     );
     if (!admin) throw new UnauthorizedException('账号或密码不正确');
     admin.lastLoginAt = now();
-    const token = Buffer.from(`${admin.id}:${admin.role}:goodnight`).toString('base64url');
+    const token = this.issueAdminToken(admin.id);
     this.audit(admin.id, 'LOGIN', 'AdminUser', admin.id, null, { lastLoginAt: admin.lastLoginAt });
     this.persist();
     return {
@@ -2844,8 +2865,32 @@ export class StoreService implements OnModuleInit {
 
   verifyToken(token?: string) {
     if (!token) throw new UnauthorizedException('缺少登录凭证');
-    const decoded = Buffer.from(token, 'base64url').toString('utf8');
-    const [adminId] = decoded.split(':');
+    const secret = getAdminTokenSecret();
+    let decoded = '';
+    try {
+      decoded = Buffer.from(token, 'base64url').toString('utf8');
+    } catch {
+      throw new UnauthorizedException('登录凭证格式无效');
+    }
+    const parts = decoded.split(':');
+    if (parts.length !== 3) {
+      throw new UnauthorizedException('登录凭证格式无效');
+    }
+    const [adminId, timestampStr, signature] = parts;
+    const timestamp = parseInt(timestampStr, 10);
+    if (isNaN(timestamp) || timestamp <= 0) {
+      throw new UnauthorizedException('登录凭证时间戳无效');
+    }
+    const nowMs = Date.now();
+    if (nowMs - timestamp > ADMIN_TOKEN_TTL_MS || timestamp > nowMs + 60_000) {
+      throw new UnauthorizedException('登录凭证已过期');
+    }
+    const expectedSig = computeAdminTokenHmac(adminId, timestamp, secret);
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expectedSig, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      throw new UnauthorizedException('登录凭证签名无效');
+    }
     const admin = this.adminUsers.find((item) => item.id === adminId);
     if (!admin) throw new UnauthorizedException('登录已失效');
     return admin;

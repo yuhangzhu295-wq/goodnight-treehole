@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
   HttpException,
@@ -2142,8 +2143,12 @@ export class AdminController {
     @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
   ) {}
 
-  private admin(auth?: string) {
-    return this.store.verifyToken(tokenFrom(auth));
+  private admin(auth?: string, allowedRoles?: string[]) {
+    const admin = this.store.verifyToken(tokenFrom(auth));
+    if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(admin.role)) {
+      throw new ForbiddenException('当前角色无权访问敏感管理数据');
+    }
+    return admin;
   }
 
   private list<T>(items: T[], pageValue?: string | number, pageSizeValue?: string | number) {
@@ -2735,7 +2740,7 @@ export class AdminController {
     @Headers('authorization') auth: string,
     @Param('id') id: string,
   ) {
-    const admin = this.admin(auth);
+    const admin = this.admin(auth, ['super_admin', 'admin']);
     return await this.selfPersistence.getAuditedSupportPlanForAdmin(id, admin.id);
   }
 
@@ -2744,7 +2749,7 @@ export class AdminController {
     @Headers('authorization') auth: string,
     @Param('id') id: string,
   ) {
-    const admin = this.admin(auth);
+    const admin = this.admin(auth, ['super_admin', 'admin']);
     return await this.selfPersistence.getAuditedMemoryForAdmin(id, admin.id);
   }
 

@@ -4,6 +4,7 @@ import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp, loginAdmin } from './helpers';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
+import { StoreService } from '../../apps/api/src/store.service';
 
 /**
  * Task R-07: Admin minimal disclosure and audited single-record read.
@@ -24,6 +25,7 @@ describe('Batch 3 Task R-07: Admin minimal disclosure and audited reads', () => 
   let server: any;
   let adminToken: string;
   let selfPersistence: SelfPersistenceService;
+  let store: StoreService;
   const userA = 'user_demo';
 
   beforeAll(async () => {
@@ -32,6 +34,7 @@ describe('Batch 3 Task R-07: Admin minimal disclosure and audited reads', () => 
     server = app.getHttpServer();
     adminToken = await loginAdmin(server);
     selfPersistence = app.get(SelfPersistenceService);
+    store = app.get(StoreService);
 
     await prisma.user.upsert({
       where: { id: userA },
@@ -300,5 +303,199 @@ describe('Batch 3 Task R-07: Admin minimal disclosure and audited reads', () => 
       .get(`/api/admin/v1/support/plans/dummy`)
       .set('x-goodnight-user-id', userA)
       .expect(401);
+  });
+
+  it('1.7 Fabricated bearer token naming real admin is refused with 401', async () => {
+    const memoryId = `mem_forged_${Date.now()}`;
+    await prisma.memoryItem.create({
+      data: {
+        id: memoryId,
+        userId: userA,
+        title: '伪造测试',
+        category: '测试',
+        content: '伪造凭证不可读取',
+        scope: 'all_ai',
+        status: 'active',
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000 * 30),
+      },
+    });
+
+    // 1. Old-format unsigned fabricated token naming admin_1
+    const oldStyleToken = Buffer.from('admin_1:super_admin:goodnight').toString('base64url');
+    await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${oldStyleToken}`)
+      .expect(401);
+
+    // 2. Bare admin ID token
+    const bareToken = Buffer.from('admin_1').toString('base64url');
+    await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${bareToken}`)
+      .expect(401);
+
+    // 3. Forged token with fake signature
+    const forgedSigToken = Buffer.from(`admin_1:${Date.now()}:deadbeefcafebabe`).toString('base64url');
+    await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${forgedSigToken}`)
+      .expect(401);
+  });
+
+  it('1.8 Tampered bearer token is refused with 401', async () => {
+    const memoryId = `mem_tampered_${Date.now()}`;
+    await prisma.memoryItem.create({
+      data: {
+        id: memoryId,
+        userId: userA,
+        title: '篡改测试',
+        category: '测试',
+        content: '篡改凭证不可读取',
+        scope: 'all_ai',
+        status: 'active',
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000 * 30),
+      },
+    });
+
+    // Decode valid admin token and alter one character in the signature
+    const decoded = Buffer.from(adminToken, 'base64url').toString('utf8');
+    const [adminId, timestamp, signature] = decoded.split(':');
+    const flippedChar = signature[0] === 'a' ? 'b' : 'a';
+    const tamperedSig = flippedChar + signature.slice(1);
+    const tamperedToken = Buffer.from(`${adminId}:${timestamp}:${tamperedSig}`).toString('base64url');
+
+    await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${tamperedToken}`)
+      .expect(401);
+  });
+
+  it('1.9 Expired bearer token is refused with 401', async () => {
+    const memoryId = `mem_expired_${Date.now()}`;
+    await prisma.memoryItem.create({
+      data: {
+        id: memoryId,
+        userId: userA,
+        title: '过期测试',
+        category: '测试',
+        content: '过期凭证不可读取',
+        scope: 'all_ai',
+        status: 'active',
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000 * 30),
+      },
+    });
+
+    // Generate token with timestamp 25 hours in the past (> 24h TTL)
+    const expiredTimestamp = Date.now() - 25 * 3600 * 1000;
+    const expiredToken = store.issueAdminToken('admin_1', expiredTimestamp);
+
+    await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${expiredToken}`)
+      .expect(401);
+  });
+
+  it('1.10 Missing secret in environment causes admin request to be refused with 401', async () => {
+    const memoryId = `mem_secret_missing_${Date.now()}`;
+    await prisma.memoryItem.create({
+      data: {
+        id: memoryId,
+        userId: userA,
+        title: '密钥缺失测试',
+        category: '测试',
+        content: '无密钥时拒绝访问',
+        scope: 'all_ai',
+        status: 'active',
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000 * 30),
+      },
+    });
+
+    const savedJwtSecret = process.env.JWT_SECRET;
+    const savedAdminSecret = process.env.ADMIN_TOKEN_SECRET;
+    try {
+      delete process.env.JWT_SECRET;
+      delete process.env.ADMIN_TOKEN_SECRET;
+
+      await request(server)
+        .get(`/api/admin/v1/memory/${memoryId}`)
+        .set('authorization', `Bearer ${adminToken}`)
+        .expect(401);
+    } finally {
+      if (savedJwtSecret) process.env.JWT_SECRET = savedJwtSecret;
+      if (savedAdminSecret) process.env.ADMIN_TOKEN_SECRET = savedAdminSecret;
+    }
+  });
+
+  it('1.11 Non-admin role is refused on the audited read with 403', async () => {
+    const memoryId = `mem_role_check_${Date.now()}`;
+    const secretContent = `secret_content_operator_forbidden_${Date.now()}`;
+    await prisma.memoryItem.create({
+      data: {
+        id: memoryId,
+        userId: userA,
+        title: '角色越权测试',
+        category: '测试',
+        content: secretContent,
+        scope: 'all_ai',
+        status: 'active',
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000 * 30),
+      },
+    });
+
+    // Register an operator user with role: 'operator' (non-admin role)
+    const operatorId = `admin_op_${Date.now()}`;
+    store.adminUsers.push({
+      id: operatorId,
+      username: `op_user_${Date.now()}`,
+      passwordHash: 'plain:op123',
+      displayName: '普通操作员',
+      role: 'operator',
+      status: 'active',
+    });
+
+    // Issue valid server-signed token for the operator
+    const operatorToken = store.issueAdminToken(operatorId);
+
+    // Audited read MUST refuse with 403 Forbidden
+    const res = await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${operatorToken}`)
+      .expect(403);
+
+    // Verify private memory content is NOT disclosed
+    expect(res.body?.item).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain(secretContent);
+  });
+
+  it('1.12 Valid admin token succeeds on audited read and returns full content', async () => {
+    const memoryId = `mem_valid_read_${Date.now()}`;
+    const secretContent = `legitimate_admin_secret_content_${Date.now()}`;
+    await prisma.memoryItem.create({
+      data: {
+        id: memoryId,
+        userId: userA,
+        title: '正常管理员读取测试',
+        category: '测试',
+        content: secretContent,
+        scope: 'all_ai',
+        status: 'active',
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000 * 30),
+      },
+    });
+
+    const res = await request(server)
+      .get(`/api/admin/v1/memory/${memoryId}`)
+      .set('authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    expect(res.body.item).toBeDefined();
+    expect(res.body.item.id).toBe(memoryId);
+    expect(res.body.item.content).toBe(secretContent);
   });
 });
