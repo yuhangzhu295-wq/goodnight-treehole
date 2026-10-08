@@ -12,11 +12,13 @@ import fs from 'node:fs';
 
 const SELF = 'apps/api/src/self-persistence.service.ts';
 const STORE = 'apps/api/src/store.service.ts';
+const CONTROLLERS = 'apps/api/src/controllers.ts';
 const REGISTRY = 'apps/api/src/direct-db-models.ts';
 const SELF_SPEC = 'tests/business/batch3-self-verification.spec.ts';
 const PRIVACY_SPEC = 'tests/business/third-stage-privacy-2.spec.ts';
 const TRANSITION_SPEC = 'tests/business/batch3-journey-transition.spec.ts';
 const RECOVERY_SPEC = 'tests/business/batch3-recovery-atomicity.spec.ts';
+const IDENTITY_SPEC = 'tests/business/batch3-identity-matrix.spec.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
 
@@ -260,6 +262,66 @@ const mutations = [
         file: SELF,
         old: "          const journey = await tx.lifeJourney.findUnique({ where: { id: suppliedJourneyId } });\n          if (!journey || journey.userId !== params.userId) {\n            throw new NotFoundException('旅程不存在或无权访问');\n          }",
         new: '          // mutation: journey ownership not checked in appendRecoverySnapshot',
+      },
+    ],
+  },
+  {
+    id: 'M19 controller identity: requireRuntimeUserId falls back to demo user',
+    spec: IDENTITY_SPEC,
+    expectFailing: ['1.1'],
+    patches: [
+      {
+        file: CONTROLLERS,
+        old: "function requireRuntimeUserId(header?: string): string {\n  const trimmed = header?.trim();\n  if (!trimmed) {\n    throw new UnauthorizedException('缺少用户身份标识');\n  }\n  return trimmed;\n}",
+        new: 'function requireRuntimeUserId(header?: string): string {\n  const trimmed = header?.trim();\n  return trimmed || "user_demo";\n}',
+      },
+    ],
+  },
+  {
+    id: 'M20 store identity: resolveRuntimeUserId falls back to demo user when missing',
+    spec: IDENTITY_SPEC,
+    expectFailing: ['5.2'],
+    patches: [
+      {
+        file: STORE,
+        old: "  resolveRuntimeUserId(requestedUserId?: string) {\n    if (!requestedUserId || !requestedUserId.trim()) {\n      throw new UnauthorizedException('缺少用户身份标识');\n    }\n    const userId = requestedUserId.trim();",
+        new: '  resolveRuntimeUserId(requestedUserId?: string) {\n    const userId = requestedUserId?.trim() || this.getDemoUserId();',
+      },
+    ],
+  },
+  {
+    id: 'M21 decision ownership: updateDecision ownership check removed',
+    spec: IDENTITY_SPEC,
+    expectFailing: ['3.2'],
+    patches: [
+      {
+        file: STORE,
+        old: '    const item = this.decisionRecords.find(\n      (record) => record.id === decisionId && record.userId === userId,\n    );',
+        new: '    const item = this.decisionRecords.find(\n      (record) => record.id === decisionId,\n    );',
+      },
+    ],
+  },
+  {
+    id: 'M22 admin guard: missing admin token allowed to proceed',
+    spec: IDENTITY_SPEC,
+    expectFailing: ['4.1'],
+    patches: [
+      {
+        file: STORE,
+        old: "  verifyToken(token?: string) {\n    if (!token) throw new UnauthorizedException('缺少登录凭证');",
+        new: '  verifyToken(token?: string) {\n    if (!token) return this.adminUsers[0];',
+      },
+    ],
+  },
+  {
+    id: 'M23 memory ownership: deleteMemory ownership check removed',
+    spec: IDENTITY_SPEC,
+    expectFailing: ['3.1'],
+    patches: [
+      {
+        file: SELF,
+        old: "  async deleteMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {\n    return await this.prisma.$transaction(async (tx) => {\n      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      await lockSelfWriteRoots(tx, [userId]);\n      if (hooks._onAfterLock) await hooks._onAfterLock();\n      const existing = await tx.memoryItem.findFirst({ where: { id, userId } });",
+        new: "  async deleteMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {\n    return await this.prisma.$transaction(async (tx) => {\n      if (hooks._onBeforeLock) await hooks._onBeforeLock();\n      await lockSelfWriteRoots(tx, [userId]);\n      if (hooks._onAfterLock) await hooks._onAfterLock();\n      const existing = await tx.memoryItem.findFirst({ where: { id } });",
       },
     ],
   },
