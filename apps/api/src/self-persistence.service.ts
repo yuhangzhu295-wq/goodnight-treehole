@@ -67,6 +67,15 @@ export type PersonalSupportPlanRecord = {
   updatedAt: string;
 };
 
+export type RecoverySnapshotRecord = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  summary: string;
+  signals: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type SelfWriteHooks = {
   _onBeforeLock?: () => Promise<void>;
   _onAfterLock?: () => Promise<void>;
@@ -176,6 +185,17 @@ export function mapPersonalSupportPlanRow(row: any): PersonalSupportPlanRecord {
     active: Boolean(row.active),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
+  };
+}
+
+export function mapRecoverySnapshotRow(row: any): RecoverySnapshotRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    journeyId: row.journeyId ?? undefined,
+    summary: row.summary,
+    signals: row.signals && typeof row.signals === 'object' ? row.signals : {},
+    createdAt: iso(row.createdAt),
   };
 }
 
@@ -723,6 +743,114 @@ export class SelfPersistenceService {
     });
 
     return { item: mapPersonalSupportPlanRow(row) };
+  }
+
+  // ==========================================
+  // RecoverySnapshot (Batch 3 §0.5/A3, §0.5/A4, §0.6/A3, §0.7/F3, §0.13)
+  // ==========================================
+
+  async appendRecoverySnapshot(
+    params: {
+      userId: string;
+      journeyId?: string | null;
+      summary?: string;
+      signals?: Record<string, unknown>;
+    },
+    hooks: SelfWriteHooks = {},
+  ): Promise<RecoverySnapshotRecord> {
+    const journeyIdSpecified = params.journeyId !== undefined;
+    const suppliedJourneyId =
+      typeof params.journeyId === 'string' && params.journeyId.trim() ? params.journeyId.trim() : null;
+
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [params.userId], suppliedJourneyId ? [suppliedJourneyId] : []);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+
+      const user = await tx.user.findUnique({ where: { id: params.userId } });
+      if (!user) throw new NotFoundException('用户不存在');
+
+      const privacy = await tx.privacySetting.findUnique({ where: { userId: params.userId } });
+      if (privacy?.allowRecoveryData !== true) {
+        throw new ForbiddenException('请先在隐私设置中允许保存生活恢复数据');
+      }
+
+      let createJourneyId: string | null = null;
+      if (journeyIdSpecified) {
+        if (suppliedJourneyId) {
+          const journey = await tx.lifeJourney.findUnique({ where: { id: suppliedJourneyId } });
+          if (!journey || journey.userId !== params.userId) {
+            throw new NotFoundException('旅程不存在或无权访问');
+          }
+          createJourneyId = suppliedJourneyId;
+        } else {
+          createJourneyId = null;
+        }
+      } else {
+        const activeJourney = await tx.lifeJourney.findFirst({
+          where: { userId: params.userId, status: 'active' },
+          select: { id: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (activeJourney) {
+          await tx.$executeRaw`SELECT 1 FROM "LifeJourney" WHERE id = ${activeJourney.id} FOR UPDATE`;
+          createJourneyId = activeJourney.id;
+        }
+      }
+
+      const allowed = new Set(['yes', 'partial', 'no']);
+      const normalized = Object.fromEntries(
+        Object.entries(params.signals ?? {}).map(([key, value]) => [
+          key,
+          allowed.has(String(value)) ? String(value) : 'partial',
+        ]),
+      );
+      const summary =
+        typeof params.summary === 'string' && params.summary.trim()
+          ? params.summary.trim().slice(0, 500)
+          : '今天记录了一次生活恢复情况。';
+
+      const id = genId('recovery');
+      const created = await tx.recoverySnapshot.create({
+        data: {
+          id,
+          userId: params.userId,
+          journeyId: createJourneyId,
+          summary,
+          signals: normalized as Prisma.InputJsonValue,
+        },
+      });
+      return mapRecoverySnapshotRow(created);
+    });
+  }
+
+  async listRecoverySnapshots(userId: string): Promise<RecoverySnapshotRecord[]> {
+    const rows = await this.prisma.recoverySnapshot.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapRecoverySnapshotRow);
+  }
+
+  async listRecoverySnapshotsForJourney(journeyId: string): Promise<RecoverySnapshotRecord[]> {
+    const rows = await this.prisma.recoverySnapshot.findMany({
+      where: { journeyId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapRecoverySnapshotRow);
+  }
+
+  async getRecoverySnapshot(id: string, userId?: string): Promise<RecoverySnapshotRecord | null> {
+    const row = await this.prisma.recoverySnapshot.findUnique({
+      where: { id },
+    });
+    if (!row) return null;
+    if (userId && row.userId !== userId) return null;
+    return mapRecoverySnapshotRow(row);
+  }
+
+  async countRecoverySnapshots(): Promise<number> {
+    return await this.prisma.recoverySnapshot.count();
   }
 
   // ==========================================

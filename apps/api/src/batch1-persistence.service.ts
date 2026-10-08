@@ -3,6 +3,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { Prisma } from '@prisma/client';
 import type { UserNotification, AIStyle, AIJobStatus, SupportIntent, Visibility } from '@goodnight/shared-types';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
+import type { RecoverySnapshotRecord } from './self-persistence.service.js';
 
 export type LifeJourneyRecord = {
   id: string;
@@ -2141,10 +2142,9 @@ export class Batch1PersistenceService {
   /**
    * Graduation is a **one-way** transition, and it reports whether it happened.
    *
-   * The caller appends the derived `RecoverySnapshot` only when `transitioned` is true, so a
-   * duplicate request — or two concurrent ones from separate instances — produces exactly one
-   * graduation snapshot per journey rather than one per call. The write is conditional on the
-   * status read under the lock, so the rule is the write predicate and not a prior read.
+   * The derived `RecoverySnapshot` is inserted inside this same transaction only when
+   * `transitioned` is true (i.e. `updated.count > 0`), so a duplicate request — or two concurrent
+   * ones from separate instances — appends exactly one graduation snapshot per journey.
    *
    * Reaching `completed` from `archived` is refused by the shared transition rule, matching the
    * product's own copy that an archived journey is restored through its explicit path and a
@@ -2153,7 +2153,12 @@ export class Batch1PersistenceService {
   async graduateJourney(
     journeyId: string,
     userId: string,
-  ): Promise<{ journey: LifeJourneyRecord; transitioned: boolean }> {
+    snapshotPayload?: {
+      summary: string;
+      signals?: Record<string, unknown>;
+      _failDuringSnapshotInsert?: boolean;
+    },
+  ): Promise<{ journey: LifeJourneyRecord; transitioned: boolean; snapshot?: RecoverySnapshotRecord }> {
     return await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`);
       const journey = await lockJourneyAndAssertTransition(tx, journeyId, 'completed');
@@ -2173,8 +2178,41 @@ export class Batch1PersistenceService {
           updatedAt: nowTime,
         },
       });
+
+      let snapshotRecord: RecoverySnapshotRecord | undefined;
+      if (updated.count > 0 && snapshotPayload) {
+        if (snapshotPayload._failDuringSnapshotInsert) {
+          throw new Error('Simulated failure during graduation snapshot insert');
+        }
+        const createdSnapshot = await tx.recoverySnapshot.create({
+          data: {
+            id: `recovery_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+            userId,
+            journeyId,
+            summary: snapshotPayload.summary,
+            signals: (snapshotPayload.signals ?? {}) as Prisma.InputJsonValue,
+            createdAt: nowTime,
+          },
+        });
+        snapshotRecord = {
+          id: createdSnapshot.id,
+          userId: createdSnapshot.userId,
+          journeyId: createdSnapshot.journeyId ?? undefined,
+          summary: createdSnapshot.summary,
+          signals:
+            createdSnapshot.signals && typeof createdSnapshot.signals === 'object'
+              ? (createdSnapshot.signals as Record<string, unknown>)
+              : {},
+          createdAt: createdSnapshot.createdAt.toISOString(),
+        };
+      }
+
       const finalRow = await tx.lifeJourney.findUniqueOrThrow({ where: { id: journeyId } });
-      return { journey: mapLifeJourneyRow(finalRow), transitioned: updated.count > 0 };
+      return {
+        journey: mapLifeJourneyRow(finalRow),
+        transitioned: updated.count > 0,
+        snapshot: snapshotRecord,
+      };
     });
   }
 
