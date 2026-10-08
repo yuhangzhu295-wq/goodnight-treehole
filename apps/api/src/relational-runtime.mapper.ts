@@ -122,7 +122,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       ? Promise.resolve([])
       : db.stableSelfProfile.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.MemoryItem ? Promise.resolve([]) : db.memoryItem.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.recoverySnapshot.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.RecoverySnapshot
+      ? Promise.resolve([])
+      : db.recoverySnapshot.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.SafetyEvent ? Promise.resolve([]) : db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
     db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
     db.followUpJob.findMany({ orderBy: { dueAt: 'asc' } }),
@@ -676,14 +678,16 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       createdAt: iso(item.createdAt),
       updatedAt: iso(item.updatedAt),
     })),
-    recoverySnapshots: recoverySnapshots.map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      journeyId: item.journeyId ?? undefined,
-      summary: item.summary,
-      signals: item.signals ?? {},
-      createdAt: iso(item.createdAt),
-    })),
+    recoverySnapshots: DIRECT_DB_MODELS.RecoverySnapshot
+      ? []
+      : recoverySnapshots.map((item: any) => ({
+          id: item.id,
+          userId: item.userId,
+          journeyId: item.journeyId ?? undefined,
+          summary: item.summary,
+          signals: item.signals ?? {},
+          createdAt: iso(item.createdAt),
+        })),
     ...(DIRECT_DB_MODELS.SafetyEvent
       ? {}
       : {
@@ -958,7 +962,7 @@ export async function saveRelationalRuntimeState(
           ...asArray(state.messagesToFutureSelf).map((item: any) => item.journeyId),
           ...(DIRECT_DB_MODELS.PersonalSupportPlan ? [] : asArray(state.personalSupportPlans).map((item: any) => item.journeyId)),
           ...asArray(state.memoryItems).map((item: any) => item.journeyId),
-          ...asArray(state.recoverySnapshots).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.RecoverySnapshot ? [] : asArray(state.recoverySnapshots).map((item: any) => item.journeyId)),
           ...asArray(state.agentDecisionLogs).map((item: any) => item.journeyId),
           ...asArray(state.followUpJobs).map((item: any) => item.journeyId),
         ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
@@ -1972,24 +1976,26 @@ export async function saveRelationalRuntimeState(
             deletedAt: item.deletedAt ? date(item.deletedAt) : null,
           },
         });
-      for (const item of asArray(state.recoverySnapshots))
-        await tx.recoverySnapshot.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
-            summary: item.summary,
-            signals: json(item.signals ?? {}),
-            createdAt: date(item.createdAt),
-          },
-          update: {
-            userId: item.userId,
-            ...fkUpdate('journeyId', item.journeyId, journeyIds),
-            summary: item.summary,
-            signals: json(item.signals ?? {}),
-          },
-        });
+      if (!DIRECT_DB_MODELS.RecoverySnapshot) {
+        for (const item of asArray(state.recoverySnapshots))
+          await tx.recoverySnapshot.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              userId: item.userId,
+              journeyId: journeyIds.has(item.journeyId) ? item.journeyId : null,
+              summary: item.summary,
+              signals: json(item.signals ?? {}),
+              createdAt: date(item.createdAt),
+            },
+            update: {
+              userId: item.userId,
+              ...fkUpdate('journeyId', item.journeyId, journeyIds),
+              summary: item.summary,
+              signals: json(item.signals ?? {}),
+            },
+          });
+      }
       if (!DIRECT_DB_MODELS.SafetyEvent) {
         for (const item of asArray(state.safetyEvents))
           await tx.safetyEvent.upsert({
@@ -2525,10 +2531,11 @@ export async function saveRelationalRuntimeState(
           tx.memoryItem,
           asArray(state.memoryItems).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.recoverySnapshot,
-        asArray(state.recoverySnapshots).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.RecoverySnapshot)
+        await deleteAbsent(
+          tx.recoverySnapshot,
+          asArray(state.recoverySnapshots).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.SafetyEvent)
         await deleteAbsent(
           tx.safetyEvent,
