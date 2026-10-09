@@ -30,10 +30,10 @@ describe('third-stage monthly recovery report facts', () => {
       allowPeerMatching: true,
       allowAnonymousExperienceShare: true,
     };
-    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', identityFor(demo)).send(privacy).expect(200);
+    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', await identityFor(demo)).send(privacy).expect(200);
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ allowPeerMatching: true, allowAnonymousExperienceShare: true })
       .expect(200);
 
@@ -42,12 +42,12 @@ describe('third-stage monthly recovery report facts', () => {
 
     const ownerJourney = await request(server)
       .post('/api/v1/journeys')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ title: `月报同路人经历 ${Date.now()}`, domain: '关系', content: '我先给自己留十分钟，再决定要不要联系。', intensity: 5 })
       .expect(201);
     const ownerExperience = await request(server)
       .post('/api/v1/peer-experiences')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({
         journeyId: ownerJourney.body.journey.id,
         title: '把冲动留到明天',
@@ -67,7 +67,7 @@ describe('third-stage monthly recovery report facts', () => {
 
     const journey = await request(server)
       .post('/api/v1/journeys')
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({
         title: `月报恢复事实 ${Date.now()}`,
         domain: '关系',
@@ -76,69 +76,69 @@ describe('third-stage monthly recovery report facts', () => {
       })
       .expect(201);
     const journeyId = journey.body.journey.id as string;
-    await request(server).patch(`/api/v1/journeys/${journeyId}/intent`).set('x-goodnight-user-id', identityFor(demo)).send({ intent: 'NEXT_STEP' }).expect(200);
+    await request(server).patch(`/api/v1/journeys/${journeyId}/intent`).set('x-goodnight-user-id', await identityFor(demo)).send({ intent: 'NEXT_STEP' }).expect(200);
 
     const completedAction = await request(server)
       .post(`/api/v1/journeys/${journeyId}/actions`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ title: '先喝一杯温水', description: '把注意力带回身体。' })
       .expect(201);
     const missedAction = await request(server)
       .post(`/api/v1/journeys/${journeyId}/actions`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ title: '今晚十点前关掉对话框', description: '给自己一个休息边界。' })
       .expect(201);
     await request(server)
       .post(`/api/v1/actions/${completedAction.body.item.id}/checkin`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ status: 'completed', reflection: '喝水以后能慢一点想。', intensity: 6 })
       .expect(201);
     await request(server)
       .post(`/api/v1/actions/${missedAction.body.item.id}/checkin`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ status: 'missed', reflection: '今晚忘记了，明天再缩小一步。', intensity: 7, barrier: 'forgot' })
       .expect(201);
     await request(server)
       .post(`/api/v1/actions/${missedAction.body.item.id}/adapt`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ title: '先设一个十分钟提醒', description: '把行动缩小到可以开始。', barrier: 'forgot' })
       .expect(201);
 
     await request(server)
       .post('/api/v1/me/recovery')
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ journeyId, signals: { sleep: 'partial', humanContact: 'yes', comfort: 'yes' }, summary: '我给朋友发了一句近况。' })
       .expect(201);
     await request(server)
       .post('/api/v1/me/recovery')
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ journeyId, signals: { sleep: 'yes', humanContact: 'partial', comfort: 'no' }, summary: '今晚提前一点躺下。' })
       .expect(201);
     await request(server)
       .post('/api/v1/decisions')
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ question: '今晚是否立刻回复？', options: ['现在回复', '明天再看'], criteria: ['先照顾睡眠', '不在高强度时决定'] })
       .expect(201);
     await request(server)
       .post('/api/v1/peer-experiences')
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ journeyId, title: '先让自己缓一缓', domain: '关系', stage: 'acting', content: '我先不急着做决定。', tags: ['关系里的拉扯'], consented: true })
       .expect(201);
 
     const suggestions = await request(server)
       .post(`/api/v1/journeys/${journeyId}/peer-matches`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({})
       .expect(201);
     const match = suggestions.body.items.find((item: { peerExperienceId: string }) => item.peerExperienceId === ownerExperience.body.item.id);
     expect(match).toBeTruthy();
     await request(server)
       .patch(`/api/v1/peer-matches/${match.id}`)
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ status: 'requested', requestReason: '我也想先把决定放慢一点。' })
       .expect(200);
-    await request(server).post(`/api/v1/peer-matches/${match.id}/respond`).set('x-goodnight-user-id', identityFor(owner)).send({ status: 'connected' }).expect(201);
-    await request(server).post(`/api/v1/peer-matches/${match.id}/consent`).set('x-goodnight-user-id', identityFor(owner)).send({}).expect(201);
+    await request(server).post(`/api/v1/peer-matches/${match.id}/respond`).set('x-goodnight-user-id', await identityFor(owner)).send({ status: 'connected' }).expect(201);
+    await request(server).post(`/api/v1/peer-matches/${match.id}/consent`).set('x-goodnight-user-id', await identityFor(owner)).send({}).expect(201);
 
     const current = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;
     expect(current).toMatchObject({ month, analysisAllowed: false, aiJobStatus: 'disabled', summary: '' });
@@ -175,7 +175,7 @@ describe('third-stage monthly recovery report facts', () => {
 
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(demo))
+      .set('x-goodnight-user-id', await identityFor(demo))
       .send({ allowJourneyLongTermAnalysis: true, allowAiMemoryUse: false })
       .expect(200);
     const queued = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;

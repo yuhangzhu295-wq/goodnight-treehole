@@ -3,7 +3,27 @@ import { ensureIdentity, getIdentityCredential } from './identity';
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
-export const api = createApiClient({ baseUrl, getIdentity: getIdentityCredential });
+const client = createApiClient({ baseUrl, getIdentity: getIdentityCredential });
+
+/**
+ * Every call waits for the identity first.
+ *
+ * The credential is loaded asynchronously from platform storage, so a request issued before that
+ * finishes would carry no credential and be refused. Awaiting here removes that race rather than
+ * relying on view-mount ordering.
+ */
+async function withIdentity<T>(call: () => Promise<T>): Promise<T> {
+  await ensureIdentity();
+  return await call();
+}
+
+export const api = {
+  get: <T>(path: string) => withIdentity(() => client.get<T>(path)),
+  post: <T>(path: string, body?: unknown) => withIdentity(() => client.post<T>(path, body)),
+  patch: <T>(path: string, body?: unknown) => withIdentity(() => client.patch<T>(path, body)),
+  put: <T>(path: string, body?: unknown) => withIdentity(() => client.put<T>(path, body)),
+  delete: <T>(path: string, body?: unknown) => withIdentity(() => client.delete<T>(path, body)),
+};
 
 export type UploadedMedia = {
   id: string;

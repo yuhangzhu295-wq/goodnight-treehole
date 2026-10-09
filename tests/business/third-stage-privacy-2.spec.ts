@@ -21,7 +21,7 @@ describe('third-stage privacy 2.0 business boundaries', () => {
 
   it('persists independent consent and enforces export, memory, peer, archive, and future-notification boundaries', async () => {
     const server = app.getHttpServer();
-    const initial = await request(server).get('/api/v1/settings/privacy').set(demoUserHeaders()).expect(200);
+    const initial = await request(server).get('/api/v1/settings/privacy').set(await demoUserHeaders()).expect(200);
     expect(initial.body.item).toEqual(
       expect.objectContaining({
         allowAiMemoryUse: expect.any(Boolean),
@@ -42,27 +42,27 @@ describe('third-stage privacy 2.0 business boundaries', () => {
       allowJourneyArchiveRetention: false,
       allowFutureSelfNotifications: false,
     };
-    const savedDenied = await request(server).put('/api/v1/settings/privacy').set(demoUserHeaders()).send(denied).expect(200);
+    const savedDenied = await request(server).put('/api/v1/settings/privacy').set(await demoUserHeaders()).send(denied).expect(200);
     expect(savedDenied.body.item).toMatchObject(denied);
     expect(await prisma.privacySetting.findUnique({ where: { userId: 'user_demo' } })).toMatchObject(denied);
 
     const journey = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: `隐私边界回归 ${Date.now()}`, domain: '关系', content: '我先把需要保护的内容留在这里。', visibility: 'PRIVATE' })
       .expect(201);
     const journeyId = journey.body.journey.id as string;
 
     await request(server).post('/api/v1/diaries/export').expect(403);
-    await request(server).post(`/api/v1/reports/monthly/${new Date().toISOString().slice(0, 7)}/poster`).set(demoUserHeaders()).expect(403);
-    await request(server).post('/api/v1/memory').set(demoUserHeaders()).send({ title: '有限记忆', content: '这条记忆必须经过同意。' }).expect(403);
-    await request(server).get(`/api/v1/journeys/${journeyId}/peers`).set(demoUserHeaders()).expect(403);
+    await request(server).post(`/api/v1/reports/monthly/${new Date().toISOString().slice(0, 7)}/poster`).set(await demoUserHeaders()).expect(403);
+    await request(server).post('/api/v1/memory').set(await demoUserHeaders()).send({ title: '有限记忆', content: '这条记忆必须经过同意。' }).expect(403);
+    await request(server).get(`/api/v1/journeys/${journeyId}/peers`).set(await demoUserHeaders()).expect(403);
     await request(server)
       .post('/api/v1/peer-experiences')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, title: '匿名经历', domain: '关系', content: '这段经历没有经过分享许可。', consented: true })
       .expect(403);
-    await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set(demoUserHeaders()).send({ status: 'archived' }).expect(403);
+    await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set(await demoUserHeaders()).send({ status: 'archived' }).expect(403);
 
     const allowed = {
       allowDataExport: true,
@@ -73,25 +73,25 @@ describe('third-stage privacy 2.0 business boundaries', () => {
       allowJourneyArchiveRetention: true,
       allowFutureSelfNotifications: false,
     };
-    await request(server).patch('/api/v1/settings/privacy').set(demoUserHeaders()).send(allowed).expect(200);
+    await request(server).patch('/api/v1/settings/privacy').set(await demoUserHeaders()).send(allowed).expect(200);
 
     expect((await request(server).post('/api/v1/diaries/export').expect(201)).body.item.asset).toMatchObject({ status: 'ready' });
     expect(
-      (await request(server).post('/api/v1/memory').set(demoUserHeaders()).send({ title: '有限记忆', content: '由我自己选择保存。', scope: 'all_ai' }).expect(201)).body.item,
+      (await request(server).post('/api/v1/memory').set(await demoUserHeaders()).send({ title: '有限记忆', content: '由我自己选择保存。', scope: 'all_ai' }).expect(201)).body.item,
     ).toMatchObject({ title: '有限记忆', status: 'active' });
-    await request(server).get(`/api/v1/journeys/${journeyId}/peers`).set(demoUserHeaders()).expect(200);
+    await request(server).get(`/api/v1/journeys/${journeyId}/peers`).set(await demoUserHeaders()).expect(200);
     expect(
       (await request(server)
         .post('/api/v1/peer-experiences')
-        .set(demoUserHeaders())
+        .set(await demoUserHeaders())
         .send({ journeyId, title: '匿名经历', domain: '关系', content: '我明确同意留下去标识化的经历。', consented: true })
         .expect(201)).body.item,
     ).toMatchObject({ title: '匿名经历', domain: '关系' });
-    expect((await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set(demoUserHeaders()).send({ status: 'archived' }).expect(200)).body.journey).toMatchObject({ status: 'archived' });
+    expect((await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set(await demoUserHeaders()).send({ status: 'archived' }).expect(200)).body.journey).toMatchObject({ status: 'archived' });
 
     const future = await request(server)
       .post('/api/v1/future-messages')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ content: '未来信提醒关闭时，信仍应准时送达。', deliverAt: new Date(Date.now() + 86_400_000).toISOString() })
       .expect(201);
     const messageId = future.body.item.id as string;
@@ -133,7 +133,7 @@ describe('third-stage privacy 2.0 business boundaries', () => {
     expect(await prisma.followUpJob.findUnique({ where: { id: followUpId } })).toMatchObject({ status: 'delivered' });
     expect(await prisma.userNotification.findUnique({ where: { id: `notification_${followUpId}` } })).toBeNull();
 
-    const reloaded = await request(server).get('/api/v1/settings/privacy').set(demoUserHeaders()).expect(200);
+    const reloaded = await request(server).get('/api/v1/settings/privacy').set(await demoUserHeaders()).expect(200);
     expect(reloaded.body.item).toMatchObject({ ...allowed, allowAiMemoryUse: false });
   }, 45_000);
 });

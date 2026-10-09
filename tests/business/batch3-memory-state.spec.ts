@@ -45,7 +45,7 @@ describe('Batch 3: MemoryItem state machine', () => {
   async function createMemory(label: string, days = 30) {
     const res = await request(app.getHttpServer())
       .post('/api/v1/memory')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ title: `记忆 ${label}`, content: `内容 ${label}`, scope: 'all_ai', days })
       .expect(201);
     return res.body.item.id as string;
@@ -58,13 +58,13 @@ describe('Batch 3: MemoryItem state machine', () => {
 
     const mine = await request(app.getHttpServer())
       .get('/api/v1/me/memories')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .expect(200);
     expect(mine.body.items.map((item: { id: string }) => item.id)).toContain(id);
 
     const theirs = await request(app.getHttpServer())
       .get('/api/v1/me/memories')
-      .set('x-goodnight-user-id', identityFor(other))
+      .set('x-goodnight-user-id', await identityFor(other))
       .expect(200);
     expect(theirs.body.items.map((item: { id: string }) => item.id)).not.toContain(id);
   });
@@ -75,7 +75,7 @@ describe('Batch 3: MemoryItem state machine', () => {
 
     await request(app.getHttpServer())
       .patch(`/api/v1/me/memories/${id}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 30 })
       .expect(400);
 
@@ -90,7 +90,7 @@ describe('Batch 3: MemoryItem state machine', () => {
 
     await request(app.getHttpServer())
       .patch(`/api/v1/me/memories/${id}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 60 })
       .expect(200);
 
@@ -103,7 +103,7 @@ describe('Batch 3: MemoryItem state machine', () => {
 
     await request(app.getHttpServer())
       .delete(`/api/v1/me/memories/${id}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .expect(200);
 
     const row = await prisma.memoryItem.findUnique({ where: { id } });
@@ -112,14 +112,14 @@ describe('Batch 3: MemoryItem state machine', () => {
 
     const list = await request(app.getHttpServer())
       .get('/api/v1/me/memories')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .expect(200);
     expect(list.body.items.map((item: { id: string }) => item.id)).not.toContain(id);
 
     // The re-consent action is the only way back, and it refuses a deleted row.
     await request(app.getHttpServer())
       .post(`/api/v1/me/memories/${id}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 30 })
       .expect(400);
     expect((await prisma.memoryItem.findUnique({ where: { id } }))?.status).toBe('deleted');
@@ -135,7 +135,7 @@ describe('Batch 3: MemoryItem state machine', () => {
 
     await request(app.getHttpServer())
       .post(`/api/v1/me/memories/${id}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 30 })
       .expect(201);
 
@@ -157,12 +157,12 @@ describe('Batch 3: MemoryItem state machine', () => {
     // effectively expired row, so the only way back is the explicit re-consent action.
     await request(app.getHttpServer())
       .patch(`/api/v1/me/memories/${id}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 30 })
       .expect(400);
     await request(app.getHttpServer())
       .post(`/api/v1/me/memories/${id}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 30 })
       .expect(201);
 

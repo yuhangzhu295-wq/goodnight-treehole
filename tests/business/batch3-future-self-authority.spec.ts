@@ -40,7 +40,7 @@ describe('Batch 3: FutureSelf database authority (B3-S4)', () => {
   it('1.1 Create writes the letter and its follow-up job together', async () => {
     const created = await request(server)
       .post('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ content: '原子创建验证', deliverAt: new Date(Date.now() + 3_600_000).toISOString() })
       .expect(201);
 
@@ -75,7 +75,7 @@ describe('Batch 3: FutureSelf database authority (B3-S4)', () => {
 
     await request(server)
       .post('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({
         contextType: 'decision',
         contextRefId: foreignDecision.id,
@@ -87,7 +87,7 @@ describe('Batch 3: FutureSelf database authority (B3-S4)', () => {
     // And a decision that does not exist is refused too.
     await request(server)
       .post('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({
         contextType: 'decision',
         contextRefId: 'dec_does_not_exist',
@@ -115,7 +115,7 @@ describe('Batch 3: FutureSelf database authority (B3-S4)', () => {
 
     await request(server)
       .post('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({
         journeyId: foreignJourney.id,
         contextType: 'journey',
@@ -130,19 +130,19 @@ describe('Batch 3: FutureSelf database authority (B3-S4)', () => {
   it('1.4 The list is owner-scoped and returns the client shape (ISO timestamps)', async () => {
     const mine = await request(server)
       .post('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ content: '我的信', deliverAt: new Date(Date.now() + 7_200_000).toISOString() })
       .expect(201);
 
     const theirs = await request(server)
       .post('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(other))
+      .set('x-goodnight-user-id', await identityFor(other))
       .send({ content: '别人的信', deliverAt: new Date(Date.now() + 7_200_000).toISOString() })
       .expect(201);
 
     const list = await request(server)
       .get('/api/v1/future-messages')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .expect(200);
 
     const ids = list.body.items.map((item: any) => item.id);

@@ -23,12 +23,12 @@ describe('third-stage future self business loop', () => {
     const server = app.getHttpServer();
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ allowRecoveryData: true, allowFutureSelfNotifications: true })
       .expect(200);
     const journey = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({
         title: '未来信关联旅程 ' + Date.now(),
         domain: '关系',
@@ -40,29 +40,29 @@ describe('third-stage future self business loop', () => {
 
     const recovery = await request(server)
       .post('/api/v1/me/recovery')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, summary: '今天能按时吃饭，也愿意短暂出门。', signals: { sleep: 'partial', meals: 'yes' } })
       .expect(201);
     const decision = await request(server)
       .post('/api/v1/decisions')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, question: '今晚要不要发送那段解释？', options: ['现在发', '明天再看'], criteria: ['睡一觉后再确认'] })
       .expect(201);
 
     const later = new Date(Date.now() + 86_400_000).toISOString();
     const journeyMessage = await request(server)
       .post('/api/v1/future-messages')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ content: '请记得，你已经先停下来了一次。', deliverAt: later, contextType: 'journey', contextRefId: journeyId })
       .expect(201);
     const recoveryMessage = await request(server)
       .post('/api/v1/future-messages')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ content: '你那天已经能好好吃饭了。', deliverAt: later, contextType: 'recovery', contextRefId: recovery.body.item.id })
       .expect(201);
     const deliveredMessage = await request(server)
       .post('/api/v1/future-messages')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ content: '情绪过去后，再读一遍这句话。', deliverAt: later, contextType: 'decision', contextRefId: decision.body.item.id })
       .expect(201);
 
@@ -96,14 +96,14 @@ describe('third-stage future self business loop', () => {
 
     let notification: any;
     for (let attempt = 0; attempt < 30; attempt += 1) {
-      const result = await request(server).get('/api/v1/notifications').set(demoUserHeaders()).expect(200);
+      const result = await request(server).get('/api/v1/notifications').set(await demoUserHeaders()).expect(200);
       notification = result.body.items.find((item: any) => item.id === 'notification_' + followUpId);
       if (notification) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     expect(notification).toMatchObject({ type: 'FUTURE_SELF', targetRoute: '/pages/future-self/index', status: 'unread' });
 
-    const list = await request(server).get('/api/v1/future-messages').set(demoUserHeaders()).expect(200);
+    const list = await request(server).get('/api/v1/future-messages').set(await demoUserHeaders()).expect(200);
     expect(list.body.items.find((item: any) => item.id === futureId)).toMatchObject({
       deliveredAt: expect.any(String),
       contextType: 'decision',

@@ -3,111 +3,132 @@ import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { createApiTestApp, loginAdmin, auth, identityFor, DEMO_USER_ID } from './helpers';
-import {
-  IDENTITY_CREDENTIAL_TTL_MS,
-  issueIdentityCredential,
-} from '../../apps/api/src/identity-credential';
+import { AnonymousSessionService, SESSION_TTL_MS } from '../../apps/api/src/anonymous-session.service';
 
 /**
- * B3-R11: the C-end identity header is a server-issued credential, not a user id.
+ * B3-R11: the C-end identity is a server-issued, revocable session.
  *
- * Before this change every ownership check compared against a value the caller supplied, so knowing
- * any existing user id was enough to read and write that user's private data. These tests pin the
- * claim that a caller who knows a user id still cannot act as that user.
+ * Before this, every ownership check compared against a value the caller supplied, so knowing any
+ * user id was enough to read and write that user's private data. These tests pin the claim that a
+ * caller who knows a user id still cannot act as that user, and that a session can be expired,
+ * revoked and rotated.
  */
-describe('Batch 3: C-end identity credential (B3-R11)', () => {
+describe('Batch 3: C-end anonymous session (B3-R11)', () => {
   let app: INestApplication;
+  /** A second server instance over the same database, used for the restart and two-instance cases. */
+  let secondApp: INestApplication | undefined;
   let prisma: PrismaClient;
+  let sessions: AnonymousSessionService;
   let server: any;
+  let secondServer: any;
   const userA = 'user_demo';
   const userB = 'user_guest';
 
   beforeAll(async () => {
     app = await createApiTestApp();
     prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+    sessions = app.get(AnonymousSessionService);
     server = app.getHttpServer();
 
-    await prisma.user.upsert({
-      where: { id: userA },
-      create: { id: userA, openid: `openid_${userA}`, anonymousCode: `anon_${userA}`, nickname: '测试用户A' },
-      update: {},
-    });
-    await prisma.user.upsert({
-      where: { id: userB },
-      create: { id: userB, openid: `openid_${userB}`, anonymousCode: `anon_${userB}`, nickname: '测试用户B' },
-      update: {},
-    });
-  });
+    for (const id of [userA, userB]) {
+      await prisma.user.upsert({
+        where: { id },
+        create: { id, openid: `openid_${id}`, anonymousCode: `anon_${id}`, nickname: `测试_${id}` },
+        update: {},
+      });
+    }
+  }, 60_000);
 
   afterAll(async () => {
+    await secondApp?.close();
     await prisma?.$disconnect();
     await app?.close();
   });
 
   it('1.1 Knowing a user id is not enough: the bare id is refused with 401 on a private route', async () => {
-    // This is the exact request an attacker would send after learning the id.
-    await request(server).get('/api/v1/me/memories').set('x-goodnight-user-id', userB).expect(401);
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', userB).expect(401);
-    await request(server).get('/api/v1/me/letters').set('x-goodnight-user-id', userB).expect(401);
-    await request(server).get('/api/v1/journeys').set('x-goodnight-user-id', userB).expect(401);
+    // Exactly the request an attacker would send after learning the id.
+    for (const path of ['/api/v1/me/memories', '/api/v1/me/privacy', '/api/v1/me/letters', '/api/v1/journeys']) {
+      await request(server).get(path).set('x-goodnight-user-id', userB).expect(401);
+    }
   });
 
-  it('1.2 A valid credential still works, so 1.1 is not passing because everything is refused', async () => {
+  it('1.2 A valid session works, so 1.1 is not passing because everything is refused', async () => {
     const response = await request(server)
       .get('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(userB))
+      .set('x-goodnight-user-id', await identityFor(userB))
       .expect(200);
     expect(response.body).toBeDefined();
   });
 
-  it('1.3 Changing the user id inside a credential invalidates it', async () => {
-    // Take a credential legitimately issued for userA and rewrite the id to userB, keeping the
-    // signature. This is the impersonation attempt the signature exists to stop.
-    const credential = identityFor(userA);
-    const decoded = Buffer.from(credential, 'base64url').toString('utf8');
-    const lastColon = decoded.lastIndexOf(':');
-    const withoutSignature = decoded.slice(0, lastColon);
-    const signature = decoded.slice(lastColon + 1);
-    const secondColon = withoutSignature.lastIndexOf(':');
-    const issuedAt = withoutSignature.slice(secondColon + 1);
-    const forged = Buffer.from(`${userB}:${issuedAt}:${signature}`).toString('base64url');
+  it('1.3 A well-formed but unknown session, and a wrong secret, are both refused', async () => {
+    const real = await identityFor(userA);
+    const [sessionId] = real.split('.');
 
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', forged).expect(401);
-    await request(server).get('/api/v1/me/memories').set('x-goodnight-user-id', forged).expect(401);
-  });
-
-  it('1.4 A credential signed with the wrong secret is refused', async () => {
-    const saved = process.env.CEND_TOKEN_SECRET;
-    let foreign: string;
-    try {
-      process.env.CEND_TOKEN_SECRET = 'a-different-secret-entirely';
-      foreign = issueIdentityCredential(userB);
-    } finally {
-      process.env.CEND_TOKEN_SECRET = saved;
-    }
-
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', foreign).expect(401);
-  });
-
-  it('1.5 An expired credential is refused', async () => {
-    const expired = issueIdentityCredential(userB, Date.now() - IDENTITY_CREDENTIAL_TTL_MS - 1000);
-
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', expired).expect(401);
-  });
-
-  it('1.6 A far-future credential is refused rather than treated as long-lived', async () => {
-    const future = issueIdentityCredential(userB, Date.now() + 60 * 60 * 1000);
-
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', future).expect(401);
-  });
-
-  it('1.7 A malformed value is refused rather than degrading to an anonymous request', async () => {
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', 'sess_nope.secret').expect(401);
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', `${sessionId}.wrong`).expect(401);
     await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', 'not-a-credential').expect(401);
     await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', '   ').expect(401);
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', 'a:b:c').expect(401);
   });
 
-  it('1.8 A valid credential for one user cannot reach another user’s private resource', async () => {
+  it('1.4 An expired session is refused', async () => {
+    const expired = await sessions.issue(userB, { ttlMs: -1000 });
+
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', expired.credential).expect(401);
+  });
+
+  it('1.5 A revoked session is refused, and revocation is what a lost device needs', async () => {
+    const session = await sessions.issue(userB, { deviceId: 'device-lost', deviceLabel: '旧手机' });
+
+    // Usable before revocation.
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(200);
+
+    const revoked = await sessions.revokeDevice(userB, 'device-lost', 'device_lost');
+    expect(revoked).toBeGreaterThanOrEqual(1);
+
+    // Refused after. A signed token could not do this before its expiry.
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(401);
+
+    // The row is kept so the revocation stays auditable.
+    const row = await prisma.anonymousSession.findUnique({ where: { id: session.sessionId } });
+    expect(row?.revokedAt).not.toBeNull();
+    expect(row?.revokedReason).toBe('device_lost');
+  });
+
+  it('1.6 Logging out revokes the session it was called with', async () => {
+    const session = await sessions.issue(userB);
+
+    await request(server)
+      .post('/api/v1/auth/logout')
+      .set('x-goodnight-user-id', session.credential)
+      .send({})
+      .expect(201);
+
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(401);
+  });
+
+  it('1.7 Rotation issues a working successor and invalidates the predecessor', async () => {
+    const session = await sessions.issue(userB);
+
+    const rotated = await request(server)
+      .post('/api/v1/auth/rotate')
+      .set('x-goodnight-user-id', session.credential)
+      .send({})
+      .expect(201);
+
+    const successor = rotated.body.item.credential as string;
+    expect(successor).not.toBe(session.credential);
+
+    // The successor works and is bound to the same user.
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', successor).expect(200);
+
+    // The predecessor is dead: a rotation must never leave two live credentials.
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(401);
+
+    const identity = await sessions.verify(successor);
+    expect(identity.userId).toBe(userB);
+  });
+
+  it('1.8 A credential for one user cannot reach another user’s private resource', async () => {
     const journey = await prisma.lifeJourney.create({
       data: {
         id: `cred_iso_${Date.now()}`,
@@ -121,39 +142,69 @@ describe('Batch 3: C-end identity credential (B3-R11)', () => {
       },
     });
 
-    // Holding a genuine credential for A must not open B's journey.
     await request(server)
       .get(`/api/v1/journeys/${journey.id}`)
-      .set('x-goodnight-user-id', identityFor(userA))
+      .set('x-goodnight-user-id', await identityFor(userA))
       .expect(404);
 
     await prisma.lifeJourney.delete({ where: { id: journey.id } }).catch(() => undefined);
   });
 
-  it('1.9 The anonymous bootstrap issues a usable credential for a brand-new, isolated user', async () => {
-    const bootstrap = await request(server).post('/api/v1/auth/anonymous').send({}).expect(201);
-    const { userId, credential } = bootstrap.body.item;
-    expect(typeof userId).toBe('string');
-    expect(userId.startsWith('user_anon_')).toBe(true);
+  it('1.9 A session survives a server restart, because the server does not hold it in memory', async () => {
+    const session = await sessions.issue(userB);
 
-    // The issued credential works.
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', credential).expect(200);
+    // A second instance over the same database: the same thing a restart produces.
+    secondApp = await createApiTestApp();
+    secondServer = secondApp.getHttpServer();
 
-    // And the new user is not the demo user: the id is server-chosen and distinct.
-    expect(userId).not.toBe(DEMO_USER_ID);
+    await request(secondServer).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(200);
+  }, 60_000);
 
-    // The credential is bound to that id, so rewriting it to the demo user is refused.
-    const decoded = Buffer.from(credential, 'base64url').toString('utf8');
-    const lastColon = decoded.lastIndexOf(':');
-    const withoutSignature = decoded.slice(0, lastColon);
-    const signature = decoded.slice(lastColon + 1);
-    const secondColon = withoutSignature.lastIndexOf(':');
-    const issuedAt = withoutSignature.slice(secondColon + 1);
-    const forged = Buffer.from(`${DEMO_USER_ID}:${issuedAt}:${signature}`).toString('base64url');
-    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', forged).expect(401);
+  it('1.10 Two instances accept the same credential and agree on who it is', async () => {
+    const session = await sessions.issue(userA);
+
+    const first = await request(server)
+      .get('/api/v1/me/privacy')
+      .set('x-goodnight-user-id', session.credential)
+      .expect(200);
+    const second = await request(secondServer)
+      .get('/api/v1/me/privacy')
+      .set('x-goodnight-user-id', session.credential)
+      .expect(200);
+
+    expect(first.status).toBe(second.status);
+    expect((await sessions.verify(session.credential)).userId).toBe(userA);
   });
 
-  it('1.10 The demo identity endpoint is refused unless demo mode is explicitly enabled', async () => {
+  it('1.11 A revocation on one instance is seen by the other', async () => {
+    const session = await sessions.issue(userB, { deviceId: 'device-shared' });
+
+    await request(secondServer).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(200);
+
+    await sessions.revokeDevice(userB, 'device-shared', 'device_lost');
+
+    await request(secondServer).get('/api/v1/me/privacy').set('x-goodnight-user-id', session.credential).expect(401);
+  });
+
+  it('1.12 The anonymous bootstrap issues a usable session for a new, isolated user', async () => {
+    const bootstrap = await request(server).post('/api/v1/auth/anonymous').send({}).expect(201);
+    const { userId, credential, expiresAt } = bootstrap.body.item;
+
+    expect(userId.startsWith('user_anon_')).toBe(true);
+    expect(userId).not.toBe(DEMO_USER_ID);
+    expect(typeof expiresAt).toBe('string');
+    expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now());
+
+    await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', credential).expect(200);
+
+    // The credential is bound to that user, and the secret half is not stored, so a database read
+    // cannot be replayed as a credential.
+    const row = await prisma.anonymousSession.findUnique({ where: { id: credential.split('.')[0] } });
+    expect(row?.userId).toBe(userId);
+    expect(row?.secretHash).not.toContain(credential.split('.')[1]);
+  });
+
+  it('1.13 The demo session endpoint is refused unless demo mode is explicitly enabled', async () => {
     const saved = process.env.ALLOW_DEMO_IDENTITY;
     try {
       delete process.env.ALLOW_DEMO_IDENTITY;
@@ -172,52 +223,28 @@ describe('Batch 3: C-end identity credential (B3-R11)', () => {
     }
   });
 
-  it('1.11 An admin bearer token is not accepted as a C-end identity', async () => {
+  it('1.14 An admin bearer token is not accepted as a C-end session', async () => {
     const adminToken = await loginAdmin(server);
 
     await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', adminToken).expect(401);
   });
 
-  it('1.12 A C-end credential is not accepted as an admin bearer token', async () => {
-    const credential = identityFor(userA);
+  it('1.15 A C-end session is not accepted as an admin bearer token', async () => {
+    const credential = await identityFor(userA);
 
     await request(server)
       .get('/api/v1/admin/memory/mem_anything')
       .set('authorization', auth(credential))
       .expect((res) => {
-        expect([401, 403, 404]).toContain(res.status);
         expect(res.status).not.toBe(200);
       });
   });
 
-  it('1.13 Domain separation holds even when both secrets are configured to the same value', async () => {
-    // The two credential kinds normally use different secrets, which alone would stop one being
-    // accepted as the other. This test removes that accident: with a shared secret, only the
-    // purpose prefix in the signed payload keeps an admin token from verifying as a C-end identity.
-    const savedCend = process.env.CEND_TOKEN_SECRET;
-    const savedAdmin = process.env.ADMIN_TOKEN_SECRET;
-    try {
-      process.env.CEND_TOKEN_SECRET = 'shared-secret-for-domain-separation';
-      process.env.ADMIN_TOKEN_SECRET = 'shared-secret-for-domain-separation';
-
-      const adminToken = await loginAdmin(server);
-
-      // An admin token whose signed payload is adminId:timestamp must not verify as a user credential.
-      await request(server).get('/api/v1/me/privacy').set('x-goodnight-user-id', adminToken).expect(401);
-
-      // And the C-end credential minted under the same secret must not open an admin route.
-      const credential = issueIdentityCredential(userA);
-      await request(server)
-        .get('/api/v1/admin/memory/mem_anything')
-        .set('authorization', auth(credential))
-        .expect((res) => {
-          expect(res.status).not.toBe(200);
-        });
-    } finally {
-      if (savedCend === undefined) delete process.env.CEND_TOKEN_SECRET;
-      else process.env.CEND_TOKEN_SECRET = savedCend;
-      if (savedAdmin === undefined) delete process.env.ADMIN_TOKEN_SECRET;
-      else process.env.ADMIN_TOKEN_SECRET = savedAdmin;
-    }
+  it('1.16 The session TTL is the documented 30 days', async () => {
+    const session = await sessions.issue(userB);
+    const row = await prisma.anonymousSession.findUnique({ where: { id: session.sessionId } });
+    const ttl = (row?.expiresAt.getTime() ?? 0) - Date.now();
+    expect(ttl).toBeGreaterThan(SESSION_TTL_MS - 60_000);
+    expect(ttl).toBeLessThanOrEqual(SESSION_TTL_MS);
   });
 });

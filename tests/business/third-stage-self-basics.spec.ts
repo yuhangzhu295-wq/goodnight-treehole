@@ -23,7 +23,7 @@ describe('third-stage recovery, support plan, and stable self business loop', ()
     const userId = 'user_demo';
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(userId))
+      .set('x-goodnight-user-id', await identityFor(userId))
       .send({ allowRecoveryData: true })
       .expect(200);
 
@@ -39,7 +39,7 @@ describe('third-stage recovery, support plan, and stable self business loop', ()
     };
     const savedPlan = await request(server)
       .put('/api/v1/me/support-plan')
-      .set('x-goodnight-user-id', identityFor(userId))
+      .set('x-goodnight-user-id', await identityFor(userId))
       .send({ title: '独立验真低谷预案', plan })
       .expect(200);
     const planId = savedPlan.body.item.id as string;
@@ -48,11 +48,11 @@ describe('third-stage recovery, support plan, and stable self business loop', ()
 
     const editedPlan = await request(server)
       .put('/api/v1/me/support-plan')
-      .set('x-goodnight-user-id', identityFor(userId))
+      .set('x-goodnight-user-id', await identityFor(userId))
       .send({ title: '独立验真低谷预案（更新）', plan: { ...plan, smallActions: ['走到窗边深呼吸'] } })
       .expect(200);
     expect(editedPlan.body.item).toMatchObject({ id: planId, title: '独立验真低谷预案（更新）' });
-    expect((await request(server).get('/api/v1/me/support-plan').set('x-goodnight-user-id', identityFor(userId)).expect(200)).body.item.plan.smallActions).toEqual(['走到窗边深呼吸']);
+    expect((await request(server).get('/api/v1/me/support-plan').set('x-goodnight-user-id', await identityFor(userId)).expect(200)).body.item.plan.smallActions).toEqual(['走到窗边深呼吸']);
 
     const profile = {
       stableDescription: '稳定时我会先慢下来，再决定要不要回复。',
@@ -68,7 +68,7 @@ describe('third-stage recovery, support plan, and stable self business loop', ()
     };
     const stable = await request(server)
       .put('/api/v1/me/stable-self')
-      .set('x-goodnight-user-id', identityFor(userId))
+      .set('x-goodnight-user-id', await identityFor(userId))
       .send({ profile })
       .expect(200);
     expect(stable.body.item.profile).toMatchObject(profile);
@@ -84,7 +84,7 @@ describe('third-stage recovery, support plan, and stable self business loop', ()
     for (let index = 0; index < signals.length; index += 1) {
       const response = await request(server)
         .post('/api/v1/me/recovery')
-        .set('x-goodnight-user-id', identityFor(userId))
+        .set('x-goodnight-user-id', await identityFor(userId))
         .send({ signals: signals[index], summary: `第 ${index + 1} 次恢复记录：如实记录生活功能。` })
         .expect(201);
       snapshots.push(response.body.item);
@@ -98,7 +98,7 @@ describe('third-stage recovery, support plan, and stable self business loop', ()
       ),
     );
 
-    const recovery = await request(server).get('/api/v1/me/recovery').set('x-goodnight-user-id', identityFor(userId)).expect(200);
+    const recovery = await request(server).get('/api/v1/me/recovery').set('x-goodnight-user-id', await identityFor(userId)).expect(200);
     expect(recovery.body.items).toEqual(
       expect.arrayContaining(
         snapshots.map((item) => expect.objectContaining({ id: item.id, summary: item.summary })),

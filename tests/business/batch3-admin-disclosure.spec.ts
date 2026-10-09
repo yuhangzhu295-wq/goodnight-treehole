@@ -286,22 +286,22 @@ describe('Batch 3 Task R-07: Admin minimal disclosure and audited reads', () => 
     // 2. Caller sending user header without admin authorization
     await request(server)
       .get(`/api/admin/v1/memory/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(userA))
+      .set('x-goodnight-user-id', await identityFor(userA))
       .expect(401);
 
     await request(server)
       .get(`/api/admin/v1/memory`)
-      .set('x-goodnight-user-id', identityFor(userA))
+      .set('x-goodnight-user-id', await identityFor(userA))
       .expect(401);
 
     await request(server)
       .get('/api/admin/v1/support/plans')
-      .set('x-goodnight-user-id', identityFor(userA))
+      .set('x-goodnight-user-id', await identityFor(userA))
       .expect(401);
 
     await request(server)
       .get(`/api/admin/v1/support/plans/dummy`)
-      .set('x-goodnight-user-id', identityFor(userA))
+      .set('x-goodnight-user-id', await identityFor(userA))
       .expect(401);
   });
 

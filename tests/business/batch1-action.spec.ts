@@ -102,11 +102,11 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
     expect(homeDueCheckins.some((c: { id: string }) => c.id === checkinId)).toBe(true);
 
     // Read path 2: GET /api/v1/journeys/:id/actions
-    const journeyActionsRes = await request(server).get(`/api/v1/journeys/${journeyId}/actions`).set(demoUserHeaders()).expect(200);
+    const journeyActionsRes = await request(server).get(`/api/v1/journeys/${journeyId}/actions`).set(await demoUserHeaders()).expect(200);
     expect(journeyActionsRes.body.items.some((a: { id: string }) => a.id === actionId)).toBe(true);
 
     // Read path 3: GET /api/v1/journeys/:id (Journey Detail)
-    const journeyDetailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).expect(200);
+    const journeyDetailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).expect(200);
     expect(journeyDetailRes.body.item.commitments.some((a: { id: string }) => a.id === actionId)).toBe(true);
     expect(journeyDetailRes.body.item.checkins.some((c: { id: string }) => c.id === checkinId)).toBe(true);
 
@@ -1545,7 +1545,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // --- Cross-user write: User B attempting to check in User A's action -> MUST return 404 ---
       const crossCheckinRes = await request(server)
         .post(`/api/v1/actions/${actionAId}/checkin`)
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .send({ status: 'completed', reflection: '越权打卡尝试' });
       expect(crossCheckinRes.status).toBe(404);
       expect(crossCheckinRes.body.message).toContain('行动不存在');
@@ -1557,7 +1557,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // --- Positive control: Legitimate owner checks in own action -> 200/201 with completed checkin ---
       const ownerCheckinRes = await request(server)
         .post(`/api/v1/actions/${actionAId}/checkin`)
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ status: 'completed', reflection: '合法所有者打卡成功' });
       expect([200, 201]).toContain(ownerCheckinRes.status);
       expect(ownerCheckinRes.body.checkin.status).toBe('completed');
@@ -1569,7 +1569,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // Positive control for User B checking in User B's action
       const userBCheckinRes = await request(server)
         .post(`/api/v1/actions/${actionBId}/checkin`)
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .send({ status: 'completed', reflection: 'User B 打卡成功' });
       expect([200, 201]).toContain(userBCheckinRes.status);
       expect(userBCheckinRes.body.checkin.status).toBe('completed');

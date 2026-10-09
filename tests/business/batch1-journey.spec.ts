@@ -123,7 +123,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     expect(tonightRes.body.item.journey.title).toBe('数据库门禁专用旅程标题');
 
     // 2. Read through GET /api/v1/journeys (user journey list)
-    const listRes = await request(server).get('/api/v1/journeys').set(demoUserHeaders()).expect(200);
+    const listRes = await request(server).get('/api/v1/journeys').set(await demoUserHeaders()).expect(200);
     const matched = listRes.body.items.find((item: any) => item.journey.id === journeyId);
     expect(matched).toBeDefined();
     expect(matched.journey.title).toBe('数据库门禁专用旅程标题');
@@ -131,18 +131,18 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     expect(matched.updates.some((u: any) => u.id === updateId)).toBe(true);
 
     // 3. Read through GET /api/v1/journeys/:id (journey detail)
-    const detailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).expect(200);
+    const detailRes = await request(server).get(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).expect(200);
     expect(detailRes.body.item.journey.title).toBe('数据库门禁专用旅程标题');
     expect(detailRes.body.item.snapshot.subDomain).toBe('工作压力');
     expect(detailRes.body.item.updates.some((u: any) => u.id === updateId)).toBe(true);
 
     // 4. Read through GET /api/v1/journeys/:id/fingerprint (fingerprint read path)
-    const fpRes = await request(server).get(`/api/v1/journeys/${journeyId}/fingerprint`).set(demoUserHeaders()).expect(200);
+    const fpRes = await request(server).get(`/api/v1/journeys/${journeyId}/fingerprint`).set(await demoUserHeaders()).expect(200);
     expect(fpRes.body.item.journey.id).toBe(journeyId);
     expect(fpRes.body.item.snapshot.facts).toContain('事实1：直接写入数据库');
 
     // 5. Read through GET /api/v1/journeys/:id/timeline (timeline read path)
-    const timelineRes = await request(server).get(`/api/v1/journeys/${journeyId}/timeline`).set(demoUserHeaders()).expect(200);
+    const timelineRes = await request(server).get(`/api/v1/journeys/${journeyId}/timeline`).set(await demoUserHeaders()).expect(200);
     expect(timelineRes.body.items.some((u: any) => u.id === updateId)).toBe(true);
 
     // 6. Admin read paths: admin journeys and overview
@@ -188,7 +188,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const journeyTitle = `CONFIRM_JOURNEY_${Date.now()}`;
     const createRes = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: journeyTitle, domain: '生活', content: '初始生活困境描述' })
       .expect(201);
     const journeyId = createRes.body.journey.id as string;
@@ -198,7 +198,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const confirmedFeelings = ['感到踏实', '稍微松了口气'];
     const confirmRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}/situation`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({
         facts: confirmedFacts,
         feelings: confirmedFeelings,
@@ -280,7 +280,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const initialContent = '持久化耐久性验证内容';
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: initialTitle, domain: '生活', content: initialContent })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -291,7 +291,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const patchedSummary = '用户明确确认的持久化总结内容';
     const patchRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: patchedTitle, summary: patchedSummary })
       .expect(200);
 
@@ -343,7 +343,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: `BASE_CONCUR_${Date.now()}`, domain: '生活', content: '初始内容' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -353,8 +353,8 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
     // Writer 1 PATCHes only title; Writer 2 PATCHes only summary
     const [res1, res2] = await Promise.all([
-      request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({ title: writer1Title }),
-      request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({ summary: writer2Summary }),
+      request(server).patch(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).send({ title: writer1Title }),
+      request(server).patch(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).send({ summary: writer2Summary }),
     ]);
 
     expect(res1.status).toBe(200);
@@ -372,11 +372,11 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       const versionBeforeConflict = finalRow!.updatedAt.toISOString();
 
       const [casRes1, casRes2] = await Promise.all([
-        request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({
+        request(server).patch(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).send({
           title: `CAS_WINNER_${Date.now()}`,
           expectedUpdatedAt: versionBeforeConflict,
         }),
-        request(server).patch(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).send({
+        request(server).patch(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).send({
           title: `CAS_LOSER_${Date.now()}`,
           expectedUpdatedAt: versionBeforeConflict,
         }),
@@ -397,12 +397,12 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     // Create two journeys for the demo user
     const j1Res = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: `J1_RESTORE_${Date.now()}`, domain: '生活', content: '旅程1' })
       .expect(201);
     const j2Res = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: `J2_RESTORE_${Date.now()}`, domain: '生活', content: '旅程2' })
       .expect(201);
 
@@ -427,8 +427,8 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
     // Concurrently trigger restore for both archived journeys
     const [result1, result2] = await Promise.allSettled([
-      request(server).post(`/api/v1/archive/journeys/${j1Id}/restore`).set(demoUserHeaders()),
-      request(server).post(`/api/v1/archive/journeys/${j2Id}/restore`).set(demoUserHeaders()),
+      request(server).post(`/api/v1/archive/journeys/${j1Id}/restore`).set(await demoUserHeaders()),
+      request(server).post(`/api/v1/archive/journeys/${j2Id}/restore`).set(await demoUserHeaders()),
     ]);
 
     const statuses = [
@@ -450,7 +450,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
       // Create vs restore invariant: while an active journey exists, restore is rejected
       const theArchivedId = activeJourneys[0].id === j1Id ? j2Id : j1Id;
-      const rejectRestore = await request(server).post(`/api/v1/archive/journeys/${theArchivedId}/restore`).set(demoUserHeaders());
+      const rejectRestore = await request(server).post(`/api/v1/archive/journeys/${theArchivedId}/restore`).set(await demoUserHeaders());
       expect(rejectRestore.status).toBe(400);
       expect(rejectRestore.body.message).toContain('请先结束或暂停当前旅程，再恢复这段归档');
     } finally {
@@ -462,7 +462,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: `J_P0A_${Date.now()}`, domain: '生活', content: '初始生活困境' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -474,7 +474,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const staleVersion = new Date(Date.now() - 3600000).toISOString();
     const staleRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({
         status: 'paused',
         title: '试图在过期版本上修改标题',
@@ -494,7 +494,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const updatedTitle = `UPDATED_TITLE_P0A_${Date.now()}`;
     const validRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({
         status: 'paused',
         title: updatedTitle,
@@ -554,7 +554,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       // User A attempts to PATCH User B's journey -> must be rejected with 404
       const foreignPatchRes = await request(server)
         .patch(`/api/v1/journeys/${journeyBId}`)
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ title: '非法修改他人的标题' });
       expect(foreignPatchRes.status).toBe(404);
       expect(foreignPatchRes.body.message).toContain('旅程不存在或无权访问');
@@ -580,7 +580,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       // User A attempts to archive via PATCH without consent -> must be rejected with 403
       const archiveWithoutConsentRes = await request(server)
         .patch(`/api/v1/journeys/${journeyAId}`)
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ status: 'archived' });
       expect(archiveWithoutConsentRes.status).toBe(403);
       expect(archiveWithoutConsentRes.body.message).toContain('请先在隐私设置中允许保留旅程归档');
@@ -589,7 +589,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       await setPrivacy(dbUrl, userA, { allowJourneyArchiveRetention: true });
       const archiveWithConsentRes = await request(server)
         .patch(`/api/v1/journeys/${journeyAId}`)
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ status: 'archived' })
         .expect(200);
       expect(archiveWithConsentRes.body.journey.status).toBe('archived');
@@ -602,7 +602,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: `J_SHAPE_${Date.now()}`, domain: '生活', content: '测试返回形状' })
       .expect(201);
     const journeyId = created.body.journey.id as string;
@@ -610,7 +610,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     // Status-only PATCH must return { journey }
     const statusOnlyRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ status: 'paused' })
       .expect(200);
 
@@ -621,7 +621,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
     // Content-bearing PATCH must return { item } (and { journey } for hybrid)
     const contentRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: '新标题' })
       .expect(200);
 
@@ -643,12 +643,12 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
 
         const j1Res = await request(server)
           .post('/api/v1/journeys')
-          .set(demoUserHeaders())
+          .set(await demoUserHeaders())
           .send({ title: `J1_P03_${Date.now()}`, domain: '生活', content: '旅程1' })
           .expect(201);
         const j2Res = await request(server)
           .post('/api/v1/journeys')
-          .set(demoUserHeaders())
+          .set(await demoUserHeaders())
           .send({ title: `J2_P03_${Date.now()}`, domain: '生活', content: '旅程2' })
           .expect(201);
 
@@ -664,7 +664,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         // 1. Assert hybrid PATCH returns BOTH { item, journey }
         const hybridRes = await request(server)
           .patch(`/api/v1/journeys/${j2Id}`)
-          .set(demoUserHeaders())
+          .set(await demoUserHeaders())
           .send({ status: 'paused', title: '混合更新标题' })
           .expect(200);
 
@@ -677,14 +677,14 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         // 2. Pause J1 as well so both J1 and J2 are paused
         await request(server)
           .patch(`/api/v1/journeys/${j1Id}`)
-          .set(demoUserHeaders())
+          .set(await demoUserHeaders())
           .send({ status: 'paused' })
           .expect(200);
 
         // 3. Concurrent activation race: dispatch two concurrent unversioned PATCH requests requesting status: 'active'
         const [race1, race2] = await Promise.allSettled([
-          request(server).patch(`/api/v1/journeys/${j1Id}`).set(demoUserHeaders()).send({ status: 'active' }),
-          request(server).patch(`/api/v1/journeys/${j2Id}`).set(demoUserHeaders()).send({ status: 'active' }),
+          request(server).patch(`/api/v1/journeys/${j1Id}`).set(await demoUserHeaders()).send({ status: 'active' }),
+          request(server).patch(`/api/v1/journeys/${j2Id}`).set(await demoUserHeaders()).send({ status: 'active' }),
         ]);
 
         const raceStatuses = [
@@ -1271,57 +1271,57 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       });
 
       // --- Cross-user read: User B attempting to read User A's journey resources -> MUST 404 ---
-      const bReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', identityFor(userB));
+      const bReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', await identityFor(userB));
       expect(bReadJ.status).toBe(404);
       expect(bReadJ.body.message).toContain('旅程不存在或无权访问');
 
-      const bReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', identityFor(userB));
+      const bReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', await identityFor(userB));
       expect(bReadFp.status).toBe(404);
       expect(bReadFp.body.message).toContain('旅程不存在或无权访问');
 
-      const bReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', identityFor(userB));
+      const bReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', await identityFor(userB));
       expect(bReadTl.status).toBe(404);
       expect(bReadTl.body.message).toContain('旅程不存在或无权访问');
 
-      const bReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', identityFor(userB));
+      const bReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', await identityFor(userB));
       expect(bReadAct.status).toBe(404);
       expect(bReadAct.body.message).toContain('旅程不存在或无权访问');
 
       // --- Cross-user write: User B attempting to create action on User A's journey -> MUST 404 ---
       const bWriteAct = await request(server)
         .post(`/api/v1/journeys/${journeyAId}/actions`)
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .send({ title: '非法跨用户行动' });
       expect(bWriteAct.status).toBe(404);
       expect(bWriteAct.body.message).toContain('旅程不存在或无权访问');
 
       // --- Positive control: Legitimate owner gets 200/201 on all routes ---
-      const aReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', identityFor(userA));
+      const aReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', await identityFor(userA));
       expect(aReadJ.status).toBe(200);
       expect(aReadJ.body.item.journey.id).toBe(journeyAId);
       expect(aReadJ.body.item.snapshot.facts).toContain('User A私密事实');
 
-      const aReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', identityFor(userA));
+      const aReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', await identityFor(userA));
       expect(aReadFp.status).toBe(200);
       expect(aReadFp.body.item.journey.id).toBe(journeyAId);
 
-      const aReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', identityFor(userA));
+      const aReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', await identityFor(userA));
       expect(aReadTl.status).toBe(200);
       expect(aReadTl.body.items.some((u: any) => u.id === upAId)).toBe(true);
 
-      const aReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', identityFor(userA));
+      const aReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', await identityFor(userA));
       expect(aReadAct.status).toBe(200);
       expect(aReadAct.body.items.some((a: any) => a.id === actAId)).toBe(true);
 
       const aWriteAct = await request(server)
         .post(`/api/v1/journeys/${journeyAId}/actions`)
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ title: '合法所有者行动' });
       expect(aWriteAct.status).toBe(201);
       expect(aWriteAct.body.item.title).toBe('合法所有者行动');
 
       // Positive control for User B accessing their own journey
-      const bReadOwnJ = await request(server).get(`/api/v1/journeys/${journeyBId}`).set('x-goodnight-user-id', identityFor(userB));
+      const bReadOwnJ = await request(server).get(`/api/v1/journeys/${journeyBId}`).set('x-goodnight-user-id', await identityFor(userB));
       expect(bReadOwnJ.status).toBe(200);
       expect(bReadOwnJ.body.item.journey.id).toBe(journeyBId);
 

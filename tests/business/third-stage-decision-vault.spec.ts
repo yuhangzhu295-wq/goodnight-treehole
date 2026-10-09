@@ -24,7 +24,7 @@ describe('third-stage decision vault business loop', () => {
     const question = `决定保险箱回归 ${Date.now()}`;
     const created = await request(server)
       .post('/api/v1/decisions')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ question, options: ['现在做', '明天再看'], criteria: ['先确认事实', '情绪强度:8/10'] })
       .expect(201);
     const decisionId = created.body.item.id as string;
@@ -32,13 +32,13 @@ describe('third-stage decision vault business loop', () => {
 
     const cooling = await request(server)
       .post('/api/v1/cooldowns')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ decisionId, title: question, reason: '不想在情绪很高的时候仓促发出。', hours: 1 })
       .expect(201);
     const cooldownId = cooling.body.item.id as string;
     const followUpId = cooling.body.followUp.id as string;
     expect(cooling.body.followUp.kind).toBe('DECISION_COOLDOWN');
-    await request(server).patch(`/api/v1/decisions/${decisionId}`).set(demoUserHeaders()).send({ status: 'ready' }).expect(400);
+    await request(server).patch(`/api/v1/decisions/${decisionId}`).set(await demoUserHeaders()).send({ status: 'ready' }).expect(400);
 
     // Advance only this isolated test record, then let the real BullMQ worker consume it.
     const past = new Date(Date.now() - 2_000);
@@ -59,21 +59,21 @@ describe('third-stage decision vault business loop', () => {
 
     let notification: any;
     for (let attempt = 0; attempt < 30; attempt += 1) {
-      const response = await request(server).get('/api/v1/notifications').set(demoUserHeaders()).expect(200);
+      const response = await request(server).get('/api/v1/notifications').set(await demoUserHeaders()).expect(200);
       notification = response.body.items.find((item: any) => item.id === `notification_${followUpId}`);
       if (notification) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     expect(notification).toMatchObject({ type: 'COOLDOWN_RELEASED', targetRoute: `/pages/decision/index?id=${decisionId}`, status: 'unread' });
-    expect((await request(server).get('/api/v1/decisions').set(demoUserHeaders()).expect(200)).body.items.find((item: any) => item.id === decisionId)).toMatchObject({ status: 'ready' });
+    expect((await request(server).get('/api/v1/decisions').set(await demoUserHeaders()).expect(200)).body.items.find((item: any) => item.id === decisionId)).toMatchObject({ status: 'ready' });
 
     const decided = await request(server)
       .patch(`/api/v1/decisions/${decisionId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ decision: '我决定明天白天再确认一次。', outcome: '先把需要说的话留在草稿里。', status: 'decided' })
       .expect(200);
     expect(decided.body.item.status).toBe('decided');
-    const archived = await request(server).patch(`/api/v1/decisions/${decisionId}`).set(demoUserHeaders()).send({ status: 'archived' }).expect(200);
+    const archived = await request(server).patch(`/api/v1/decisions/${decisionId}`).set(await demoUserHeaders()).send({ status: 'archived' }).expect(200);
     expect(archived.body.item.status).toBe('archived');
 
     expect(await prisma.decisionRecord.findUnique({ where: { id: decisionId } })).toMatchObject({

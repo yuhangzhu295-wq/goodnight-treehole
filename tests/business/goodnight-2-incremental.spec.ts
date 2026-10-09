@@ -24,7 +24,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const privacy = await request(server)
       .patch('/api/v1/me/privacy')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       // allowAnonymousExperienceShare is the consent POST /api/v1/peer-experiences actually
       // checks (store.service.ts:3541). Without it the server answers 403, which is correct
       // behaviour - the consent belongs here, not removed from the server.
@@ -34,7 +34,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: '一次重要沟通', domain: '家庭', content, feelings: ['紧张'], needs: ['先理清表达顺序'], visibility: 'PRIVATE', intensity: 6 })
       .expect(201);
     expect(created.body.journey.id).toMatch(/^journey_/);
@@ -47,20 +47,20 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     expect(completedJob.result).toBeTruthy();
 
     const journeyId = created.body.journey.id as string;
-    const detailAfterAi = await request(server).get(`/api/v1/journeys/${journeyId}`).set(demoUserHeaders()).expect(200);
+    const detailAfterAi = await request(server).get(`/api/v1/journeys/${journeyId}`).set(await demoUserHeaders()).expect(200);
     expect(detailAfterAi.body.item.journey.id).toBe(journeyId);
     expect(detailAfterAi.body.item.snapshot).toBeTruthy();
 
     const confirmed = await request(server)
       .patch(`/api/v1/journeys/${journeyId}/situation`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ facts: [content], feelings: ['紧张'], needs: ['明确下一步'], constraints: ['今晚只做一个小沟通'] })
       .expect(200);
     expect(confirmed.body.item.confidence).toBe('user_confirmed');
 
     const plan = await request(server)
       .post(`/api/v1/journeys/${journeyId}/action-plan`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ content })
       .expect(201);
     const plannedJob = await waitForAiJob(server, plan.body.job.id);
@@ -69,14 +69,14 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const update = await request(server)
       .post(`/api/v1/journeys/${journeyId}/updates`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ kind: 'note', content: '我已经把想说的三句话写下来了。' })
       .expect(201);
     expect(update.body.item.journeyId).toBe(journeyId);
 
     const action = await request(server)
       .post(`/api/v1/journeys/${journeyId}/actions`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: '先写下开场的一句话', description: '只准备开场，不要求一次说完。' })
       .expect(201);
     const actionId = action.body.item.id as string;
@@ -86,18 +86,18 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const missedAction = await request(server)
       .post(`/api/v1/journeys/${journeyId}/actions`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: '稍后再试的沟通动作' })
       .expect(201);
     const missed = await request(server)
       .post(`/api/v1/actions/${missedAction.body.item.id}/checkin`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ status: 'missed', barrier: 'too_hard', reflection: '今天还是太难了。' })
       .expect(201);
     expect(missed.body.adaptive.required).toBe(true);
     const adaptivePlan = await request(server)
       .post(`/api/v1/actions/${missedAction.body.item.id}/adaptive-plan`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ barrier: 'too_hard' })
       .expect(201);
     const adaptiveJob = await waitForAiJob(server, adaptivePlan.body.job.id);
@@ -105,7 +105,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     expect(adaptiveJob.structured.title).toBeTruthy();
     const adapted = await request(server)
       .post(`/api/v1/actions/${missedAction.body.item.id}/adapt`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: adaptiveJob.structured.title, description: adaptiveJob.structured.completionDefinition, barrier: 'too_hard' })
       .expect(201);
     expect(adapted.body.item.parentActionId).toBe(missedAction.body.item.id);
@@ -113,7 +113,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const checkin = await request(server)
       .post(`/api/v1/actions/${actionId}/checkin`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ status: 'completed', reflection: '我完成了开场准备。', intensity: 4 })
       .expect(201);
     expect(checkin.body.checkin.status).toBe('completed');
@@ -122,7 +122,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const experience = await request(server)
       .post('/api/v1/peer-experiences')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, title: '从准备表达开始', domain: '家庭', stage: '沟通前', content: '我先把想说的话写成三句，再决定什么时候开口。', tags: ['沟通'], consented: true })
       .expect(201);
     const experienceId = experience.body.item.id as string;
@@ -139,64 +139,64 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
       .set('Authorization', auth(adminToken))
       .expect(200);
     expect(adminList.body.items.some((item: any) => item.id === experienceId && item.status === 'published')).toBe(true);
-    expect((await request(server).get('/api/v1/peers').set(demoUserHeaders()).expect(200)).body.item.experiences.some((item: any) => item.id === experienceId)).toBe(false);
+    expect((await request(server).get('/api/v1/peers').set(await demoUserHeaders()).expect(200)).body.item.experiences.some((item: any) => item.id === experienceId)).toBe(false);
 
     const decision = await request(server)
       .post('/api/v1/decisions')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, question: '我今晚要不要立刻沟通？', options: ['今晚先试探', '明天再谈'], criteria: ['精力', '对方是否方便'] })
       .expect(201);
     const cooldown = await request(server)
       .post('/api/v1/cooldowns')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ decisionId: decision.body.item.id, title: '先暂停半小时', reason: '让身体先降速', hours: 1 })
       .expect(201);
     expect(cooldown.body.item.status).toBe('active');
 
     const handoff = await request(server)
       .post('/api/v1/handoffs')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, recipient: '家人', channel: '当面', summary: '我今晚只想先说明感受，不急着解决全部问题。' })
       .expect(201);
-    const shared = await request(server).post(`/api/v1/handoffs/${handoff.body.item.id}/share`).set(demoUserHeaders()).expect(201);
+    const shared = await request(server).post(`/api/v1/handoffs/${handoff.body.item.id}/share`).set(await demoUserHeaders()).expect(201);
     expect(shared.body.item.status).toBe('shared');
 
     const contact = await request(server)
       .post('/api/v1/trusted-contacts')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ nickname: '小林', relation: '朋友', contactHint: '通讯录中的小林' })
       .expect(201);
     expect(contact.body.item.enabled).toBe(true);
 
     const futureMessage = await request(server)
       .post('/api/v1/future-messages')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, content: '你已经把第一步做完了。', deliverAt: new Date(Date.now() + 86_400_000).toISOString() })
       .expect(201);
     expect(Date.parse(futureMessage.body.item.deliverAt)).toBeGreaterThan(Date.now());
 
     const supportPlan = await request(server)
       .post('/api/v1/support-plans')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, title: '我的沟通支持计划', plan: { before: ['喝水', '写三句话'], during: ['允许暂停'], after: ['记录感受'] } })
       .expect(201);
     expect(supportPlan.body.item.active).toBe(true);
 
     const memory = await request(server)
       .post('/api/v1/memory')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ journeyId, category: '有效做法', content: '先写下来，再开口。', days: 7 })
       .expect(201);
     expect(memory.body.item.id).toMatch(/^memory_/);
 
-    const graduated = await request(server).post(`/api/v1/journeys/${journeyId}/graduate`).set(demoUserHeaders()).expect(201);
+    const graduated = await request(server).post(`/api/v1/journeys/${journeyId}/graduate`).set(await demoUserHeaders()).expect(201);
     expect(graduated.body.journey.status).toBe('completed');
     expect(graduated.body.recovery).toHaveLength(1);
     expect(graduated.body.graduation.completedActions).toBeGreaterThanOrEqual(1);
 
     const consent = await request(server)
       .post(`/api/v1/journeys/${journeyId}/graduation-consent`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ decision: 'willing' })
       .expect(201);
     expect(consent.body.draft.status).toBe('pending_review');
@@ -221,19 +221,19 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: '随访队列验证', domain: '其他', content: `验证队列消费 ${Date.now()}`, visibility: 'PRIVATE' })
       .expect(201);
     const action = await request(server)
       .post(`/api/v1/journeys/${created.body.journey.id}/actions`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: '队列验证的小行动', dueAt: new Date(Date.now() - 5_000).toISOString() })
       .expect(201);
     const followUpId = action.body.followUp.id as string;
 
     let notification: any;
     for (let attempt = 0; attempt < 30; attempt += 1) {
-      const response = await request(server).get('/api/v1/notifications').set(demoUserHeaders()).expect(200);
+      const response = await request(server).get('/api/v1/notifications').set(await demoUserHeaders()).expect(200);
       notification = response.body.items.find((item: any) => item.id === `notification_${followUpId}`);
       if (notification) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
@@ -252,12 +252,12 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     // (store.service.ts:3541); without it the server answers 403, which is correct.
     const peerPrivacy = { allowPeerMatching: true, allowAnonymousExperienceStats: true, allowAnonymousExperienceShare: true };
 
-    await request(server).patch('/api/v1/me/privacy').set(demoUserHeaders()).send(peerPrivacy).expect(200);
-    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', identityFor(guest)).send(peerPrivacy).expect(200);
+    await request(server).patch('/api/v1/me/privacy').set(await demoUserHeaders()).send(peerPrivacy).expect(200);
+    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', await identityFor(guest)).send(peerPrivacy).expect(200);
 
     const peerJourney = await request(server)
       .post('/api/v1/journeys')
-      .set('x-goodnight-user-id', identityFor(guest))
+      .set('x-goodnight-user-id', await identityFor(guest))
       .send({
         title: '从分开后的晚上慢慢走出来',
         domain: '关系',
@@ -269,7 +269,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const peerExperience = await request(server)
       .post('/api/v1/peer-experiences')
-      .set('x-goodnight-user-id', identityFor(guest))
+      .set('x-goodnight-user-id', await identityFor(guest))
       .send({
         journeyId: peerJourney.body.journey.id,
         title: '我先把想发的话放进冷静箱',
@@ -292,7 +292,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const requesterJourney = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({
         title: '今晚很想给前任发消息',
         domain: '关系',
@@ -304,7 +304,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     const requesterJourneyId = requesterJourney.body.journey.id as string;
     await request(server)
       .patch(`/api/v1/journeys/${requesterJourneyId}/situation`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({
         facts: ['关系已经结束，但今晚很想联系对方'],
         feelings: ['想念'],
@@ -316,51 +316,51 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
       })
       .expect(200);
 
-    const matches = await request(server).post(`/api/v1/journeys/${requesterJourneyId}/peer-matches`).set(demoUserHeaders()).send({}).expect(201);
+    const matches = await request(server).post(`/api/v1/journeys/${requesterJourneyId}/peer-matches`).set(await demoUserHeaders()).send({}).expect(201);
     const exactMatch = matches.body.items.find((item: { peerExperienceId: string }) => item.peerExperienceId === peerExperience.body.item.id);
     expect(exactMatch).toBeTruthy();
     expect(exactMatch.score).toBeGreaterThan(0.5);
     expect(exactMatch.fingerprintSimilarity).toBeGreaterThan(0);
 
-    await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(demoUserHeaders()).send({ status: 'requested' }).expect(200);
-    await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(demoUserHeaders()).send({ status: 'connected' }).expect(400);
+    await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(await demoUserHeaders()).send({ status: 'requested' }).expect(200);
+    await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(await demoUserHeaders()).send({ status: 'connected' }).expect(400);
 
-    const guestRequests = await request(server).get('/api/v1/peer-requests').set('x-goodnight-user-id', identityFor(guest)).expect(200);
+    const guestRequests = await request(server).get('/api/v1/peer-requests').set('x-goodnight-user-id', await identityFor(guest)).expect(200);
     expect(guestRequests.body.items.map((item: { id: string }) => item.id)).toContain(exactMatch.id);
-    const guestNotifications = await request(server).get('/api/v1/notifications').set('x-goodnight-user-id', identityFor(guest)).expect(200);
+    const guestNotifications = await request(server).get('/api/v1/notifications').set('x-goodnight-user-id', await identityFor(guest)).expect(200);
     const peerNotificationId = `notification_peer_request_${exactMatch.id}_${guest}`;
     expect(guestNotifications.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: peerNotificationId, userId: guest, type: 'PEER_REQUEST', status: 'unread' })]));
     expect(await prisma.userNotification.findUnique({ where: { id: peerNotificationId } })).toMatchObject({ userId: guest, type: 'PEER_REQUEST', status: 'unread' });
-    await request(server).patch(`/api/v1/notifications/${peerNotificationId}/read`).set('x-goodnight-user-id', identityFor(guest)).expect(200);
+    await request(server).patch(`/api/v1/notifications/${peerNotificationId}/read`).set('x-goodnight-user-id', await identityFor(guest)).expect(200);
     expect(await prisma.userNotification.findUnique({ where: { id: peerNotificationId } })).toMatchObject({ userId: guest, status: 'read' });
 
     const accepted = await request(server)
       .post(`/api/v1/peer-matches/${exactMatch.id}/respond`)
-      .set('x-goodnight-user-id', identityFor(guest))
+      .set('x-goodnight-user-id', await identityFor(guest))
       .send({ status: 'connected' })
       .expect(201);
     expect(accepted.body.conversation).toBeNull();
 
     const consented = await request(server)
       .post(`/api/v1/peer-matches/${exactMatch.id}/consent`)
-      .set('x-goodnight-user-id', identityFor(guest))
+      .set('x-goodnight-user-id', await identityFor(guest))
       .send({})
       .expect(201);
     expect(consented.body.conversation.matchId).toBe(exactMatch.id);
 
-    const requesterConversations = await request(server).get('/api/v1/peer-conversations').set(demoUserHeaders()).expect(200);
-    const guestConversations = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', identityFor(guest)).expect(200);
+    const requesterConversations = await request(server).get('/api/v1/peer-conversations').set(await demoUserHeaders()).expect(200);
+    const guestConversations = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', await identityFor(guest)).expect(200);
     expect(requesterConversations.body.items.map((item: { matchId: string }) => item.matchId)).toContain(exactMatch.id);
     expect(guestConversations.body.items.map((item: { matchId: string }) => item.matchId)).toContain(exactMatch.id);
 
-    await request(server).post(`/api/v1/peer-conversations/${exactMatch.id}/messages`).set(demoUserHeaders()).send({ content: '我今晚还是很想联系对方。' }).expect(201);
+    await request(server).post(`/api/v1/peer-conversations/${exactMatch.id}/messages`).set(await demoUserHeaders()).send({ content: '我今晚还是很想联系对方。' }).expect(201);
     await request(server)
       .post(`/api/v1/peer-conversations/${exactMatch.id}/messages`)
-      .set('x-goodnight-user-id', identityFor(guest))
+      .set('x-goodnight-user-id', await identityFor(guest))
       .send({ content: '我当时先把话写下，等十分钟再决定。' })
       .expect(201);
 
-    const detail = await request(server).get(`/api/v1/peer-experiences/${peerExperience.body.item.id}`).set(demoUserHeaders()).expect(200);
+    const detail = await request(server).get(`/api/v1/peer-experiences/${peerExperience.body.item.id}`).set(await demoUserHeaders()).expect(200);
     expect(detail.body.item.journey).toBeTruthy();
     expect(detail.body.item.timeline.length).toBeGreaterThan(0);
     expect(detail.body.item.later.summary).toContain('三个月后');

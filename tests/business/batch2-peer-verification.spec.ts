@@ -66,12 +66,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(requester))
+      .set('x-goodnight-user-id', await identityFor(requester))
       .send({ allowPeerMatching: true, allowAnonymousExperienceShare: true })
       .expect(200);
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ allowPeerMatching: true, allowAnonymousExperienceShare: true })
       .expect(200);
   });
@@ -106,12 +106,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
     const server = app.getHttpServer();
     const ownerJourney = await request(server)
       .post('/api/v1/journeys')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ title: `${titlePrefix}所有者旅程`, domain: '关系', content: `内容 ${Date.now()}_${Math.random()}`, intensity: 5 })
       .expect(201);
     const expRes = await request(server)
       .post('/api/v1/peer-experiences')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({
         journeyId: ownerJourney.body.journey.id,
         title: `${titlePrefix}经历分享`,
@@ -130,12 +130,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
     const requesterJourney = await request(server)
       .post('/api/v1/journeys')
-      .set('x-goodnight-user-id', identityFor(requester))
+      .set('x-goodnight-user-id', await identityFor(requester))
       .send({ title: `${titlePrefix}请求者旅程`, domain: '关系', content: `求助内容 ${Date.now()}_${Math.random()}`, intensity: 7 })
       .expect(201);
     const suggested = await request(server)
       .post(`/api/v1/journeys/${requesterJourney.body.journey.id}/peer-matches`)
-      .set('x-goodnight-user-id', identityFor(requester))
+      .set('x-goodnight-user-id', await identityFor(requester))
       .send({})
       .expect(201);
     const match = suggested.body.items.find((item: { peerExperienceId: string }) => item.peerExperienceId === expRes.body.item.id);
@@ -150,21 +150,21 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // Request match
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '想聊聊走出来的感受。' })
         .expect(200);
 
       // Owner responds connected
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
       // Step A: Owner consents first
       const ownerConsentRes = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
 
@@ -181,7 +181,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // Step B: Requester consents second
       const requesterConsentRes = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
 
@@ -208,20 +208,20 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '想问问第一步怎么迈出。' })
         .expect(200);
 
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
       // Requester consents first
       const reqConsentRes = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
 
@@ -236,7 +236,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // Owner consents second
       const ownerConsentRes = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
 
@@ -255,19 +255,19 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '重复确认测试。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
       // First requester consent
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
 
@@ -279,7 +279,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       await new Promise((r) => setTimeout(r, 50));
       const secondCall = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
 
@@ -297,12 +297,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '并发确认测试。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
@@ -343,33 +343,33 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '拉黑竞态测试。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
       // Step 1: Owner consents first
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
 
       // Step 2: Requester blocks the match before consenting
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'blocked' })
         .expect(200);
 
       // Step 3: Requester (or owner) attempts second consent on blocked match -> rejected!
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(403);
 
@@ -386,26 +386,26 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '拒绝竞态测试。' })
         .expect(200);
 
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'declined' })
         .expect(201);
 
       // Consent after decline is rejected with 403
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(403);
 
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(403);
 
@@ -427,12 +427,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       const server = app.getHttpServer();
       await request(server)
         .patch(`/api/v1/peer-matches/${matchId}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '并发用例准备。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${matchId}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
       await peer().consentMatch(matchId, owner);
@@ -447,7 +447,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '并发接收。' })
         .expect(200);
 
@@ -696,19 +696,19 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       const serverB = harness.appB.getHttpServer();
 
       // Ensure privacy settings in DB
-      await request(serverA).patch('/api/v1/me/privacy').set('x-goodnight-user-id', identityFor(requester)).send({ allowPeerMatching: true, allowAnonymousExperienceShare: true }).expect(200);
-      await request(serverB).patch('/api/v1/me/privacy').set('x-goodnight-user-id', identityFor(owner)).send({ allowPeerMatching: true, allowAnonymousExperienceShare: true }).expect(200);
+      await request(serverA).patch('/api/v1/me/privacy').set('x-goodnight-user-id', await identityFor(requester)).send({ allowPeerMatching: true, allowAnonymousExperienceShare: true }).expect(200);
+      await request(serverB).patch('/api/v1/me/privacy').set('x-goodnight-user-id', await identityFor(owner)).send({ allowPeerMatching: true, allowAnonymousExperienceShare: true }).expect(200);
 
       // 1. Owner creates and publishes experience on Instance B
       const ownerJourney = await request(serverB)
         .post('/api/v1/journeys')
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ title: '跨实例测试经验旅程', domain: '关系', content: '经历内容', intensity: 5 })
         .expect(201);
 
       const expRes = await request(serverB)
         .post('/api/v1/peer-experiences')
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({
           journeyId: ownerJourney.body.journey.id,
           title: '跨实例同路经验',
@@ -726,13 +726,13 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // 2. Requester creates journey and gets suggested matches on Instance A
       const reqJourney = await request(serverA)
         .post('/api/v1/journeys')
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ title: '跨实例请求旅程', domain: '关系', content: '求助内容', intensity: 7 })
         .expect(201);
 
       const suggestedRes = await request(serverA)
         .post(`/api/v1/journeys/${reqJourney.body.journey.id}/peer-matches`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
 
@@ -742,21 +742,21 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // 3. A requests on Instance A
       await request(serverA)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '来自实例 A 的同路请求。' })
         .expect(200);
 
       // 4. B accepts on Instance B
       await request(serverB)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
       // 5. A consents on Instance A -> returns pending
       const consentA = await request(serverA)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
       expect(consentA.body.conversation).toBeNull();
@@ -764,7 +764,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // 6. B consents on Instance B -> activates conversation!
       const consentB = await request(serverB)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
       expect(consentB.body.conversation).not.toBeNull();
@@ -773,7 +773,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // 7. A sends message on Instance A
       const msg1 = await request(serverA)
         .post(`/api/v1/peer-conversations/${match.id}/messages`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ content: '消息 1 来自实例 A' })
         .expect(201);
       expect(msg1.body.item.content).toBe('消息 1 来自实例 A');
@@ -781,7 +781,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // 8. B sends message on Instance B
       const msg2 = await request(serverB)
         .post(`/api/v1/peer-conversations/${match.id}/messages`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ content: '消息 2 来自实例 B' })
         .expect(201);
       expect(msg2.body.item.content).toBe('消息 2 来自实例 B');
@@ -789,7 +789,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // 9. Both instances query conversation list WITHOUT reload -> observe same state!
       const listA = await request(serverA)
         .get('/api/v1/peer-conversations')
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const convA = listA.body.items.find((item: { matchId: string }) => item.matchId === match.id);
       expect(convA).toBeTruthy();
@@ -797,7 +797,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       const listB = await request(serverB)
         .get('/api/v1/peer-conversations')
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .expect(200);
       const convB = listB.body.items.find((item: { matchId: string }) => item.matchId === match.id);
       expect(convB).toBeTruthy();
@@ -820,25 +820,25 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '等待页字段验证。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
       // The requester consents first: the page must be able to tell that it already consented.
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
 
       const peers = await request(server)
         .get('/api/v1/peers')
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const payloadMatch = peers.body.item.matches.find((item: { id: string }) => item.id === match.id);
       // The match must be reachable from the list the waiting page reads, and must carry the
@@ -850,13 +850,13 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // After the owner consents too, both fields are present (the page then shows "准备就绪").
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
 
       const peersAfter = await request(server)
         .get('/api/v1/peers')
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const afterMatch = peersAfter.body.item.matches.find((item: { id: string }) => item.id === match.id);
       expect(afterMatch?.requesterConsentAt).toBeTruthy();
@@ -1057,12 +1057,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       const { match } = await createFixtureMatch('FocusMatch');
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '焦点可达性验证。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
@@ -1095,13 +1095,13 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       const withoutFocus = await request(server)
         .get('/api/v1/peers')
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       expect(withoutFocus.body.item.matches.find((item: { id: string }) => item.id === match.id)).toBeUndefined();
 
       const withFocus = await request(server)
         .get(`/api/v1/peers?matchId=${encodeURIComponent(match.id)}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const found = withFocus.body.item.matches.find((item: { id: string }) => item.id === match.id);
       expect(found).toBeTruthy();
@@ -1474,12 +1474,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: '通知失败语义验证。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
 
@@ -1492,13 +1492,13 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // injected failure lands on the close's notification, which is the transition under test.
       const consentRes = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
       expect(consentRes.body.conversation).toBeNull();
       const activationRes = await request(server)
         .post(`/api/v1/peer-matches/${match.id}/consent`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({})
         .expect(201);
       expect(activationRes.body.conversation).not.toBeNull();
@@ -1511,7 +1511,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       const closeRes = await request(server)
         .post(`/api/v1/peer-conversations/${match.id}/close`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({})
         .expect(201);
 
@@ -1563,12 +1563,12 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       const { match } = await createFixtureMatch('AssistPii');
       await request(server)
         .patch(`/api/v1/peer-matches/${match.id}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .send({ status: 'requested', requestReason: 'AI 草稿隐私验证。' })
         .expect(200);
       await request(server)
         .post(`/api/v1/peer-matches/${match.id}/respond`)
-        .set('x-goodnight-user-id', identityFor(owner))
+        .set('x-goodnight-user-id', await identityFor(owner))
         .send({ status: 'connected' })
         .expect(201);
       await app.get(PeerPersistenceService).consentMatch(match.id, owner);
@@ -1604,7 +1604,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       try {
         const assist = await request(server)
           .post(`/api/v1/peer-conversations/${match.id}/assist`)
-          .set('x-goodnight-user-id', identityFor(requester))
+          .set('x-goodnight-user-id', await identityFor(requester))
           .send({ content: '我想把这段话整理一下。' })
           .expect(201);
         jobId = assist.body.job.id;
@@ -1628,7 +1628,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // Response boundary: nothing the client receives may carry the identifiers either.
       const status = await request(server)
         .get(`/api/v1/ai/tasks/${jobId}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const payload = JSON.stringify(status.body);
       expect(payload).not.toContain(PHONE);
@@ -1670,7 +1670,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       const status = await request(server)
         .get(`/api/v1/ai/tasks/${jobId}`)
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const payload = JSON.stringify(status.body);
       expect(payload).not.toContain(PHONE);
@@ -1679,7 +1679,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
 
       const latest = await request(server)
         .get('/api/v1/ai/tasks/latest?taskType=peer_response_assist')
-        .set('x-goodnight-user-id', identityFor(requester))
+        .set('x-goodnight-user-id', await identityFor(requester))
         .expect(200);
       const latestPayload = JSON.stringify(latest.body);
       expect(latestPayload).not.toContain(PHONE);

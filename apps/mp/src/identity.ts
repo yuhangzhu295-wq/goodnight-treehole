@@ -1,15 +1,22 @@
-import { createApiClient } from '@goodnight/api-sdk';
+import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 
 /**
  * The C-end identity.
  *
- * The API no longer accepts a bare user id: it requires a server-issued signed credential, because a
- * caller-supplied id made knowing any user id equivalent to being that user. This module obtains the
- * credential once and persists it, so the app keeps the same identity across reloads.
+ * The API no longer accepts a bare user id: it requires a session credential the server issued and
+ * stored, because a caller-supplied id made knowing any user id equivalent to being that user. This
+ * module obtains that credential once and persists it, so the app keeps the same identity across
+ * reloads and restarts.
  *
  * There is no login flow in this product, so the credential is bootstrapped anonymously: the server
- * picks the identity and signs it. The client never chooses which identity it gets, which is what
- * makes claiming somebody else's identity impossible.
+ * picks the identity and stores the session. The client never chooses which identity it gets, which
+ * is what makes claiming somebody else's identity impossible.
+ *
+ * Storage: on a native build the credential goes through Capacitor Preferences, which is app-private
+ * storage (Android SharedPreferences, iOS UserDefaults) rather than the browser's localStorage, and
+ * is not reachable from other apps. It is NOT hardware-backed encryption - see
+ * docs/architecture/IDENTITY_CREDENTIAL_STORAGE.md for what that does and does not protect against.
  */
 
 export const IDENTITY_CREDENTIAL_KEY = 'goodnight-identity-credential';
@@ -17,24 +24,27 @@ export const IDENTITY_USER_KEY = 'goodnight-identity-user-id';
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 const useDemoIdentity = import.meta.env.VITE_USE_DEMO_IDENTITY === 'true';
+const isNative = Capacitor.isNativePlatform();
 
-let credential: string | null = read(IDENTITY_CREDENTIAL_KEY);
-let userId: string | null = read(IDENTITY_USER_KEY);
+let credential: string | null = null;
+let userId: string | null = null;
 let inflight: Promise<string | null> | null = null;
 
-function read(key: string): string | null {
+async function read(key: string): Promise<string | null> {
   try {
+    if (isNative) return (await Preferences.get({ key })).value;
     return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function write(key: string, value: string) {
+async function write(key: string, value: string): Promise<void> {
   try {
-    localStorage.setItem(key, value);
+    if (isNative) await Preferences.set({ key, value });
+    else localStorage.setItem(key, value);
   } catch {
-    // A private-mode browser with storage disabled still works for the current session.
+    // Storage being unavailable must not break the session in memory.
   }
 }
 
@@ -46,54 +56,75 @@ export function getIdentityUserId(): string | null {
   return userId;
 }
 
-/** Resolves to the credential, bootstrapping one on first use. */
+/** Resolves to the credential, loading the stored one or bootstrapping a new identity. */
 export function ensureIdentity(): Promise<string | null> {
   if (credential) return Promise.resolve(credential);
   if (inflight) return inflight;
-  inflight = bootstrap().finally(() => {
+  inflight = load().finally(() => {
     inflight = null;
   });
   return inflight;
 }
 
-async function bootstrap(): Promise<string | null> {
-  const client = createApiClient({ baseUrl });
-  type Issued = { item: { userId: string; credential: string } };
+async function load(): Promise<string | null> {
+  const stored = await read(IDENTITY_CREDENTIAL_KEY);
+  if (stored) {
+    credential = stored;
+    userId = await read(IDENTITY_USER_KEY);
+    return credential;
+  }
+  return await bootstrap();
+}
 
-  // The offline demo build asks for the seeded demo identity. It is refused unless the server has
+async function bootstrap(): Promise<string | null> {
+  type Issued = { item: { userId: string; credential: string } };
+  const post = async (path: string) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return (await response.json()) as Issued;
+  };
+
+  // The offline demo build asks for the seeded demo session. It is refused unless the server has
   // explicitly enabled it, in which case we fall through to a fresh anonymous identity.
   if (useDemoIdentity) {
     try {
-      const demo = await client.post<Issued>('/api/v1/auth/demo');
-      return adopt(demo);
+      return await adopt(await post('/api/v1/auth/demo'));
     } catch {
       // fall through
     }
   }
 
   try {
-    const anonymous = await client.post<Issued>('/api/v1/auth/anonymous');
-    return adopt(anonymous);
+    return await adopt(await post('/api/v1/auth/anonymous'));
   } catch {
     return null;
   }
 }
 
-function adopt(response: { item: { userId: string; credential: string } }): string {
+async function adopt(response: { item: { userId: string; credential: string } }): Promise<string> {
   credential = response.item.credential;
   userId = response.item.userId;
-  write(IDENTITY_CREDENTIAL_KEY, credential);
-  write(IDENTITY_USER_KEY, userId);
+  await write(IDENTITY_CREDENTIAL_KEY, credential);
+  await write(IDENTITY_USER_KEY, userId);
   return credential;
 }
 
-/** Drops the stored identity so the next request bootstraps a new one. Used by tests and sign-out. */
-export function resetIdentity() {
+/** Drops the stored identity so the next request bootstraps a new one. */
+export async function resetIdentity() {
   credential = null;
   userId = null;
   try {
-    localStorage.removeItem(IDENTITY_CREDENTIAL_KEY);
-    localStorage.removeItem(IDENTITY_USER_KEY);
+    if (isNative) {
+      await Preferences.remove({ key: IDENTITY_CREDENTIAL_KEY });
+      await Preferences.remove({ key: IDENTITY_USER_KEY });
+    } else {
+      localStorage.removeItem(IDENTITY_CREDENTIAL_KEY);
+      localStorage.removeItem(IDENTITY_USER_KEY);
+    }
   } catch {
     // ignore
   }

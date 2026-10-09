@@ -23,6 +23,8 @@ const ADMIN_DISCLOSURE_SPEC = 'tests/business/batch3-admin-disclosure.spec.ts';
 const RECONSENT_SPEC = 'tests/business/batch3-memory-reconsent.spec.ts';
 const CREDENTIAL_SPEC = 'tests/business/batch3-identity-credential.spec.ts';
 const CREDENTIAL = 'apps/api/src/identity-credential.ts';
+const SESSION = 'apps/api/src/anonymous-session.service.ts';
+const MIDDLEWARE = 'apps/api/src/identity.middleware.ts';
 const USERNOTIFICATION_SPEC = 'tests/business/batch1-usernotification.spec.ts';
 const WORKER = 'apps/api/src/follow-up-worker.service.ts';
 const FUTURE_SELF_SPEC = 'tests/business/batch3-future-self-authority.spec.ts';
@@ -531,62 +533,95 @@ const mutations = [
     ],
   },
   {
-    id: 'M40 identity: requireRuntimeUserId trusts the raw header again (the B3-R11 hole)',
+    id: 'M40 identity: both gates are removed, so a bare user id is accepted again (the B3-R11 hole)',
     spec: CREDENTIAL_SPEC,
     expectFailing: ['1.1'],
     patches: [
       {
+        // The middleware stops refusing an invalid credential...
+        file: MIDDLEWARE,
+        old: '    const identity = await this.sessions.tryVerify(credential);',
+        new: '    const identity = await this.sessions.tryVerify(credential).catch(() => null);',
+      },
+      {
+        // ...and the helper falls back to the caller-supplied header, which is the original hole.
+        // Both patches are needed: with either gate in place the raw id is still refused, so
+        // removing them one at a time would not be observable.
         file: CONTROLLERS,
-        old: "function requireRuntimeUserId(header?: string): string {\n  const verified = verifyIdentityCredential(header);\n  if (!verified) {\n    throw new UnauthorizedException('缺少用户身份凭证');\n  }\n  return verified;\n}",
-        new: "function requireRuntimeUserId(header?: string): string {\n  const verified = header?.trim();\n  if (!verified) {\n    throw new UnauthorizedException('缺少用户身份凭证');\n  }\n  return verified;\n}",
+        old: "function requireRuntimeUserId(_header?: string): string {\n  const identity = currentIdentity();\n  if (!identity) {\n    throw new UnauthorizedException('缺少用户身份凭证');\n  }\n  return identity.userId;\n}",
+        new: "function requireRuntimeUserId(_header?: string): string {\n  const identity = currentIdentity();\n  return identity?.userId ?? (_header as string);\n}",
       },
     ],
   },
   {
-    id: 'M41 identity: the signature comparison is skipped',
+    id: 'M41 session: the secret comparison is skipped, so any secret opens a known session',
     spec: CREDENTIAL_SPEC,
     expectFailing: ['1.3'],
     patches: [
       {
-        file: CREDENTIAL,
-        old: '  if (givenBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(givenBuf, expectedBuf)) {\n    throw new UnauthorizedException(\'身份凭证签名无效\');\n  }',
-        new: '  if (givenBuf.length === -1) {\n    throw new UnauthorizedException(\'身份凭证签名无效\');\n  }',
+        file: SESSION,
+        old: '    if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {\n      throw new UnauthorizedException(\'身份凭证无效\');\n    }\n\n    if (session.revokedAt) throw new UnauthorizedException(\'身份凭证已失效，请重新进入\');',
+        new: '    if (session.revokedAt) throw new UnauthorizedException(\'身份凭证已失效，请重新进入\');',
       },
     ],
   },
   {
-    id: 'M42 identity: the credential age is not checked',
+    id: 'M42 session: the expiry is not checked',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.4'],
+    patches: [
+      {
+        file: SESSION,
+        old: "    if (session.expiresAt.getTime() <= Date.now()) throw new UnauthorizedException('身份凭证已过期');",
+        new: '    if (session.expiresAt.getTime() === -1) throw new UnauthorizedException(\'身份凭证已过期\');',
+      },
+    ],
+  },
+  {
+    id: 'M43 session: the revocation is not checked, so a lost device stays usable',
     spec: CREDENTIAL_SPEC,
     expectFailing: ['1.5'],
     patches: [
       {
-        file: CREDENTIAL,
-        old: '  if (nowMs - issuedAt > IDENTITY_CREDENTIAL_TTL_MS || issuedAt > nowMs + 60_000) {\n    throw new UnauthorizedException(\'身份凭证已过期\');\n  }',
-        new: '  if (issuedAt === -1) {\n    throw new UnauthorizedException(\'身份凭证已过期\');\n  }',
+        file: SESSION,
+        old: "    if (session.revokedAt) throw new UnauthorizedException('身份凭证已失效，请重新进入');",
+        new: '    if (session.revokedAt && false) throw new UnauthorizedException(\'身份凭证已失效，请重新进入\');',
       },
     ],
   },
   {
-    id: 'M43 identity: the domain-separation prefix is dropped, so an admin token verifies as a credential',
+    id: 'M44 session: rotation does not revoke the predecessor, leaving two live credentials',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.7'],
+    patches: [
+      {
+        file: SESSION,
+        old: "        data: { revokedAt: new Date(), revokedReason: 'rotated' },\n      });\n      if (revoked.count === 0) {\n        throw new UnauthorizedException('身份凭证已失效，请重新进入');\n      }",
+        new: "        data: { revokedAt: null, revokedReason: 'rotated' },\n      });\n      if (revoked.count === -1) {\n        throw new UnauthorizedException('身份凭证已失效，请重新进入');\n      }",
+      },
+    ],
+  },
+  {
+    id: 'M48 session: the demo session endpoint is always enabled',
     spec: CREDENTIAL_SPEC,
     expectFailing: ['1.13'],
     patches: [
       {
         file: CREDENTIAL,
-        old: '  return crypto.createHmac(\'sha256\', secret).update(`${PURPOSE}:${userId}:${issuedAt}`).digest(\'hex\');',
-        new: '  return crypto.createHmac(\'sha256\', secret).update(`${userId}:${issuedAt}`).digest(\'hex\');',
+        old: "  return process.env.ALLOW_DEMO_IDENTITY === 'true';",
+        new: '  return true;',
       },
     ],
   },
   {
-    id: 'M44 identity: the demo identity endpoint is always enabled',
+    id: 'M49 session: the middleware ignores a present credential, so every request is anonymous',
     spec: CREDENTIAL_SPEC,
-    expectFailing: ['1.10'],
+    expectFailing: ['1.2'],
     patches: [
       {
-        file: CREDENTIAL,
-        old: "  return process.env.ALLOW_DEMO_IDENTITY === 'true';",
-        new: '  return true;',
+        file: MIDDLEWARE,
+        old: '    const identity = await this.sessions.tryVerify(credential);',
+        new: '    const identity = null;',
       },
     ],
   },

@@ -41,12 +41,8 @@ import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService } from './self-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
-import {
-  demoIdentityAllowed,
-  IDENTITY_CREDENTIAL_TTL_MS,
-  issueIdentityCredential,
-  verifyIdentityCredential,
-} from './identity-credential.js';
+import { demoIdentityAllowed } from './identity-credential.js';
+import { AnonymousSessionService, currentIdentity, SESSION_TTL_MS } from './anonymous-session.service.js';
 import {
   DAPI_BASE_URL,
   DAPI_PROVIDER_ID,
@@ -144,19 +140,20 @@ class AdminAuthGuard implements CanActivate {
   }
 }
 
-// The header carries a server-issued credential, not a bare user id. Verification is centralised
-// here so no route can accept a caller-supplied identity: a raw user id is now simply an invalid
-// credential.
-function runtimeUserId(header?: string) {
-  return verifyIdentityCredential(header) ?? undefined;
+// The header carries a session credential, not a user id, and it is verified once per request by
+// IdentityMiddleware. These helpers read the verified identity from that request's context and
+// ignore the header argument entirely: a caller-supplied id is never an identity. A raw user id in
+// the header is simply an invalid credential, and the middleware rejects it before we get here.
+function runtimeUserId(_header?: string) {
+  return currentIdentity()?.userId;
 }
 
-function requireRuntimeUserId(header?: string): string {
-  const verified = verifyIdentityCredential(header);
-  if (!verified) {
+function requireRuntimeUserId(_header?: string): string {
+  const identity = currentIdentity();
+  if (!identity) {
     throw new UnauthorizedException('缺少用户身份凭证');
   }
-  return verified;
+  return identity.userId;
 }
 const FINGERPRINT = {
   gitCommitSha: process.env.GIT_COMMIT_SHA ?? 'unknown',
@@ -297,6 +294,7 @@ export class PublicController {
     @Inject(MonthlyReportService) private readonly reports: MonthlyReportService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
     @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
+    @Inject(AnonymousSessionService) private readonly sessions: AnonymousSessionService,
   ) {}
 
   @Get('posts')
@@ -311,34 +309,78 @@ export class PublicController {
   }
 
   /**
-   * Issues a credential for a brand-new anonymous user. This is the only way a client without an
-   * existing identity can obtain one; it cannot be used to obtain somebody else's.
+   * Issues a session for a brand-new anonymous user. This is the only way a client without an
+   * existing identity can obtain one; it cannot be used to obtain somebody else's, because the
+   * server chooses the identity and stores the session.
    */
   @Post('auth/anonymous')
-  async createAnonymousIdentity() {
+  async createAnonymousIdentity(@Body() body?: { deviceId?: string; deviceLabel?: string }) {
     const user = await this.store.createAnonymousUser();
+    const session = await this.sessions.issue(user.id, {
+      deviceId: typeof body?.deviceId === 'string' ? body.deviceId.slice(0, 120) : undefined,
+      deviceLabel: typeof body?.deviceLabel === 'string' ? body.deviceLabel.slice(0, 120) : undefined,
+    });
     return {
       item: {
         userId: user.id,
-        credential: issueIdentityCredential(user.id),
-        expiresInMs: IDENTITY_CREDENTIAL_TTL_MS,
+        credential: session.credential,
+        expiresAt: session.expiresAt.toISOString(),
+        expiresInMs: SESSION_TTL_MS,
         anonymousCode: user.anonymousCode,
       },
     };
   }
 
   /**
-   * Issues a credential for the seeded demo user so the offline demo keeps working. Disabled unless
-   * ALLOW_DEMO_IDENTITY=true, because the demo user holds seeded content and handing out its
-   * credential in production would re-open the hole the credential exists to close.
+   * Issues a session for the seeded demo user so the offline demo keeps working. Disabled unless
+   * ALLOW_DEMO_IDENTITY=true, because the demo user holds seeded content and handing out its session
+   * in production would re-open the hole this exists to close.
    */
   @Post('auth/demo')
-  demoIdentity() {
+  async demoIdentity() {
     if (!demoIdentityAllowed()) {
       throw new ForbiddenException('演示身份在当前环境未启用');
     }
     const userId = this.store.getDemoUserId();
-    return { item: { userId, credential: issueIdentityCredential(userId), expiresInMs: IDENTITY_CREDENTIAL_TTL_MS } };
+    const session = await this.sessions.issue(userId, { deviceLabel: 'demo' });
+    return { item: { userId, credential: session.credential, expiresAt: session.expiresAt.toISOString(), expiresInMs: SESSION_TTL_MS } };
+  }
+
+  /** Ends the caller's session. The row is kept so the revocation stays auditable. */
+  @Post('auth/logout')
+  async logout(@Headers('x-goodnight-user-id') credential?: string) {
+    if (credential?.trim()) {
+      await this.sessions.revoke(credential, 'logout');
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Exchanges the caller's credential for a fresh one. The predecessor is revoked in the same
+   * transaction, so a rotation cannot leave two live credentials.
+   */
+  @Post('auth/rotate')
+  async rotateIdentity(@Headers('x-goodnight-user-id') credential?: string) {
+    if (!credential?.trim()) throw new UnauthorizedException('缺少用户身份凭证');
+    const rotated = await this.sessions.rotate(credential);
+    return { item: { credential: rotated.credential, expiresAt: rotated.expiresAt.toISOString() } };
+  }
+
+  /** Lists the caller's active sessions, so a device can be recognised and cut off. */
+  @Get('auth/sessions')
+  async listSessions(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.sessions.listActiveForUser(runtimeId) };
+  }
+
+  /** Revokes every session of one device: what a lost device needs. */
+  @Post('auth/revoke-device')
+  async revokeDevice(@Body() body: { deviceId?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim() : '';
+    if (!deviceId) throw new BadRequestException('缺少设备标识');
+    const revoked = await this.sessions.revokeDevice(runtimeId, deviceId, 'device_revoked_by_user');
+    return { ok: true, revoked };
   }
 
   @Get('config')

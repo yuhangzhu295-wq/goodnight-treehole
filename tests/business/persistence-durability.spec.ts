@@ -26,7 +26,7 @@ describe('persistence durability regression tests', () => {
 
     const created = await request(server)
       .post('/api/v1/journeys')
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: initialTitle, domain: '生活', content: initialContent })
       .expect(201);
 
@@ -47,7 +47,7 @@ describe('persistence durability regression tests', () => {
     const patchedSummary = '持久化验证总结内容';
     const patchRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}`)
-      .set(demoUserHeaders())
+      .set(await demoUserHeaders())
       .send({ title: patchedTitle, summary: patchedSummary })
       .expect(200);
 

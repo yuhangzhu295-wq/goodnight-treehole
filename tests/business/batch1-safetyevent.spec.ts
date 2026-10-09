@@ -117,7 +117,7 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
     // so any non-HIGH_DISTRESS intent triggers safety first routing.
     const intentRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}/intent`)
-      .set('x-goodnight-user-id', identityFor(testUserId))
+      .set('x-goodnight-user-id', await identityFor(testUserId))
       .send({ intent: 'NEXT_STEP' })
       .expect(200);
 
@@ -362,7 +362,7 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
       // Delete the archive via API
       await request(server)
         .delete(`/api/v1/archive/journeys/${journeyId}`)
-        .set('x-goodnight-user-id', identityFor(testUserId))
+        .set('x-goodnight-user-id', await identityFor(testUserId))
         .send({ confirmation: 'DELETE_ARCHIVE' })
         .expect(200);
 

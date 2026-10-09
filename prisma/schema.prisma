@@ -178,9 +178,40 @@ model User {
   peerConversationsStarted PeerConversation[] @relation("PeerConversationStarter")
   peerConversationsReceived PeerConversation[] @relation("PeerConversationReceiver")
   peerMessages          PeerMessage[]
+  anonymousSessions     AnonymousSession[]
 
   @@index([status])
   @@index([createdAt])
+}
+
+/// A server-issued anonymous session.
+///
+/// The C-end credential is the pair (session id, secret); only the secret's hash is stored, so a
+/// database read cannot be replayed as a credential. Keeping sessions in the database is what makes
+/// revocation, rotation and device loss possible at all, and it is what makes two API instances
+/// agree without sharing a cache.
+model AnonymousSession {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the secret half of the credential. The plaintext is never stored.
+  secretHash   String
+  /// Groups the sessions of one device so a device loss can revoke exactly those.
+  deviceId     String?
+  deviceLabel  String?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  lastUsedAt   DateTime?
+  /// Set when the session is revoked. A revoked session is never usable again, but the row stays so
+  /// the revocation is auditable and so a replay is distinguishable from an unknown credential.
+  revokedAt    DateTime?
+  revokedReason String?
+  /// Set when this session was issued by rotating another one; the predecessor is revoked in the
+  /// same transaction, so a rotation cannot leave two live credentials.
+  rotatedFromId String?
+
+  @@index([userId, expiresAt])
+  @@index([deviceId])
 }
 
 model AdminUser {

@@ -70,7 +70,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // Edit succeeds
     const editRes = await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ title: '已修改标题', content: '已修改内容' })
       .expect(200);
 
@@ -79,7 +79,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // Disable succeeds
     const disRes = await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ status: 'disabled' })
       .expect(200);
 
@@ -105,7 +105,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // Ordinary re-enable (PATCH status: active) succeeds when date is in future
     const res = await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ status: 'active' })
       .expect(200);
 
@@ -135,7 +135,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // 1. Edit affordance is refused: cannot edit an effectively expired row
     const editRes = await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ title: '尝试更新过期记忆' })
       .expect(400);
 
@@ -144,14 +144,14 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // 2. Extending the window in-place is also refused
     await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 60 })
       .expect(400);
 
     // 3. Re-consent action succeeds
     const reconsentRes = await request(server)
       .post(`/api/v1/me/memories/${memoryId}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 90 })
       .expect(201);
 
@@ -179,7 +179,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // 1. Ordinary "恢复使用" (PATCH status: active) is refused because effective state is expired
     const patchRes = await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ status: 'active' })
       .expect(400);
 
@@ -188,7 +188,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // 2. Explicit re-consent succeeds
     const reactivateRes = await request(server)
       .post(`/api/v1/me/memories/${memoryId}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 90 })
       .expect(201);
 
@@ -216,7 +216,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // Re-consent on deleted row is refused with 400
     const res = await request(server)
       .post(`/api/v1/me/memories/${memoryId}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 90 })
       .expect(400);
 
@@ -225,7 +225,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // In-place update is refused with 404
     await request(server)
       .patch(`/api/v1/me/memories/${memoryId}`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ title: '已删除试图更新' })
       .expect(404);
   });
@@ -249,7 +249,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // 1. Re-consent call
     await request(server)
       .post(`/api/v1/me/memories/${memoryId}/reactivate`)
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .send({ days: 120 })
       .expect(201);
 
@@ -267,7 +267,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
     // 4. Read back after restart
     const res = await request(server)
       .get('/api/v1/me/memories')
-      .set('x-goodnight-user-id', identityFor(owner))
+      .set('x-goodnight-user-id', await identityFor(owner))
       .expect(200);
 
     const found = res.body.items.find((item: any) => item.id === memoryId);

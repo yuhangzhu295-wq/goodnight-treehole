@@ -1,7 +1,17 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import path from 'node:path';
-import { issueIdentityCredential } from '../../apps/api/src/identity-credential.js';
+import crypto from 'node:crypto';
+import { PrismaClient } from '@prisma/client';
+import { hashSessionSecret } from '../../apps/api/src/anonymous-session.service.js';
+
+let identityClient: PrismaClient | null = null;
+function identityPrisma(): PrismaClient {
+  if (!identityClient) {
+    identityClient = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+  }
+  return identityClient;
+}
 
 export function assertTestDatabaseUrl(rawUrl = process.env.DATABASE_URL): string {
   if (!rawUrl) {
@@ -80,15 +90,43 @@ export function auth(token: string) {
 export const DEMO_USER_ID = 'user_demo';
 
 /**
- * Mints the server-issued credential the API now requires in place of a bare user id. Tests mint it
- * directly so they can still act as an id that does not exist yet, which several specs rely on.
+ * Issues a real session credential for a user, exactly as the server would.
+ *
+ * This is a database write, so it is async. A credential cannot be minted for a user that does not
+ * exist, so the fixture ensures the user row first: having a session implies being a user, which is
+ * also true in production. Credentials are cached per user so a spec that acts as the same user many
+ * times does not create a session per request.
  */
-export function identityFor(userId: string) {
-  return issueIdentityCredential(userId);
+const identityCache = new Map<string, Promise<string>>();
+
+export function identityFor(userId: string): Promise<string> {
+  const cached = identityCache.get(userId);
+  if (cached) return cached;
+  const created = issueIdentityFor(userId);
+  identityCache.set(userId, created);
+  return created;
 }
 
-export function demoUserHeaders() {
-  return { 'x-goodnight-user-id': identityFor(DEMO_USER_ID) };
+async function issueIdentityFor(userId: string): Promise<string> {
+  const prisma = identityPrisma();
+  await prisma.user.upsert({
+    where: { id: userId },
+    create: { id: userId, openid: `openid_${userId}`, anonymousCode: `anon_${userId}`, nickname: `测试_${userId}` },
+    update: {},
+  });
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const session = await prisma.anonymousSession.create({
+    data: {
+      userId,
+      secretHash: hashSessionSecret(secret),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+  });
+  return `${session.id}.${secret}`;
+}
+
+export async function demoUserHeaders() {
+  return { 'x-goodnight-user-id': await identityFor(DEMO_USER_ID) };
 }
 
 export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 120_000, userId = DEMO_USER_ID) {
@@ -97,7 +135,7 @@ export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 1
   while (Date.now() < deadline) {
     let req = request(server).get(`/api/v1/ai/tasks/${jobId}`);
     if (userId) {
-      req = req.set('x-goodnight-user-id', identityFor(userId));
+      req = req.set('x-goodnight-user-id', await identityFor(userId));
     }
     response = await req.expect(200);
     if (!['queued', 'running'].includes(response.body.status)) return response.body;

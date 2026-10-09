@@ -44,13 +44,13 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
     // Ensure privacy allows recovery data for userA by default
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(userA))
+      .set('x-goodnight-user-id', await identityFor(userA))
       .send({ allowRecoveryData: true, allowLongTermMemory: true, allowAiMemoryUse: true })
       .expect(200);
 
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', identityFor(userB))
+      .set('x-goodnight-user-id', await identityFor(userB))
       .send({ allowRecoveryData: true, allowLongTermMemory: true, allowAiMemoryUse: true })
       .expect(200);
   });
@@ -79,7 +79,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const res = await request(server)
         .get('/api/v1/settings/privacy')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(200);
 
       expect(res.body.item).toMatchObject({
@@ -105,7 +105,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const res = await request(server)
         .get('/api/v1/handoffs')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(200);
 
       const found = res.body.items.find((item: any) => item.id === handoffId);
@@ -130,7 +130,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const res = await request(server)
         .get('/api/v1/trusted-contacts')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(200);
 
       const found = res.body.items.find((item: any) => item.id === contactId);
@@ -160,7 +160,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const res = await request(server)
         .get('/api/v1/me/support-plan')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(200);
 
       expect(res.body.item).toBeDefined();
@@ -189,7 +189,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const res = await request(server)
         .get('/api/v1/me/stable-self')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(200);
 
       expect(res.body.item).toBeDefined();
@@ -297,7 +297,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // User A attempts to create a handoff referencing User B's journey
       await request(server)
         .post('/api/v1/handoffs')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({
           journeyId: journeyB.id,
           recipient: '对象',
@@ -322,7 +322,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // User B attempts to share User A's handoff
       await request(server)
         .post(`/api/v1/handoffs/${handoffA.id}/share`)
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .expect(404);
 
       // Verify status remains ready
@@ -344,7 +344,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const resB = await request(server)
         .get('/api/v1/handoffs')
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .expect(200);
 
       expect(resB.body.items.some((item: any) => item.id === handoffA.id)).toBe(false);
@@ -364,7 +364,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const resB = await request(server)
         .get('/api/v1/trusted-contacts')
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .expect(200);
 
       expect(resB.body.items.some((item: any) => item.id === contactA.id)).toBe(false);
@@ -385,7 +385,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       await request(server)
         .post('/api/v1/support-plans')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({
           journeyId: journeyB.id,
           title: '越权支持计划',
@@ -411,7 +411,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const resB = await request(server)
         .get('/api/v1/me/support-plan')
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .expect(200);
 
       if (resB.body.item) {
@@ -434,7 +434,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
 
       const resB = await request(server)
         .get('/api/v1/me/stable-self')
-        .set('x-goodnight-user-id', identityFor(userB))
+        .set('x-goodnight-user-id', await identityFor(userB))
         .expect(200);
 
       if (resB.body.item) {
@@ -446,34 +446,34 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // Revoke allowRecoveryData for userA
       await request(server)
         .patch('/api/v1/me/privacy')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ allowRecoveryData: false })
         .expect(200);
 
       // GET /api/v1/me/stable-self -> 403
       await request(server)
         .get('/api/v1/me/stable-self')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(403);
 
       // PUT /api/v1/me/stable-self -> 403
       await request(server)
         .put('/api/v1/me/stable-self')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ profile: { stableDescription: '被拒绝的内容' } })
         .expect(403);
 
       // POST /api/v1/support-plans -> 403
       await request(server)
         .post('/api/v1/support-plans')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ title: '被拒绝的计划', plan: {} })
         .expect(403);
 
       // Restore permission for subsequent tests
       await request(server)
         .patch('/api/v1/me/privacy')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({ allowRecoveryData: true })
         .expect(200);
     });
@@ -496,7 +496,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // Case 1 — Supplied: create with valid journeyId
       const created = await request(server)
         .post('/api/v1/support-plans')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({
           journeyId: journey.id,
           title: '外键三态计划',
@@ -514,7 +514,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // Committed foreign key in PostgreSQL MUST SURVIVE.
       const updatedOmitted = await request(server)
         .post('/api/v1/support-plans')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({
           title: '更新标题但省略journeyId',
           plan: { updated: true },
@@ -531,7 +531,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // Case 3 — Null (explicit detach): explicitly pass journeyId: null
       const updatedNull = await request(server)
         .post('/api/v1/support-plans')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({
           journeyId: null,
           title: '显式解绑旅程',
@@ -562,7 +562,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // Create with supplied journeyId
       const created = await request(server)
         .post('/api/v1/handoffs')
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .send({
           journeyId: journey.id,
           recipient: '接收人',
@@ -576,7 +576,7 @@ describe('Batch 3 Self Persistence: 5 Models Direct-Write & Independence', () =>
       // Share handoff (omits journeyId column in update)
       const shared = await request(server)
         .post(`/api/v1/handoffs/${created.body.item.id}/share`)
-        .set('x-goodnight-user-id', identityFor(userA))
+        .set('x-goodnight-user-id', await identityFor(userA))
         .expect(201);
 
       expect(shared.body.item.status).toBe('shared');

@@ -53,7 +53,7 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
     // Path A: User notifications list endpoint (GET /api/v1/notifications)
     const userListRes = await request(server)
       .get('/api/v1/notifications')
-      .set('x-goodnight-user-id', identityFor(testUserId))
+      .set('x-goodnight-user-id', await identityFor(testUserId))
       .expect(200);
 
     const foundInUserList = userListRes.body.items?.find((item: any) => item.id === notificationId);
@@ -84,7 +84,7 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
     // Path D: Mark as read via API (PATCH /api/v1/notifications/:id/read)
     const readRes = await request(server)
       .patch(`/api/v1/notifications/${notificationId}/read`)
-      .set('x-goodnight-user-id', identityFor(testUserId))
+      .set('x-goodnight-user-id', await identityFor(testUserId))
       .expect(200);
 
     expect(readRes.body.item.status).toBe('read');
@@ -284,7 +284,7 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
     // Mark as read via API
     await request(server)
       .patch(`/api/v1/notifications/${notificationId}/read`)
-      .set('x-goodnight-user-id', identityFor(testUserId))
+      .set('x-goodnight-user-id', await identityFor(testUserId))
       .expect(200);
 
     // Verify read in DB
