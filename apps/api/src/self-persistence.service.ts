@@ -1599,27 +1599,36 @@ export class SelfPersistenceService {
   }
 
   async listDecisions(userId: string): Promise<DecisionRecordItem[]> {
-    return await this.prisma.$transaction(async (tx) => {
-      // Auto-transition cooling decisions whose deadline passed to ready using clock_timestamp()
-      await tx.$executeRaw`
-        UPDATE "DecisionRecord"
-        SET status = 'ready', "reviewedAt" = clock_timestamp(), "updatedAt" = clock_timestamp()
-        WHERE "userId" = ${userId}
-          AND status = 'cooling'
-          AND "cooldownUntil" IS NOT NULL
-          AND "cooldownUntil" <= clock_timestamp()
-          AND NOT EXISTS (
-            SELECT 1 FROM "CooldownItem"
-            WHERE "decisionId" = "DecisionRecord".id AND status = 'active'
-          )
-      `;
+    // Two statements, deliberately NOT wrapped in an interactive transaction.
+    //
+    // The auto-transition is a single UPDATE, which is atomic on its own, and the read after it needs
+    // no shared snapshot: the property that matters is "a decision whose deadline has passed is
+    // returned as ready", and the UPDATE is awaited before the SELECT, so it holds.
+    //
+    // Wrapping this read path in `$transaction` cost a long-lived transaction on every list call and
+    // failed hard when that transaction's state went stale. Observed in CI as
+    // "Transaction API error: Transaction not found. Transaction ID is invalid, refers to an old
+    // closed transaction", thrown from this method after the API was restarted, which reset the HTTP
+    // connection and surfaced as `read ECONNRESET` in a spec that lists decisions after a restart.
+    // Nothing here needs a transaction, so the fragile part is removed rather than made resilient.
+    await this.prisma.$executeRaw`
+      UPDATE "DecisionRecord"
+      SET status = 'ready', "reviewedAt" = clock_timestamp(), "updatedAt" = clock_timestamp()
+      WHERE "userId" = ${userId}
+        AND status = 'cooling'
+        AND "cooldownUntil" IS NOT NULL
+        AND "cooldownUntil" <= clock_timestamp()
+        AND NOT EXISTS (
+          SELECT 1 FROM "CooldownItem"
+          WHERE "decisionId" = "DecisionRecord".id AND status = 'active'
+        )
+    `;
 
-      const rows = await tx.decisionRecord.findMany({
-        where: { userId },
-        orderBy: { updatedAt: 'desc' },
-      });
-      return rows.map(mapDecisionRecordRow);
+    const rows = await this.prisma.decisionRecord.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
     });
+    return rows.map(mapDecisionRecordRow);
   }
 
   async listDecisionsForJourney(journeyId: string, userId: string): Promise<DecisionRecordItem[]> {
@@ -1781,22 +1790,26 @@ export class SelfPersistenceService {
   }
 
   async listCooldowns(userId: string): Promise<CooldownItemRecord[]> {
-    return await this.prisma.$transaction(async (tx) => {
-      const [nowRow] = await tx.$queryRaw<Array<{ db_now: Date }>>`SELECT clock_timestamp() as db_now`;
-      const dbNow = nowRow?.db_now ?? new Date();
+    // One statement, deliberately NOT wrapped in an interactive transaction.
+    //
+    // The previous version opened a transaction to read `clock_timestamp()` and then the rows, so the
+    // clock and the rows shared a snapshot. Computing the released flag in the same statement as the
+    // read achieves that with no transaction at all, and without the window between the two reads in
+    // which a cooldown could expire. It also removes the same stale-transaction failure mode that
+    // `listDecisions` had.
+    const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>`
+      SELECT c.*, (c."status" = 'active' AND c."releaseAt" <= clock_timestamp()) AS "effectivelyReleased"
+      FROM "CooldownItem" c
+      WHERE c."userId" = ${userId}
+      ORDER BY c."createdAt" DESC
+    `;
 
-      const rows = await tx.cooldownItem.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      return rows.map((row) => {
-        const item = mapCooldownItemRow(row);
-        if (item.status === 'active' && new Date(item.releaseAt).getTime() <= dbNow.getTime()) {
-          return { ...item, status: 'released' as const };
-        }
-        return item;
-      });
+    return rows.map((row) => {
+      const item = mapCooldownItemRow(row);
+      if (row.effectivelyReleased === true) {
+        return { ...item, status: 'released' as const };
+      }
+      return item;
     });
   }
 
