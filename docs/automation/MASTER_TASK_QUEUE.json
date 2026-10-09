@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "36dc618",
-  "updatedAt": "2026-10-09T13:31:40.331Z",
+  "head": "c064d25",
+  "updatedAt": "2026-10-09T14:18:27.771Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -233,8 +233,8 @@
       "implemented": "yes",
       "tested": "yes",
       "independentReview": "no",
-      "evidence": "The header now carries an HMAC-SHA256 credential bound to the user id (30 day age limit, purpose prefix for domain separation); both identity helpers verify, so a bare user id is an invalid credential. All 96 helper call sites route through those two functions. Identity is bootstrapped via POST /api/v1/auth/anonymous; POST /api/v1/auth/demo is refused unless ALLOW_DEMO_IDENTITY=true. tests/business/batch3-identity-credential.spec.ts 13/13; mutations M40-M44 PROVEN. Live check against the running server and dev database: bare user_demo 401, no identity 401, bootstrap returns user_anon_<hex> plus a working credential (200), rewriting that credential to user_demo 401, demo endpoint 201 under the local flag; the anonymous identity sees 0 letters where the demo identity sees 5.",
-      "nextAction": "Independent review. Two things a reviewer should weigh: there is no credential revocation, and the product change below."
+      "evidence": "Superseded the signed-token version: a signature cannot be revoked, so a lost device stayed usable for the whole TTL. The credential is now <sessionId>.<secret> with only sha256(secret) stored, verified by a database lookup, so two instances agree without a shared cache and a restart loses nobody. Expiry, per-device revocation and rotation all work; rotation revokes its predecessor in the same transaction. Verification is async, so an Express middleware resolves it once per request and publishes it through AsyncLocalStorage rather than making ~96 synchronous ownership helpers async (a missing await there silently disables the check - it happened once already with the privacy gates). Migration 20261009000000_anonymous_session; the 12 baseline migrations are untouched. batch3-identity-credential.spec.ts 16/16 including restart survival, two-instance agreement and cross-instance revocation; batch3-identity-matrix.spec.ts 27/27; mutations M40-M44, M48, M49 PROVEN. mp app stores the credential through Capacitor Preferences on native and awaits the identity before every request.",
+      "nextAction": "Independent security review. Two things a reviewer must weigh: there is still no keystore-backed storage on native (see docs/architecture/IDENTITY_CREDENTIAL_STORAGE.md), and historical account recovery has no verifiable binding (B3-R11-HISTORICAL)."
     },
     {
       "id": "B3-R12",
@@ -354,6 +354,30 @@
       "tested": "yes",
       "independentReview": "no",
       "evidence": "The worker logged the Redis client \"error\" event but not BullMQ job failures, so a job that threw was retried and then dropped with nothing in the log. Found while diagnosing a regression this session: the job id and error message are now logged (the payload is not, because it can carry the user's own text).",
+      "nextAction": "-"
+    },
+    {
+      "id": "B3-R11-HISTORICAL",
+      "phase": "Batch 3 identity",
+      "priority": "P1",
+      "status": "BLOCKED_DEPENDENCY",
+      "title": "Historical anonymous accounts have no verifiable binding, so they cannot be handed back",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "Before this change the C-end had no authentication at all: the header was a bare user id and nothing about a caller was ever verified. There is therefore no stored evidence that could prove who an existing anonymous account belonged to, and issuing a session for a user id on request would recreate the exact hole just closed. No path does this today: a session is only issued for a user the server has just created, or for the demo user under an explicit flag.",
+      "nextAction": "Needs a product decision plus a verifiable channel (a real WeChat openid login, or a recovery code issued while the old client was still trusted). Do NOT auto-transfer an existing account to whoever names its id."
+    },
+    {
+      "id": "B3-PEER-INTRUDER-TEST",
+      "phase": "Batch 3 verification",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "The intruder test was green for the wrong reason",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "peer-support-stage asserted 404 for an intruder whose user row did not exist, so the 404 came from user resolution and the assertion never exercised conversation isolation. It now asserts the intruder's own list is empty and that the conversation id appears nowhere in it, while the message-post refusal stays 404 (verified separately: that assertion is still the one that fails if the ownership check is removed).",
       "nextAction": "-"
     }
   ]
