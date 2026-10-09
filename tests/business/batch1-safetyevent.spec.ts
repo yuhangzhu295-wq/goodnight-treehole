@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth } from './helpers';
+import { createApiTestApp, loginAdmin, auth, identityFor } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
@@ -117,7 +117,7 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
     // so any non-HIGH_DISTRESS intent triggers safety first routing.
     const intentRes = await request(server)
       .patch(`/api/v1/journeys/${journeyId}/intent`)
-      .set('x-goodnight-user-id', testUserId)
+      .set('x-goodnight-user-id', identityFor(testUserId))
       .send({ intent: 'NEXT_STEP' })
       .expect(200);
 
@@ -362,7 +362,7 @@ describe('Batch 1 Sub-batch B: SafetyEvent and D1 AuditLog protections', () => {
       // Delete the archive via API
       await request(server)
         .delete(`/api/v1/archive/journeys/${journeyId}`)
-        .set('x-goodnight-user-id', testUserId)
+        .set('x-goodnight-user-id', identityFor(testUserId))
         .send({ confirmation: 'DELETE_ARCHIVE' })
         .expect(200);
 

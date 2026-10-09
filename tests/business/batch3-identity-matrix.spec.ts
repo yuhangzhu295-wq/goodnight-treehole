@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth } from './helpers';
+import { createApiTestApp, loginAdmin, auth, identityFor } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 
 describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
@@ -35,7 +35,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
     // Configure privacy for testing
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', userA)
+      .set('x-goodnight-user-id', identityFor(userA))
       .send({
         allowRecoveryData: true,
         allowLongTermMemory: true,
@@ -48,7 +48,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
 
     await request(server)
       .patch('/api/v1/me/privacy')
-      .set('x-goodnight-user-id', userB)
+      .set('x-goodnight-user-id', identityFor(userB))
       .send({
         allowRecoveryData: true,
         allowLongTermMemory: true,
@@ -197,25 +197,25 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
     it('2.1 Unknown identity header refuses with 404 and does not return any data', async () => {
       const resPrivacy = await request(server)
         .get('/api/v1/settings/privacy')
-        .set('x-goodnight-user-id', unknownUser)
+        .set('x-goodnight-user-id', identityFor(unknownUser))
         .expect(404);
       expect(resPrivacy.body.message).toContain('当前匿名会话用户不存在');
 
       const resMemory = await request(server)
         .get('/api/v1/memory')
-        .set('x-goodnight-user-id', unknownUser)
+        .set('x-goodnight-user-id', identityFor(unknownUser))
         .expect(404);
       expect(resMemory.body.message).toContain('当前匿名会话用户不存在');
 
       const resJourney = await request(server)
         .get('/api/v1/journeys')
-        .set('x-goodnight-user-id', unknownUser)
+        .set('x-goodnight-user-id', identityFor(unknownUser))
         .expect(404);
       expect(resJourney.body.message).toContain('当前匿名会话用户不存在');
 
       const resDecision = await request(server)
         .get('/api/v1/decisions')
-        .set('x-goodnight-user-id', unknownUser)
+        .set('x-goodnight-user-id', identityFor(unknownUser))
         .expect(404);
       expect(resDecision.body.message).toContain('当前匿名会话用户不存在');
     });
@@ -226,61 +226,61 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // User A creates memory
       const createRes = await request(server)
         .post('/api/v1/memory')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ title: 'A的私密记忆', content: 'A的私密内容', scope: 'all_ai' })
         .expect(201);
       const memoryId = createRes.body.item.id as string;
 
       // User A can read it
-      const aList = await request(server).get('/api/v1/memory').set('x-goodnight-user-id', userA).expect(200);
+      const aList = await request(server).get('/api/v1/memory').set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aList.body.items.some((m: any) => m.id === memoryId)).toBe(true);
 
       // User B cannot see it in list
-      const bList = await request(server).get('/api/v1/memory').set('x-goodnight-user-id', userB).expect(200);
+      const bList = await request(server).get('/api/v1/memory').set('x-goodnight-user-id', identityFor(userB)).expect(200);
       expect(bList.body.items.some((m: any) => m.id === memoryId)).toBe(false);
 
       // User B is refused on A's record (PATCH, DELETE, REACTIVATE)
       await request(server)
         .patch(`/api/v1/me/memories/${memoryId}`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ title: 'B试图篡改' })
         .expect(404);
 
       await request(server)
         .delete(`/api/v1/me/memories/${memoryId}`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .expect(404);
 
       await request(server)
         .post(`/api/v1/me/memories/${memoryId}/reactivate`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ days: 30 })
         .expect(404);
 
       // User A can delete their own
-      await request(server).delete(`/api/v1/me/memories/${memoryId}`).set('x-goodnight-user-id', userA).expect(200);
+      await request(server).delete(`/api/v1/me/memories/${memoryId}`).set('x-goodnight-user-id', identityFor(userA)).expect(200);
     });
 
     it('3.2 Decision: User A owns decision; User B is refused on User A record', async () => {
       const createRes = await request(server)
         .post('/api/v1/decisions')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ question: 'A的决策问题', options: ['A1', 'A2'] })
         .expect(201);
       const decisionId = createRes.body.item.id as string;
 
       // User A sees it
-      const aList = await request(server).get('/api/v1/decisions').set('x-goodnight-user-id', userA).expect(200);
+      const aList = await request(server).get('/api/v1/decisions').set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aList.body.items.some((d: any) => d.id === decisionId)).toBe(true);
 
       // User B does not see it
-      const bList = await request(server).get('/api/v1/decisions').set('x-goodnight-user-id', userB).expect(200);
+      const bList = await request(server).get('/api/v1/decisions').set('x-goodnight-user-id', identityFor(userB)).expect(200);
       expect(bList.body.items.some((d: any) => d.id === decisionId)).toBe(false);
 
       // User B cannot patch User A's decision
       await request(server)
         .patch(`/api/v1/decisions/${decisionId}`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ decision: 'B的结论' })
         .expect(404);
     });
@@ -288,7 +288,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
     it('3.3 Cooldown: User A owns cooldown; User B is refused', async () => {
       const createDecision = await request(server)
         .post('/api/v1/decisions')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ question: 'A的冷静决定', options: ['A1'] })
         .expect(201);
       const decisionId = createDecision.body.item.id as string;
@@ -296,110 +296,110 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // User B cannot create cooldown on A's decision
       await request(server)
         .post('/api/v1/cooldowns')
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ decisionId, title: 'B非法关联', hours: 24 })
         .expect(404);
 
       // User A creates cooldown
       const createCd = await request(server)
         .post('/api/v1/cooldowns')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ decisionId, title: 'A的冷静事项', hours: 24 })
         .expect(201);
       const cdId = createCd.body.item.id as string;
 
       // User A sees it in cooldown list
-      const aCds = await request(server).get('/api/v1/cooldown').set('x-goodnight-user-id', userA).expect(200);
+      const aCds = await request(server).get('/api/v1/cooldown').set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aCds.body.items.some((c: any) => c.id === cdId)).toBe(true);
 
       // User B does not see A's cooldown
-      const bCds = await request(server).get('/api/v1/cooldown').set('x-goodnight-user-id', userB).expect(200);
+      const bCds = await request(server).get('/api/v1/cooldown').set('x-goodnight-user-id', identityFor(userB)).expect(200);
       expect(bCds.body.items.some((c: any) => c.id === cdId)).toBe(false);
     });
 
     it('3.4 FutureSelf: User A owns future letter; User B is refused', async () => {
       const createRes = await request(server)
         .post('/api/v1/future-messages')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ content: 'A写给未来的信', deliverAt: new Date(Date.now() + 86400000).toISOString() })
         .expect(201);
       const messageId = createRes.body.item.id as string;
 
       // User A sees it
-      const aList = await request(server).get('/api/v1/future-messages').set('x-goodnight-user-id', userA).expect(200);
+      const aList = await request(server).get('/api/v1/future-messages').set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aList.body.items.some((m: any) => m.id === messageId)).toBe(true);
 
       // User B does not see it
-      const bList = await request(server).get('/api/v1/future-messages').set('x-goodnight-user-id', userB).expect(200);
+      const bList = await request(server).get('/api/v1/future-messages').set('x-goodnight-user-id', identityFor(userB)).expect(200);
       expect(bList.body.items.some((m: any) => m.id === messageId)).toBe(false);
     });
 
     it('3.5 RealityHandoff: User A owns handoff; User B is refused', async () => {
       const createRes = await request(server)
         .post('/api/v1/handoffs')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ recipient: '医生', channel: '线下', summary: 'A的交接内容' })
         .expect(201);
       const handoffId = createRes.body.item.id as string;
 
       // User A sees it
-      const aList = await request(server).get('/api/v1/handoffs').set('x-goodnight-user-id', userA).expect(200);
+      const aList = await request(server).get('/api/v1/handoffs').set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aList.body.items.some((h: any) => h.id === handoffId)).toBe(true);
 
       // User B does not see it
-      const bList = await request(server).get('/api/v1/handoffs').set('x-goodnight-user-id', userB).expect(200);
+      const bList = await request(server).get('/api/v1/handoffs').set('x-goodnight-user-id', identityFor(userB)).expect(200);
       expect(bList.body.items.some((h: any) => h.id === handoffId)).toBe(false);
 
       // User B cannot share A's handoff
       await request(server)
         .post(`/api/v1/handoffs/${handoffId}/share`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .expect(404);
     });
 
     it('3.6 Journey & JourneyArchive: User A owns journey; User B is refused on User A record', async () => {
       const createRes = await request(server)
         .post('/api/v1/journeys')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ title: 'A专属测试旅程', domain: '生活', content: 'A的生活内容' })
         .expect(201);
       const journeyId = createRes.body.journey.id as string;
 
       // User A sees it in list and detail
-      const aList = await request(server).get('/api/v1/journeys').set('x-goodnight-user-id', userA).expect(200);
+      const aList = await request(server).get('/api/v1/journeys').set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aList.body.items.some((item: any) => item.journey.id === journeyId)).toBe(true);
 
-      const aDetail = await request(server).get(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', userA).expect(200);
+      const aDetail = await request(server).get(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', identityFor(userA)).expect(200);
       expect(aDetail.body.item.journey.id).toBe(journeyId);
 
       // User B cannot see it in list
-      const bList = await request(server).get('/api/v1/journeys').set('x-goodnight-user-id', userB).expect(200);
+      const bList = await request(server).get('/api/v1/journeys').set('x-goodnight-user-id', identityFor(userB)).expect(200);
       expect(bList.body.items.some((item: any) => item.journey.id === journeyId)).toBe(false);
 
       // User B is refused on User A's journey
-      await request(server).get(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).get(`/api/v1/journeys/${journeyId}/fingerprint`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).get(`/api/v1/journeys/${journeyId}/timeline`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).get(`/api/v1/journeys/${journeyId}/actions`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).patch(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', userB).send({ title: 'B篡改' }).expect(404);
-      await request(server).patch(`/api/v1/journeys/${journeyId}/situation`).set('x-goodnight-user-id', userB).send({ facts: ['篡改'] }).expect(404);
-      await request(server).post(`/api/v1/journeys/${journeyId}/actions`).set('x-goodnight-user-id', userB).send({ title: 'B行动' }).expect(404);
-      await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set('x-goodnight-user-id', userB).send({ status: 'paused' }).expect(404);
+      await request(server).get(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).get(`/api/v1/journeys/${journeyId}/fingerprint`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).get(`/api/v1/journeys/${journeyId}/timeline`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).get(`/api/v1/journeys/${journeyId}/actions`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).patch(`/api/v1/journeys/${journeyId}`).set('x-goodnight-user-id', identityFor(userB)).send({ title: 'B篡改' }).expect(404);
+      await request(server).patch(`/api/v1/journeys/${journeyId}/situation`).set('x-goodnight-user-id', identityFor(userB)).send({ facts: ['篡改'] }).expect(404);
+      await request(server).post(`/api/v1/journeys/${journeyId}/actions`).set('x-goodnight-user-id', identityFor(userB)).send({ title: 'B行动' }).expect(404);
+      await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set('x-goodnight-user-id', identityFor(userB)).send({ status: 'paused' }).expect(404);
 
       // User A archives the journey
-      await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set('x-goodnight-user-id', userA).send({ status: 'archived' }).expect(200);
+      await request(server).patch(`/api/v1/journeys/${journeyId}/status`).set('x-goodnight-user-id', identityFor(userA)).send({ status: 'archived' }).expect(200);
 
       // User B is refused on archived journey
-      await request(server).get(`/api/v1/archive/journeys/${journeyId}`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).post(`/api/v1/archive/journeys/${journeyId}/export`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).post(`/api/v1/archive/journeys/${journeyId}/restore`).set('x-goodnight-user-id', userB).expect(404);
-      await request(server).delete(`/api/v1/archive/journeys/${journeyId}`).set('x-goodnight-user-id', userB).send({ confirmation: 'DELETE_ARCHIVE' }).expect(404);
+      await request(server).get(`/api/v1/archive/journeys/${journeyId}`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).post(`/api/v1/archive/journeys/${journeyId}/export`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).post(`/api/v1/archive/journeys/${journeyId}/restore`).set('x-goodnight-user-id', identityFor(userB)).expect(404);
+      await request(server).delete(`/api/v1/archive/journeys/${journeyId}`).set('x-goodnight-user-id', identityFor(userB)).send({ confirmation: 'DELETE_ARCHIVE' }).expect(404);
     });
 
     it('3.7 SupportPlan: User B is refused on User A journey', async () => {
       const jRes = await request(server)
         .post('/api/v1/journeys')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ title: 'A的支持旅程', domain: '生活', content: '内容' })
         .expect(201);
       const journeyId = jRes.body.journey.id as string;
@@ -407,7 +407,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // User B cannot attach support plan to A's journey
       await request(server)
         .post('/api/v1/support-plans')
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ journeyId, title: 'B越权支持计划', plan: {} })
         .expect(404);
     });
@@ -415,7 +415,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
     it('3.8 Recovery: User B is refused on User A journey', async () => {
       const jRes = await request(server)
         .post('/api/v1/journeys')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ title: 'A的恢复旅程', domain: '生活', content: '内容' })
         .expect(201);
       const journeyId = jRes.body.journey.id as string;
@@ -423,7 +423,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // User B cannot check in recovery on A's journey
       await request(server)
         .post('/api/v1/me/recovery')
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ journeyId, summary: 'B试图在A的旅程打卡' })
         .expect(404);
     });
@@ -432,7 +432,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // User A creates diary through /me/diaries
       const diaryRes = await request(server)
         .post('/api/v1/me/diaries')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ content: 'A的私密日记内容', emotion: '开心' })
         .expect(201);
       const diaryId = diaryRes.body.item.id as string;
@@ -440,34 +440,34 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // User A reads their diaries through /me/diaries
       const aDiaries = await request(server)
         .get('/api/v1/me/diaries')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .expect(200);
       expect(aDiaries.body.items.some((d: any) => d.id === diaryId)).toBe(true);
 
       // User B cannot see User A's diary through /me/diaries
       const bDiaries = await request(server)
         .get('/api/v1/me/diaries')
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .expect(200);
       expect(bDiaries.body.items.some((d: any) => d.id === diaryId)).toBe(false);
 
       // User A profile and stats are scoped
       const aProfile = await request(server)
         .get('/api/v1/me/profile')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .expect(200);
       expect(aProfile.body.item.id).toBe(userA);
 
       const aStats = await request(server)
         .get('/api/v1/me/stats')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .expect(200);
       expect(aStats.body.item.diaryCount).toBeGreaterThanOrEqual(1);
 
       // Unknown user is refused with 404
       await request(server)
         .get('/api/v1/me/profile')
-        .set('x-goodnight-user-id', unknownUser)
+        .set('x-goodnight-user-id', identityFor(unknownUser))
         .expect(404);
     });
   });
@@ -482,17 +482,17 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // Caller sending user header without admin token
       await request(server)
         .get('/api/admin/v1/support/plans')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .expect(401);
 
       await request(server)
         .get('/api/admin/v1/support/plans/dummy')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .expect(401);
 
       await request(server)
         .get('/api/admin/v1/memory')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .expect(401);
 
       // Legitimate admin succeeds
@@ -513,7 +513,7 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       // Create private data under demo user (userA)
       const demoDecision = await request(server)
         .post('/api/v1/decisions')
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ question: 'Demo用户的隐私决定', options: ['D1'] })
         .expect(201);
       const decisionId = demoDecision.body.item.id as string;

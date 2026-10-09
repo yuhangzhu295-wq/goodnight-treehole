@@ -1,3 +1,4 @@
+import { identityFor } from '../tests/business/helpers';
 import 'reflect-metadata';
 
 // Environment variables must be configured before importing any modules that evaluate configuration at import time
@@ -1194,7 +1195,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number, mode: string) =>
         request(server)
           .post('/api/v1/journeys')
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send({
             title: `基准测试旅程 ${mode} ${idx}`,
             domain: '工作',
@@ -1210,7 +1211,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number, mode: string) =>
         request(server)
           .post('/api/v1/journeys')
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send({
             title: `高危安全旅程 ${mode} ${idx}`,
             domain: '其他',
@@ -1227,7 +1228,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number, mode: string) =>
         request(server)
           .post(`/api/v1/actions/action_bench_${idx}/checkin`)
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send({
             status: 'completed',
             reflection: `行动已顺利完成，感觉清晰很多 ${mode} ${idx}`,
@@ -1258,7 +1259,7 @@ async function runSingleWriterBenchmarks(
       endpoint: 'GET /api/v1/notifications',
       nature: 'Direct DB query: listUserNotifications (findMany with indexed userId)',
       isAiTriggering: false,
-      execute: () => request(server).get('/api/v1/notifications').set('x-goodnight-user-id', 'user_demo').send(),
+      execute: () => request(server).get('/api/v1/notifications').set('x-goodnight-user-id', identityFor('user_demo')).send(),
     },
     {
       name: 'readJourneyDetail',
@@ -1266,7 +1267,7 @@ async function runSingleWriterBenchmarks(
       nature: 'Direct DB query: journeyDetail (LifeJourney + SituationSnapshot + updates + commitments + checkins)',
       isAiTriggering: false,
       execute: () =>
-        request(server).get('/api/v1/journeys/journey_bench_0').set('x-goodnight-user-id', 'user_demo').send(),
+        request(server).get('/api/v1/journeys/journey_bench_0').set('x-goodnight-user-id', identityFor('user_demo')).send(),
     },
     {
       name: 'readNotification (PATCH)',
@@ -1276,7 +1277,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number) =>
         request(server)
           .patch(`/api/v1/notifications/notif_bench_${idx}/read`)
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send(),
     },
     {
@@ -1288,7 +1289,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number, mode: string) =>
         request(server)
           .post('/api/v1/journeys/journey_bench_0/actions')
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send({
             title: `基准新增行动承诺 ${mode} ${idx}`,
             description: `行动承诺详细描述 ${mode} ${idx}`,

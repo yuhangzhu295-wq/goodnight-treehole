@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth, demoUserHeaders, waitForAiJob } from './helpers';
+import { createApiTestApp, loginAdmin, auth, demoUserHeaders, waitForAiJob, identityFor } from './helpers';
 /**
  * PrivacySetting is database-authoritative from Batch 3, so the in-memory map is disabled and a
  * fixture must seed through the database. Seeding the map would throw, and seeding a *copy* would
@@ -554,7 +554,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       // User A attempts to PATCH User B's journey -> must be rejected with 404
       const foreignPatchRes = await request(server)
         .patch(`/api/v1/journeys/${journeyBId}`)
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ title: '非法修改他人的标题' });
       expect(foreignPatchRes.status).toBe(404);
       expect(foreignPatchRes.body.message).toContain('旅程不存在或无权访问');
@@ -580,7 +580,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       // User A attempts to archive via PATCH without consent -> must be rejected with 403
       const archiveWithoutConsentRes = await request(server)
         .patch(`/api/v1/journeys/${journeyAId}`)
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ status: 'archived' });
       expect(archiveWithoutConsentRes.status).toBe(403);
       expect(archiveWithoutConsentRes.body.message).toContain('请先在隐私设置中允许保留旅程归档');
@@ -589,7 +589,7 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       await setPrivacy(dbUrl, userA, { allowJourneyArchiveRetention: true });
       const archiveWithConsentRes = await request(server)
         .patch(`/api/v1/journeys/${journeyAId}`)
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ status: 'archived' })
         .expect(200);
       expect(archiveWithConsentRes.body.journey.status).toBe('archived');
@@ -1271,57 +1271,57 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       });
 
       // --- Cross-user read: User B attempting to read User A's journey resources -> MUST 404 ---
-      const bReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', userB);
+      const bReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', identityFor(userB));
       expect(bReadJ.status).toBe(404);
       expect(bReadJ.body.message).toContain('旅程不存在或无权访问');
 
-      const bReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', userB);
+      const bReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', identityFor(userB));
       expect(bReadFp.status).toBe(404);
       expect(bReadFp.body.message).toContain('旅程不存在或无权访问');
 
-      const bReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', userB);
+      const bReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', identityFor(userB));
       expect(bReadTl.status).toBe(404);
       expect(bReadTl.body.message).toContain('旅程不存在或无权访问');
 
-      const bReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', userB);
+      const bReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', identityFor(userB));
       expect(bReadAct.status).toBe(404);
       expect(bReadAct.body.message).toContain('旅程不存在或无权访问');
 
       // --- Cross-user write: User B attempting to create action on User A's journey -> MUST 404 ---
       const bWriteAct = await request(server)
         .post(`/api/v1/journeys/${journeyAId}/actions`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ title: '非法跨用户行动' });
       expect(bWriteAct.status).toBe(404);
       expect(bWriteAct.body.message).toContain('旅程不存在或无权访问');
 
       // --- Positive control: Legitimate owner gets 200/201 on all routes ---
-      const aReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', userA);
+      const aReadJ = await request(server).get(`/api/v1/journeys/${journeyAId}`).set('x-goodnight-user-id', identityFor(userA));
       expect(aReadJ.status).toBe(200);
       expect(aReadJ.body.item.journey.id).toBe(journeyAId);
       expect(aReadJ.body.item.snapshot.facts).toContain('User A私密事实');
 
-      const aReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', userA);
+      const aReadFp = await request(server).get(`/api/v1/journeys/${journeyAId}/fingerprint`).set('x-goodnight-user-id', identityFor(userA));
       expect(aReadFp.status).toBe(200);
       expect(aReadFp.body.item.journey.id).toBe(journeyAId);
 
-      const aReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', userA);
+      const aReadTl = await request(server).get(`/api/v1/journeys/${journeyAId}/timeline`).set('x-goodnight-user-id', identityFor(userA));
       expect(aReadTl.status).toBe(200);
       expect(aReadTl.body.items.some((u: any) => u.id === upAId)).toBe(true);
 
-      const aReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', userA);
+      const aReadAct = await request(server).get(`/api/v1/journeys/${journeyAId}/actions`).set('x-goodnight-user-id', identityFor(userA));
       expect(aReadAct.status).toBe(200);
       expect(aReadAct.body.items.some((a: any) => a.id === actAId)).toBe(true);
 
       const aWriteAct = await request(server)
         .post(`/api/v1/journeys/${journeyAId}/actions`)
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ title: '合法所有者行动' });
       expect(aWriteAct.status).toBe(201);
       expect(aWriteAct.body.item.title).toBe('合法所有者行动');
 
       // Positive control for User B accessing their own journey
-      const bReadOwnJ = await request(server).get(`/api/v1/journeys/${journeyBId}`).set('x-goodnight-user-id', userB);
+      const bReadOwnJ = await request(server).get(`/api/v1/journeys/${journeyBId}`).set('x-goodnight-user-id', identityFor(userB));
       expect(bReadOwnJ.status).toBe(200);
       expect(bReadOwnJ.body.item.journey.id).toBe(journeyBId);
 

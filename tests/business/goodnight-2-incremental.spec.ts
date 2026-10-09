@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { auth, createApiTestApp, loginAdmin, waitForAiJob, demoUserHeaders } from './helpers';
+import { auth, createApiTestApp, loginAdmin, waitForAiJob, demoUserHeaders, identityFor } from './helpers';
 
 describe('GoodnightTreeHole 2.0 incremental business loop', () => {
   let app: INestApplication;
@@ -253,11 +253,11 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     const peerPrivacy = { allowPeerMatching: true, allowAnonymousExperienceStats: true, allowAnonymousExperienceShare: true };
 
     await request(server).patch('/api/v1/me/privacy').set(demoUserHeaders()).send(peerPrivacy).expect(200);
-    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', guest).send(peerPrivacy).expect(200);
+    await request(server).patch('/api/v1/me/privacy').set('x-goodnight-user-id', identityFor(guest)).send(peerPrivacy).expect(200);
 
     const peerJourney = await request(server)
       .post('/api/v1/journeys')
-      .set('x-goodnight-user-id', guest)
+      .set('x-goodnight-user-id', identityFor(guest))
       .send({
         title: '从分开后的晚上慢慢走出来',
         domain: '关系',
@@ -269,7 +269,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
 
     const peerExperience = await request(server)
       .post('/api/v1/peer-experiences')
-      .set('x-goodnight-user-id', guest)
+      .set('x-goodnight-user-id', identityFor(guest))
       .send({
         journeyId: peerJourney.body.journey.id,
         title: '我先把想发的话放进冷静箱',
@@ -325,38 +325,38 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(demoUserHeaders()).send({ status: 'requested' }).expect(200);
     await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(demoUserHeaders()).send({ status: 'connected' }).expect(400);
 
-    const guestRequests = await request(server).get('/api/v1/peer-requests').set('x-goodnight-user-id', guest).expect(200);
+    const guestRequests = await request(server).get('/api/v1/peer-requests').set('x-goodnight-user-id', identityFor(guest)).expect(200);
     expect(guestRequests.body.items.map((item: { id: string }) => item.id)).toContain(exactMatch.id);
-    const guestNotifications = await request(server).get('/api/v1/notifications').set('x-goodnight-user-id', guest).expect(200);
+    const guestNotifications = await request(server).get('/api/v1/notifications').set('x-goodnight-user-id', identityFor(guest)).expect(200);
     const peerNotificationId = `notification_peer_request_${exactMatch.id}_${guest}`;
     expect(guestNotifications.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: peerNotificationId, userId: guest, type: 'PEER_REQUEST', status: 'unread' })]));
     expect(await prisma.userNotification.findUnique({ where: { id: peerNotificationId } })).toMatchObject({ userId: guest, type: 'PEER_REQUEST', status: 'unread' });
-    await request(server).patch(`/api/v1/notifications/${peerNotificationId}/read`).set('x-goodnight-user-id', guest).expect(200);
+    await request(server).patch(`/api/v1/notifications/${peerNotificationId}/read`).set('x-goodnight-user-id', identityFor(guest)).expect(200);
     expect(await prisma.userNotification.findUnique({ where: { id: peerNotificationId } })).toMatchObject({ userId: guest, status: 'read' });
 
     const accepted = await request(server)
       .post(`/api/v1/peer-matches/${exactMatch.id}/respond`)
-      .set('x-goodnight-user-id', guest)
+      .set('x-goodnight-user-id', identityFor(guest))
       .send({ status: 'connected' })
       .expect(201);
     expect(accepted.body.conversation).toBeNull();
 
     const consented = await request(server)
       .post(`/api/v1/peer-matches/${exactMatch.id}/consent`)
-      .set('x-goodnight-user-id', guest)
+      .set('x-goodnight-user-id', identityFor(guest))
       .send({})
       .expect(201);
     expect(consented.body.conversation.matchId).toBe(exactMatch.id);
 
     const requesterConversations = await request(server).get('/api/v1/peer-conversations').set(demoUserHeaders()).expect(200);
-    const guestConversations = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', guest).expect(200);
+    const guestConversations = await request(server).get('/api/v1/peer-conversations').set('x-goodnight-user-id', identityFor(guest)).expect(200);
     expect(requesterConversations.body.items.map((item: { matchId: string }) => item.matchId)).toContain(exactMatch.id);
     expect(guestConversations.body.items.map((item: { matchId: string }) => item.matchId)).toContain(exactMatch.id);
 
     await request(server).post(`/api/v1/peer-conversations/${exactMatch.id}/messages`).set(demoUserHeaders()).send({ content: '我今晚还是很想联系对方。' }).expect(201);
     await request(server)
       .post(`/api/v1/peer-conversations/${exactMatch.id}/messages`)
-      .set('x-goodnight-user-id', guest)
+      .set('x-goodnight-user-id', identityFor(guest))
       .send({ content: '我当时先把话写下，等十分钟再决定。' })
       .expect(201);
 

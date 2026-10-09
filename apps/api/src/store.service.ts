@@ -2798,6 +2798,26 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
+   * Creates a fresh anonymous user and persists it, so a client with no identity can be given one.
+   * The id is server-generated: a client never chooses the identity it will be issued.
+   */
+  async createAnonymousUser() {
+    const suffix = crypto.randomBytes(4).toString('hex');
+    const user = {
+      id: `user_anon_${suffix}`,
+      openid: `anon_openid_${suffix}`,
+      nickname: '匿名旅人',
+      anonymousCode: `树洞 ${suffix.slice(0, 4).toUpperCase()}`,
+      avatarUrl: '/avatar.svg',
+      status: 'normal' as const,
+      createdAt: now(),
+    };
+    this.users.push(user as (typeof this.users)[number]);
+    await this.persistAndFlush();
+    return user;
+  }
+
+  /**
    * Records one hug from one user on one post, idempotently.
    *
    * The counter used to be a bare `hugCount += 1` with no per-user row, so a client could

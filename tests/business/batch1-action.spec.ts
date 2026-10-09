@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth, demoUserHeaders } from './helpers';
+import { createApiTestApp, loginAdmin, auth, demoUserHeaders, identityFor } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { MonthlyReportService } from '../../apps/api/src/monthly-report.service';
@@ -1545,7 +1545,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // --- Cross-user write: User B attempting to check in User A's action -> MUST return 404 ---
       const crossCheckinRes = await request(server)
         .post(`/api/v1/actions/${actionAId}/checkin`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ status: 'completed', reflection: '越权打卡尝试' });
       expect(crossCheckinRes.status).toBe(404);
       expect(crossCheckinRes.body.message).toContain('行动不存在');
@@ -1557,7 +1557,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // --- Positive control: Legitimate owner checks in own action -> 200/201 with completed checkin ---
       const ownerCheckinRes = await request(server)
         .post(`/api/v1/actions/${actionAId}/checkin`)
-        .set('x-goodnight-user-id', userA)
+        .set('x-goodnight-user-id', identityFor(userA))
         .send({ status: 'completed', reflection: '合法所有者打卡成功' });
       expect([200, 201]).toContain(ownerCheckinRes.status);
       expect(ownerCheckinRes.body.checkin.status).toBe('completed');
@@ -1569,7 +1569,7 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       // Positive control for User B checking in User B's action
       const userBCheckinRes = await request(server)
         .post(`/api/v1/actions/${actionBId}/checkin`)
-        .set('x-goodnight-user-id', userB)
+        .set('x-goodnight-user-id', identityFor(userB))
         .send({ status: 'completed', reflection: 'User B 打卡成功' });
       expect([200, 201]).toContain(userBCheckinRes.status);
       expect(userBCheckinRes.body.checkin.status).toBe('completed');

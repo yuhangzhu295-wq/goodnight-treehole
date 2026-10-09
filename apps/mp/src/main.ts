@@ -25,7 +25,13 @@ import { FINGERPRINT } from '@goodnight/shared-types';
 };
 import App from './App.vue';
 import { router } from './router';
+import { ensureIdentity } from './identity';
 import './native/back-button';
 import './styles.scss';
+
+// The API requires a server-issued identity credential on every private route, so obtain one before
+// the first view mounts. A failure here is not fatal: public views still render, and the first
+// private request will surface the real error.
+ensureIdentity().catch(() => undefined);
 
 createApp(App).use(createPinia()).use(router).mount('#app');

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { createApiTestApp, loginAdmin } from './helpers';
+import { createApiTestApp, loginAdmin, identityFor } from './helpers';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
 import { StoreService } from '../../apps/api/src/store.service';
 
@@ -286,22 +286,22 @@ describe('Batch 3 Task R-07: Admin minimal disclosure and audited reads', () => 
     // 2. Caller sending user header without admin authorization
     await request(server)
       .get(`/api/admin/v1/memory/${memoryId}`)
-      .set('x-goodnight-user-id', userA)
+      .set('x-goodnight-user-id', identityFor(userA))
       .expect(401);
 
     await request(server)
       .get(`/api/admin/v1/memory`)
-      .set('x-goodnight-user-id', userA)
+      .set('x-goodnight-user-id', identityFor(userA))
       .expect(401);
 
     await request(server)
       .get('/api/admin/v1/support/plans')
-      .set('x-goodnight-user-id', userA)
+      .set('x-goodnight-user-id', identityFor(userA))
       .expect(401);
 
     await request(server)
       .get(`/api/admin/v1/support/plans/dummy`)
-      .set('x-goodnight-user-id', userA)
+      .set('x-goodnight-user-id', identityFor(userA))
       .expect(401);
   });
 

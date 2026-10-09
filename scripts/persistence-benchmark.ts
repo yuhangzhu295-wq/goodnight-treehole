@@ -1,3 +1,4 @@
+import { identityFor } from '../tests/business/helpers';
 import 'reflect-metadata';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -736,7 +737,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number) =>
         request(server)
           .post('/api/v1/journeys')
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send({
             title: `基准测试旅程 ${idx}`,
             domain: '工作',
@@ -753,7 +754,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number) =>
         request(server)
           .post('/api/v1/journeys/journey_bench_0/actions')
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send({
             title: `基准行动承诺 ${idx}`,
             description: `行动承诺详细描述 ${idx}`,
@@ -768,7 +769,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number) =>
         request(server)
           .patch(`/api/v1/notifications/notif_bench_${idx}/read`)
-          .set('x-goodnight-user-id', 'user_demo')
+          .set('x-goodnight-user-id', identityFor('user_demo'))
           .send(),
     },
     {
@@ -780,7 +781,7 @@ async function runSingleWriterBenchmarks(
       execute: (idx: number) =>
         request(server)
           .post('/api/v1/peer-conversations/match_bench_0/messages')
-          .set('x-goodnight-user-id', 'user_guest')
+          .set('x-goodnight-user-id', identityFor('user_guest'))
           .send({
             content: `你好，我也经历过类似困扰，加油！消息 ${idx}`,
           }),

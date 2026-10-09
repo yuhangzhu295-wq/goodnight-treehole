@@ -42,6 +42,12 @@ import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService } from './self-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
+  demoIdentityAllowed,
+  IDENTITY_CREDENTIAL_TTL_MS,
+  issueIdentityCredential,
+  verifyIdentityCredential,
+} from './identity-credential.js';
+import {
   DAPI_BASE_URL,
   DAPI_PROVIDER_ID,
   REMOTE_BACKUP_BASE_URL,
@@ -138,16 +144,19 @@ class AdminAuthGuard implements CanActivate {
   }
 }
 
+// The header carries a server-issued credential, not a bare user id. Verification is centralised
+// here so no route can accept a caller-supplied identity: a raw user id is now simply an invalid
+// credential.
 function runtimeUserId(header?: string) {
-  return header?.trim() || undefined;
+  return verifyIdentityCredential(header) ?? undefined;
 }
 
 function requireRuntimeUserId(header?: string): string {
-  const trimmed = header?.trim();
-  if (!trimmed) {
-    throw new UnauthorizedException('缺少用户身份标识');
+  const verified = verifyIdentityCredential(header);
+  if (!verified) {
+    throw new UnauthorizedException('缺少用户身份凭证');
   }
-  return trimmed;
+  return verified;
 }
 const FINGERPRINT = {
   gitCommitSha: process.env.GIT_COMMIT_SHA ?? 'unknown',
@@ -299,6 +308,37 @@ export class PublicController {
   @Get('debug/fingerprint')
   fingerprint() {
     return FINGERPRINT;
+  }
+
+  /**
+   * Issues a credential for a brand-new anonymous user. This is the only way a client without an
+   * existing identity can obtain one; it cannot be used to obtain somebody else's.
+   */
+  @Post('auth/anonymous')
+  async createAnonymousIdentity() {
+    const user = await this.store.createAnonymousUser();
+    return {
+      item: {
+        userId: user.id,
+        credential: issueIdentityCredential(user.id),
+        expiresInMs: IDENTITY_CREDENTIAL_TTL_MS,
+        anonymousCode: user.anonymousCode,
+      },
+    };
+  }
+
+  /**
+   * Issues a credential for the seeded demo user so the offline demo keeps working. Disabled unless
+   * ALLOW_DEMO_IDENTITY=true, because the demo user holds seeded content and handing out its
+   * credential in production would re-open the hole the credential exists to close.
+   */
+  @Post('auth/demo')
+  demoIdentity() {
+    if (!demoIdentityAllowed()) {
+      throw new ForbiddenException('演示身份在当前环境未启用');
+    }
+    const userId = this.store.getDemoUserId();
+    return { item: { userId, credential: issueIdentityCredential(userId), expiresInMs: IDENTITY_CREDENTIAL_TTL_MS } };
   }
 
   @Get('config')

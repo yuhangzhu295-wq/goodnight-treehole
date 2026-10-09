@@ -21,6 +21,8 @@ const RECOVERY_SPEC = 'tests/business/batch3-recovery-atomicity.spec.ts';
 const IDENTITY_SPEC = 'tests/business/batch3-identity-matrix.spec.ts';
 const ADMIN_DISCLOSURE_SPEC = 'tests/business/batch3-admin-disclosure.spec.ts';
 const RECONSENT_SPEC = 'tests/business/batch3-memory-reconsent.spec.ts';
+const CREDENTIAL_SPEC = 'tests/business/batch3-identity-credential.spec.ts';
+const CREDENTIAL = 'apps/api/src/identity-credential.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
 const DECISION_SPEC = 'tests/business/batch3-decision-cooldown.spec.ts';
@@ -522,6 +524,66 @@ const mutations = [
         file: SELF,
         old: "      if (cd.decisionId !== decisionId) {\n        // Lost its decision (cd.decisionId is null due to delete) or mismatched\n        await tx.followUpJob.update({\n          where: { id: input.id },\n          data: { status: 'superseded', completedAt: null },\n        });\n        return { status: 'superseded' };\n      }",
         new: '      // mutation: decisionId mismatch check removed',
+      },
+    ],
+  },
+  {
+    id: 'M40 identity: requireRuntimeUserId trusts the raw header again (the B3-R11 hole)',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.1'],
+    patches: [
+      {
+        file: CONTROLLERS,
+        old: "function requireRuntimeUserId(header?: string): string {\n  const verified = verifyIdentityCredential(header);\n  if (!verified) {\n    throw new UnauthorizedException('缺少用户身份凭证');\n  }\n  return verified;\n}",
+        new: "function requireRuntimeUserId(header?: string): string {\n  const verified = header?.trim();\n  if (!verified) {\n    throw new UnauthorizedException('缺少用户身份凭证');\n  }\n  return verified;\n}",
+      },
+    ],
+  },
+  {
+    id: 'M41 identity: the signature comparison is skipped',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.3'],
+    patches: [
+      {
+        file: CREDENTIAL,
+        old: '  if (givenBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(givenBuf, expectedBuf)) {\n    throw new UnauthorizedException(\'身份凭证签名无效\');\n  }',
+        new: '  if (givenBuf.length === -1) {\n    throw new UnauthorizedException(\'身份凭证签名无效\');\n  }',
+      },
+    ],
+  },
+  {
+    id: 'M42 identity: the credential age is not checked',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.5'],
+    patches: [
+      {
+        file: CREDENTIAL,
+        old: '  if (nowMs - issuedAt > IDENTITY_CREDENTIAL_TTL_MS || issuedAt > nowMs + 60_000) {\n    throw new UnauthorizedException(\'身份凭证已过期\');\n  }',
+        new: '  if (issuedAt === -1) {\n    throw new UnauthorizedException(\'身份凭证已过期\');\n  }',
+      },
+    ],
+  },
+  {
+    id: 'M43 identity: the domain-separation prefix is dropped, so an admin token verifies as a credential',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.13'],
+    patches: [
+      {
+        file: CREDENTIAL,
+        old: '  return crypto.createHmac(\'sha256\', secret).update(`${PURPOSE}:${userId}:${issuedAt}`).digest(\'hex\');',
+        new: '  return crypto.createHmac(\'sha256\', secret).update(`${userId}:${issuedAt}`).digest(\'hex\');',
+      },
+    ],
+  },
+  {
+    id: 'M44 identity: the demo identity endpoint is always enabled',
+    spec: CREDENTIAL_SPEC,
+    expectFailing: ['1.10'],
+    patches: [
+      {
+        file: CREDENTIAL,
+        old: "  return process.env.ALLOW_DEMO_IDENTITY === 'true';",
+        new: '  return true;',
       },
     ],
   },

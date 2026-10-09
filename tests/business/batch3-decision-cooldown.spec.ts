@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createApiTestApp } from './helpers';
+import { createApiTestApp, identityFor } from './helpers';
 import { PrismaRuntimeService } from '../../apps/api/src/prisma-runtime.service';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
@@ -47,7 +47,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // 1. Create a decision (draft)
     const createRes = await request(server)
       .post('/api/v1/decisions')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ question, options: ['选项A', '选项B'], criteria: ['标准1'] })
       .expect(201);
     const decisionId = createRes.body.item.id as string;
@@ -56,7 +56,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // 2. Put it into cooldown (24 hours into future)
     const cdRes = await request(server)
       .post('/api/v1/cooldowns')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ decisionId, title: '未过期的冷静期', reason: '需要降温', hours: 24 })
       .expect(201);
     expect(cdRes.body.item.status).toBe('active');
@@ -64,7 +64,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // 3. Attempt to prematurely mark as ready -> must be refused with 400
     const patchRes = await request(server)
       .patch(`/api/v1/decisions/${decisionId}`)
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ status: 'ready' })
       .expect(400);
     expect(patchRes.body.message).toContain('冷静时间还没有结束');
@@ -135,7 +135,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Initial open decision
     const baseRes = await request(server)
       .post('/api/v1/decisions')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ question: subject, options: ['基础A', '基础B'] })
       .expect(201);
     const baseId = baseRes.body.item.id as string;
@@ -144,11 +144,11 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     const [race1, race2] = await Promise.allSettled([
       request(server)
         .post('/api/v1/decisions')
-        .set('x-goodnight-user-id', owner)
+        .set('x-goodnight-user-id', identityFor(owner))
         .send({ question: subject, supersedesId: baseId, options: ['竞争者1'] }),
       request(server)
         .post('/api/v1/decisions')
-        .set('x-goodnight-user-id', owner)
+        .set('x-goodnight-user-id', identityFor(owner))
         .send({ question: subject, supersedesId: baseId, options: ['竞争者2'] }),
     ]);
 
@@ -203,7 +203,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Attempting to patch question/options on superseded decision must be rejected (cannot edit)
     const patchRes = await request(server)
       .patch(`/api/v1/decisions/${created.id}`)
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ question: '试图修改已取代决定' })
       .expect(200); // Does not change question since not in ['draft', 'cooling', 'ready']
     expect(patchRes.body.item.question).toBe(question);
@@ -211,7 +211,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Attempting to transition superseded to ready must be rejected with 400
     const transitionRes = await request(server)
       .patch(`/api/v1/decisions/${created.id}`)
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ status: 'ready' })
       .expect(400);
     expect(transitionRes.body.message).toContain('不能从 superseded 变更为 ready');
@@ -219,7 +219,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Attempting to create cooldown on superseded decision fails
     const cdRes = await request(server)
       .post('/api/v1/cooldowns')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ decisionId: created.id, title: '非法冷静' })
       .expect(400);
     expect(cdRes.body.message).toContain('这个决定已经结束冷静期');
@@ -232,7 +232,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Owner creates decision
     const createRes = await request(server)
       .post('/api/v1/decisions')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ question, options: ['私密A'] })
       .expect(201);
     const decisionId = createRes.body.item.id as string;
@@ -240,14 +240,14 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Foreign user (other) cannot see owner's decision in list
     const otherList = await request(server)
       .get('/api/v1/decisions')
-      .set('x-goodnight-user-id', other)
+      .set('x-goodnight-user-id', identityFor(other))
       .expect(200);
     expect(otherList.body.items.some((d: any) => d.id === decisionId)).toBe(false);
 
     // Foreign user cannot PATCH owner's decision -> 404
     const foreignPatch = await request(server)
       .patch(`/api/v1/decisions/${decisionId}`)
-      .set('x-goodnight-user-id', other)
+      .set('x-goodnight-user-id', identityFor(other))
       .send({ decision: '非法决定' });
     expect(foreignPatch.status).toBe(404);
     expect(foreignPatch.body.message).toContain('决策记录不存在或无权访问');
@@ -255,7 +255,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Foreign user cannot create cooldown on owner's decision -> 404
     const foreignCd = await request(server)
       .post('/api/v1/cooldowns')
-      .set('x-goodnight-user-id', other)
+      .set('x-goodnight-user-id', identityFor(other))
       .send({ decisionId, title: '非法冷静', hours: 24 });
     expect(foreignCd.status).toBe(404);
     expect(foreignCd.body.message).toContain('决策记录不存在或无权访问');
@@ -359,7 +359,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Case 1: String reference validated for existence and ownership -> succeeds
     const dRes = await request(server)
       .post('/api/v1/decisions')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ journeyId: journey.id, question: '关联旅程的决定' })
       .expect(201);
     const decisionId = dRes.body.item.id as string;
@@ -368,7 +368,7 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     // Case 2: Attempting to connect foreign journey -> rejected with 404
     const foreignRes = await request(server)
       .post('/api/v1/decisions')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({ journeyId: foreignJourney.id, question: '非法关联他人旅程' });
     expect(foreignRes.status).toBe(404);
     expect(foreignRes.body.message).toContain('旅程不存在或无权访问');

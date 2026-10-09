@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, loginAdmin, auth } from './helpers';
+import { createApiTestApp, loginAdmin, auth, identityFor } from './helpers';
 /**
  * PrivacySetting is database-authoritative from Batch 3, so the in-memory map is disabled and a
  * fixture must seed through the database. Seeding the map would throw, and seeding a *copy* would
@@ -117,7 +117,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     // Path A: User AI task status endpoint (GET /api/v1/ai/tasks/:id)
     const taskStatusRes = await request(server)
       .get(`/api/v1/ai/tasks/${jobId}`)
-      .set('x-goodnight-user-id', testUserId)
+      .set('x-goodnight-user-id', identityFor(testUserId))
       .expect(200);
 
     expect(taskStatusRes.body.jobId).toBe(jobId);
@@ -128,7 +128,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const latestRes = await request(server)
       .get('/api/v1/ai/tasks/latest')
       .query({ taskType: 'negative_rewrite' })
-      .set('x-goodnight-user-id', testUserId)
+      .set('x-goodnight-user-id', identityFor(testUserId))
       .expect(200);
 
     expect(latestRes.body.jobId).toBe(jobId);
@@ -168,7 +168,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     // Path F: Tool save endpoint reads job from database (POST /api/v1/tools/emotion-decompose/:taskId/save)
     const saveDecomposeRes = await request(server)
       .post(`/api/v1/tools/emotion-decompose/${jobId}/save`)
-      .set('x-goodnight-user-id', testUserId)
+      .set('x-goodnight-user-id', identityFor(testUserId))
       .expect(201);
 
     expect(saveDecomposeRes.body.ok).toBe(true);
@@ -208,7 +208,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
 
       const memoriesRes = await request(server)
         .get('/api/v1/me/memories')
-        .set('x-goodnight-user-id', testUserId)
+        .set('x-goodnight-user-id', identityFor(testUserId))
         .expect(200);
 
       const targetMem = memoriesRes.body.items?.find((m: any) => m.id === memory.id);

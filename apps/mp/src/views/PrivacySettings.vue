@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
+import { IDENTITY_CREDENTIAL_KEY, IDENTITY_USER_KEY } from '../identity';
 
 type PrivacySetting = {
   defaultVisibility: 'PRIVATE' | 'PUBLIC';
@@ -90,8 +91,15 @@ async function clearCache() {
   message.value = '';
   try {
     const storageEntries = localStorage.length + sessionStorage.length;
+    // Clearing the cache must not discard the identity: this product has no login, so the stored
+    // credential is the only way back to the user's own data. Deleting the account is a separate,
+    // explicit action.
+    const preservedIdentity = [IDENTITY_CREDENTIAL_KEY, IDENTITY_USER_KEY]
+      .map((key) => [key, localStorage.getItem(key)] as const)
+      .filter((entry): entry is readonly [string, string] => entry[1] !== null);
     localStorage.clear();
     sessionStorage.clear();
+    for (const [key, value] of preservedIdentity) localStorage.setItem(key, value);
 
     const cacheNames = 'caches' in window ? await window.caches.keys() : [];
     await Promise.all(cacheNames.map((name) => window.caches.delete(name)));

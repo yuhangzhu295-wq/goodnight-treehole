@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createApiTestApp } from './helpers';
+import { createApiTestApp, identityFor } from './helpers';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
 import { StoreService } from '../../apps/api/src/store.service';
@@ -89,7 +89,7 @@ describe('Batch 3: RecoverySnapshot atomicity and database authority', () => {
     // 1. Owner can read their snapshot through GET /api/v1/me/recovery
     const ownerRes = await request(app.getHttpServer())
       .get('/api/v1/me/recovery')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .expect(200);
 
     const ownerItems = ownerRes.body.items as Array<{ id: string; summary: string; signals: Record<string, unknown> }>;
@@ -101,7 +101,7 @@ describe('Batch 3: RecoverySnapshot atomicity and database authority', () => {
     // 2. Another user CANNOT read owner's snapshot
     const otherRes = await request(app.getHttpServer())
       .get('/api/v1/me/recovery')
-      .set('x-goodnight-user-id', other)
+      .set('x-goodnight-user-id', identityFor(other))
       .expect(200);
 
     const otherItems = otherRes.body.items as Array<{ id: string }>;
@@ -303,7 +303,7 @@ describe('Batch 3: RecoverySnapshot atomicity and database authority', () => {
   it('1.9 Recovery data preserves summary and signals faithfully without medical scores or diagnosis', async () => {
     const checkinRes = await request(app.getHttpServer())
       .post('/api/v1/me/recovery')
-      .set('x-goodnight-user-id', owner)
+      .set('x-goodnight-user-id', identityFor(owner))
       .send({
         summary: '今天在公园散步了30分钟，心情稍微平静了些。',
         signals: { sleep: 'yes', walk: 'yes', appetite: 'partial' },

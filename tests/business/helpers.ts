@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import path from 'node:path';
+import { issueIdentityCredential } from '../../apps/api/src/identity-credential.js';
 
 export function assertTestDatabaseUrl(rawUrl = process.env.DATABASE_URL): string {
   if (!rawUrl) {
@@ -39,6 +40,12 @@ if (!process.env.GOODNIGHT_STORE_FILE) {
 if (!process.env.FOLLOW_UP_QUEUE_NAME) {
   process.env.FOLLOW_UP_QUEUE_NAME = `goodnight-follow-ups-test-${process.pid}-${workerId}`;
 }
+// A dedicated secret for C-end identity credentials. Kept separate from JWT_SECRET because one spec
+// deliberately unsets JWT_SECRET to prove the admin token refuses a missing secret, and that must not
+// also break every C-end request in the same process.
+if (!process.env.CEND_TOKEN_SECRET) {
+  process.env.CEND_TOKEN_SECRET = `test-cend-identity-${process.pid}`;
+}
 
 export async function createApiTestApp(): Promise<INestApplication> {
   const { createServer } = await import('../../apps/api/src/main.js');
@@ -72,8 +79,16 @@ export function auth(token: string) {
 
 export const DEMO_USER_ID = 'user_demo';
 
+/**
+ * Mints the server-issued credential the API now requires in place of a bare user id. Tests mint it
+ * directly so they can still act as an id that does not exist yet, which several specs rely on.
+ */
+export function identityFor(userId: string) {
+  return issueIdentityCredential(userId);
+}
+
 export function demoUserHeaders() {
-  return { 'x-goodnight-user-id': DEMO_USER_ID };
+  return { 'x-goodnight-user-id': identityFor(DEMO_USER_ID) };
 }
 
 export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 120_000, userId = DEMO_USER_ID) {
@@ -82,7 +97,7 @@ export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 1
   while (Date.now() < deadline) {
     let req = request(server).get(`/api/v1/ai/tasks/${jobId}`);
     if (userId) {
-      req = req.set('x-goodnight-user-id', userId);
+      req = req.set('x-goodnight-user-id', identityFor(userId));
     }
     response = await req.expect(200);
     if (!['queued', 'running'].includes(response.body.status)) return response.body;
