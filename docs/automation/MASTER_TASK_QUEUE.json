@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "c064d25",
-  "updatedAt": "2026-10-09T14:18:27.771Z",
+  "head": "90e892d",
+  "updatedAt": "2026-10-09T17:48:58.532Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -379,6 +379,18 @@
       "independentReview": "no",
       "evidence": "peer-support-stage asserted 404 for an intruder whose user row did not exist, so the 404 came from user resolution and the assertion never exercised conversation isolation. It now asserts the intruder's own list is empty and that the conversation id appears nowhere in it, while the message-post refusal stays 404 (verified separately: that assertion is still the one that fails if the ownership check is removed).",
       "nextAction": "-"
+    },
+    {
+      "id": "CI-GREEN",
+      "phase": "CI",
+      "priority": "P0",
+      "status": "RUNNING",
+      "title": "GitHub Actions has never passed; the immutability gate blocked everything after it",
+      "implemented": "partial",
+      "tested": "partial",
+      "independentReview": "no",
+      "evidence": "Run 37967326793: immutability PASS, migrate deploy PASS, prisma generate PASS, typecheck PASS, lint PASS, unit PASS, batch1 gate PASS, full business suite PASS. The baseline diff still reports 1 new regression: third-stage-persistence-independent \"keeps all third-stage persisted counts unchanged across twenty read-only passes\" failing with read ECONNRESET. Three earlier failures were fixed on the way: the CRLF-pinned baseline, an unawaited async createReply, the missing signing secrets, and a stale interactive transaction in listDecisions/listCooldowns (that one was a real defect the CI log exposed).",
+      "nextAction": "Identify the ECONNRESET. The app logs nothing and the request never reaches a handler, so it is below the application. The spec closes and recreates the app mid-test. A keepAlive hypothesis was tested and REJECTED - replacing the global agent made both tests fail locally, so it was reverted. Reproduce with the database held up (locally WSL Postgres keeps stopping: \"the database system is shutting down\"), then check whether app.close() leaves the replacement server unlistened so supertest races an ephemeral listen."
     }
   ]
 }
