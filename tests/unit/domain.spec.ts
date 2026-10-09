@@ -17,16 +17,32 @@ const stubPersistence = {
 
 describe('domain services', () => {
   it('routes AI through primary, backup, then template fallback', async () => {
-    const definitions = new RemoteAiProviderService();
-    const remote = { primaryDefinition: () => definitions.primaryDefinition(), secondaryDefinition: () => definitions.secondaryDefinition(), canFailOver: () => true, generate: async () => ({ model: 'remote-unit-model', result: '这是远程模型生成的测试回应。', durationMs: 12 }) } as any;
-    const store = new StoreService(stubPersistence as any, remote);
-    store.enforceRemoteAiProviderPolicy();
-    const ok = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi' });
-    expect(ok.modelName).toBe('remote-unit-model');
-    expect(ok.status).toBe('succeeded');
-    const fallback = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi', simulatePrimaryFail: true, simulateBackupFail: true });
-    expect(fallback.status).toBe('fallback');
-    expect(fallback.providerId).toBe(store.aiRoutes.find((route) => route.style === 'warm')?.fallbackTemplateId);
+    // The primary provider is only *enabled* when a key is configured (`enabled: Boolean(apiKey)`),
+    // and routing skips a disabled primary before it ever calls generate(). Relying on a developer's
+    // .env made this test pass locally and fail in CI, where DAPI_API_KEY is deliberately empty: it
+    // got the template instead of the stubbed remote. The keys are set here so the routing path this
+    // test is about is actually exercised, and no network call happens because `remote` is a stub.
+    const savedPrimary = process.env.DAPI_API_KEY;
+    const savedSecondary = process.env.AI_SECONDARY_API_KEY;
+    process.env.DAPI_API_KEY = 'unit-test-primary-key';
+    process.env.AI_SECONDARY_API_KEY = 'unit-test-secondary-key';
+    try {
+      const definitions = new RemoteAiProviderService();
+      const remote = { primaryDefinition: () => definitions.primaryDefinition(), secondaryDefinition: () => definitions.secondaryDefinition(), canFailOver: () => true, generate: async () => ({ model: 'remote-unit-model', result: '这是远程模型生成的测试回应。', durationMs: 12 }) } as any;
+      const store = new StoreService(stubPersistence as any, remote);
+      store.enforceRemoteAiProviderPolicy();
+      const ok = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi' });
+      expect(ok.modelName).toBe('remote-unit-model');
+      expect(ok.status).toBe('succeeded');
+      const fallback = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi', simulatePrimaryFail: true, simulateBackupFail: true });
+      expect(fallback.status).toBe('fallback');
+      expect(fallback.providerId).toBe(store.aiRoutes.find((route) => route.style === 'warm')?.fallbackTemplateId);
+    } finally {
+      if (savedPrimary === undefined) delete process.env.DAPI_API_KEY;
+      else process.env.DAPI_API_KEY = savedPrimary;
+      if (savedSecondary === undefined) delete process.env.AI_SECONDARY_API_KEY;
+      else process.env.AI_SECONDARY_API_KEY = savedSecondary;
+    }
   });
   it('keeps privacy settings out of the store: they are database-authoritative from Batch 3', () => {
     const store = new StoreService(stubPersistence as any);
