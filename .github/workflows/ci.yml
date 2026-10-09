@@ -77,6 +77,15 @@ jobs:
       - name: Build test database with prisma migrate deploy
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
 
+      # `@prisma/client` generates its typed client from a postinstall script, and this repo has an
+      # `onlyBuiltDependencies` list that does not include it, so pnpm may skip that script. Typecheck
+      # imports the generated types, so without this step the run fails with errors like
+      # "Property 'anonymousSession' does not exist on type 'PrismaRuntimeService'" - which reads
+      # like a code defect and is not one. Generating explicitly removes the dependency on install
+      # behaviour that varies between pnpm versions.
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate --schema prisma/schema.prisma
+
       - name: Typecheck
         run: pnpm typecheck
 

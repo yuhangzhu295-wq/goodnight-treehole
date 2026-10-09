@@ -4,27 +4,57 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 /**
- * Expected baseline migrations and their SHA-256 checksums,
- * as verified and recorded in docs/architecture/MIGRATION_FORENSICS.md.
- * Existing migrations are immutable: once committed, they must never be edited.
+ * Expected baseline migrations and their SHA-256 checksums.
+ *
+ * These are the checksums of the **canonical file content**: the bytes git stores, with LF line
+ * endings. They are not checksums of "whatever the working tree happens to contain on this machine".
+ *
+ * Why that distinction matters, and what went wrong before: the first version of this list was
+ * recorded by hashing the files as they sat in a Windows working tree, where `core.autocrlf=true`
+ * had converted them to CRLF. Nine of the twelve entries therefore pinned the CRLF representation.
+ * The check hashes raw bytes, so it passed on that Windows checkout and failed in CI, where the
+ * Linux checkout is LF - reporting nine unchanged migrations as "modified" and stopping the pipeline
+ * before anything else ran.
+ *
+ * Two things keep that from recurring:
+ *   1. `.gitattributes` pins `prisma/migrations/**\/migration.sql` to `eol=lf`, so every checkout on
+ *      every platform produces LF.
+ *   2. `normaliseLineEndings` below collapses CRLF to LF before hashing, so a file that still
+ *      arrives with CRLF (a merge, an editor, a tool that rewrites line endings) is compared on its
+ *      content rather than on its byte representation.
+ *
+ * Neither of those weakens the check: any real edit to a migration still changes its LF content and
+ * still fails. What is no longer a failure is a pure line-ending difference, which is not a change
+ * to the migration.
+ *
+ * Provenance of these values: each equals `sha256(git show HEAD:<path>)` and `sha256` of the
+ * LF-normalised working tree, and the development database's `_prisma_migrations` ledger agrees with
+ * the CRLF form of the same content (that database was built from a CRLF checkout). See
+ * docs/architecture/MIGRATION_FORENSICS.md.
  */
 export const BASELINE_MIGRATIONS: Record<string, string> = {
-  '20260712000000_runtime_state': '202b73ce0ff759b047f3aeace77f4e60233fc183245235afb6c1ad6620d943ac',
-  '20260808010000_hidden_post': '6108f22c6a47f7254c09f0f1a296ba130ff964e10e8cd5e67fac124e6039d303',
-  '20260816000000_goodnight_2_incremental': '771324767c94e5a7c22f97fbff34d8728f6f303cfe1dd794c1796480ee7550c0',
-  '20260819000000_second_stage_peer_support': '33e9c5d54e59efed1505cd859b5bac5cc53960f4dc458591e693beb855634e4d',
-  '20260820010000_third_stage_stable_self': 'fd49019eb6576acc470881ab70d007537afcbc38ed97076fbca428eb0d10f5da',
-  '20260820020000_third_stage_memory_transparency': 'bb25f95ee563d557b443afbed13ae482ca8591a300ce46604ec518262bb19997',
-  '20260821003000_third_stage_decision_vault': 'ae1573fff6b702df17ab2c2f86a691c91d12bdece1ca4ce45a4c6c6304b1370f',
-  '20260821004000_third_stage_future_self_context': '256ce2e561ec812e066b2b3d80579a8997d255872dc6d587699aee8118032f31',
-  '20260821005000_third_stage_privacy_2': '7b67177a53a4138298a22228aa52928ff75a2f9f2ddeeebfc57b55a23b583d71',
+  '20260712000000_runtime_state': '7be1a8ae3fe49d7ed6c313b3d09443f57fefbfee705aaacc41efd810bbe6811a',
+  '20260808010000_hidden_post': '221c94c34cb8d8d1c1ad09c38476ea43c6bb00aff77010c13b1d7e47a35b1d99',
+  '20260816000000_goodnight_2_incremental': 'ea4a625d07dfb54b355bcca6f58cc60d99b978d618dd1da49db85a47c3d3802b',
+  '20260819000000_second_stage_peer_support': '73589a8bd7344ba5882c757b7eaf9017f95d6d37e3fb779d5c016d2978a4e282',
+  '20260820010000_third_stage_stable_self': '0c45232d30b7cd5169a0bbb5cfcfe95e48c723727e90e3fc432799bfc0708091',
+  '20260820020000_third_stage_memory_transparency': '2edeeee54de58b942067c2df927cfeef6f5ed9384c537b2bbaf0bb81c5a1cab5',
+  '20260821003000_third_stage_decision_vault': '1c356486659c8e1fc95dcf5fe7ad90fe4947dd02406562f7495a1c2f4f332b10',
+  '20260821004000_third_stage_future_self_context': 'd7ee59ed26be978db8860c0efb5ad1bfae4416e9d8e0798f8574dc08e7fe6b78',
+  '20260821005000_third_stage_privacy_2': '2b1c2ca6d3c6ed014c07cfdfaa032a0692280858c3258f88df93f8746578de10',
   '20261003000000_safety_event_handled': 'cbd6011fe9ab8252945ed4fbbcba96068e432cc2bc51510a6337955df93a2466',
   '20261004000000_peer_report_history': 'aa1274e5feda76a660bc806e7b4b802b3ebe9edae8efc7ad00bd6378b74c8523',
   '20261004010000_admin_user_note': '44a927f0739ea07abbfa379cfe084513e257e59084947ad6e12f5d6b94814ddc',
 };
 
-function sha256(content: Buffer | string): string {
-  return crypto.createHash('sha256').update(content).digest('hex');
+/** Collapses CRLF to LF so a file's line-ending representation cannot change its checksum. */
+export function normaliseLineEndings(content: Buffer | string): Buffer {
+  const text = Buffer.isBuffer(content) ? content.toString('utf8') : content;
+  return Buffer.from(text.replace(/\r\n/g, '\n'), 'utf8');
+}
+
+export function sha256(content: Buffer | string): string {
+  return crypto.createHash('sha256').update(normaliseLineEndings(content)).digest('hex');
 }
 
 export function checkMigrationImmutability(repoRoot = process.cwd()): { ok: boolean; errors: string[] } {
@@ -53,6 +83,7 @@ export function checkMigrationImmutability(repoRoot = process.cwd()): { ok: bool
         `Baseline migration modified: ${migrationName}/migration.sql\n` +
           `  Expected SHA-256: ${expectedChecksum}\n` +
           `  Actual SHA-256:   ${actualChecksum}\n` +
+          `  (compared with LF line endings collapsed, so this is a content difference)\n` +
           `  Rule violation: Existing migrations are immutable (see docs/architecture/MIGRATION_FORENSICS.md).`,
       );
     }
