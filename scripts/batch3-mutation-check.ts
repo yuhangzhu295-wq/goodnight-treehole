@@ -25,6 +25,7 @@ const CREDENTIAL_SPEC = 'tests/business/batch3-identity-credential.spec.ts';
 const CREDENTIAL = 'apps/api/src/identity-credential.ts';
 const USERNOTIFICATION_SPEC = 'tests/business/batch1-usernotification.spec.ts';
 const WORKER = 'apps/api/src/follow-up-worker.service.ts';
+const FUTURE_SELF_SPEC = 'tests/business/batch3-future-self-authority.spec.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
 const DECISION_SPEC = 'tests/business/batch3-decision-cooldown.spec.ts';
@@ -606,6 +607,30 @@ const mutations = [
         file: WORKER,
         old: '    // 2. Reload the runtime store so legacy in-memory state is consistent before the notification is observable',
         new: '    await this.writeClaimNotification(this.prisma, input, notificationId);\n\n    // 2. Reload the runtime store so legacy in-memory state is consistent before the notification is observable',
+      },
+    ],
+  },
+  {
+    id: 'M46 future letter: the letter is written outside the transaction, so a failed job write leaves it behind',
+    spec: FUTURE_SELF_SPEC,
+    expectFailing: ['1.7'],
+    patches: [
+      {
+        file: SELF,
+        old: "      const item = await tx.messageToFutureSelf.create({\n        data: {\n          id: messageId,",
+        new: "      const item = await (this.prisma as any).messageToFutureSelf.create({\n        data: {\n          id: messageId,",
+      },
+    ],
+  },
+  {
+    id: 'M47 future letter: the context reference is looked up without the owner, so a foreign decision is accepted',
+    spec: FUTURE_SELF_SPEC,
+    expectFailing: ['1.8'],
+    patches: [
+      {
+        file: SELF,
+        old: "        const decision = await tx.decisionRecord.findFirst({\n          where: { id: params.contextRefId, userId: params.userId },\n        });",
+        new: "        const decision = await tx.decisionRecord.findFirst({\n          where: { id: params.contextRefId },\n        });",
       },
     ],
   },

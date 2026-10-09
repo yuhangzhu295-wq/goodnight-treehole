@@ -1930,6 +1930,8 @@ export class SelfPersistenceService {
     contextLabel?: string;
     content: string;
     deliverAt: Date;
+    /** Test-only fault injection: throws after the letter is written, before its follow-up job. */
+    _failDuringFollowUpInsert?: () => void;
   }): Promise<{ item: any; followUp: any }> {
     const journeyId = params.journeyId?.trim() || null;
 
@@ -1976,6 +1978,8 @@ export class SelfPersistenceService {
           createdAt,
         },
       });
+
+      if (params._failDuringFollowUpInsert) params._failDuringFollowUpInsert();
 
       const followUp = await tx.followUpJob.create({
         data: {
