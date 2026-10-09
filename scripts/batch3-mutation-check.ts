@@ -642,7 +642,19 @@ for (const mutation of selected) {
 
 console.log('\n=== MUTATION SUMMARY ===');
 for (const row of results) console.log(`${row.verdict.padEnd(52)} ${row.id}  [${row.detail}]`);
+
+// A mutation that never reached PROVEN proves nothing, and its verdict is easy to read past in a
+// summary: M38/M39 sat at PATCH-FAILED while the batch was described as proven. Any non-PROVEN
+// verdict now fails the run.
+const notProven = results.filter((row) => !row.verdict.startsWith('PROVEN ('));
+if (notProven.length > 0) {
+  console.error(`\n[MUTATION] FAILED: ${notProven.length} of ${results.length} mutation(s) did not reach PROVEN:`);
+  for (const row of notProven) console.error(`  - ${row.verdict} :: ${row.id} [${row.detail}]`);
+}
+
 fs.writeFileSync(
   'artifacts/runtime/batch3-step1-mutation-report.json',
   JSON.stringify({ baselines: [...baselines.keys()], results }, null, 2),
 );
+
+process.exit(notProven.length > 0 ? 1 : 0);

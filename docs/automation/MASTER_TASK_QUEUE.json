@@ -1,7 +1,7 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "c67ce57",
+  "head": "HEAD_PENDING",
   "updatedAt": "2026-10-09T05:34:06.741Z",
   "statusVocabulary": [
     "PENDING",
@@ -310,13 +310,13 @@
       "id": "B3-MUTATION-ANCHORS",
       "phase": "Batch 3 review",
       "priority": "P2",
-      "status": "READY",
-      "title": "Mutation anchors are matched by exact text, so a stale anchor silently degrades to PATCH-FAILED",
-      "implemented": "no",
-      "tested": "no",
+      "status": "DONE",
+      "title": "The mutation harness exits non-zero when any mutation does not reach PROVEN",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "no",
-      "evidence": "M38 matched two call sites and M39 omitted a comment line. Both were caught only because the harness reports PATCH-FAILED, which is safe but easy to skip past when reading a summary. The harness should fail the whole run if any mutation did not reach PROVEN.",
-      "nextAction": "Make the harness exit non-zero when any mutation is not PROVEN."
+      "evidence": "A mutation that never reached PROVEN proves nothing and its verdict is easy to read past in a summary. The harness now fails the run and lists the offenders. Reverse proof: pointing M39 at a test that cannot fail gives PROVEN-UNRELATED and exit code 1; the real M39 gives PROVEN and exit code 0.",
+      "nextAction": "-"
     }
   ]
 }
