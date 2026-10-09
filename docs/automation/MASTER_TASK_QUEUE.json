@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "c5b9cbb",
-  "updatedAt": "2026-10-09T12:33:19.569Z",
+  "head": "36dc618",
+  "updatedAt": "2026-10-09T13:31:40.331Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -107,11 +107,13 @@
       "id": "B3-S4",
       "phase": "Batch 3 implementation",
       "priority": "P1",
-      "status": "PENDING",
+      "status": "WAITING_REVIEW",
       "title": "MessageToFutureSelf + BullMQ worker database authority",
-      "implemented": "no",
-      "tested": "no",
-      "independentReview": "no"
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "MessageToFutureSelf is registered in DIRECT_DB_MODELS with all three mapper exits; the letter list and the create path go through SelfPersistenceService, the store getter throws, and the two legacy array mutations are guarded. Create writes the letter and its follow-up job in one transaction with the context reference validated for ownership inside it. Design A6: the notification consent is read from the database inside the claim transaction and the notification row is written in that same transaction, so \"delivered with no notification\" can only mean consent was off; a duplicate delivery short-circuits on the conditional claim and writes nothing. A bounded reconciler re-enqueues durable pending jobs at startup and every five minutes. batch3-future-self-authority.spec.ts 8/8; batch1-usernotification.spec.ts 7/7 (incl. the A6 rollback case); mutations M45, M46, M47 PROVEN.",
+      "nextAction": "Independent review, in particular the reconciler interval and the 30-day credential note on B3-R11."
     },
     {
       "id": "B3-S5",
@@ -341,6 +343,18 @@
       "independentReview": "no",
       "evidence": "In one full run while the machine was heavily loaded (per-file migration time roughly doubled), admin-sync, batch1-multi-instance 5 and batch1-multi-instance 8 failed. Each passes in isolation (1/1, 8/8) and the next full run showed 8 failures with 0 regressions, matching the baseline. The failure messages from that run were lost because a later selected-spec run overwrote suite-report.json, so the timeouts-vs-assertions distinction was not captured.",
       "nextAction": "Capture per-run failure detail before any selected-spec run overwrites it, then decide whether these are load flakes or a real ordering dependency. Do not simply re-run until green."
+    },
+    {
+      "id": "B3-WORKER-SILENT-FAILURE",
+      "phase": "Batch 3 verification",
+      "priority": "P2",
+      "status": "DONE",
+      "title": "A failing follow-up job was invisible: only connection errors were logged",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "The worker logged the Redis client \"error\" event but not BullMQ job failures, so a job that threw was retried and then dropped with nothing in the log. Found while diagnosing a regression this session: the job id and error message are now logged (the payload is not, because it can carry the user's own text).",
+      "nextAction": "-"
     }
   ]
 }

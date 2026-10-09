@@ -1,6 +1,6 @@
 # Autonomous State
 
-**Branch:** `codex/post-recovery-validation`  **HEAD:** `c5b9cbb`
+**Branch:** `codex/post-recovery-validation`  **HEAD:** `36dc618`
 **Last verified baseline:** full suite 7 failed / 29 passed files, 8 failed (baseline) tests;
 `check:baseline-diff` SUCCESS, 0 new regressions, previous-run comparison live (`files:37 (comparable)`).
 Unit 15/15. Typecheck and lint clean.
@@ -27,8 +27,41 @@ Unit 15/15. Typecheck and lint clean.
 
 ## Running now
 
-Nothing. `B3-R12`, `B3-R13`, `B3-S3` and `B3-R11` are `WAITING_REVIEW`. The next READY work is
-`B3-S4` (FutureSelf + worker), then `B3-S5` and `B3-GATE`.
+Nothing. `B3-R12`, `B3-R13`, `B3-S3`, `B3-R11` and `B3-S4` are `WAITING_REVIEW`. The next work is
+`B3-S5` and `B3-GATE`, then Phases 3-10.
+
+## B3-S4 closed: the future letter is database-authoritative
+
+`MessageToFutureSelf` is registered with all three mapper exits, its readers are converted, and its
+create writes the letter and the follow-up job in one transaction with the context reference
+validated for ownership **inside** it.
+
+The substantive change is design A6. The notification consent is now read from the database inside
+the claim transaction and the notification row is written in that same transaction. Before, consent
+came from the queue payload and the row was written in a second transaction, so "delivered with no
+notification" meant either *consent was off* or *the write failed*. A duplicate delivery now
+short-circuits on the conditional claim and writes nothing, so it can no longer revert a
+concurrently-read notification.
+
+A bounded reconciler re-enqueues durable pending jobs at startup and every five minutes, which is
+what makes enqueue-after-commit safe: an enqueue failure leaves a row the database still reports as
+pending, and a delivered job is never regressed or re-notified.
+
+`batch3-future-self-authority.spec.ts` 8/8; `batch1-usernotification.spec.ts` 7/7 including the A6
+rollback case; mutations M45, M46 and M47 PROVEN.
+
+### Two defects found while verifying, both mine
+
+1. **The kind allowlist I added refused `action_checkin`.** `FollowUpJob.kind` is a free-form string
+   and this worker routes every non-cooldown kind through the action path, so an allowlist is the
+   wrong shape. Only the job-name/kind mismatch is checked now. It was invisible because the worker
+   logged connection errors but not job failures - a failing job was retried and then dropped with
+   nothing in the log. That listener now exists (`B3-WORKER-SILENT-FAILURE`).
+2. **`batch1-multi-instance` 5 coordinated on the notification write**, which a retry no longer
+   performs. It now overlaps the retry's claim attempt and additionally asserts the retry wrote
+   nothing. This is the same test that flaked in an earlier loaded run, so the flake record and this
+   regression were initially indistinguishable - the failure detail, not the test name, is what
+   separated them.
 
 ## B3-R11 closed: the identity header is a credential, not a user id
 
