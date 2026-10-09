@@ -5758,7 +5758,14 @@ export class StoreService implements OnModuleInit {
   }
 
   async createDecision(
-    input: { journeyId?: string; question?: unknown; options?: unknown; criteria?: unknown },
+    input: {
+      journeyId?: string;
+      question?: unknown;
+      options?: unknown;
+      criteria?: unknown;
+      subject?: string;
+      supersedesId?: string;
+    },
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
@@ -5769,6 +5776,8 @@ export class StoreService implements OnModuleInit {
         question: input.question,
         options: input.options,
         criteria: input.criteria,
+        subject: input.subject,
+        supersedesId: input.supersedesId,
       });
       return { item };
     }

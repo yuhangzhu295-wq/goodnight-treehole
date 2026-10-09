@@ -4,7 +4,6 @@ import request from 'supertest';
 import { createApiTestApp } from './helpers';
 import { PrismaRuntimeService } from '../../apps/api/src/prisma-runtime.service';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
-import { StoreService } from '../../apps/api/src/store.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
 
 /**
@@ -15,7 +14,6 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
   let app: INestApplication;
   let prisma: any;
   let selfPersistence: SelfPersistenceService;
-  let store: StoreService;
   const owner = 'user_demo';
   const other = 'user_guest';
 
@@ -23,7 +21,6 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     app = await createApiTestApp();
     prisma = app.get(PrismaRuntimeService);
     selfPersistence = app.get(SelfPersistenceService);
-    store = app.get(StoreService);
 
     // Ensure baseline users exist in DB
     await prisma.user.upsert({
@@ -482,5 +479,69 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     expect(mismatchResult.status).toBe('superseded');
     const dbJob = await prisma.followUpJob.findUnique({ where: { id: mismatchedJobId } });
     expect(dbJob?.status).toBe('superseded');
+  });
+
+  it('1.9 Association mismatch: a job naming a different existing decision must not release the cooldown or ready that decision', async () => {
+    // 1.8 uses a payload decisionId that does not exist, which the following `!dec` lookup also
+    // rejects - so it cannot tell whether the association check itself is present. Here both
+    // decisions exist and belong to the owner, so only the association check can refuse.
+    const decisionA = await selfPersistence.createDecision({
+      userId: owner,
+      question: `关联决策A_${Date.now()}`,
+    });
+    const decisionB = await selfPersistence.createDecision({
+      userId: owner,
+      question: `关联决策B_${Date.now()}`,
+    });
+
+    const past = new Date(Date.now() - 5000);
+    const cdId = `cd_assoc_${Date.now()}`;
+    const jobId = `job_assoc_${Date.now()}`;
+
+    await prisma.cooldownItem.create({
+      data: {
+        id: cdId,
+        userId: owner,
+        decisionId: decisionA.id,
+        title: '关联检查',
+        releaseAt: past,
+        status: 'active',
+      },
+    });
+    await prisma.decisionRecord.update({
+      where: { id: decisionA.id },
+      data: { status: 'cooling', cooldownUntil: past },
+    });
+    await prisma.decisionRecord.update({
+      where: { id: decisionB.id },
+      data: { status: 'cooling', cooldownUntil: past },
+    });
+    await prisma.followUpJob.create({
+      data: {
+        id: jobId,
+        userId: owner,
+        kind: 'DECISION_COOLDOWN',
+        dueAt: past,
+        status: 'pending',
+        payload: { cooldownId: cdId, decisionId: decisionB.id },
+      },
+    });
+
+    const result = await prisma.$transaction(async (tx) =>
+      selfPersistence.deliverCooldownJob(
+        tx,
+        { id: jobId, userId: owner, payload: { cooldownId: cdId, decisionId: decisionB.id } },
+        new Date(),
+      ),
+    );
+
+    expect(result.status).toBe('superseded');
+
+    const cd = await prisma.cooldownItem.findUnique({ where: { id: cdId } });
+    expect(cd?.status).toBe('active');
+    const b = await prisma.decisionRecord.findUnique({ where: { id: decisionB.id } });
+    expect(b?.status).toBe('cooling');
+    const job = await prisma.followUpJob.findUnique({ where: { id: jobId } });
+    expect(job?.status).toBe('superseded');
   });
 });

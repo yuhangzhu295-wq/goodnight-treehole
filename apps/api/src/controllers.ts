@@ -732,7 +732,7 @@ export class PublicController {
 
   @Post('decisions')
   async decision(
-    @Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[] },
+    @Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[]; subject?: string; supersedesId?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
     const runtimeId = requireRuntimeUserId(userId);

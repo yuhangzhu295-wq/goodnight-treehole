@@ -831,6 +831,21 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         },
       });
 
+      // Insert DecisionRecord in PostgreSQL (DecisionRecord is database-authoritative since Batch 3)
+      await freshPrisma.decisionRecord.create({
+        data: {
+          id: decisionId,
+          userId,
+          journeyId,
+          question: '关联到旅程的决策问题',
+          options: ['选项A', '选项B'],
+          criteria: ['标准1'],
+          status: 'draft',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
       // Insert PeerExperience in PostgreSQL (PeerExperience is database-authoritative since Batch 2)
       await freshPrisma.peerExperience.create({
         data: {
@@ -921,19 +936,9 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
             updatedAt: new Date().toISOString(),
           },
         ],
-        decisionRecords: [
-          {
-            id: decisionId,
-            userId,
-            journeyId,
-            question: '关联到旅程的决策问题',
-            options: ['选项A', '选项B'],
-            criteria: ['标准1'],
-            status: 'draft',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ],
+        // DecisionRecord is database-authoritative since Batch 3: it is inserted directly above and
+        // must not be seeded through the legacy array, like lifeJourneys.
+        decisionRecords: [],
         followUpJobs: [
           {
             id: followUpId,

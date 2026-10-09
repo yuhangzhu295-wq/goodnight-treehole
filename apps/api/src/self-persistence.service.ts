@@ -1482,7 +1482,10 @@ export class SelfPersistenceService {
         }
       }
 
-      const updateData: Prisma.DecisionRecordUpdateInput = {};
+      // The CAS below uses updateMany(), whose checked input has no scalar journeyId: only the
+      // unchecked variant exposes the FK column. This path must not use the relation form either,
+      // because updateMany does not accept relation operations at all.
+      const updateData: Prisma.DecisionRecordUncheckedUpdateManyInput = {};
 
       const parseValues = (val: unknown) =>
         Array.isArray(val)
@@ -1519,6 +1522,7 @@ export class SelfPersistenceService {
           updateData.journeyId = suppliedJourneyId;
         }
       }
+      // When journeyId is undefined: omit the column from the update so the committed value survives.
 
       if (typeof patch.status === 'string' && patch.status !== existing.status) {
         const requested = patch.status;

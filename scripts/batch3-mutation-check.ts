@@ -23,6 +23,7 @@ const ADMIN_DISCLOSURE_SPEC = 'tests/business/batch3-admin-disclosure.spec.ts';
 const RECONSENT_SPEC = 'tests/business/batch3-memory-reconsent.spec.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
+const DECISION_SPEC = 'tests/business/batch3-decision-cooldown.spec.ts';
 
 const mutations = [
   {
@@ -425,6 +426,102 @@ const mutations = [
         file: CONTROLLERS,
         old: "  @Get('memory/:id')\n  async memoryDetail(\n    @Headers('authorization') auth: string,\n    @Param('id') id: string,\n  ) {\n    const admin = this.admin(auth, ['super_admin', 'admin']);",
         new: "  @Get('memory/:id')\n  async memoryDetail(\n    @Headers('authorization') auth: string,\n    @Param('id') id: string,\n  ) {\n    const admin = this.admin(auth);",
+      },
+    ],
+  },
+  {
+    id: 'M32 decision: running cooldown allows ready transition without deadline check',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.1'],
+    patches: [
+      {
+        file: SELF,
+        old: "          if (!check?.passed) {\n            throw new BadRequestException('冷静时间还没有结束');\n          }",
+        new: '          // mutation: premature ready check removed',
+      },
+    ],
+  },
+  {
+    id: 'M33 cooldown: expired cooldown during held lock allows new cooldown write',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.2'],
+    patches: [
+      {
+        file: SELF,
+        old: "          if (deadlineCheck?.passed) {\n            throw new BadRequestException('这个决定已经结束冷静期');\n          }",
+        new: '          // mutation: expired cooling check removed',
+      },
+    ],
+  },
+  {
+    id: 'M34 supersede: non-open decision check removed allowing concurrent supersedes',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.3'],
+    patches: [
+      {
+        file: SELF,
+        old: "        if (!['draft', 'cooling', 'ready'].includes(target.status)) {\n          throw new ConflictException('该决策已被并发更新或取代');\n        }",
+        new: '        // mutation: concurrent supersede CAS conflict check removed',
+      },
+    ],
+  },
+  {
+    id: 'M35 cooldown: superseded decision allows cooldown creation',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.4'],
+    patches: [
+      {
+        file: SELF,
+        old: "        if (!['draft', 'cooling'].includes(decisionRow.status)) {\n          throw new BadRequestException('这个决定已经结束冷静期');\n        }",
+        new: '        // mutation: superseded status check on cooldown creation removed',
+      },
+    ],
+  },
+  {
+    id: 'M36 decision: updateDecision ownership check removed',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.5'],
+    patches: [
+      {
+        file: SELF,
+        old: '      const existing = await tx.decisionRecord.findFirst({\n        where: { id, userId },\n      });',
+        new: '      const existing = await tx.decisionRecord.findFirst({\n        where: { id },\n      });',
+      },
+    ],
+  },
+  {
+    id: 'M37 mapper: DecisionRecord absence sweep guard removed in legacy mapper',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.6'],
+    patches: [
+      {
+        file: MAPPER,
+        old: '      if (!DIRECT_DB_MODELS.DecisionRecord)\n        await deleteAbsent(\n          tx.decisionRecord,\n          asArray(state.decisionRecords).map((item: any) => item.id),\n        );',
+        new: '      await deleteAbsent(\n        tx.decisionRecord,\n        asArray(state.decisionRecords).map((item: any) => item.id),\n      );',
+      },
+    ],
+  },
+  {
+    id: 'M38 decision: foreign journey validation removed on createDecision',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.7'],
+    patches: [
+      {
+        file: SELF,
+        old: "      if (suppliedJourneyId) {\n        const journey = await tx.lifeJourney.findUnique({ where: { id: suppliedJourneyId } });\n        if (!journey || journey.userId !== params.userId) {\n          throw new NotFoundException('旅程不存在或无权访问');\n        }\n      }\n\n      // Requirement 3: The supersede rule",
+        new: '      // mutation: foreign journey ownership not checked\n\n      // Requirement 3: The supersede rule',
+      },
+    ],
+  },
+  {
+    id: 'M39 worker: decisionId mismatch check removed in deliverCooldownJob',
+    spec: DECISION_SPEC,
+    expectFailing: ['1.9'],
+    patches: [
+      {
+        file: SELF,
+        old: "      if (cd.decisionId !== decisionId) {\n        // Lost its decision (cd.decisionId is null due to delete) or mismatched\n        await tx.followUpJob.update({\n          where: { id: input.id },\n          data: { status: 'superseded', completedAt: null },\n        });\n        return { status: 'superseded' };\n      }",
+        new: '      // mutation: decisionId mismatch check removed',
       },
     ],
   },
