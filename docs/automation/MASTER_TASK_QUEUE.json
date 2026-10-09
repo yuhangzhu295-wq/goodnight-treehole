@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "9146413",
-  "updatedAt": "2026-10-08T22:43:13.334Z",
+  "head": "c67ce57",
+  "updatedAt": "2026-10-09T05:34:06.741Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -94,12 +94,14 @@
       "id": "B3-S3",
       "phase": "Batch 3 implementation",
       "priority": "P1",
-      "status": "PENDING",
+      "status": "WAITING_REVIEW",
       "dependency": "B3-R05",
       "title": "DecisionRecord + CooldownItem database authority",
-      "implemented": "no",
-      "tested": "no",
-      "independentReview": "no"
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "DecisionRecord and CooldownItem are registered in DIRECT_DB_MODELS with all three mapper exits (no hydration, no legacy upsert, no absence sweep). Writes are transactional with a CAS on the status read under the lock; the cooldown deadline is compared with clock_timestamp(). tests/business/batch3-decision-cooldown.spec.ts: 9 cases, 9 passing. Mutations M32-M39 PROVEN.",
+      "nextAction": "Independent review. Also review the four defects found while verifying this work, listed in AUTONOMOUS_STATE.md under \"Verified, not accepted\"."
     },
     {
       "id": "B3-S4",
@@ -284,13 +286,37 @@
       "id": "B3-FLAKE",
       "phase": "Batch 3 review",
       "priority": "P1",
-      "status": "READY",
+      "status": "DONE",
       "title": "batch1-journey P0-3 concurrency test times out under full-suite load",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "Already fixed in 28725cc: the P0-3 concurrency test carries an explicit 30000ms timeout. The recorded diagnosis (a 5000ms timeout on that test) was wrong - the test already had one.",
+      "nextAction": "-"
+    },
+    {
+      "id": "B3-S3-VERIFY",
+      "phase": "Batch 3 step 3",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Verify the Decision/Cooldown work left by a subagent that died mid-flight",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "The subagent process died leaving three uncommitted files and no report. Verification found and fixed: a declared-type/runtime mismatch on the updateMany payload; M39 recorded as proving the association check when it did not (test 1.8 cannot discriminate - new test 1.9 does); two mutation anchors that were ambiguous or absent, so M38/M39 reported PATCH-FAILED instead of a false PROVEN; and batch1-journey test 6 seeding a now-direct-DB model through the legacy array.",
+      "nextAction": "-"
+    },
+    {
+      "id": "B3-MUTATION-ANCHORS",
+      "phase": "Batch 3 review",
+      "priority": "P2",
+      "status": "READY",
+      "title": "Mutation anchors are matched by exact text, so a stale anchor silently degrades to PATCH-FAILED",
       "implemented": "no",
       "tested": "no",
       "independentReview": "no",
-      "evidence": "Passes 13/13 in isolation twice; under full-suite load it fails with Test timed out in 5000ms (not an assertion). Same class as BL-6.",
-      "nextAction": "Give the barrier-based test an explicit timeout, as the Batch 2 and 3 concurrency tests have."
+      "evidence": "M38 matched two call sites and M39 omitted a comment line. Both were caught only because the harness reports PATCH-FAILED, which is safe but easy to skip past when reading a summary. The harness should fail the whole run if any mutation did not reach PROVEN.",
+      "nextAction": "Make the harness exit non-zero when any mutation is not PROVEN."
     }
   ]
 }

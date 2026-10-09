@@ -1,7 +1,7 @@
 # Autonomous State
 
-**Branch:** `codex/post-recovery-validation`  **HEAD:** `9146413`
-**Last verified baseline:** full suite 7 failed / 27 passed files, 8 failed / 199 passed tests;
+**Branch:** `codex/post-recovery-validation`  **HEAD:** `c67ce57`
+**Last verified baseline:** full suite 7 failed / 29 passed files, 8 failed (baseline) tests;
 `check:baseline-diff` SUCCESS, 0 new regressions, previous-run comparison live (`files:37 (comparable)`).
 Unit 15/15. Typecheck and lint clean.
 
@@ -27,8 +27,36 @@ Unit 15/15. Typecheck and lint clean.
 
 ## Running now
 
-Nothing. The next READY task is `B3-R15` (P2) or `B3-FLAKE` (P1); `B3-R12` and `B3-R13` are
-`WAITING_REVIEW`.
+Nothing. `B3-R12`, `B3-R13` and `B3-S3` are `WAITING_REVIEW`. The next READY work is `B3-S4`
+(FutureSelf + worker), then `B3-S5` and `B3-GATE`.
+
+## Verified, not accepted
+
+`B3-S3` (DecisionRecord + CooldownItem) arrived from a subagent process that died mid-flight: it left
+three uncommitted files and never reported. Its work was verified rather than accepted, and four
+defects were found. Three were in the work as left:
+
+1. `updateDecision` declared its payload as `DecisionRecordUpdateInput` and assigned a scalar
+   `journeyId`, which does not typecheck. The path writes through `updateMany()`, which accepts no
+   relation operations at all, so the obvious repair (the relation form) failed at runtime. The
+   payload is now `DecisionRecordUncheckedUpdateManyInput`, the variant that exposes the FK scalar.
+2. `M39` was recorded as proving the cooldown association check, but removing the guard left every
+   test passing: `1.8` uses a payload `decisionId` that does not exist, which the following lookup
+   rejects anyway. New test `1.9` uses two existing owned decisions; `M39` is PROVEN against it.
+3. `M38`'s anchor matched two call sites and `M39`'s was absent, so both reported
+   `PATCH-FAILED`. A harness that reports `PATCH-FAILED` is safe, but it is easy to read past in a
+   summary. Both anchors are unique now; making the harness fail the run on any non-PROVEN mutation is
+   queued as `B3-MUTATION-ANCHORS`.
+
+One was a regression the gate caught, and the gate is the reason it was caught:
+
+4. `batch1-journey` test 6 seeded the decision through the legacy array, which the newly registered
+   model correctly skips, so the row was never created. It is inserted directly now, as that test
+   already does for `LifeJourney`, `SafetyEvent` and `PeerExperience`; the FK-preservation
+   assertion is unchanged.
+
+`B3-FLAKE` needed no work: the P0-3 concurrency test already carried a 30000ms timeout (`28725cc`).
+The recorded diagnosis of a 5000ms timeout on that test was wrong.
 
 ## Also fixed this run
 
