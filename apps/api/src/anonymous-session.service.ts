@@ -100,7 +100,26 @@ export class AnonymousSessionService {
     const parts = this.split(credential);
     if (!parts) throw new UnauthorizedException('缺少或无效的身份凭证');
 
-    const session = await this.prisma.anonymousSession.findUnique({ where: { id: parts.sessionId } });
+    // One round trip rather than two. This runs on every C-end request, and a suite that issues nine
+    // parallel requests twenty times turns a second query per request into hundreds of extra
+    // connections; under CI load that showed up as the connection being reset mid-request. The join
+    // also expresses the rule directly: a session is only usable while its user still exists.
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        userId: string;
+        secretHash: string;
+        expiresAt: Date;
+        lastUsedAt: Date | null;
+        revokedAt: Date | null;
+      }>
+    >`
+      SELECT s."id", s."userId", s."secretHash", s."expiresAt", s."lastUsedAt", s."revokedAt"
+      FROM "AnonymousSession" s
+      JOIN "User" u ON u."id" = s."userId"
+      WHERE s."id" = ${parts.sessionId}
+    `;
+    const session = rows[0];
     // Same message for unknown and revoked so the response does not confirm that a session exists.
     if (!session) throw new UnauthorizedException('身份凭证无效');
 
@@ -111,13 +130,11 @@ export class AnonymousSessionService {
     }
 
     if (session.revokedAt) throw new UnauthorizedException('身份凭证已失效，请重新进入');
-    if (session.expiresAt.getTime() <= Date.now()) throw new UnauthorizedException('身份凭证已过期');
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+      throw new UnauthorizedException('身份凭证已过期');
+    }
 
-    // The user may have been removed or blocked since the session was issued.
-    const user = await this.prisma.user.findUnique({ where: { id: session.userId } });
-    if (!user) throw new UnauthorizedException('身份凭证无效');
-
-    const lastUsed = session.lastUsedAt?.getTime() ?? 0;
+    const lastUsed = session.lastUsedAt ? new Date(session.lastUsedAt).getTime() : 0;
     if (Date.now() - lastUsed > LAST_USED_THROTTLE_MS) {
       await this.prisma.anonymousSession
         .update({ where: { id: session.id }, data: { lastUsedAt: new Date() } })
