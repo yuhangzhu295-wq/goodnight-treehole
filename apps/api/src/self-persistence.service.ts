@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
+import { scheduleFollowUp } from './follow-up-queue.js';
 
 export type PrivacySettingRecord = {
   id: string;
@@ -107,6 +108,26 @@ export type SelfWriteHooks = {
   _onBeforeLock?: () => Promise<void>;
   _onAfterLock?: () => Promise<void>;
 };
+
+/**
+ * The API shape for a future letter. The database row holds Date values, while the client contract
+ * (and the existing spec) expects ISO strings, so the conversion happens here rather than leaking
+ * Prisma types into responses.
+ */
+function mapFutureMessageRow(row: any) {
+  return {
+    id: row.id,
+    userId: row.userId,
+    journeyId: row.journeyId ?? undefined,
+    contextType: row.contextType ?? undefined,
+    contextRefId: row.contextRefId ?? undefined,
+    contextLabel: row.contextLabel ?? undefined,
+    content: row.content,
+    deliverAt: new Date(row.deliverAt).toISOString(),
+    deliveredAt: row.deliveredAt ? new Date(row.deliveredAt).toISOString() : undefined,
+    createdAt: new Date(row.createdAt).toISOString(),
+  };
+}
 
 function genId(prefix: string): string {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
@@ -1889,6 +1910,141 @@ export class SelfPersistenceService {
         return { status: 'superseded' };
       }
     }
+  }
+
+  /**
+   * Creates a letter to the future together with its follow-up job, atomically (design §0.7, S4).
+   *
+   * The context reference is validated for existence **and ownership inside the transaction**, so a
+   * concurrent delete cannot slip between the check and the insert, and a caller cannot attach their
+   * letter to somebody else's decision or recovery record.
+   *
+   * `contextRefId` is a plain string, not a foreign key (schema.prisma:665-670), so it is validated
+   * against the referenced table by hand rather than relying on a constraint.
+   */
+  async createFutureMessage(params: {
+    userId: string;
+    journeyId?: string;
+    contextType?: string;
+    contextRefId?: string;
+    contextLabel?: string;
+    content: string;
+    deliverAt: Date;
+  }): Promise<{ item: any; followUp: any }> {
+    const journeyId = params.journeyId?.trim() || null;
+
+    return await this.prisma.$transaction(async (tx: any) => {
+      await lockSelfWriteRoots(tx, [params.userId], journeyId ? [journeyId] : []);
+
+      const user = await tx.user.findUnique({ where: { id: params.userId } });
+      if (!user) throw new NotFoundException('用户不存在');
+
+      if (journeyId) {
+        const journey = await tx.lifeJourney.findUnique({ where: { id: journeyId } });
+        if (!journey || journey.userId !== params.userId) {
+          throw new NotFoundException('旅程不存在或无权访问');
+        }
+      }
+
+      if (params.contextType === 'decision' && params.contextRefId) {
+        const decision = await tx.decisionRecord.findFirst({
+          where: { id: params.contextRefId, userId: params.userId },
+        });
+        if (!decision) throw new NotFoundException('关联的决定不存在');
+      }
+      if (params.contextType === 'recovery' && params.contextRefId) {
+        const recovery = await tx.recoverySnapshot.findFirst({
+          where: { id: params.contextRefId, userId: params.userId },
+        });
+        if (!recovery) throw new NotFoundException('关联的恢复记录不存在');
+      }
+
+      const createdAt = new Date();
+      const messageId = genId('future_message');
+      const followUpId = genId('follow_up');
+
+      const item = await tx.messageToFutureSelf.create({
+        data: {
+          id: messageId,
+          userId: params.userId,
+          journeyId,
+          contextType: params.contextType ?? null,
+          contextRefId: params.contextRefId ?? null,
+          contextLabel: params.contextLabel ?? null,
+          content: params.content,
+          deliverAt: params.deliverAt,
+          createdAt,
+        },
+      });
+
+      const followUp = await tx.followUpJob.create({
+        data: {
+          id: followUpId,
+          userId: params.userId,
+          journeyId,
+          kind: 'FUTURE_SELF',
+          dueAt: params.deliverAt,
+          status: 'pending',
+          // The payload is written once here and never rewritten: the worker reloads the current
+          // row and treats this as an address, not as state.
+          payload: { messageId },
+          createdAt,
+        },
+      });
+
+      return { item: mapFutureMessageRow(item), followUp };
+    });
+  }
+
+  async listFutureMessages(userId: string): Promise<any[]> {
+    const rows = await this.prisma.messageToFutureSelf.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapFutureMessageRow);
+  }
+
+  async getFutureMessage(id: string, userId: string): Promise<any | null> {
+    const row = await this.prisma.messageToFutureSelf.findFirst({ where: { id, userId } });
+    return row ? mapFutureMessageRow(row) : null;
+  }
+
+  /**
+   * Re-enqueues future-self jobs that are still pending in the database but absent from the queue.
+   *
+   * The create path commits the row first and enqueues afterwards, so an enqueue failure leaves a
+   * durable pending job that nothing would otherwise pick up. `Queue.add` with a
+   * `removeOnComplete:false` queue does NOT recreate a completed id, so only jobs the database still
+   * reports as pending are considered, and an already-delivered job is never regressed or
+   * re-notified.
+   *
+   * Bounded by `limit` so a large backlog cannot turn startup into an unbounded loop.
+   */
+  async reconcilePendingFutureMessages(limit = 50): Promise<{ scanned: number; enqueued: number; failed: number }> {
+    const pending = await this.prisma.followUpJob.findMany({
+      where: { kind: 'FUTURE_SELF', status: { in: ['pending', 'scheduled'] } },
+      orderBy: { dueAt: 'asc' },
+      take: limit,
+    });
+    let enqueued = 0;
+    let failed = 0;
+    for (const job of pending) {
+      try {
+        await scheduleFollowUp({
+          id: job.id,
+          userId: job.userId,
+          journeyId: job.journeyId ?? undefined,
+          kind: job.kind,
+          dueAt: new Date(job.dueAt).toISOString(),
+          payload: (job.payload as Record<string, unknown> | null) ?? undefined,
+        });
+        enqueued += 1;
+      } catch {
+        // A single unreachable job must not abort the sweep; the next pass retries it.
+        failed += 1;
+      }
+    }
+    return { scanned: pending.length, enqueued, failed };
   }
 }
 

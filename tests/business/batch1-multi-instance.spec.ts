@@ -430,16 +430,17 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
 
       // 3. Concurrent race: Worker delivery retry on Instance A overlapping mark-read on Instance B.
       // StrictBarrier ensures both operations overlap in execution time.
-      // Narrowed claim (Option b): This test proves delivery idempotency and read-state preservation
-      // under concurrent execution — a duplicate delivery does not revert the notification's read state
-      // back to unread, verified by mutation testing (forcing the write to clobber via upsert({ status: 'unread' })
-      // fails the assertion). It does not claim row-lock blocking contention between the duplicate insert
-      // (skipDuplicates: true) and the reader.
+      //
+      // Since design A6 the retry cannot clobber the row at all: the claim is conditional on the job
+      // still being pending, so a duplicate delivery short-circuits before it writes anything. The
+      // race therefore overlaps the retry's claim attempt (not a notification write) with the
+      // mark-read, and the assertion below checks the stronger property that follows: the retry is a
+      // no-op AND the read state survives it.
       const barrier = new StrictBarrier(['deliveryRetryInTx', 'markReadInTx']);
 
       const retryDeliveryPromise = (harness.workerA as any).deliver({
         ...jobPayload,
-        _onBeforeNotificationWrite: async () => {
+        _onBeforeClaim: async () => {
           await barrier.enter('deliveryRetryInTx');
         },
       });
@@ -453,6 +454,9 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       const [retryRes, readRes] = await Promise.all([retryDeliveryPromise, markReadPromise]);
       barrier.assertAllArrived();
       expect(retryRes.status).toBe('delivered');
+      // The duplicate delivery found the job already claimed and wrote nothing.
+      expect(retryRes.skipped).toBe(true);
+      expect(retryRes.notificationId).toBeUndefined();
       expect(readRes.item.status).toBe('read');
 
       // 4. Assert from independent client:

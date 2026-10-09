@@ -118,7 +118,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       : db.cooldownItem.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.RealityHandoff ? Promise.resolve([]) : db.realityHandoff.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.TrustedContact ? Promise.resolve([]) : db.trustedContact.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.messageToFutureSelf.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.MessageToFutureSelf
+      ? Promise.resolve([])
+      : db.messageToFutureSelf.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.PersonalSupportPlan
       ? Promise.resolve([])
       : db.personalSupportPlan.findMany({ orderBy: { updatedAt: 'desc' } }),
@@ -1893,6 +1895,7 @@ export async function saveRelationalRuntimeState(
             },
           });
       }
+      if (!DIRECT_DB_MODELS.MessageToFutureSelf)
       for (const item of asArray(state.messagesToFutureSelf))
         await tx.messageToFutureSelf.upsert({
           where: { id: item.id },
@@ -2528,10 +2531,11 @@ export async function saveRelationalRuntimeState(
           tx.trustedContact,
           asArray(state.trustedContacts).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.messageToFutureSelf,
-        asArray(state.messagesToFutureSelf).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.MessageToFutureSelf)
+        await deleteAbsent(
+          tx.messageToFutureSelf,
+          asArray(state.messagesToFutureSelf).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.PersonalSupportPlan)
         await deleteAbsent(
           tx.personalSupportPlan,

@@ -154,6 +154,111 @@ describe('Batch 1 Sub-batch A: UserNotification and D2 FollowUpJob protections',
     }
   });
 
+  it('2b. A6 atomicity: a failure while writing the notification rolls the claim back, so "delivered with no notification" cannot occur', async () => {
+    const store = app.get(StoreService);
+    const worker = app.get(FollowUpWorkerService);
+    const jobId = `job_atomic_${Date.now()}`;
+    const messageId = `msg_atomic_${Date.now()}`;
+    const testUserId = store.getDemoUserId();
+
+    const freshPrisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await freshPrisma.userNotification.deleteMany({ where: { id: `notification_${jobId}` } }).catch(() => undefined);
+      await freshPrisma.messageToFutureSelf.create({
+        data: {
+          id: messageId,
+          userId: testUserId,
+          content: '原子性验证：写给未来的信',
+          deliverAt: new Date(),
+        },
+      });
+      await freshPrisma.followUpJob.create({
+        data: {
+          id: jobId,
+          userId: testUserId,
+          kind: 'FUTURE_SELF',
+          status: 'pending',
+          dueAt: new Date(),
+          payload: { messageId },
+        },
+      });
+    } finally {
+      await freshPrisma.$disconnect();
+    }
+
+    // Consent on, so the delivery will try to write a notification; the hook fails it at exactly
+    // the point A6 says must be inside the claim transaction.
+    const privacyClient = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      await privacyClient.privacySetting.upsert({
+        where: { userId: testUserId },
+        create: {
+          userId: testUserId,
+          defaultVisibility: 'PRIVATE',
+          allowFutureSelfNotifications: true,
+        },
+        update: { allowFutureSelfNotifications: true },
+      });
+    } finally {
+      await privacyClient.$disconnect();
+    }
+
+    let threw = false;
+    try {
+      await (worker as any).deliver({
+        id: jobId,
+        kind: 'FUTURE_SELF',
+        userId: testUserId,
+        payload: { messageId },
+        _onBeforeNotificationWrite: async () => {
+          throw new Error('injected: notification write failed');
+        },
+      });
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+
+    // The claim must have rolled back with the notification: the job is still pending, no
+    // notification exists, and the letter is not stamped delivered.
+    const verify = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const job = await verify.followUpJob.findUnique({ where: { id: jobId } });
+      expect(job?.status).toBe('pending');
+      expect(job?.completedAt).toBeNull();
+
+      const notifications = await verify.userNotification.findMany({ where: { id: `notification_${jobId}` } });
+      expect(notifications).toHaveLength(0);
+
+      const message = await verify.messageToFutureSelf.findUnique({ where: { id: messageId } });
+      expect(message?.deliveredAt ?? null).toBeNull();
+    } finally {
+      await verify.$disconnect();
+    }
+
+    // And a retry after the fault is cleared delivers both together.
+    const retry = await (worker as any).deliver({
+      id: jobId,
+      kind: 'FUTURE_SELF',
+      userId: testUserId,
+      payload: { messageId },
+    });
+    expect(retry.status).toBe('delivered');
+    expect(retry.notificationId).toBe(`notification_${jobId}`);
+
+    const verifyRetry = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const job = await verifyRetry.followUpJob.findUnique({ where: { id: jobId } });
+      expect(job?.status).toBe('delivered');
+      const notifications = await verifyRetry.userNotification.findMany({ where: { id: `notification_${jobId}` } });
+      expect(notifications).toHaveLength(1);
+      const message = await verifyRetry.messageToFutureSelf.findUnique({ where: { id: messageId } });
+      expect(message?.deliveredAt).not.toBeNull();
+    } finally {
+      await verifyRetry.$disconnect();
+    }
+  });
+
   it('3. Read state does not revert: after marking read, subsequent legacy flush does not revert it to unread', async () => {
     const server = app.getHttpServer();
     const store = app.get(StoreService);

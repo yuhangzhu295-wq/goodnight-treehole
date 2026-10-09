@@ -1806,6 +1806,11 @@ export class StoreService implements OnModuleInit {
     return this.data.trustedContacts;
   }
   get messagesToFutureSelf() {
+    if (DIRECT_DB_MODELS.MessageToFutureSelf) {
+      throw new Error(
+        'Direct DB model MessageToFutureSelf: store.messagesToFutureSelf getter is disabled. Query the database instead.',
+      );
+    }
     return this.data.messagesToFutureSelf;
   }
   get personalSupportPlans() {
@@ -3523,7 +3528,9 @@ export class StoreService implements OnModuleInit {
           !(legacy && item.userId === demoUserId && fixtureText.test(`${item.recipient}\n${item.summary}`)),
       );
     }
-    this.data.messagesToFutureSelf = this.data.messagesToFutureSelf.filter((item) => !hasJourney(item.journeyId));
+    if (!DIRECT_DB_MODELS.MessageToFutureSelf) {
+      this.data.messagesToFutureSelf = this.data.messagesToFutureSelf.filter((item) => !hasJourney(item.journeyId));
+    }
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) {
       this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
     }
@@ -3823,7 +3830,7 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.PeerMatch) this.data.peerMatches = detachJourney(this.data.peerMatches);
     if (!DIRECT_DB_MODELS.DecisionRecord) this.data.decisionRecords = detachJourney(this.data.decisionRecords);
     if (!DIRECT_DB_MODELS.RealityHandoff) this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
-    this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
+    if (!DIRECT_DB_MODELS.MessageToFutureSelf) this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
     if (!DIRECT_DB_MODELS.MemoryItem) this.data.memoryItems = detachJourney(this.data.memoryItems);
     if (!DIRECT_DB_MODELS.RecoverySnapshot) this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
@@ -6121,6 +6128,29 @@ export class StoreService implements OnModuleInit {
     }
     const deliverAt = this.optionalDate(input.deliverAt, '送达时间');
     if (!deliverAt || Date.parse(deliverAt) <= Date.now()) throw new BadRequestException('送达时间必须晚于现在');
+    if (DIRECT_DB_MODELS.MessageToFutureSelf) {
+      // One transaction writes the letter and its follow-up job together, validating the context
+      // reference inside it. Enqueueing happens after the commit; a failed enqueue leaves a durable
+      // pending job that the reconciler picks up.
+      const { item, followUp } = await this.selfPersistence.createFutureMessage({
+        userId,
+        journeyId: journey?.id,
+        contextType: selectedContextType,
+        contextRefId,
+        contextLabel,
+        content: this.text(input.content, '写给未来自己的话', 1200),
+        deliverAt: new Date(deliverAt),
+      });
+      const queue = await scheduleFollowUp({
+        id: followUp.id,
+        userId: followUp.userId,
+        journeyId: followUp.journeyId ?? undefined,
+        kind: followUp.kind,
+        dueAt: new Date(followUp.dueAt).toISOString(),
+        payload: followUp.payload as Record<string, unknown>,
+      });
+      return { item, followUp, queue };
+    }
     const item: MessageToFutureSelf = {
       id: id('future_message'),
       userId,
@@ -6142,16 +6172,19 @@ export class StoreService implements OnModuleInit {
       payload: { messageId: item.id },
       createdAt: now(),
     };
-    this.messagesToFutureSelf.unshift(item);
+    this.data.messagesToFutureSelf.unshift(item);
     this.followUpJobs.unshift(followUp);
     await this.persistAndFlush();
     const queue = await scheduleFollowUp(followUp);
     return { item, followUp, queue };
   }
 
-  futureMessageList(requestedUserId?: string) {
+  async futureMessageList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.messagesToFutureSelf
+    if (DIRECT_DB_MODELS.MessageToFutureSelf) {
+      return await this.selfPersistence.listFutureMessages(userId);
+    }
+    return this.data.messagesToFutureSelf
       .filter((item) => item.userId === userId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   }

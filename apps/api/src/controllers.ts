@@ -902,9 +902,9 @@ export class PublicController {
   }
 
   @Get('future-messages')
-  futureMessages(@Headers('x-goodnight-user-id') userId?: string) {
+  async futureMessages(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = requireRuntimeUserId(userId);
-    return { items: this.store.futureMessageList(runtimeId) };
+    return { items: await this.store.futureMessageList(runtimeId) };
   }
 
   @Post('support-plans')

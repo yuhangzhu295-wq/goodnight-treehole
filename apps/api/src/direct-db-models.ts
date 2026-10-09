@@ -21,6 +21,7 @@ export const DIRECT_DB_MODELS = {
   RecoverySnapshot: 'recoverySnapshots',
   DecisionRecord: 'decisionRecords',
   CooldownItem: 'cooldownItems',
+  MessageToFutureSelf: 'messagesToFutureSelf',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

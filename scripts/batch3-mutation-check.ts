@@ -23,6 +23,8 @@ const ADMIN_DISCLOSURE_SPEC = 'tests/business/batch3-admin-disclosure.spec.ts';
 const RECONSENT_SPEC = 'tests/business/batch3-memory-reconsent.spec.ts';
 const CREDENTIAL_SPEC = 'tests/business/batch3-identity-credential.spec.ts';
 const CREDENTIAL = 'apps/api/src/identity-credential.ts';
+const USERNOTIFICATION_SPEC = 'tests/business/batch1-usernotification.spec.ts';
+const WORKER = 'apps/api/src/follow-up-worker.service.ts';
 const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
 const DECISION_SPEC = 'tests/business/batch3-decision-cooldown.spec.ts';
@@ -587,6 +589,26 @@ const mutations = [
       },
     ],
   },
+  {
+    id: 'M45 worker: the notification is written outside the claim transaction (the pre-A6 ordering)',
+    spec: USERNOTIFICATION_SPEC,
+    expectFailing: ['2b.'],
+    patches: [
+      {
+        // The claim no longer carries the notification...
+        file: WORKER,
+        old: '      const notified = await this.writeClaimNotification(tx, input, notificationId);\n      return { count: claim.count, notified };',
+        new: '      return { count: claim.count, notified: false };',
+      },
+      {
+        // ...and it is written afterwards instead, in its own transaction, which is exactly the
+        // ordering A6 replaced: a failure here leaves the job delivered with no notification.
+        file: WORKER,
+        old: '    // 2. Reload the runtime store so legacy in-memory state is consistent before the notification is observable',
+        new: '    await this.writeClaimNotification(this.prisma, input, notificationId);\n\n    // 2. Reload the runtime store so legacy in-memory state is consistent before the notification is observable',
+      },
+    ],
+  },
 ];
 
 const countOccurrences = (haystack, needle) => haystack.split(needle).length - 1;
@@ -662,7 +684,10 @@ for (const mutation of selected) {
   try {
     for (const patch of mutation.patches) {
       if (!originals.has(patch.file)) originals.set(patch.file, fs.readFileSync(patch.file, 'utf8'));
-      const current = fs.readFileSync(patch.file, 'utf8');
+      // Anchors are written with LF, but some tracked files use CRLF. Normalising before matching
+      // keeps an anchor from silently becoming PATCH-FAILED just because of the checkout's line
+      // endings. The original bytes are restored from `originals` either way.
+      const current = fs.readFileSync(patch.file, 'utf8').replace(/\r\n/g, '\n');
       const found = countOccurrences(current, patch.old);
       if (found !== 1) {
         verdict = 'PATCH-FAILED';
