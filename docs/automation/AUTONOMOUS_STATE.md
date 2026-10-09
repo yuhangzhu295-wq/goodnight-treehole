@@ -1,6 +1,6 @@
 # Autonomous State
 
-**Branch:** `codex/post-recovery-validation`  **HEAD:** `c67ce57`
+**Branch:** `codex/post-recovery-validation`  **HEAD:** `c5b9cbb`
 **Last verified baseline:** full suite 7 failed / 29 passed files, 8 failed (baseline) tests;
 `check:baseline-diff` SUCCESS, 0 new regressions, previous-run comparison live (`files:37 (comparable)`).
 Unit 15/15. Typecheck and lint clean.
@@ -27,8 +27,50 @@ Unit 15/15. Typecheck and lint clean.
 
 ## Running now
 
-Nothing. `B3-R12`, `B3-R13` and `B3-S3` are `WAITING_REVIEW`. The next READY work is `B3-S4`
-(FutureSelf + worker), then `B3-S5` and `B3-GATE`.
+Nothing. `B3-R12`, `B3-R13`, `B3-S3` and `B3-R11` are `WAITING_REVIEW`. The next READY work is
+`B3-S4` (FutureSelf + worker), then `B3-S5` and `B3-GATE`.
+
+## B3-R11 closed: the identity header is a credential, not a user id
+
+The header carried a bare user id and the helper returned it verbatim, so every ownership check
+compared against a caller-supplied value. It now carries an HMAC-SHA256 credential bound to the user
+id, with a 30 day age limit and a purpose prefix so an admin token cannot be replayed as a user
+credential. Both helpers verify, and a bare id is simply an invalid credential. All 96 helper call
+sites were confirmed to route through those two functions; the four routes that looked like bypasses
+delegate to a handler that verifies.
+
+Identity is bootstrapped, never chosen: `POST /api/v1/auth/anonymous` creates the user server-side.
+`POST /api/v1/auth/demo` returns the seeded demo identity and is refused unless
+`ALLOW_DEMO_IDENTITY=true`.
+
+Live evidence against the running server and the development database, not just in-process tests:
+
+| Request | Result |
+| --- | --- |
+| `x-goodnight-user-id: user_demo` (the old impersonation request) | 401 |
+| no identity | 401 |
+| `POST /api/v1/auth/anonymous` | 201, returns `user_anon_76e1f8a2` + credential |
+| that credential | 200 |
+| the same credential with the id rewritten to `user_demo` | 401 |
+| `POST /api/v1/auth/demo` with the local flag on | 201 |
+| anonymous identity's letters / demo identity's letters | 0 / 5 |
+
+13/13 in `batch3-identity-credential.spec.ts`; mutations M40-M44 PROVEN.
+
+### The product consequence, stated plainly
+
+A fresh client now gets a **new empty identity** instead of the seeded demo user. That is not
+incidental: the app showed everyone the demo content precisely because any caller could be the demo
+user, so removing the hole removes the fallback. The seeded experience is preserved for local work by
+`ALLOW_DEMO_IDENTITY=true` (server) and `VITE_USE_DEMO_IDENTITY=true` (client), both off by default.
+There is still no real WeChat openid login, so anonymous bootstrap is the only path a production
+client has. Recorded as `B3-R11-PRODUCT` for the user to confirm.
+
+### Not claimed for B3-R11
+
+There is **no revocation**: a credential stays valid for 30 days and cannot be invalidated server-side
+before then. Deleting a user does not invalidate their credential, though their requests will then
+fail the existence check downstream.
 
 ## Verified, not accepted
 

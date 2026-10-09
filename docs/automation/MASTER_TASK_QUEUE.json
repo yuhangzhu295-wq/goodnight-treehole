@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "16dbcca",
-  "updatedAt": "2026-10-09T05:34:06.741Z",
+  "head": "c5b9cbb",
+  "updatedAt": "2026-10-09T12:33:19.569Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -226,13 +226,13 @@
       "id": "B3-R11",
       "phase": "Batch 3 review",
       "priority": "P0",
-      "status": "BLOCKED_DEPENDENCY",
+      "status": "WAITING_REVIEW",
       "title": "Known-ID impersonation: the identity header is not authentication",
-      "implemented": "no",
-      "tested": "no",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "no",
-      "evidence": "The reviewer: resolveRuntimeUserId verifies the id exists, not that the sender owns it, so a caller who knows any existing user id passes every ownership check. The forged-identity test only covers an UNKNOWN id.",
-      "nextAction": "Needs a session or signed anonymous credential before the per-resource ownership checks; out of reach of route guards and of this batch."
+      "evidence": "The header now carries an HMAC-SHA256 credential bound to the user id (30 day age limit, purpose prefix for domain separation); both identity helpers verify, so a bare user id is an invalid credential. All 96 helper call sites route through those two functions. Identity is bootstrapped via POST /api/v1/auth/anonymous; POST /api/v1/auth/demo is refused unless ALLOW_DEMO_IDENTITY=true. tests/business/batch3-identity-credential.spec.ts 13/13; mutations M40-M44 PROVEN. Live check against the running server and dev database: bare user_demo 401, no identity 401, bootstrap returns user_anon_<hex> plus a working credential (200), rewriting that credential to user_demo 401, demo endpoint 201 under the local flag; the anonymous identity sees 0 letters where the demo identity sees 5.",
+      "nextAction": "Independent review. Two things a reviewer should weigh: there is no credential revocation, and the product change below."
     },
     {
       "id": "B3-R12",
@@ -317,6 +317,30 @@
       "independentReview": "no",
       "evidence": "A mutation that never reached PROVEN proves nothing and its verdict is easy to read past in a summary. The harness now fails the run and lists the offenders. Reverse proof: pointing M39 at a test that cannot fail gives PROVEN-UNRELATED and exit code 1; the real M39 gives PROVEN and exit code 0.",
       "nextAction": "-"
+    },
+    {
+      "id": "B3-R11-PRODUCT",
+      "phase": "Batch 3 identity",
+      "priority": "P1",
+      "status": "WAITING_REVIEW",
+      "title": "Product change: a fresh client now gets a new empty identity instead of the demo user",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "evidence": "Removing the demo fallback is inseparable from removing the impersonation hole: the app used to show the seeded demo content to every caller precisely because any caller could be the demo user. A new client now bootstraps an anonymous identity with no content (verified live: 0 letters against the demo identity's 5). The seeded demo experience is preserved for local work by ALLOW_DEMO_IDENTITY=true on the server and VITE_USE_DEMO_IDENTITY=true on the client, both off by default.",
+      "nextAction": "The user should confirm the intended production onboarding: real WeChat openid login does not exist yet, so anonymous bootstrap is the only path. This is the product decision B3-R11 was originally deferred on, and it is now visible rather than assumed."
+    },
+    {
+      "id": "B3-SUITE-FLAKE",
+      "phase": "Batch 3 verification",
+      "priority": "P2",
+      "status": "READY",
+      "title": "Three specs failed once under full-suite load and pass in isolation",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "In one full run while the machine was heavily loaded (per-file migration time roughly doubled), admin-sync, batch1-multi-instance 5 and batch1-multi-instance 8 failed. Each passes in isolation (1/1, 8/8) and the next full run showed 8 failures with 0 regressions, matching the baseline. The failure messages from that run were lost because a later selected-spec run overwrote suite-report.json, so the timeouts-vs-assertions distinction was not captured.",
+      "nextAction": "Capture per-run failure detail before any selected-spec run overwrites it, then decide whether these are load flakes or a real ordering dependency. Do not simply re-run until green."
     }
   ]
 }
