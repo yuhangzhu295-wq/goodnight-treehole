@@ -45,6 +45,16 @@ jobs:
       TEST_PG_PORT: '5432'
       TEST_MAINTENANCE_DB: postgres
       DAPI_API_KEY: ''
+      # Test-only signing keys for this job's throwaway database.
+      #
+      # The API deliberately refuses admin and C-end authentication when no secret is configured: a
+      # missing secret must not fall back to accepting unsigned credentials. CI previously had no
+      # secret and only passed because the admin token was unsigned, so making that fail closed
+      # turned every business spec's `loginAdmin` into a 401 at setup - six files failing with zero
+      # tests run. These values are not production secrets and protect nothing outside this job.
+      JWT_SECRET: ci-test-only-jwt-secret
+      ADMIN_TOKEN_SECRET: ci-test-only-admin-token-secret
+      CEND_TOKEN_SECRET: ci-test-only-cend-token-secret
 
     steps:
       - name: Checkout repository
