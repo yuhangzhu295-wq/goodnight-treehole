@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "6f0dc51",
-  "updatedAt": "2026-10-10T17:58:59.118Z",
+  "head": "0157c20",
+  "updatedAt": "2026-10-10T18:08:49.445Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -432,24 +432,24 @@
       "id": "B3-SWEEP-ATTACHMENTS",
       "phase": "P0 data safety",
       "priority": "P0",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
-      "tested": "partial",
+      "tested": "yes",
       "independentReview": "yes",
       "title": "The attachment join tables were emptied by every flush",
-      "evidence": "FOUND BY INDEPENDENT REVIEW (architecture-reviewer, which read the code rather than the summary): relational-runtime.mapper.ts:2411,2420 ran unfiltered tx.moodAttachment.deleteMany() and tx.diaryAttachment.deleteMany() and rebuilt them from this instance snapshot alone. That path does not go through deleteAbsent, so the sweep fix did not cover it and my claim that the fix covered all swept models centrally was wrong. Fixed by scoping the replacement to the parent ids the snapshot carries; attachments of parents the store no longer carries are removed by the FK cascade (MoodAttachment.mood is onDelete: Cascade). Test 5 in legacy-sweep-ownership.spec.ts pins it.",
+      "evidence": "FOUND BY INDEPENDENT REVIEW: unfiltered tx.moodAttachment.deleteMany() and tx.diaryAttachment.deleteMany() rebuilt the join tables from this instance snapshot alone; that path does not go through deleteAbsent, so the sweep fix never covered it. Fixed by scoping to the parent ids the snapshot carries, relying on the FK cascade for parents the store no longer holds. Verified by CI run 38073941424: legacy-sweep-ownership.spec.ts 5/5 PASS including the new attachment test, full suite 8 failed / 267 passed, New Regressions 0.",
       "nextAction": "The new test has not been run: the local database kept stopping mid-run. CI is the verifier."
     },
     {
       "id": "B3-SWEEP-WATERMARK-ROLLBACK",
       "phase": "P0 data safety",
       "priority": "P1",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
-      "tested": "no",
+      "tested": "partial",
       "independentReview": "yes",
       "title": "The ownership watermark advanced inside the flush transaction",
-      "evidence": "FOUND BY INDEPENDENT REVIEW: deleteAbsent updated the module-level watermark inside the transaction callback, so a rollback left it claiming rows the database never received. After deleting X the watermark was already empty, so a retry with the same empty snapshot found nothing to remove and the deletion was silently lost. Fixed by collecting pending watermarks and promoting them only after the transaction commits.",
+      "evidence": "FOUND BY INDEPENDENT REVIEW: the watermark advanced inside the flush transaction, so a rollback left it ahead of the database and a retry skipped a deletion that still needed to happen. Fixed by promoting watermarks only after commit. CI run 38073941424 green with 0 new regressions, but no dedicated delete-then-fail-then-retry test exists yet.",
       "nextAction": "Add a regression test for delete-then-fail-then-retry. Not written yet."
     },
     {
