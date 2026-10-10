@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "dbac401",
-  "updatedAt": "2026-10-10T17:19:43.246Z",
+  "head": "a131c35",
+  "updatedAt": "2026-10-10T17:29:33.318Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -420,13 +420,13 @@
       "id": "MUTATION-HARNESS-PARSE",
       "phase": "verification",
       "priority": "P2",
-      "status": "READY",
-      "implemented": "no",
-      "tested": "no",
+      "status": "DONE",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "no",
       "title": "The mutation harness cannot distinguish an unparseable run from a held guard",
-      "evidence": "M50 reported PROVEN on one attempt and INCONCLUSIVE :: could not parse the summary on another, depending on what the child printed and whether the local database was up. It fails safe (INCONCLUSIVE is never PROVEN), but the same class of gap as the PATCH-FAILED anchors: a verdict that cannot tell \"the run did not happen\" from \"the guard held\" is not evidence.",
-      "nextAction": "Make runSpec fail loudly when the child output does not match the expected summary shape, rather than returning a null count that downstream treats as inconclusive."
+      "evidence": "Root cause found: the harness spawns the runner as a child, and without an explicit DATABASE_URL the child used the .env value whose localhost does not reliably resolve to the forwarded port here, so it failed before printing a summary. Hardened: the verdict is RUN-FAILED (no summary; the mutation was not evaluated) and the detail carries the child diagnostic - verified by the first run after the change reporting [INFRASTRUCTURE_FAILURE] Cannot connect to PostgreSQL instead of could not parse the summary. It always failed safe (INCONCLUSIVE is never PROVEN).",
+      "nextAction": "-"
     }
   ]
 }

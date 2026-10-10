@@ -132,11 +132,17 @@ PostgreSQL is the source of truth. No sweep exposure.
   inverted, test 4 fails with `expected { …(11) } to be null` - the store-owned row was not deleted.
   The earlier "inconclusive" reading was the mutation harness running while the local database was
   down, not a real result.
-- **The mutation harness cannot always parse a run.** With M50 it reported `PROVEN` on one attempt and
-  `INCONCLUSIVE :: could not parse the summary` on another, depending on what the child printed. It
-  fails safe - `INCONCLUSIVE` is never reported as `PROVEN` - but a harness that cannot distinguish
-  "the run did not happen" from "the guard held" is the same class of gap as the PATCH-FAILED
-  anchors found earlier, and should be hardened before its verdicts are relied on in bulk.
+- **The mutation harness reported an opaque failure when a run did not happen.** The cause is now
+  known and was environmental, not a property of the mutation: the harness spawns the test runner as a
+  child, and when the harness is invoked without an explicit `DATABASE_URL` the child falls back to
+  the `.env` value, whose `localhost` does not reliably resolve to the forwarded port on this
+  machine. The child then fails before printing a summary, and the harness reported
+  `could not parse the summary` - which reads like a property of the mutation.
+  Hardened: the verdict is now `RUN-FAILED (no summary; the mutation was not evaluated)` and the
+  detail carries the child's own diagnostic, so the first run after the change reported
+  `[INFRASTRUCTURE_FAILURE] Cannot connect to PostgreSQL` instead of a puzzle. It always failed safe
+  (`INCONCLUSIVE` is never `PROVEN`), but a verdict that cannot distinguish "the run did not
+  happen" from "the guard held" is the same class of gap as the PATCH-FAILED anchors found earlier.
 
 ## 5. Follow-up
 

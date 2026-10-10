@@ -722,6 +722,25 @@ function runSpec(spec) {
     .split(/\r?\n/)
     .filter((line) => /^\s*(FAIL|×)\s/.test(line))
     .map((line) => line.trim());
+
+  // When the summary line is missing, say WHY rather than "could not parse the summary". A run that
+  // never started (infrastructure failure, spawn error, crash) and a run whose guard held are not
+  // the same result, and an opaque message is what let an earlier M51 read as inconclusive when the
+  // local database was simply down.
+  const diagnostic =
+    summary === null
+      ? output
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) =>
+            /INFRASTRUCTURE_FAILURE|Cannot connect|ECONNREFUSED|ECONNRESET|shutting down|Error:|error:|Cannot find module/.test(
+              line,
+            ),
+          )
+          .slice(0, 3)
+          .join(' | ')
+      : '';
+
   return {
     output,
     status: run.status,
@@ -730,6 +749,7 @@ function runSpec(spec) {
     failed: summary ? Number(summary[1]) : null,
     passed: summary ? Number(summary[2]) : null,
     failedTests,
+    diagnostic,
   };
 }
 
@@ -787,7 +807,12 @@ for (const mutation of selected) {
       if (!childOk(run)) {
         detail = `child did not exit cleanly: status=${run.status} signal=${run.signal} spawnError=${run.spawnError}`;
       } else if (run.failed === null) {
-        detail = 'could not parse the summary';
+        // The run produced no summary line. Say what the child reported, so a database that is down
+        // is not mistaken for a guard that held.
+        verdict = 'RUN-FAILED (no summary; the mutation was not evaluated)';
+        detail = run.diagnostic
+          ? `child produced no test summary; it reported: ${run.diagnostic}`
+          : 'could not parse the summary and the child reported no recognisable error';
       } else if (run.failed === 0) {
         verdict = 'NOT PROVEN (test still passes)';
         detail = `0 failed / ${run.passed} passed`;
