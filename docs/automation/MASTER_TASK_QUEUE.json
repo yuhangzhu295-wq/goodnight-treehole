@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "90e892d",
-  "updatedAt": "2026-10-09T17:48:58.532Z",
+  "head": "da0c3d9",
+  "updatedAt": "2026-10-10T03:06:55.117Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -389,8 +389,20 @@
       "implemented": "partial",
       "tested": "partial",
       "independentReview": "no",
-      "evidence": "Run 37967326793: immutability PASS, migrate deploy PASS, prisma generate PASS, typecheck PASS, lint PASS, unit PASS, batch1 gate PASS, full business suite PASS. The baseline diff still reports 1 new regression: third-stage-persistence-independent \"keeps all third-stage persisted counts unchanged across twenty read-only passes\" failing with read ECONNRESET. Three earlier failures were fixed on the way: the CRLF-pinned baseline, an unawaited async createReply, the missing signing secrets, and a stale interactive transaction in listDecisions/listCooldowns (that one was a real defect the CI log exposed).",
-      "nextAction": "Identify the ECONNRESET. The app logs nothing and the request never reaches a handler, so it is below the application. The spec closes and recreates the app mid-test. A keepAlive hypothesis was tested and REJECTED - replacing the global agent made both tests fail locally, so it was reverted. Reproduce with the database held up (locally WSL Postgres keeps stopping: \"the database system is shutting down\"), then check whether app.close() leaves the replacement server unlistened so supertest races an ephemeral listen."
+      "evidence": "Run 38019054476 (da0c3d9): immutability PASS, migrate deploy PASS, generate PASS, typecheck PASS, lint PASS, unit PASS, batch1 gate PASS, full suite PASS. The ECONNRESET failure in third-stage-persistence-independent is GONE after binding the test app port (listen(0)); two earlier hypotheses (client socket pooling) did not change it. A different test now fails: batch1-journey 7 Archive deletion, expected null not to be null at line 1128 - the Mood that must survive with journeyId=null was deleted.",
+      "nextAction": "Determine which legacy flush sweeps the mood. Mood is legacy (not in DIRECT_DB_MODELS) and is swept unguarded at relational-runtime.mapper.ts:2598 via deleteAbsent against the in-memory snapshot. The spec creates the mood with a direct PrismaClient write, so the store does not know it, and any flush landing in that window deletes it. Decide whether the sweep must exclude rows it does not own (Batch 4 work) or whether the spec must reload before asserting - do NOT weaken the assertion."
+    },
+    {
+      "id": "LEGACY-SWEEP-DELETES-DIRECT-WRITES",
+      "phase": "Batch 4",
+      "priority": "P0",
+      "status": "READY",
+      "title": "The legacy absence sweep deletes rows written directly to the database",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "no",
+      "evidence": "relational-runtime.mapper.ts:2598 sweeps Mood with deleteAbsent against the in-memory snapshot, and Mood is a legacy model, so a row that exists only in the database is deleted by the next flush. Surfaced in CI as batch1-journey 7 (a mood that must survive archive deletion was gone). This is the same class as the MemoryItem incident: the bulk flush is the deleter.",
+      "nextAction": "Establish which flush runs in that window, then make the sweep not delete rows the store does not own, or convert the model. Do not fix it by changing the test assertion."
     }
   ]
 }
