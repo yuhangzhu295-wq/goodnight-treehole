@@ -821,13 +821,35 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
  * `deleteMany({})` and emptied the whole table - reproduced against the development database as 13
  * Mood rows going to 0.
  *
- * The rule now: the sweep may only delete ids the store itself put there and no longer has. A row
- * the store has never written is never deleted by the flush, whatever the snapshot says. Legitimate
- * deletions still work, because the row the user removed was written by an earlier flush and is
- * therefore in this set. After a restart the set starts empty, so the first flush deletes nothing -
- * the safe direction, and any real deletion lands on the following flush.
+ * The rule now: the sweep may only delete ids this store carried in an earlier snapshot and no
+ * longer carries. A row the store has never had in a snapshot is never deleted by the flush, whatever
+ * the current snapshot says. Legitimate deletions still work, because the row the user removed was in
+ * an earlier snapshot and is therefore in this set. After a restart the set starts empty, so the
+ * first flush deletes nothing - the safe direction, and any real deletion lands on the following
+ * flush.
+ *
+ * **What this is not:** it is not proof that this process created the row. Boot hydration and
+ * `reloadRuntimeState()` both put rows the database already had - including rows another instance
+ * wrote - into the snapshot, and the next flush records them here as if they were ours. The set is
+ * "ids this store has seen in a snapshot", not "ids this store wrote". An independent review
+ * established that the specific cross-instance loss this suggests is not reachable through an
+ * ordinary Mood path (a row created after this instance hydrated is absent from its snapshot and so
+ * never enters the set; reaching the window needs a reload between the two flushes, and no ordinary
+ * path then removes the row from the snapshot while keeping it in the database). The gap is real and
+ * unproven, and it is recorded as `B3-SWEEP-OWNERSHIP-HYDRATION`. Retiring the bulk flush removes it.
  */
 const flushedIdsByModel = new Map<string, Set<string>>();
+
+/**
+ * Watermarks written during the current flush, promoted to `flushedIdsByModel` only if the
+ * transaction commits.
+ *
+ * `deleteAbsent` runs inside the flush transaction. Updating the real watermark there meant a
+ * rollback left it claiming rows the database never received: after deleting X the watermark would
+ * already be empty, so a retry with the same empty snapshot found nothing to remove and the deletion
+ * was silently lost. Collecting here and promoting after commit keeps the two in step.
+ */
+const pendingFlushedIds = new Map<string, Set<string>>();
 
 async function deleteAbsent(modelKey: string, model: any, ids: string[]) {
   const current = new Set(ids);
@@ -838,7 +860,7 @@ async function deleteAbsent(modelKey: string, model: any, ids: string[]) {
       await model.deleteMany({ where: { id: { in: removable } } });
     }
   }
-  flushedIdsByModel.set(modelKey, current);
+  pendingFlushedIds.set(modelKey, current);
 }
 
 function fkUpdate<K extends string>(
@@ -2408,7 +2430,18 @@ export async function saveRelationalRuntimeState(
           },
         });
 
-      await tx.moodAttachment.deleteMany();
+      // Scoped to the parents this snapshot carries, not the whole table.
+      //
+      // This used to be `deleteMany()` with no filter - the same defect the absence sweeps had, and
+      // one the sweep fix did not cover because it does not go through deleteAbsent: an attachment
+      // row whose Mood was written directly, or by another instance, is absent from this snapshot and
+      // was destroyed by any flush. Attachments of parents this store no longer carries need no
+      // handling here, because deleting the parent cascades (`MoodAttachment.mood` is
+      // `onDelete: Cascade`).
+      const snapshotMoodIds = asArray(state.moods).map((item: any) => item.id);
+      if (snapshotMoodIds.length) {
+        await tx.moodAttachment.deleteMany({ where: { moodId: { in: snapshotMoodIds } } });
+      }
       const moodAttachments = asArray(state.moods).flatMap((item: any) =>
         asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({
           moodId: item.id,
@@ -2417,7 +2450,10 @@ export async function saveRelationalRuntimeState(
         })),
       );
       if (moodAttachments.length) await tx.moodAttachment.createMany({ data: moodAttachments, skipDuplicates: true });
-      await tx.diaryAttachment.deleteMany();
+      const snapshotDiaryIds = asArray(state.diaries).map((item: any) => item.id);
+      if (snapshotDiaryIds.length) {
+        await tx.diaryAttachment.deleteMany({ where: { diaryId: { in: snapshotDiaryIds } } });
+      }
       const diaryAttachments = asArray(state.diaries).flatMap((item: any) =>
         asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({
           diaryId: item.id,
@@ -2665,4 +2701,9 @@ export async function saveRelationalRuntimeState(
     },
     { maxWait: 10_000, timeout: 30_000 },
   );
+
+  // Promote the watermarks now that the transaction has committed. See pendingFlushedIds: doing this
+  // inside the callback let a rollback leave the watermark ahead of the database.
+  for (const [key, ids] of pendingFlushedIds) flushedIdsByModel.set(key, ids);
+  pendingFlushedIds.clear();
 }

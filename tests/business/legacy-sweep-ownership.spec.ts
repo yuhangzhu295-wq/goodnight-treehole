@@ -148,4 +148,43 @@ describe('Legacy flush deletion ownership', () => {
     await saveRelationalRuntimeState(prisma as never, { users: [userRow()], moods: [] } as never);
     expect(await prisma.mood.findUnique({ where: { id: moodId } })).toBeNull();
   });
+
+  it('5. An attachment on a Mood the snapshot does not carry survives the flush', async () => {
+    // Found by independent review after the first fix: the attachment join tables were still emptied
+    // with an unfiltered deleteMany() and rebuilt from this snapshot alone, so an attachment written
+    // directly - or by another instance - was destroyed by any flush. That path does not go through
+    // deleteAbsent, which is why the sweep fix did not cover it.
+    const stamp = Date.now();
+    const moodId = `sweep_attach_mood_${stamp}`;
+    const assetId = `sweep_attach_asset_${stamp}`;
+    await createDirectMood(moodId);
+    await prisma.mediaAsset.create({
+      data: {
+        id: assetId,
+        userId,
+        storageKey: `sweep/${stamp}.png`,
+        url: `/uploads/sweep/${stamp}.png`,
+        mimeType: 'image/png',
+        size: 128,
+        usageType: 'mood',
+        status: 'active',
+        createdAt: new Date(),
+      },
+    });
+    await prisma.moodAttachment.create({ data: { moodId, mediaAssetId: assetId, sortOrder: 0 } });
+
+    await saveRelationalRuntimeState(prisma as never, {
+      users: [userRow()],
+      moods: [],
+      posts: [],
+      letters: [],
+    } as never);
+
+    const surviving = await prisma.moodAttachment.findMany({ where: { moodId } });
+    expect(surviving).toHaveLength(1);
+
+    await prisma.moodAttachment.deleteMany({ where: { moodId } }).catch(() => undefined);
+    await prisma.mood.delete({ where: { id: moodId } }).catch(() => undefined);
+    await prisma.mediaAsset.delete({ where: { id: assetId } }).catch(() => undefined);
+  });
 });

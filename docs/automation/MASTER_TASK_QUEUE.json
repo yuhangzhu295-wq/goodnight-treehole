@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "a131c35",
-  "updatedAt": "2026-10-10T17:29:33.318Z",
+  "head": "6f0dc51",
+  "updatedAt": "2026-10-10T17:58:59.118Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -427,6 +427,42 @@
       "title": "The mutation harness cannot distinguish an unparseable run from a held guard",
       "evidence": "Root cause found: the harness spawns the runner as a child, and without an explicit DATABASE_URL the child used the .env value whose localhost does not reliably resolve to the forwarded port here, so it failed before printing a summary. Hardened: the verdict is RUN-FAILED (no summary; the mutation was not evaluated) and the detail carries the child diagnostic - verified by the first run after the change reporting [INFRASTRUCTURE_FAILURE] Cannot connect to PostgreSQL instead of could not parse the summary. It always failed safe (INCONCLUSIVE is never PROVEN).",
       "nextAction": "-"
+    },
+    {
+      "id": "B3-SWEEP-ATTACHMENTS",
+      "phase": "P0 data safety",
+      "priority": "P0",
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "tested": "partial",
+      "independentReview": "yes",
+      "title": "The attachment join tables were emptied by every flush",
+      "evidence": "FOUND BY INDEPENDENT REVIEW (architecture-reviewer, which read the code rather than the summary): relational-runtime.mapper.ts:2411,2420 ran unfiltered tx.moodAttachment.deleteMany() and tx.diaryAttachment.deleteMany() and rebuilt them from this instance snapshot alone. That path does not go through deleteAbsent, so the sweep fix did not cover it and my claim that the fix covered all swept models centrally was wrong. Fixed by scoping the replacement to the parent ids the snapshot carries; attachments of parents the store no longer carries are removed by the FK cascade (MoodAttachment.mood is onDelete: Cascade). Test 5 in legacy-sweep-ownership.spec.ts pins it.",
+      "nextAction": "The new test has not been run: the local database kept stopping mid-run. CI is the verifier."
+    },
+    {
+      "id": "B3-SWEEP-WATERMARK-ROLLBACK",
+      "phase": "P0 data safety",
+      "priority": "P1",
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "tested": "no",
+      "independentReview": "yes",
+      "title": "The ownership watermark advanced inside the flush transaction",
+      "evidence": "FOUND BY INDEPENDENT REVIEW: deleteAbsent updated the module-level watermark inside the transaction callback, so a rollback left it claiming rows the database never received. After deleting X the watermark was already empty, so a retry with the same empty snapshot found nothing to remove and the deletion was silently lost. Fixed by collecting pending watermarks and promoting them only after the transaction commits.",
+      "nextAction": "Add a regression test for delete-then-fail-then-retry. Not written yet."
+    },
+    {
+      "id": "B3-SWEEP-OWNERSHIP-HYDRATION",
+      "phase": "P0 data safety",
+      "priority": "P1",
+      "status": "BLOCKED_DEPENDENCY",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "yes",
+      "title": "The watermark records ids this store has seen, not ids it wrote",
+      "evidence": "FOUND BY INDEPENDENT REVIEW: boot hydration and reloadRuntimeState() both load rows the database already had, including rows another instance wrote, and the next flush records them as owned. The reviewer established the specific cross-instance loss is NOT reachable through an ordinary Mood path (a row created after this instance hydrated is absent from its snapshot and never enters the set; the window needs a reload between two flushes and no ordinary path then removes the row from the snapshot while keeping it in the database). So: a confirmed design gap, not a reproduced P0. The code comment previously claimed the set was ids this process wrote, which was false and is corrected.",
+      "nextAction": "Retiring the bulk flush (Batch 4) removes the gap. Until then do not treat a snapshot id as a deletion authorisation."
     }
   ]
 }
