@@ -1,5 +1,16 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import http from 'node:http';
+import https from 'node:https';
+
+// Node 20 keeps client connections alive by default. Supertest starts and stops an ephemeral server
+// per request when the app is not already listening, so a pooled socket can be reused against a
+// server that a spec has deliberately closed (third-stage-persistence-independent restarts the API).
+// The result is `read ECONNRESET` with nothing logged by the app, because the request never reaches a
+// handler. Pooling is mutated rather than replaced so the existing agent object keeps its identity.
+http.globalAgent.keepAlive = false;
+https.globalAgent.keepAlive = false;
+
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
