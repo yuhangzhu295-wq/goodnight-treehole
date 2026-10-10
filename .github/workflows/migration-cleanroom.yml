@@ -80,7 +80,9 @@ jobs:
 
       - name: Confirm the database starts empty
         run: |
-          count=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          # psql rejects Prisma's `?schema=` query parameter, so strip it for this one command.
+          PGURL="${DATABASE_URL%%\?*}"
+          count=$(psql "$PGURL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
           echo "public tables before migrating: $count"
           if [ "$count" != "0" ]; then
             echo "::error::Cleanroom database is not empty; this job must build from zero."
