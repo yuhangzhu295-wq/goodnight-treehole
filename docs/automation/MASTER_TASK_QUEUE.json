@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "da0c3d9",
-  "updatedAt": "2026-10-10T03:06:55.117Z",
+  "head": "486d01a",
+  "updatedAt": "2026-10-10T03:39:28.788Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -384,25 +384,25 @@
       "id": "CI-GREEN",
       "phase": "CI",
       "priority": "P0",
-      "status": "RUNNING",
+      "status": "DONE",
       "title": "GitHub Actions has never passed; the immutability gate blocked everything after it",
-      "implemented": "partial",
-      "tested": "partial",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "no",
-      "evidence": "Run 38019054476 (da0c3d9): immutability PASS, migrate deploy PASS, generate PASS, typecheck PASS, lint PASS, unit PASS, batch1 gate PASS, full suite PASS. The ECONNRESET failure in third-stage-persistence-independent is GONE after binding the test app port (listen(0)); two earlier hypotheses (client socket pooling) did not change it. A different test now fails: batch1-journey 7 Archive deletion, expected null not to be null at line 1128 - the Mood that must survive with journeyId=null was deleted.",
-      "nextAction": "Determine which legacy flush sweeps the mood. Mood is legacy (not in DIRECT_DB_MODELS) and is swept unguarded at relational-runtime.mapper.ts:2598 via deleteAbsent against the in-memory snapshot. The spec creates the mood with a direct PrismaClient write, so the store does not know it, and any flush landing in that window deletes it. Decide whether the sweep must exclude rows it does not own (Batch 4 work) or whether the spec must reload before asserting - do NOT weaken the assertion."
+      "evidence": "Run 38020988226 on 486d01a: job SUCCESS in 5m8s. Migration immutability PASS, migrate deploy PASS, prisma generate PASS, typecheck PASS, lint PASS (0 errors), unit PASS, batch1 regression gate 62/62, full business suite 8 failed / 266 passed, baseline diff Total 8 / Known 8 / New Regressions 0 / \"SUCCESS: All suite failures belong to the known baseline\". Six failures were fixed to get here: the CRLF-pinned migration baseline, an unawaited async createReply, the missing prisma generate step, an AI routing test depending on a developer .env, the missing signing secrets, a stale interactive transaction on a read path, the supertest server lifecycle (app.listen(0)) and finally the P0 legacy sweep.",
+      "nextAction": "-"
     },
     {
       "id": "LEGACY-SWEEP-DELETES-DIRECT-WRITES",
       "phase": "Batch 4",
       "priority": "P0",
-      "status": "READY",
+      "status": "DONE",
       "title": "The legacy absence sweep deletes rows written directly to the database",
-      "implemented": "no",
-      "tested": "no",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "no",
-      "evidence": "relational-runtime.mapper.ts:2598 sweeps Mood with deleteAbsent against the in-memory snapshot, and Mood is a legacy model, so a row that exists only in the database is deleted by the next flush. Surfaced in CI as batch1-journey 7 (a mood that must survive archive deletion was gone). This is the same class as the MemoryItem incident: the bulk flush is the deleter.",
-      "nextAction": "Establish which flush runs in that window, then make the sweep not delete rows the store does not own, or convert the model. Do not fix it by changing the test assertion."
+      "evidence": "Reproduced against the real database: 13 Mood rows to 0 when a flush ran with an empty moods snapshot. Fixed centrally in deleteAbsent - a deletion now requires evidence of ownership (ids this process previously wrote and no longer carries), not absence from the snapshot. 38 swept models are covered by the one change. tests/business/legacy-sweep-ownership.spec.ts 4/4; mutation M50 restores the old sweep and the tests fail, so they discriminate; batch1-journey 13/13 including test 7; CI green with 0 new regressions.",
+      "nextAction": "M51 (the over-correction direction) was inconclusive - the spec failed at file level with zero tests run because the local database stopped mid-run. Re-run it when the local database is stable, or rely on test 4 which covers that direction."
     }
   ]
 }
