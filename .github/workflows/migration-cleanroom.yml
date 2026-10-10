@@ -1,0 +1,114 @@
+name: Migration Cleanroom
+
+# Builds the schema from zero on an empty database and asserts the result, separately from the main
+# CI job. The main job proves the files on disk are unchanged; this one proves a database built from
+# those files is coherent - every migration applied, none unfinished, every ledger checksum matching
+# the pinned baseline, and the migrations producing exactly `schema.prisma`.
+#
+# This is the check that would have caught the original failure mode: the pinned baseline had been
+# recorded from a CRLF working tree, so the files were right and the baseline was wrong, and only a
+# from-zero build against a Linux checkout made that visible.
+
+'on':
+  push:
+    branches: ['**']
+    paths:
+      - 'prisma/**'
+      - 'scripts/check-migration-*.ts'
+      - '.github/workflows/migration-cleanroom.yml'
+  pull_request:
+    paths:
+      - 'prisma/**'
+      - 'scripts/check-migration-*.ts'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cleanroom:
+    name: Build the schema from zero
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: goodnight
+          POSTGRES_PASSWORD: goodnight
+          POSTGRES_DB: goodnight_treehole_cleanroom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://goodnight:goodnight@127.0.0.1:5432/goodnight_treehole_cleanroom?schema=public
+      TEST_MAINTENANCE_DB: postgres
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install postgresql-client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate --schema prisma/schema.prisma
+
+      - name: Confirm the database starts empty
+        run: |
+          count=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          echo "public tables before migrating: $count"
+          if [ "$count" != "0" ]; then
+            echo "::error::Cleanroom database is not empty; this job must build from zero."
+            exit 1
+          fi
+
+      - name: Migration immutability check
+        run: pnpm exec tsx scripts/check-migration-immutability.ts
+
+      - name: Apply every migration to the empty database
+        run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Assert the ledger agrees with the pinned baseline
+        run: pnpm exec tsx scripts/check-migration-ledger.ts
+
+      - name: Assert the migrations produce exactly schema.prisma
+        run: |
+          # If the migrations and schema.prisma disagree, `migrate diff` exits non-zero. This catches
+          # the classic drift where a model was edited in the schema and never captured in a migration.
+          pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$DATABASE_URL" \
+            --exit-code
+
+      - name: Report cleanroom result
+        if: always()
+        run: |
+          echo "### Migration Cleanroom" >> $GITHUB_STEP_SUMMARY
+          echo "- **Outcome**: \`${{ job.status }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **What it proves**: a database built from zero applies every migration, records no unfinished or rolled-back migration, matches the pinned baseline checksums, and ends in the schema \`prisma/schema.prisma\` describes." >> $GITHUB_STEP_SUMMARY
