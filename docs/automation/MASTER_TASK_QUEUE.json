@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "486d01a",
-  "updatedAt": "2026-10-10T03:39:28.788Z",
+  "head": "223ac92",
+  "updatedAt": "2026-10-10T05:40:53.193Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -402,7 +402,19 @@
       "tested": "yes",
       "independentReview": "no",
       "evidence": "Reproduced against the real database: 13 Mood rows to 0 when a flush ran with an empty moods snapshot. Fixed centrally in deleteAbsent - a deletion now requires evidence of ownership (ids this process previously wrote and no longer carries), not absence from the snapshot. 38 swept models are covered by the one change. tests/business/legacy-sweep-ownership.spec.ts 4/4; mutation M50 restores the old sweep and the tests fail, so they discriminate; batch1-journey 13/13 including test 7; CI green with 0 new regressions.",
-      "nextAction": "M51 (the over-correction direction) was inconclusive - the spec failed at file level with zero tests run because the local database stopped mid-run. Re-run it when the local database is stable, or rely on test 4 which covers that direction."
+      "nextAction": "M51 remains inconclusive (the mutant makes the spec fail at file level with zero tests run, reproducible on a fresh database, cause not yet identified). Test 4 covers the same direction and passes. Audit written: docs/architecture/LEGACY_SWEEP_DATA_LOSS_AUDIT.md."
+    },
+    {
+      "id": "CI-CLEANROOM",
+      "phase": "CI",
+      "priority": "P1",
+      "status": "DONE",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "no",
+      "title": "Migration cleanroom: prove a database built from zero is coherent",
+      "evidence": "Run 38028019924 SUCCESS in 59s, all 12 steps: empty-database assertion, immutability check, migrate deploy, ledger assertion, drift check (prisma migrate diff --exit-code). scripts/check-migration-ledger.ts is discriminating, verified both ways: PASSES on a from-zero database (14 migrations, ledger agrees with the pinned baseline) and FAILS on the development database, correctly reporting its CRLF-era checksums and the migration it has not had applied. live-ai.yml already reported NOT_RUN_NO_SECRET and needed no change.",
+      "nextAction": "-"
     }
   ]
 }

@@ -42,3 +42,6 @@
 {"ts":"2026-10-10T03:39:28.790Z","task":"LEGACY-SWEEP-DELETES-DIRECT-WRITES","status":"FIXED","commit":"486d01a","note":"P0 confirmed against the real database (13 Mood rows to 0); deleteAbsent now deletes only ids the store previously wrote; 38 swept models covered centrally"}
 {"ts":"2026-10-10T03:39:28.790Z","task":"CI-GREEN","status":"ACHIEVED","commit":"486d01a","note":"run 38020988226 SUCCESS: all gates pass, full suite 8 failed / 266 passed, baseline diff New Regressions 0"}
 {"ts":"2026-10-10T03:39:28.790Z","task":"PUSH","status":"OK","commit":"486d01a","note":"eaf55e9 and 486d01a pushed; origin==HEAD. A git bundle of all refs is in C:/Users/zyu33/Backups/"}
+{"ts":"2026-10-10T05:40:53.207Z","task":"AUDIT","status":"DONE","commit":"f758fb1","note":"LEGACY_SWEEP_DATA_LOSS_AUDIT.md: 38 swept models, 16 with an ACTIVE sweep (not in DIRECT_DB_MODELS), 22 guarded, direct-writer counts measured by grep"}
+{"ts":"2026-10-10T05:40:53.207Z","task":"CI-CLEANROOM","status":"DONE","commit":"223ac92","note":"migration cleanroom workflow SUCCESS; check-migration-ledger.ts passes on a from-zero database and fails on the dev database (discriminating)"}
+{"ts":"2026-10-10T05:40:53.207Z","task":"CI-GREEN","status":"STILL_GREEN","commit":"223ac92","note":"CI run 38028019947 SUCCESS; both workflows green on 223ac92"}
