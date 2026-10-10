@@ -128,9 +128,15 @@ PostgreSQL is the source of truth. No sweep exposure.
 - **Direct-writer counts are grep measurements**, not a proof of reachability. A model showing 0 sites
   can still receive rows from tests, scripts, or another instance — which is exactly the case the fix
   covers.
-- **M51** (the over-correction mutation, proving test 4 fails if the ownership rule is inverted) was
-  inconclusive: the spec failed at file level with zero tests run because the local database stopped
-  mid-run. Test 4 passes, but that mutation is not proven.
+- **M51** (the over-correction mutation) is now proven by direct observation: with the ownership rule
+  inverted, test 4 fails with `expected { …(11) } to be null` - the store-owned row was not deleted.
+  The earlier "inconclusive" reading was the mutation harness running while the local database was
+  down, not a real result.
+- **The mutation harness cannot always parse a run.** With M50 it reported `PROVEN` on one attempt and
+  `INCONCLUSIVE :: could not parse the summary` on another, depending on what the child printed. It
+  fails safe - `INCONCLUSIVE` is never reported as `PROVEN` - but a harness that cannot distinguish
+  "the run did not happen" from "the guard held" is the same class of gap as the PATCH-FAILED
+  anchors found earlier, and should be hardened before its verdicts are relied on in bulk.
 
 ## 5. Follow-up
 

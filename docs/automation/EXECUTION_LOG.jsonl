@@ -45,3 +45,4 @@
 {"ts":"2026-10-10T05:40:53.207Z","task":"AUDIT","status":"DONE","commit":"f758fb1","note":"LEGACY_SWEEP_DATA_LOSS_AUDIT.md: 38 swept models, 16 with an ACTIVE sweep (not in DIRECT_DB_MODELS), 22 guarded, direct-writer counts measured by grep"}
 {"ts":"2026-10-10T05:40:53.207Z","task":"CI-CLEANROOM","status":"DONE","commit":"223ac92","note":"migration cleanroom workflow SUCCESS; check-migration-ledger.ts passes on a from-zero database and fails on the dev database (discriminating)"}
 {"ts":"2026-10-10T05:40:53.207Z","task":"CI-GREEN","status":"STILL_GREEN","commit":"223ac92","note":"CI run 38028019947 SUCCESS; both workflows green on 223ac92"}
+{"ts":"2026-10-10T17:19:43.248Z","task":"M51","status":"PROVEN","commit":"dbac401","note":"with the ownership rule inverted, test 4 fails with expected {…(11)} to be null; the earlier inconclusive reading was the harness running while the local database was down"}
