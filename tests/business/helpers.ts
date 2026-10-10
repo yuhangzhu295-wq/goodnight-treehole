@@ -72,6 +72,14 @@ export async function createApiTestApp(): Promise<INestApplication> {
   const { createServer } = await import('../../apps/api/src/main.js');
   const app = await createServer();
   await app.init();
+  // Listen on an ephemeral port rather than leaving the server unbound.
+  //
+  // When the app is not listening, supertest starts a server for the request and closes it again
+  // afterwards. A spec that deliberately restarts the API - third-stage-persistence-independent
+  // closes the app and builds a new one - then gets `read ECONNRESET` on the first request after the
+  // restart, with nothing logged by the app because the request never reaches a handler. Binding the
+  // port here keeps the server's lifecycle out of the request path for every spec.
+  await app.listen(0);
   return app;
 }
 
