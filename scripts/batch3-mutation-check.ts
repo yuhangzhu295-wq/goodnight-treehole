@@ -28,8 +28,9 @@ const MIDDLEWARE = 'apps/api/src/identity.middleware.ts';
 const USERNOTIFICATION_SPEC = 'tests/business/batch1-usernotification.spec.ts';
 const WORKER = 'apps/api/src/follow-up-worker.service.ts';
 const FUTURE_SELF_SPEC = 'tests/business/batch3-future-self-authority.spec.ts';
-const B1 = 'apps/api/src/batch1-persistence.service.ts';
+const SWEEP_SPEC = 'tests/business/legacy-sweep-ownership.spec.ts';
 const MAPPER = 'apps/api/src/relational-runtime.mapper.ts';
+const B1 = 'apps/api/src/batch1-persistence.service.ts';
 const DECISION_SPEC = 'tests/business/batch3-decision-cooldown.spec.ts';
 
 const mutations = [
@@ -666,6 +667,30 @@ const mutations = [
         file: SELF,
         old: "        const decision = await tx.decisionRecord.findFirst({\n          where: { id: params.contextRefId, userId: params.userId },\n        });",
         new: "        const decision = await tx.decisionRecord.findFirst({\n          where: { id: params.contextRefId },\n        });",
+      },
+    ],
+  },
+  {
+    id: 'M50 sweep: the legacy absence sweep deletes every row absent from the snapshot again (the P0)',
+    spec: SWEEP_SPEC,
+    expectFailing: ['1.', '2.'],
+    patches: [
+      {
+        file: MAPPER,
+        old: "async function deleteAbsent(modelKey: string, model: any, ids: string[]) {\n  const current = new Set(ids);\n  const previouslyOwned = flushedIdsByModel.get(modelKey);\n  if (previouslyOwned) {\n    const removable = [...previouslyOwned].filter((id) => !current.has(id));\n    if (removable.length > 0) {\n      await model.deleteMany({ where: { id: { in: removable } } });\n    }\n  }\n  flushedIdsByModel.set(modelKey, current);\n}",
+        new: "async function deleteAbsent(modelKey: string, model: any, ids: string[]) {\n  await model.deleteMany(ids.length ? { where: { id: { notIn: ids } } } : {});\n}",
+      },
+    ],
+  },
+  {
+    id: 'M51 sweep: the ownership rule is inverted, so store-owned rows are never deleted (the over-correction)',
+    spec: SWEEP_SPEC,
+    expectFailing: ['4.'],
+    patches: [
+      {
+        file: MAPPER,
+        old: '    if (removable.length > 0) {\n      await model.deleteMany({ where: { id: { in: removable } } });\n    }',
+        new: '    if (removable.length === -1) {\n      await model.deleteMany({ where: { id: { in: removable } } });\n    }',
       },
     ],
   },

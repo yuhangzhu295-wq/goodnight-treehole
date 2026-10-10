@@ -811,8 +811,34 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
   };
 }
 
-async function deleteAbsent(model: any, ids: string[]) {
-  await model.deleteMany(ids.length ? { where: { id: { notIn: ids } } } : {});
+/**
+ * Ids this process has previously written through the legacy flush, per model.
+ *
+ * Deletion needs evidence of ownership. The previous implementation treated "absent from the
+ * snapshot" as "delete from the database", which is not the same statement: a row written directly
+ * to PostgreSQL (or by another instance) is absent from this store's snapshot, and sweeping it
+ * destroys data the user never asked to delete. With an empty snapshot the old form collapsed to
+ * `deleteMany({})` and emptied the whole table - reproduced against the development database as 13
+ * Mood rows going to 0.
+ *
+ * The rule now: the sweep may only delete ids the store itself put there and no longer has. A row
+ * the store has never written is never deleted by the flush, whatever the snapshot says. Legitimate
+ * deletions still work, because the row the user removed was written by an earlier flush and is
+ * therefore in this set. After a restart the set starts empty, so the first flush deletes nothing -
+ * the safe direction, and any real deletion lands on the following flush.
+ */
+const flushedIdsByModel = new Map<string, Set<string>>();
+
+async function deleteAbsent(modelKey: string, model: any, ids: string[]) {
+  const current = new Set(ids);
+  const previouslyOwned = flushedIdsByModel.get(modelKey);
+  if (previouslyOwned) {
+    const removable = [...previouslyOwned].filter((id) => !current.has(id));
+    if (removable.length > 0) {
+      await model.deleteMany({ where: { id: { in: removable } } });
+    }
+  }
+  flushedIdsByModel.set(modelKey, current);
 }
 
 function fkUpdate<K extends string>(
@@ -2403,23 +2429,19 @@ export async function saveRelationalRuntimeState(
         await tx.diaryAttachment.createMany({ data: diaryAttachments, skipDuplicates: true });
 
       if (!DIRECT_DB_MODELS.OutcomeCheckin)
-        await deleteAbsent(
-          tx.outcomeCheckin,
+        await deleteAbsent('outcomeCheckin', tx.outcomeCheckin,
           asArray(state.outcomeCheckins).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.JourneyUpdate)
-        await deleteAbsent(
-          tx.journeyUpdate,
+        await deleteAbsent('journeyUpdate', tx.journeyUpdate,
           asArray(state.journeyUpdates).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.ActionCommitment)
-        await deleteAbsent(
-          tx.actionCommitment,
+        await deleteAbsent('actionCommitment', tx.actionCommitment,
           asArray(state.actionCommitments).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.PeerMessage)
-        await deleteAbsent(
-          tx.peerMessage,
+        await deleteAbsent('peerMessage', tx.peerMessage,
           asArray(state.peerMessages).map((item: any) => item.id),
         );
       // Reports are written before their conversations are pruned so the cascade never races the
@@ -2455,8 +2477,7 @@ export async function saveRelationalRuntimeState(
               note: item.note ?? null,
             },
           });
-        await deleteAbsent(
-          tx.peerReport,
+        await deleteAbsent('peerReport', tx.peerReport,
           asArray(state.peerReports).map((item: any) => item.id),
         );
       }
@@ -2482,129 +2503,102 @@ export async function saveRelationalRuntimeState(
             deletedAt: item.deletedAt ? date(item.deletedAt) : null,
           },
         });
-      await deleteAbsent(
-        tx.adminUserNote,
+      await deleteAbsent('adminUserNote', tx.adminUserNote,
         asArray(state.adminUserNotes).map((item: any) => item.id),
       );
       if (!DIRECT_DB_MODELS.PeerConversation)
-        await deleteAbsent(
-          tx.peerConversation,
+        await deleteAbsent('peerConversation', tx.peerConversation,
           asArray(state.peerConversations).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.UserNotification)
-        await deleteAbsent(
-          tx.userNotification,
+        await deleteAbsent('userNotification', tx.userNotification,
           asArray(state.notifications).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.PeerMatch)
-        await deleteAbsent(
-          tx.peerMatch,
+        await deleteAbsent('peerMatch', tx.peerMatch,
           asArray(state.peerMatches).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.PeerExperience)
-        await deleteAbsent(
-          tx.peerExperience,
+        await deleteAbsent('peerExperience', tx.peerExperience,
           asArray(state.peerExperiences).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.SituationSnapshot)
-        await deleteAbsent(
-          tx.situationSnapshot,
+        await deleteAbsent('situationSnapshot', tx.situationSnapshot,
           asArray(state.situationSnapshots).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.CooldownItem)
-        await deleteAbsent(
-          tx.cooldownItem,
+        await deleteAbsent('cooldownItem', tx.cooldownItem,
           asArray(state.cooldownItems).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.DecisionRecord)
-        await deleteAbsent(
-          tx.decisionRecord,
+        await deleteAbsent('decisionRecord', tx.decisionRecord,
           asArray(state.decisionRecords).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.RealityHandoff)
-        await deleteAbsent(
-          tx.realityHandoff,
+        await deleteAbsent('realityHandoff', tx.realityHandoff,
           asArray(state.realityHandoffs).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.TrustedContact)
-        await deleteAbsent(
-          tx.trustedContact,
+        await deleteAbsent('trustedContact', tx.trustedContact,
           asArray(state.trustedContacts).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.MessageToFutureSelf)
-        await deleteAbsent(
-          tx.messageToFutureSelf,
+        await deleteAbsent('messageToFutureSelf', tx.messageToFutureSelf,
           asArray(state.messagesToFutureSelf).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.PersonalSupportPlan)
-        await deleteAbsent(
-          tx.personalSupportPlan,
+        await deleteAbsent('personalSupportPlan', tx.personalSupportPlan,
           asArray(state.personalSupportPlans).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.StableSelfProfile)
-        await deleteAbsent(
-          tx.stableSelfProfile,
+        await deleteAbsent('stableSelfProfile', tx.stableSelfProfile,
           asArray(state.stableSelfProfiles).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.MemoryItem)
-        await deleteAbsent(
-          tx.memoryItem,
+        await deleteAbsent('memoryItem', tx.memoryItem,
           asArray(state.memoryItems).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.RecoverySnapshot)
-        await deleteAbsent(
-          tx.recoverySnapshot,
+        await deleteAbsent('recoverySnapshot', tx.recoverySnapshot,
           asArray(state.recoverySnapshots).map((item: any) => item.id),
         );
       if (!DIRECT_DB_MODELS.SafetyEvent)
-        await deleteAbsent(
-          tx.safetyEvent,
+        await deleteAbsent('safetyEvent', tx.safetyEvent,
           asArray(state.safetyEvents).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.agentDecisionLog,
+      await deleteAbsent('agentDecisionLog', tx.agentDecisionLog,
         asArray(state.agentDecisionLogs).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.peerReputation,
+      await deleteAbsent('peerReputation', tx.peerReputation,
         asArray(state.peerReputations).map((item: any) => item.id),
       );
       if (!DIRECT_DB_MODELS.LifeJourney)
-        await deleteAbsent(
-          tx.lifeJourney,
+        await deleteAbsent('lifeJourney', tx.lifeJourney,
           asArray(state.lifeJourneys).map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.reply,
+      await deleteAbsent('reply', tx.reply,
         asArray(state.replies).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.diary,
+      await deleteAbsent('diary', tx.diary,
         asArray(state.diaries).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.favorite,
+      await deleteAbsent('favorite', tx.favorite,
         asArray(state.favorites).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.letter,
+      await deleteAbsent('letter', tx.letter,
         asArray(state.letters).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.post,
+      await deleteAbsent('post', tx.post,
         asArray(state.posts).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.mood,
+      await deleteAbsent('mood', tx.mood,
         asArray(state.moods).map((item: any) => item.id),
       );
       if (!DIRECT_DB_MODELS.AIJob)
-        await deleteAbsent(
-          tx.aIJob,
+        await deleteAbsent('aIJob', tx.aIJob,
           jobs.map((item: any) => item.id),
         );
-      await deleteAbsent(
-        tx.aIStyleRoute,
+      await deleteAbsent('aIStyleRoute', tx.aIStyleRoute,
         routes.map((item: any) => item.id ?? `route_${item.style}`),
       );
       if (DIRECT_DB_MODELS.AIJob) {
@@ -2619,28 +2613,23 @@ export async function saveRelationalRuntimeState(
           distinct: ['providerId'],
         });
         const keepProviderIds = new Set([...providerMap.keys(), ...dbUsedProviders.map((j: any) => j.providerId)]);
-        await deleteAbsent(tx.aIProvider, [...keepProviderIds]);
+        await deleteAbsent('aIProvider', tx.aIProvider, [...keepProviderIds]);
       } else {
-        await deleteAbsent(tx.aIProvider, [...providerMap.keys()]);
+        await deleteAbsent('aIProvider', tx.aIProvider, [...providerMap.keys()]);
       }
-      await deleteAbsent(
-        tx.feedbackTicket,
+      await deleteAbsent('feedbackTicket', tx.feedbackTicket,
         asArray(state.feedbackTickets).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.feedbackCategory,
+      await deleteAbsent('feedbackCategory', tx.feedbackCategory,
         asArray(state.feedbackCategories).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.faqItem,
+      await deleteAbsent('faqItem', tx.faqItem,
         asArray(state.faqs).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.replyPreset,
+      await deleteAbsent('replyPreset', tx.replyPreset,
         asArray(state.replyPresets).map((item: any) => item.id),
       );
-      await deleteAbsent(
-        tx.mediaAsset,
+      await deleteAbsent('mediaAsset', tx.mediaAsset,
         asArray(state.assets).map((item: any) => item.id),
       );
       const fixtureMarker =
