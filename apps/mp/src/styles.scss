@@ -38,7 +38,11 @@ textarea {
   width: min(430px, 100vw);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 22px 18px 96px;
+  /* The top inset comes from the device, not a magic number. In edge-to-edge mode the WebView runs
+     under the Android status bar, so a fixed value either collides with it on a tall status bar or
+     wastes space on a short one. Bottom already used env(safe-area-inset-bottom); top did not, which
+     is why page titles were drawn over the clock. */
+  padding: calc(22px + env(safe-area-inset-top)) 18px 96px;
   overflow: hidden;
   background: #ffffff;
   box-shadow: none;
@@ -1799,7 +1803,9 @@ body {
 .phone-shell {
   width: min(430px, 100vw);
   min-height: 100vh;
-  padding: 0 15px 88px;
+  /* This rule is later and unscoped, so it overrides the one above; it set the top padding to 0,
+     which is what put page titles under the status bar on device. */
+  padding: env(safe-area-inset-top) 15px 88px;
   overflow-x: hidden;
   background: #ffffff;
   box-shadow: none;

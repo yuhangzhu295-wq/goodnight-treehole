@@ -43,7 +43,17 @@ const config: CapacitorConfig = {
       showSpinner: false,
     },
     StatusBar: {
-      overlaysWebView: true,
+      // false, not the recovered true.
+      //
+      // With true the WebView is laid out under the Android status bar, and the page is expected to
+      // inset itself with env(safe-area-inset-top). Android WebView does not report that inset: it
+      // resolves to 0, so the value never reached the page and every page title was drawn over the
+      // clock - measured on the emulator, not assumed, by rebuilding with the CSS inset in place and
+      // observing the same overlap. The bottom inset does work, which is why only the top collided.
+      //
+      // With false Android lays the WebView out below the status bar itself, so there is no overlap to
+      // correct and no dependence on an inset that is not reported.
+      overlaysWebView: false,
       style: 'LIGHT',
       backgroundColor: '#fbf8ef',
     },
