@@ -80,7 +80,7 @@ const activeTab = computed(() => {
         :class="{ 'router-link-active': activeTab === 'tonight' }"
       >
         <span class="tab-icon" aria-hidden="true">
-          <AppIcon name="tree" :size="22" />
+          <AppIcon name="moon" :size="22" />
         </span>
         <span>今晚</span>
       </RouterLink>
@@ -100,13 +100,13 @@ const activeTab = computed(() => {
         :class="{ 'router-link-active': activeTab === 'action' }"
       >
         <span class="tab-icon" aria-hidden="true">
-          <AppIcon name="step" :size="22" />
+          <AppIcon name="check-circle" :size="22" />
         </span>
         <span>行动</span>
       </RouterLink>
       <RouterLink data-testid="tab-me" to="/pages/me/index" :class="{ 'router-link-active': activeTab === 'me' }">
         <span class="tab-icon" aria-hidden="true">
-          <AppIcon name="heart" :size="22" />
+          <AppIcon name="user" :size="22" />
         </span>
         <span>我的</span>
       </RouterLink>

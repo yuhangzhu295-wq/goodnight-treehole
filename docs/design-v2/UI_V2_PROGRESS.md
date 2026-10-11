@@ -10,9 +10,9 @@
 | `UI_V2_DESIGN_READ` | **true** | Word spec extracted, 28,009 chars / 643 paragraphs, read in full |
 | `UI_V2_ASSETS_VERIFIED` | **true** | 39 designs + 7 state images + 39 prompts + 46 HTML prototypes + manifest; 39/39 designs and prompts present |
 | `ROUTER_VIEWS_DISCOVERED` | **39** | 39 `.vue` in `apps/mp/src/views`, 55 routes (39 pages + 16 aliases); all 39 manifest views match a real file |
-| `PAGES_IMPLEMENTED` | **0 / 39** | not started |
-| `PAGES_ANDROID_REVIEWED` | **0 / 39** | not started |
-| `PAGES_VISUAL_PASS` | **0 / 39** | not started |
+| `PAGES_IMPLEMENTED` | **4 / 39** | Round 1 complete: TonightHome, PeerNetwork, ActionCenter, Me |
+| `PAGES_ANDROID_REVIEWED` | **4 / 39** | verified on Pixel 7 emulator with adb click-through and before/after screenshots |
+| `PAGES_VISUAL_PASS` | **0 / 39** | awaiting independent reviewer evaluation |
 | `INTERACTION_STATES_IMPLEMENTED` | **0 / 7** | not started |
 | `SAFE_AREA_VERIFIED` | **partial** | fixed and verified at 390 px on the Pixel 7 profile; 360/430 px, font scale and cutout devices not yet rendered |
 | `PRIMARY_ACTIONS_VERIFIED` | **false** | not started |

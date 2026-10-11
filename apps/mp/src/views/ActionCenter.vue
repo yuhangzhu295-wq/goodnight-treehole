@@ -5,12 +5,16 @@ import type { ActionBarrier, ActionRecommendation, AdaptiveActionResult } from '
 import { api } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
 import AiDegradationNotice from '../components/AiDegradationNotice.vue';
-import PrimaryActionCard from '../components/action/PrimaryActionCard.vue';
 import AdaptiveActionSheet from '../components/action/AdaptiveActionSheet.vue';
-import ActionFollowupStrip from '../components/action/ActionFollowupStrip.vue';
-import SupportShortcutGrid from '../components/action/SupportShortcutGrid.vue';
 
-type ActionRecord = { id: string; title: string; description?: string; status: string; dueAt?: string; reminderAt?: string };
+type ActionRecord = {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  dueAt?: string;
+  reminderAt?: string;
+};
 type ShortcutSheet = 'cooldown' | 'decision' | null;
 type AdaptiveResult = AdaptiveActionResult & { description: string };
 
@@ -36,17 +40,23 @@ const shortcutBusy = ref(false);
 const cooldownTitle = ref('');
 const decisionQuestion = ref('');
 const shortcutNotice = ref('');
+const smallerNotice = ref('');
 
 const currentJourney = computed(() => journeyDetail.value?.journey ?? home.value?.journey ?? null);
-const activeActions = computed<ActionRecord[]>(() => journeyDetail.value?.commitments?.filter((item: ActionRecord) => item.status === 'active') ?? home.value?.activeActions ?? []);
+const activeActions = computed<ActionRecord[]>(() =>
+  journeyDetail.value?.commitments?.filter((item: ActionRecord) => item.status === 'active') ??
+  home.value?.activeActions ?? []
+);
 const activeAction = computed<ActionRecord | null>(() => activeActions.value[0] ?? null);
-const dueCheckins = computed<any[]>(() => journeyDetail.value?.checkins?.filter((item: { status: string }) => item.status === 'pending') ?? home.value?.dueCheckins ?? []);
+const dueCheckins = computed<any[]>(() =>
+  journeyDetail.value?.checkins?.filter((item: { status: string }) => item.status === 'pending') ??
+  home.value?.dueCheckins ?? []
+);
 const primaryFollowUp = computed(() => dueCheckins.value[0] ?? null);
-const mainMode = computed<'no-journey' | 'empty' | 'recommendation' | 'accepted'>(() => {
-  if (!currentJourney.value) return 'no-journey';
-  if (activeAction.value) return 'accepted';
-  return recommendation.value ? 'recommendation' : 'empty';
-});
+const completedCommitments = computed<ActionRecord[]>(() =>
+  journeyDetail.value?.commitments?.filter((item: ActionRecord) => item.status === 'completed') ?? []
+);
+
 const actionDescription = computed(() => activeAction.value?.description || '按计划完成当前行动即可。');
 
 function shortDifficulty(value?: string) {
@@ -57,7 +67,16 @@ function followUpMessage(action: ActionRecord | null) {
   const dueAt = action?.reminderAt ?? action?.dueAt ?? primaryFollowUp.value?.dueAt;
   if (!dueAt || Number.isNaN(Date.parse(dueAt))) return '明晚系统将跟进执行情况。';
   const date = new Date(dueAt);
-  const time = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date).replace('/', '月').replace(' ', '日 ');
+  const time = new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+    .format(date)
+    .replace('/', '月')
+    .replace(' ', '日 ');
   return `${time}，系统将跟进执行情况。`;
 }
 
@@ -95,7 +114,7 @@ async function waitForJob<T extends Record<string, unknown>>(jobId: string) {
 async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
   const journeyId = String(route.query.journeyId ?? currentJourney.value?.id ?? '');
   if (!journeyId) {
-    router.push('/pages/tonight/index');
+    void router.push('/pages/tonight/index');
     return;
   }
   planning.value = true;
@@ -103,7 +122,10 @@ async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
   error.value = '';
   aiNotice.value = '';
   try {
-    const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, { content: currentJourney.value?.summary, mode });
+    const queued = await api.post<{ job: { id: string } }>(`/api/v1/journeys/${journeyId}/action-plan`, {
+      content: currentJourney.value?.summary,
+      mode,
+    });
     const task = await waitForJob<Record<string, unknown>>(queued.job.id);
     const structured = task.structured ?? {};
     const title = typeof structured.title === 'string' ? structured.title : '';
@@ -114,7 +136,10 @@ async function requestTonightAction(mode: 'initial' | 'smaller' = 'initial') {
       description: typeof structured.description === 'string' ? structured.description : task.result,
       completionDefinition: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : undefined,
       expectedDuration: typeof structured.expectedDuration === 'string' ? structured.expectedDuration : undefined,
-      difficulty: typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty) ? structured.difficulty as ActionRecommendation['difficulty'] : undefined,
+      difficulty:
+        typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty)
+          ? (structured.difficulty as ActionRecommendation['difficulty'])
+          : undefined,
       dueInDays: typeof structured.dueInDays === 'number' ? structured.dueInDays : 1,
     };
     if (mode === 'smaller') smallerNotice.value = '已切换为更小颗粒度的行动。';
@@ -201,7 +226,9 @@ async function chooseBarrier(barrier: ActionBarrier) {
       });
       missedRecorded.value = true;
     }
-    const response = await api.post<{ job: { id: string } }>(`/api/v1/actions/${missedAction.value.id}/adaptive-plan`, { barrier });
+    const response = await api.post<{ job: { id: string } }>(`/api/v1/actions/${missedAction.value.id}/adaptive-plan`, {
+      barrier,
+    });
     const task = await waitForJob<Record<string, unknown>>(response.job.id);
     const structured = task.structured ?? {};
     const title = typeof structured.title === 'string' ? structured.title : '';
@@ -210,9 +237,13 @@ async function chooseBarrier(barrier: ActionBarrier) {
       title,
       description: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : task.result || '',
       why: typeof structured.why === 'string' ? structured.why : '',
-      difficulty: typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty) ? structured.difficulty as AdaptiveActionResult['difficulty'] : 'tiny',
+      difficulty:
+        typeof structured.difficulty === 'string' && ['tiny', 'easy', 'moderate'].includes(structured.difficulty)
+          ? (structured.difficulty as AdaptiveActionResult['difficulty'])
+          : 'tiny',
       expectedDuration: typeof structured.expectedDuration === 'string' ? structured.expectedDuration : '',
-      completionDefinition: typeof structured.completionDefinition === 'string' ? structured.completionDefinition : task.result || '',
+      completionDefinition:
+        typeof structured.completionDefinition === 'string' ? structured.completionDefinition : task.result || '',
       adaptationReason: barrier,
     };
   } catch (cause: any) {
@@ -248,37 +279,36 @@ async function confirmAdaptiveAction() {
 function openShortcut(key: 'cooldown' | 'decision' | 'handoff' | 'future') {
   shortcutNotice.value = '';
   if (key === 'handoff') {
-    router.push(`/pages/reality-handoff/index${currentJourney.value?.id ? `?journeyId=${currentJourney.value.id}` : ''}`);
+    void router.push(
+      `/pages/reality-handoff/index${currentJourney.value?.id ? `?journeyId=${currentJourney.value.id}` : ''}`
+    );
     return;
   }
   if (key === 'future') {
-    router.push(`/pages/future-self/index${currentJourney.value?.id ? `?journeyId=${currentJourney.value.id}` : ''}`);
+    void router.push(`/pages/future-self/index${currentJourney.value?.id ? `?journeyId=${currentJourney.value.id}` : ''}`);
     return;
   }
   shortcutSheet.value = key;
 }
 
-const smallerNotice = ref('');
-
-// The due check-in. `dueCheckins` and `primaryFollowUp` were already computed here but never
-// rendered, and the `?section=follow-up` target the follow-up worker emits was never read,
-// so a due check-in had no way to be completed in the UI (product audit ISSUE-009).
 const followUpOpen = ref(false);
 const followUpBusy = ref(false);
 const followUpNotice = ref('');
 const followUpReflection = ref('');
 const followUpResult = ref<'completed' | 'partial' | 'missed'>('completed');
+
 const followUpAction = computed<ActionRecord | null>(() => {
   const checkin = primaryFollowUp.value;
   if (!checkin) return null;
   const commitmentId = checkin.commitmentId ?? checkin.commitment?.id;
-  return activeActions.value.find((item) => item.id === commitmentId)
-    ?? (commitmentId ? { id: commitmentId, title: checkin.commitment?.title ?? '之前定下的小行动', description: '', status: 'active' } as ActionRecord : null);
+  return (
+    activeActions.value.find((item) => item.id === commitmentId) ??
+    (commitmentId
+      ? ({ id: commitmentId, title: checkin.commitment?.title ?? '之前定下的小行动', description: '', status: 'active' } as ActionRecord)
+      : null)
+  );
 });
 
-// The follow-up notification deep-links with `?followUp=1&commitmentId=...`. The action may
-// already be `completed`, so the check-in target is resolved from the journey detail rather
-// than only from the active list (ISSUE-010).
 const deepLinkFollowUpAction = computed<ActionRecord | null>(() => {
   if (!route.query.followUp) return null;
   const wanted = String(route.query.commitmentId ?? '');
@@ -302,12 +332,18 @@ async function submitFollowUp() {
   followUpBusy.value = true;
   error.value = '';
   try {
-    // 'partial' is stored as a completed check-in with an explicit result note, because
-    // OutcomeCheckinStatus has no partial member; the distinction the user made is kept in
-    // `result` rather than being silently flattened to completed or missed.
     const status = followUpResult.value === 'missed' ? 'missed' : 'completed';
-    const result = followUpResult.value === 'partial' ? `部分完成：${followUpReflection.value.trim() || '只做了一部分'}` : followUpResult.value === 'completed' ? '完成' : '未完成';
-    await api.post(`/api/v1/actions/${action.id}/checkin`, { status, reflection: followUpReflection.value.trim(), result });
+    const result =
+      followUpResult.value === 'partial'
+        ? `部分完成：${followUpReflection.value.trim() || '只做了一部分'}`
+        : followUpResult.value === 'completed'
+        ? '完成'
+        : '未完成';
+    await api.post(`/api/v1/actions/${action.id}/checkin`, {
+      status,
+      reflection: followUpReflection.value.trim(),
+      result,
+    });
     followUpOpen.value = false;
     followUpNotice.value = '已记录本次跟进结果。';
     await load();
@@ -318,10 +354,6 @@ async function submitFollowUp() {
   }
 }
 
-// The support intent the person chose is carried on the URL. STOP_IMPULSE and
-// PREPARE_CONVERSATION used to be encoded as `?section=` values that nothing read, so both
-// collapsed onto the generic action card (product audit ISSUE-006). The intent now decides
-// which real surface opens, and `intentOpened` makes it happen once per entry.
 const intentOpened = ref(false);
 const intentNotice = ref('');
 
@@ -367,7 +399,11 @@ async function saveDecision() {
   shortcutBusy.value = true;
   error.value = '';
   try {
-    await api.post('/api/v1/decisions', { journeyId: currentJourney.value?.id, question: decisionQuestion.value.trim(), options: [] });
+    await api.post('/api/v1/decisions', {
+      journeyId: currentJourney.value?.id,
+      question: decisionQuestion.value.trim(),
+      options: [],
+    });
     shortcutNotice.value = '决定已暂存到保险箱。';
     decisionQuestion.value = '';
   } catch (cause: any) {
@@ -377,13 +413,20 @@ async function saveDecision() {
   }
 }
 
-watch(() => [route.query.journeyId, route.query.intent], () => {
-  recommendation.value = null;
-  closeAdaptive();
-  intentOpened.value = false;
-  void load().then(applyIntentFromRoute);
+watch(
+  () => [route.query.journeyId, route.query.intent],
+  () => {
+    recommendation.value = null;
+    closeAdaptive();
+    intentOpened.value = false;
+    void load().then(applyIntentFromRoute);
+  }
+);
+
+onMounted(async () => {
+  await load();
+  applyIntentFromRoute();
 });
-onMounted(async () => { await load(); applyIntentFromRoute(); });
 </script>
 
 <template>
@@ -392,446 +435,829 @@ onMounted(async () => { await load(); applyIntentFromRoute(); });
     :action="missedAction"
     :selected-barrier="selectedBarrier"
     :loading="adapting"
-    :result="adaptiveResult ? { title: adaptiveResult.title, description: adaptiveResult.description, expectedDuration: adaptiveResult.expectedDuration, difficulty: shortDifficulty(adaptiveResult.difficulty) } : null"
+    :result="
+      adaptiveResult
+        ? {
+          title: adaptiveResult.title,
+          description: adaptiveResult.description,
+          expectedDuration: adaptiveResult.expectedDuration,
+          difficulty: shortDifficulty(adaptiveResult.difficulty),
+        }
+        : null
+    "
     @close="closeAdaptive"
     @barrier="chooseBarrier"
     @retry="resetAdaptive"
     @accept="confirmAdaptiveAction"
   />
 
-  <section v-else class="page goodnight-page action-page">
+  <div v-else class="action-v2">
+    <!-- Top Header -->
     <header class="action-header">
-      <div class="header-titles">
-        <h1 class="action-title">行动清单</h1>
-        <p class="action-subtitle">查看当前行动、到期状态与跟进记录</p>
+      <div class="header-left">
+        <h1 class="header-title">行动</h1>
+      </div>
+      <div class="header-right">
+        <button
+          class="more-link"
+          type="button"
+          @click="router.push('/pages/archive/index')"
+        >
+          查看记录 ›
+        </button>
       </div>
     </header>
 
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
-    <p v-if="intentNotice" class="intent-note" role="status" data-testid="action-intent-note">{{ intentNotice }}</p>
-    <p v-if="smallerNotice" class="intent-note" role="status" data-testid="action-smaller-note">{{ smallerNotice }}</p>
-    <p v-if="followUpNotice" class="intent-note" role="status" data-testid="action-followup-note">{{ followUpNotice }}</p>
-    <p v-if="loading" class="loading-note">正在读取行动数据...</p>
+    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+    <div v-if="intentNotice" class="notice-box" role="status" data-testid="action-intent-note">{{ intentNotice }}</div>
+    <div v-if="smallerNotice" class="notice-box" role="status" data-testid="action-smaller-note">{{ smallerNotice }}</div>
+    <div v-if="followUpNotice" class="notice-box" role="status" data-testid="action-followup-note">{{ followUpNotice }}</div>
+
+    <div v-if="loading" class="state-message">正在读取行动数据…</div>
 
     <main v-else class="action-content">
-      <button
-        v-if="followUpTarget && (primaryFollowUp || route.query.followUp)"
-        class="followup-entry"
-        type="button"
-        data-testid="action-followup-entry"
-        @click="openFollowUp"
-      >
-        <span class="followup-dot" aria-hidden="true"></span>
-        <span>
-          <strong>跟进待办：{{ followUpTarget.title }}</strong>
-          <small>{{ followUpMessage(followUpTarget) }} 请确认完成状态。</small>
-        </span>
-      </button>
+      <div class="intro-block">
+        <h2 class="section-heading">今天</h2>
+        <p class="intro-text">先做眼前能完成的这一件</p>
+      </div>
+
       <AiDegradationNotice :notice="aiNotice" />
-      <PrimaryActionCard
-        :mode="mainMode"
-        :title="mainMode === 'accepted' ? activeAction?.title : recommendation?.title"
-        :description="mainMode === 'accepted' ? actionDescription : recommendation?.completionDefinition || recommendation?.description"
-        :expected-duration="recommendation?.expectedDuration"
-        :difficulty="recommendation?.difficulty"
-        :follow-up-message="mainMode === 'accepted' ? followUpMessage(activeAction) : undefined"
-        :loading="planning"
-        @request="requestTonightAction('initial')"
-        @accept="acceptTonightAction"
-        @smaller="requestTonightAction('smaller')"
-        @complete="openCompletionSheet"
-        @missed="openAdaptive()"
-        @timeline="router.push(`/pages/journey/detail?id=${currentJourney?.id}`)"
-        @tonight="router.push('/pages/tonight/index')"
-      />
 
-      <ActionFollowupStrip
-        v-if="mainMode === 'recommendation' || mainMode === 'accepted'"
-        :message="mainMode === 'accepted' ? followUpMessage(activeAction) : '接受后，系统将于明晚跟进执行情况。'"
-        @open="router.push('/pages/notifications/index')"
-      />
+      <!-- State 1: Active Action in progress -->
+      <section v-if="activeAction" class="primary-card">
+        <div class="card-meta-row">
+          <span class="pill-green">进行中</span>
+          <span v-if="activeAction.dueAt" class="meta-time">进行中行动</span>
+        </div>
 
-      <SupportShortcutGrid @select="openShortcut" />
+        <h3 class="action-task-title">{{ activeAction.title }}</h3>
+        <p class="action-source">来自「{{ currentJourney?.title || '最近的旅程' }}」</p>
+        <p class="action-desc">{{ actionDescription }}</p>
+
+        <div class="card-action-row">
+          <button
+            class="btn-primary"
+            type="button"
+            @click="openCompletionSheet"
+          >
+            完成
+          </button>
+          <button
+            class="btn-alt"
+            type="button"
+            @click="openAdaptive()"
+          >
+            调整一下
+          </button>
+        </div>
+
+        <button
+          class="sub-action-link"
+          type="button"
+          @click="requestTonightAction('smaller')"
+        >
+          做不到？换成更小一步 ›
+        </button>
+      </section>
+
+      <!-- State 2: Recommendation offered -->
+      <section v-else-if="recommendation" class="primary-card">
+        <div class="card-meta-row">
+          <span class="pill-amber">建议行动</span>
+          <span v-if="recommendation.expectedDuration" class="meta-time">{{ recommendation.expectedDuration }}</span>
+        </div>
+
+        <h3 class="action-task-title">{{ recommendation.title }}</h3>
+        <p class="action-desc">{{ recommendation.completionDefinition || recommendation.description }}</p>
+
+        <div class="card-action-row">
+          <button
+            class="btn-primary"
+            :disabled="planning"
+            type="button"
+            @click="acceptTonightAction"
+          >
+            {{ planning ? '正在确认…' : '接受这个行动' }}
+          </button>
+          <button
+            class="btn-alt"
+            :disabled="planning"
+            type="button"
+            @click="requestTonightAction('smaller')"
+          >
+            换更小一步
+          </button>
+        </div>
+      </section>
+
+      <!-- State 3: Empty State (No current action) -->
+      <section v-else class="empty-card">
+        <h3 class="empty-card-title">还没有安排的行动</h3>
+        <p class="empty-card-desc">你可以从最近的记录里选一件小事开始。</p>
+        <button
+          class="btn-primary empty-create-btn"
+          :disabled="planning"
+          type="button"
+          @click="requestTonightAction('initial')"
+        >
+          {{ planning ? '正在生成…' : '整理一个小行动' }}
+        </button>
+      </section>
+
+      <!-- Due Checkin / Followup Section -->
+      <section v-if="followUpTarget && (primaryFollowUp || route.query.followUp)" class="section-group">
+        <div class="group-header">
+          <h3 class="group-title">到期回访</h3>
+        </div>
+        <button
+          class="list-row followup-row"
+          data-testid="action-followup-entry"
+          type="button"
+          @click="openFollowUp"
+        >
+          <div class="row-icon-box">↺</div>
+          <div class="row-body">
+            <div class="row-title">{{ followUpTarget.title }}</div>
+            <div class="row-sub">{{ followUpMessage(followUpTarget) }}</div>
+          </div>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </button>
+      </section>
+
+      <!-- Other Support Features (Secondary Module) -->
+      <section class="section-group">
+        <div class="group-header">
+          <h3 class="group-title">其他支持</h3>
+        </div>
+
+        <div class="list-surface">
+          <button
+            class="list-row"
+            type="button"
+            @click="openShortcut('handoff')"
+          >
+            <div class="row-icon-box">♧</div>
+            <div class="row-body">
+              <div class="row-title">找现实中的人</div>
+              <div class="row-sub">准备向信任的人求助</div>
+            </div>
+            <span class="row-chev" aria-hidden="true">›</span>
+          </button>
+
+          <button
+            class="list-row"
+            type="button"
+            @click="router.push('/pages/safety/index')"
+          >
+            <div class="row-icon-box">◷</div>
+            <div class="row-body">
+              <div class="row-title">先缓一缓</div>
+              <div class="row-sub">短暂停顿与安全支持</div>
+            </div>
+            <span class="row-chev" aria-hidden="true">›</span>
+          </button>
+
+          <button
+            class="list-row"
+            type="button"
+            @click="openShortcut('future')"
+          >
+            <div class="row-icon-box">◇</div>
+            <div class="row-body">
+              <div class="row-title">写给未来的我</div>
+              <div class="row-sub">保存写给以后的留言</div>
+            </div>
+            <span class="row-chev" aria-hidden="true">›</span>
+          </button>
+
+          <button
+            class="list-row"
+            type="button"
+            @click="openShortcut('decision')"
+          >
+            <div class="row-icon-box">▣</div>
+            <div class="row-body">
+              <div class="row-title">一个重要决定</div>
+              <div class="row-sub">暂存待决事项</div>
+            </div>
+            <span class="row-chev" aria-hidden="true">›</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Recent Completed Section -->
+      <section v-if="completedCommitments.length > 0" class="section-group">
+        <div class="group-header">
+          <h3 class="group-title">最近完成</h3>
+        </div>
+        <div class="list-surface">
+          <div
+            v-for="item in completedCommitments.slice(0, 3)"
+            :key="item.id"
+            class="list-row"
+          >
+            <div class="row-icon-box completed-check">✓</div>
+            <div class="row-body">
+              <div class="row-title">{{ item.title }}</div>
+              <div class="row-sub">已完成</div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <div v-if="followUpOpen" class="sheet-backdrop" @click.self="!followUpBusy && (followUpOpen = false)">
-      <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="followup-title" data-testid="action-followup-sheet">
-        <span class="sheet-handle" aria-hidden="true" />
-        <button class="close-sheet" aria-label="关闭回访" :disabled="followUpBusy" @click="followUpOpen = false">×</button>
-        <h2 id="followup-title">行动结果跟进</h2>
-        <p>{{ followUpTarget?.title }}</p>
-        <div class="followup-choices" role="radiogroup" aria-label="结果">
-          <button type="button" :aria-pressed="followUpResult === 'completed'" data-testid="followup-completed" @click="followUpResult = 'completed'">完成了</button>
-          <button type="button" :aria-pressed="followUpResult === 'partial'" data-testid="followup-partial" @click="followUpResult = 'partial'">做了一部分</button>
-          <button type="button" :aria-pressed="followUpResult === 'missed'" data-testid="followup-missed" @click="followUpResult = 'missed'">没有完成</button>
-        </div>
-        <textarea v-model="followUpReflection" maxlength="800" placeholder="记录执行情况或备注（可选）" />
-        <button class="sheet-primary" :disabled="followUpBusy" data-testid="followup-submit" @click="submitFollowUp">{{ followUpBusy ? '正在保存...' : '保存跟进结果' }}</button>
-      </section>
-    </div>
+    <!-- Followup Dialog Sheet -->
+    <Teleport to="body">
+      <div v-if="followUpOpen" class="sheet-mask" @click.self="!followUpBusy && (followUpOpen = false)">
+        <section
+          class="bottom-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="followup-title"
+          data-testid="action-followup-sheet"
+        >
+          <div class="grabber" />
+          <div class="sheet-top">
+            <h3 id="followup-title" class="sheet-title">行动结果跟进</h3>
+            <button class="sheet-close" aria-label="关闭" :disabled="followUpBusy" @click="followUpOpen = false">✕</button>
+          </div>
+          <p class="sheet-sub">{{ followUpTarget?.title }}</p>
 
-    <div v-if="completionSheetOpen" class="sheet-backdrop" @click.self="completionSheetOpen = false">
-      <section class="completion-sheet" role="dialog" aria-modal="true" aria-labelledby="completion-title">
-        <span class="sheet-handle" aria-hidden="true" />
-        <button class="close-sheet" aria-label="关闭回顾" @click="completionSheetOpen = false">×</button>
-        <h2 id="completion-title">完成记录</h2>
-        <p>记录执行备注（可选）。</p>
-        <textarea v-model="completionReflection" maxlength="800" placeholder="记录执行备注或体会（可选）" />
-        <button class="sheet-primary" :disabled="completing" data-testid="action-complete-submit" @click="completeAction">{{ completing ? '正在保存...' : '保存这次回顾' }}</button>
-      </section>
-    </div>
+          <div class="followup-choices" role="radiogroup" aria-label="执行结果">
+            <button
+              type="button"
+              class="choice-btn"
+              :class="{ selected: followUpResult === 'completed' }"
+              data-testid="followup-completed"
+              @click="followUpResult = 'completed'"
+            >
+              完成了
+            </button>
+            <button
+              type="button"
+              class="choice-btn"
+              :class="{ selected: followUpResult === 'partial' }"
+              data-testid="followup-partial"
+              @click="followUpResult = 'partial'"
+            >
+              做了一部分
+            </button>
+            <button
+              type="button"
+              class="choice-btn"
+              :class="{ selected: followUpResult === 'missed' }"
+              data-testid="followup-missed"
+              @click="followUpResult = 'missed'"
+            >
+              没有完成
+            </button>
+          </div>
 
-    <div v-if="shortcutSheet" class="sheet-backdrop" @click.self="closeShortcutSheet">
-      <section class="shortcut-sheet" role="dialog" aria-modal="true" :aria-label="shortcutSheet === 'cooldown' ? '先别发出去' : '一个重要决定'">
-        <span class="sheet-handle" aria-hidden="true" />
-        <button class="close-sheet" aria-label="关闭" @click="closeShortcutSheet">×</button>
-        <template v-if="shortcutSheet === 'cooldown'">
-          <h2>先别发出去</h2>
-          <p>暂存待发内容，设置冷静期后再处理。</p>
-          <input v-model="cooldownTitle" maxlength="120" placeholder="输入暂存内容" />
-          <button class="sheet-primary" :disabled="shortcutBusy || !cooldownTitle.trim()" @click="saveCooldown">{{ shortcutBusy ? '正在保存...' : '确认暂存' }}</button>
-        </template>
-        <template v-else>
-          <h2>一个重要决定</h2>
-          <p>先记录待决事项，冷静期后再作评估。</p>
-          <input v-model="decisionQuestion" maxlength="300" placeholder="待决事项或核心疑问" />
-          <button class="sheet-primary" :disabled="shortcutBusy || !decisionQuestion.trim()" @click="saveDecision">{{ shortcutBusy ? '正在保存...' : '暂存决定' }}</button>
-        </template>
-        <p v-if="shortcutNotice" class="shortcut-notice">{{ shortcutNotice }}</p>
-      </section>
-    </div>
-  </section>
+          <textarea
+            v-model="followUpReflection"
+            class="sheet-textarea"
+            maxlength="800"
+            placeholder="记录执行情况或体会（可选）"
+          />
+
+          <button
+            class="btn-primary sheet-submit-btn"
+            :disabled="followUpBusy"
+            data-testid="followup-submit"
+            type="button"
+            @click="submitFollowUp"
+          >
+            {{ followUpBusy ? '正在保存…' : '保存跟进结果' }}
+          </button>
+        </section>
+      </div>
+    </Teleport>
+
+    <!-- Completion Dialog Sheet -->
+    <Teleport to="body">
+      <div v-if="completionSheetOpen" class="sheet-mask" @click.self="completionSheetOpen = false">
+        <section
+          class="bottom-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="completion-title"
+        >
+          <div class="grabber" />
+          <div class="sheet-top">
+            <h3 id="completion-title" class="sheet-title">完成记录</h3>
+            <button class="sheet-close" aria-label="关闭" @click="completionSheetOpen = false">✕</button>
+          </div>
+          <p class="sheet-sub">记录执行体会（可选）</p>
+
+          <textarea
+            v-model="completionReflection"
+            class="sheet-textarea"
+            maxlength="800"
+            placeholder="完成这件事后，感觉怎么样？"
+          />
+
+          <button
+            class="btn-primary sheet-submit-btn"
+            :disabled="completing"
+            data-testid="action-complete-submit"
+            type="button"
+            @click="completeAction"
+          >
+            {{ completing ? '正在保存…' : '保存这次记录' }}
+          </button>
+        </section>
+      </div>
+    </Teleport>
+
+    <!-- Shortcut Sheet (Cooldown / Decision) -->
+    <Teleport to="body">
+      <div v-if="shortcutSheet" class="sheet-mask" @click.self="closeShortcutSheet">
+        <section
+          class="bottom-sheet"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="shortcutSheet === 'cooldown' ? '先别发出去' : '一个重要决定'"
+        >
+          <div class="grabber" />
+          <div class="sheet-top">
+            <h3 class="sheet-title">{{ shortcutSheet === 'cooldown' ? '先别发出去' : '一个重要决定' }}</h3>
+            <button class="sheet-close" aria-label="关闭" @click="closeShortcutSheet">✕</button>
+          </div>
+
+          <template v-if="shortcutSheet === 'cooldown'">
+            <p class="sheet-sub">暂存待发内容，设置冷静期后再处理。</p>
+            <input
+              v-model="cooldownTitle"
+              class="sheet-input"
+              maxlength="120"
+              placeholder="输入暂存内容"
+            />
+            <button
+              class="btn-primary sheet-submit-btn"
+              :disabled="shortcutBusy || !cooldownTitle.trim()"
+              type="button"
+              @click="saveCooldown"
+            >
+              {{ shortcutBusy ? '正在保存…' : '确认暂存' }}
+            </button>
+          </template>
+          <template v-else>
+            <p class="sheet-sub">先记录待决事项，冷静期后再作评估。</p>
+            <input
+              v-model="decisionQuestion"
+              class="sheet-input"
+              maxlength="300"
+              placeholder="待决事项或核心疑问"
+            />
+            <button
+              class="btn-primary sheet-submit-btn"
+              :disabled="shortcutBusy || !decisionQuestion.trim()"
+              type="button"
+              @click="saveDecision"
+            >
+              {{ shortcutBusy ? '正在保存…' : '暂存决定' }}
+            </button>
+          </template>
+          <p v-if="shortcutNotice" class="shortcut-notice">{{ shortcutNotice }}</p>
+        </section>
+      </div>
+    </Teleport>
+  </div>
 </template>
 
 <style scoped>
-.action-page {
+.action-v2 {
+  position: relative;
   box-sizing: border-box;
   width: 100%;
-  max-width: 430px;
-  margin: 0 auto;
   min-height: 100vh;
-  background: var(--gn-bg);
-  color: var(--gn-text);
+  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  background: #FFFFFF;
+  color: #242A32;
   font-family: var(--gn-font-body);
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
 }
 
 .action-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
-  align-items: flex-start;
-  padding: 8px 4px 12px;
-}
-
-.header-titles {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.action-title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--gn-ink);
-}
-
-.action-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--gn-muted);
-}
-
-.followup-entry {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin-bottom: 8px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  padding: 12px 14px;
-  color: var(--gn-ink);
-  text-align: left;
-  font: inherit;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 20px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E8EBEF;
+}
+
+.header-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #242A32;
+  letter-spacing: -0.3px;
+}
+
+.more-link {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #757D87;
+  font-size: 13px;
   cursor: pointer;
 }
 
-.followup-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--gn-leaf);
+.error-banner {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #FEF2F0;
+  border: 1px solid #F6DCDA;
+  color: #BD4545;
+  font-size: 13px;
 }
 
-.followup-entry strong {
-  display: block;
+.notice-box {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #F7F8FA;
+  border: 1px solid #E8EBEF;
+  color: #242A32;
+  font-size: 13px;
+}
+
+.state-message {
+  padding: 40px 20px;
+  color: #757D87;
+  font-size: 13px;
+  text-align: center;
+}
+
+.action-content {
+  padding: 16px 20px 0;
+}
+
+.intro-block {
+  margin-bottom: 14px;
+}
+
+.section-heading {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #242A32;
+}
+
+.intro-text {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #757D87;
+}
+
+.primary-card {
+  padding: 18px 16px;
+  border: 1px solid #E0E8E5;
+  border-radius: 12px;
+  background: #FAFBFA;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.card-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pill-green {
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: #EAF4EE;
+  color: #275F56;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pill-amber {
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: #FCF3E7;
+  color: #A77233;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.meta-time {
+  font-size: 11px;
+  color: #757D87;
+}
+
+.action-task-title {
+  margin: 12px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #242A32;
+}
+
+.action-source {
+  margin: 0;
+  font-size: 12px;
+  color: #757D87;
+  line-height: 1.4;
+}
+
+.action-desc {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #4A525D;
+  line-height: 1.5;
+}
+
+.card-action-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.btn-primary {
+  flex: 1;
+  min-height: 48px;
+  border: 0;
+  border-radius: 10px;
+  background: #275F56;
+  color: #FFFFFF;
   font-size: 14px;
   font-weight: 600;
-  line-height: 1.4;
-  color: var(--gn-ink);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
 }
 
-.followup-entry small {
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.btn-alt {
+  flex: 1;
+  min-height: 48px;
+  border: 1px solid #DCE1E5;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #242A32;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sub-action-link {
   display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: #275F56;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+}
+
+.empty-card {
+  padding: 20px 16px;
+  border: 1px solid #E8EBEF;
+  border-radius: 12px;
+  background: #F7F8FA;
+}
+
+.empty-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #242A32;
+}
+
+.empty-card-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #757D87;
+  line-height: 1.5;
+}
+
+.empty-create-btn {
+  margin-top: 16px;
+  width: 100%;
+}
+
+.section-group {
+  margin-top: 24px;
+}
+
+.group-header {
+  margin-bottom: 8px;
+}
+
+.group-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #242A32;
+}
+
+.list-surface {
+  border-top: 1px solid #E8EBEF;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid #E8EBEF;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #F7F8FA;
+  color: #757D87;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.completed-check {
+  background: #EAF4EE;
+  color: #275F56;
+}
+
+.row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #242A32;
+  line-height: 1.35;
+}
+
+.row-sub {
   margin-top: 2px;
-  color: var(--gn-muted);
   font-size: 12px;
-  line-height: 1.4;
+  color: #757D87;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-chev {
+  color: #AAB0B8;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(12, 21, 25, 0.35);
+}
+
+.bottom-sheet {
+  box-sizing: border-box;
+  width: min(430px, 100vw);
+  max-height: 80vh;
+  margin: 0 auto;
+  overflow-y: auto;
+  border-radius: 20px 20px 0 0;
+  background: #FFFFFF;
+  padding: 12px 20px calc(28px + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.grabber {
+  width: 38px;
+  height: 4px;
+  margin: 0 auto 16px;
+  border-radius: 4px;
+  background: #D9DDDF;
+}
+
+.sheet-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sheet-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #242A32;
+}
+
+.sheet-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #757D87;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.sheet-sub {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #757D87;
 }
 
 .followup-choices {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  margin: 12px 0;
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
-.followup-choices button {
-  min-height: 38px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  color: var(--gn-ink);
-  font: inherit;
+.choice-btn {
+  min-height: 48px;
+  border: 1px solid #E8EBEF;
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: #242A32;
   font-size: 13px;
   cursor: pointer;
 }
 
-.followup-choices button[aria-pressed='true'] {
-  border-color: var(--gn-leaf);
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
+.choice-btn.selected {
+  border-color: #275F56;
+  background: #EAF4EE;
+  color: #275F56;
   font-weight: 600;
 }
 
-.intent-note {
-  margin: 8px 0;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  padding: 10px 14px;
-  color: var(--gn-ink);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.action-content {
-  display: grid;
-  gap: 10px;
-}
-
-.loading-note,
-.error-text {
-  margin: 16px 4px;
-  font-size: 13px;
-  color: var(--gn-muted);
-}
-
-.error-text {
-  color: var(--gn-danger);
-}
-
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  padding: 16px;
-}
-
-.completion-sheet,
-.shortcut-sheet {
-  position: relative;
-  box-sizing: border-box;
-  width: min(360px, 100%);
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  padding: 20px;
-}
-
-.sheet-handle {
-  display: none;
-}
-
-.close-sheet {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--gn-paper-warm);
-  color: var(--gn-muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.completion-sheet h2,
-.shortcut-sheet h2 {
-  margin: 0;
-  font-family: var(--gn-font-body);
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--gn-ink);
-}
-
-.completion-sheet p,
-.shortcut-sheet p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--gn-muted);
-  line-height: 1.45;
-}
-
-.completion-sheet textarea,
-.shortcut-sheet input {
+.sheet-textarea {
   box-sizing: border-box;
   width: 100%;
-  margin-top: 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  min-height: 96px;
+  border: 1px solid #E8EBEF;
+  border-radius: 8px;
   padding: 10px 12px;
-  color: var(--gn-ink);
-  font: inherit;
+  background: #F7F8FA;
+  color: #242A32;
+  font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
   resize: none;
+  outline: none;
 }
 
-.completion-sheet textarea {
-  min-height: 96px;
-}
-
-.shortcut-sheet input {
-  min-height: 42px;
-}
-
-.sheet-primary {
-  display: block;
+.sheet-input {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 40px;
-  margin-top: 14px;
-  border: 1px solid var(--gn-leaf);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf);
-  color: #fff;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
+  min-height: 44px;
+  border: 1px solid #E8EBEF;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #F7F8FA;
+  color: #242A32;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
 }
 
-.sheet-primary:disabled {
-  opacity: 0.6;
-  cursor: wait;
+.sheet-submit-btn {
+  width: 100%;
+  margin-top: 16px;
 }
 
 .shortcut-notice {
-  margin-top: 10px !important;
-  color: var(--gn-leaf-deep) !important;
-  font-size: 12px !important;
+  margin-top: 10px;
+  color: #275F56;
+  font-size: 12px;
   text-align: center;
-}
-
-:deep(.action-paper) {
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  padding: 16px;
-}
-
-:deep(.action-paper::after) {
-  display: none;
-}
-
-:deep(.paper-label) {
-  color: var(--gn-muted);
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-:deep(.action-paper h2) {
-  font-family: var(--gn-font-body);
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--gn-ink);
-}
-
-:deep(.action-paper .paper-copy) {
-  color: var(--gn-ink-soft);
-  font-size: 14px;
-  line-height: 1.5;
-  margin-top: 8px;
-}
-
-:deep(.action-paper .completion-note) {
-  color: var(--gn-muted);
-  font-size: 12px;
-  margin-top: 8px;
-}
-
-:deep(.action-paper .primary-cta) {
-  border: 1px solid var(--gn-leaf);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf);
-  color: #fff;
-  font-weight: 500;
-}
-
-:deep(.action-paper .secondary-cta) {
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  color: var(--gn-ink);
-}
-
-:deep(.action-paper .timeline-link) {
-  color: var(--gn-leaf);
-}
-
-:deep(.followup-strip) {
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  color: var(--gn-ink);
-}
-
-:deep(.followup-icon) {
-  background: var(--gn-paper-warm);
-  color: var(--gn-leaf);
-}
-
-:deep(.shortcut-card) {
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  color: var(--gn-ink);
-}
-
-:deep(.shortcut-icon) {
-  background: var(--gn-paper-warm);
-  color: var(--gn-leaf);
-}
-
-@media (max-width: 374px) {
-  .action-page {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
 }
 </style>

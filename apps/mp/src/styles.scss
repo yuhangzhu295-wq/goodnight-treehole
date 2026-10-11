@@ -245,33 +245,38 @@ select {
 .tabbar {
   position: fixed;
   left: 50%;
-  bottom: 12px;
+  bottom: 0;
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  width: min(398px, calc(100vw - 28px));
-  padding: 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  gap: 0;
+  width: min(430px, 100vw);
+  height: calc(60px + env(safe-area-inset-bottom));
+  padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+  border-top: 1px solid #E8EBEF;
   background: #ffffff;
-  box-shadow: none;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.03);
   transform: translateX(-50%);
 }
 
 .tabbar a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   min-height: 48px;
-  padding: 7px 4px;
-  border-radius: 8px;
-  color: var(--gn-muted);
+  padding: 4px;
+  color: #757D87;
   text-align: center;
   text-decoration: none;
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .tabbar a.router-link-active {
-  color: #fff;
-  background: var(--gn-leaf);
+  color: #275F56;
+  font-weight: 600;
+  background: transparent;
 }
 
 .sheet-mask,

@@ -2,28 +2,83 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import AppIcon from '../components/icons/AppIcon.vue';
 
-type PeerExperience = { id: string; title: string; domain: string; subDomain?: string; stage: string; tags: string[]; createdAt: string; graduated: boolean; laterRecordCount: number };
-type PeerMatch = { id: string; journeyId: string; status: string; reasons: string[]; experience?: PeerExperience };
-type PeerNetwork = { privacyEnabled: boolean; matches: PeerMatch[]; experiences: PeerExperience[]; limited: boolean };
+type PeerExperience = {
+  id: string;
+  title: string;
+  domain: string;
+  subDomain?: string;
+  stage: string;
+  tags: string[];
+  createdAt: string;
+  graduated: boolean;
+  laterRecordCount: number;
+  content?: string;
+  laterSummary?: Record<string, unknown>;
+};
+
+type PeerMatch = {
+  id: string;
+  journeyId: string;
+  status: string;
+  reasons: string[];
+  experience?: PeerExperience;
+};
+
+type PeerNetwork = {
+  privacyEnabled: boolean;
+  matches: PeerMatch[];
+  experiences: PeerExperience[];
+  limited: boolean;
+};
+
+type PeerRequest = {
+  id: string;
+  journeyId: string;
+  status: string;
+  requestReason?: string;
+  requestQuestion?: string;
+  createdAt: string;
+  experience?: PeerExperience;
+};
 
 const router = useRouter();
 const item = ref<PeerNetwork | null>(null);
+const requests = ref<PeerRequest[]>([]);
 const loading = ref(true);
+const loadingRequests = ref(false);
 const error = ref('');
 const enabling = ref(false);
-const primaryMatch = computed(() => item.value?.matches[0]);
-const secondaryMatches = computed(() => (item.value?.matches ?? []).slice(1, 3));
-const publishedExperiences = computed(() => {
-  const matchedExperienceIds = new Set((item.value?.matches ?? []).map((match) => match.experience?.id).filter(Boolean));
-  return (item.value?.experiences ?? []).filter((experience) => !matchedExperienceIds.has(experience.id)).slice(0, 2);
+const currentTab = ref<'recommended' | 'latest' | 'requests'>('recommended');
+
+// Deduplicate matches to ensure no duplicate cards appear
+const uniqueMatches = computed(() => {
+  const seen = new Set<string>();
+  const list: PeerMatch[] = [];
+  for (const match of item.value?.matches ?? []) {
+    const expId = match.experience?.id ?? match.id;
+    if (!seen.has(expId)) {
+      seen.add(expId);
+      list.push(match);
+    }
+  }
+  return list;
+});
+
+// Latest experiences sorted by createdAt descending
+const latestExperiences = computed(() => {
+  const matchedIds = new Set(uniqueMatches.value.map((m) => m.experience?.id).filter(Boolean));
+  return [...(item.value?.experiences ?? [])]
+    .filter((exp) => !matchedIds.has(exp.id))
+    .sort((a, b) => Date.parse(b.createdAt || '0') - Date.parse(a.createdAt || '0'));
 });
 
 async function load() {
   loading.value = true;
+  error.value = '';
   try {
     item.value = (await api.get<{ item: PeerNetwork }>('/api/v1/peers')).item;
-    error.value = '';
   } catch (cause: any) {
     error.value = cause?.message ?? '同路经历加载失败';
   } finally {
@@ -31,10 +86,32 @@ async function load() {
   }
 }
 
+async function loadRequests() {
+  loadingRequests.value = true;
+  try {
+    const res = await api.get<{ items: PeerRequest[] }>('/api/v1/peer-requests');
+    requests.value = res.items ?? [];
+  } catch {
+    requests.value = [];
+  } finally {
+    loadingRequests.value = false;
+  }
+}
+
+function switchTab(tab: 'recommended' | 'latest' | 'requests') {
+  currentTab.value = tab;
+  if (tab === 'requests' && requests.value.length === 0) {
+    void loadRequests();
+  }
+}
+
 async function enable() {
   enabling.value = true;
   try {
-    await api.patch('/api/v1/me/privacy', { allowPeerMatching: true, allowAnonymousExperienceStats: true });
+    await api.patch('/api/v1/me/privacy', {
+      allowPeerMatching: true,
+      allowAnonymousExperienceStats: true,
+    });
     await load();
   } catch (cause: any) {
     error.value = cause?.message ?? '隐私设置更新失败';
@@ -43,71 +120,143 @@ async function enable() {
   }
 }
 
-function openExperience(match: PeerMatch) {
+function openMatch(match: PeerMatch) {
   if (match.status === 'requested' || match.status === 'connected') {
-    router.push(`/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`);
+    void router.push(`/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`);
     return;
   }
   const experienceId = match.experience?.id;
   if (experienceId) {
-    router.push(`/pages/peer/detail?id=${encodeURIComponent(experienceId)}&matchId=${encodeURIComponent(match.id)}`);
+    void router.push(`/pages/peer/detail?id=${encodeURIComponent(experienceId)}&matchId=${encodeURIComponent(match.id)}`);
   }
 }
 
-function openPublished(experience: PeerExperience) {
-  router.push(`/pages/peer/detail?id=${encodeURIComponent(experience.id)}`);
+function openExperience(experience: PeerExperience) {
+  void router.push(`/pages/peer/detail?id=${encodeURIComponent(experience.id)}`);
+}
+
+function openRequest(req: PeerRequest) {
+  void router.push(`/pages/peer/wait?matchId=${encodeURIComponent(req.id)}`);
 }
 
 function ago(createdAt: string) {
   if (!createdAt) return '近期留下';
   const days = Math.max(0, Math.floor((Date.now() - Date.parse(createdAt)) / 86_400_000));
-  return days < 1 ? '今天留下' : days < 30 ? `${days} 天前留下` : '较早留下';
+  if (days < 1) return '今天留下';
+  if (days === 1) return '昨天留下';
+  if (days < 30) return `${days} 天前留下`;
+  return '较早留下';
 }
 
-onMounted(load);
+function formatStatus(status: string) {
+  switch (status) {
+    case 'requested':
+      return '等待回应';
+    case 'connected':
+      return '已连接';
+    case 'declined':
+      return '已婉拒';
+    case 'blocked':
+      return '已关闭';
+    default:
+      return '查看后来记录';
+  }
+}
+
+onMounted(() => {
+  void load();
+});
 </script>
 
 <template>
-  <section class="goodnight-page peer-network-page">
+  <div class="peer-v2">
+    <!-- Top Header -->
     <header class="peer-header">
-      <div class="header-titles">
-        <h1 class="peer-title">同路人</h1>
-        <p class="peer-subtitle">浏览相似处境的匿名经历与后来进展</p>
+      <div class="header-left">
+        <h1 class="header-title">同路人</h1>
+      </div>
+      <div class="header-right">
+        <button
+          class="icon-button"
+          aria-label="刷新"
+          type="button"
+          @click="load"
+        >
+          <AppIcon name="refresh" :size="20" />
+        </button>
       </div>
     </header>
 
-    <div class="segmented-control" role="tablist" aria-label="同路内容">
-      <button class="active" type="button">推荐给你</button>
-      <button type="button" @click="router.push('/pages/peer/requests')">我的请求</button>
+    <!-- Segmented Tab Bar -->
+    <nav class="segment-bar" role="tablist" aria-label="同路栏目">
+      <button
+        type="button"
+        class="segment-item"
+        :class="{ active: currentTab === 'recommended' }"
+        role="tab"
+        :aria-selected="currentTab === 'recommended'"
+        @click="switchTab('recommended')"
+      >
+        推荐
+      </button>
+      <button
+        type="button"
+        class="segment-item"
+        :class="{ active: currentTab === 'latest' }"
+        role="tab"
+        :aria-selected="currentTab === 'latest'"
+        @click="switchTab('latest')"
+      >
+        最新
+      </button>
+      <button
+        type="button"
+        class="segment-item"
+        :class="{ active: currentTab === 'requests' }"
+        role="tab"
+        :aria-selected="currentTab === 'requests'"
+        @click="switchTab('requests')"
+      >
+        我的请求
+      </button>
+    </nav>
+
+    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+
+    <div v-if="loading" class="state-message">
+      正在寻找走过相似道路的记录…
     </div>
 
-    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
-    <p v-if="loading" class="state-note">正在寻找走过相似道路的记录…</p>
-
-    <section v-else-if="!item || !item.privacyEnabled" class="privacy-panel">
-      <div class="privacy-header">
-        <span class="privacy-tag">隐私保护</span>
-        <h2>同路人经历匹配未开启</h2>
-      </div>
+    <!-- Privacy Gate Notice -->
+    <section v-else-if="!item || !item.privacyEnabled" class="privacy-card">
+      <div class="privacy-badge">隐私保护</div>
+      <h2 class="privacy-title">同路人经历匹配未开启</h2>
       <p class="privacy-desc">开启后，系统仅基于匿名经历匹配相似历程，不会公开任何个人身份。</p>
-      <div class="privacy-items">
-        <div class="privacy-row">
+
+      <div class="privacy-scope">
+        <div class="scope-row">
           <strong>公开范围</strong>
           <span>经你确认的匿名经历文本与阶段总结</span>
         </div>
-        <div class="privacy-row">
+        <div class="scope-row">
           <strong>保护范围</strong>
           <span>隐藏昵称、联系方式、设备与具体位置</span>
         </div>
       </div>
-      <div class="privacy-actions">
-        <button class="btn-primary" :disabled="enabling" type="button" @click="enable">
+
+      <div class="privacy-buttons">
+        <button
+          class="btn-primary"
+          :disabled="enabling"
+          type="button"
+          @click="enable"
+        >
           {{ enabling ? '正在确认…' : '允许匿名寻找同路经历' }}
         </button>
         <button
-          class="btn-link"
-          type="button"
+          class="btn-secondary"
           data-testid="peer-privacy-boundary"
+          type="button"
           @click="router.push('/pages/settings/privacy')"
         >
           查看隐私边界设置
@@ -115,264 +264,359 @@ onMounted(load);
       </div>
     </section>
 
-    <template v-else>
-      <section class="peer-section">
-        <div class="section-heading">
-          <h2 class="section-title">推荐经历</h2>
-          <button class="refresh-btn" type="button" @click="load">换一批</button>
-        </div>
+    <!-- Tab 1: Recommended Stories -->
+    <main v-else-if="currentTab === 'recommended'" class="peer-feed">
+      <div class="feed-intro">只展示对方愿意公开的匿名经历</div>
 
-        <article v-if="primaryMatch" class="peer-story-item peer-story-item--primary">
-          <div class="story-identity">
-            <div class="avatar-box">
-              <span class="avatar-text">{{ (primaryMatch.experience?.domain || '同')[0] }}</span>
+      <div v-if="uniqueMatches.length === 0" class="empty-feed">
+        <div class="empty-icon">◎</div>
+        <h3 class="empty-title">暂时没有匹配的经历</h3>
+        <p class="empty-desc">可以稍后再来看看，或者调整愿意分享的范围。</p>
+        <button
+          class="empty-btn"
+          data-testid="peer-privacy-boundary"
+          type="button"
+          @click="router.push('/pages/settings/privacy')"
+        >
+          查看我的分享设置
+        </button>
+      </div>
+
+      <div v-else class="story-list">
+        <article
+          v-for="match in uniqueMatches"
+          :key="match.id"
+          class="story-card"
+        >
+          <div class="author-row">
+            <div class="avatar-circle">
+              {{ (match.experience?.domain || '同')[0] }}
             </div>
-            <div class="identity-info">
-              <strong class="identity-name">匿名同行者</strong>
-              <span class="identity-meta">{{ primaryMatch.experience?.domain || '匿名经历' }} · {{ ago(primaryMatch.experience?.createdAt || '') }}</span>
+            <div class="author-info">
+              <span class="author-name">匿名同行者</span>
+              <span class="author-meta">{{ match.experience?.domain || '匿名经历' }} · {{ ago(match.experience?.createdAt || '') }}</span>
             </div>
-            <span class="stage-pill">真实后来</span>
+            <span v-if="match.status === 'connected'" class="status-pill connected">已连接</span>
+            <span v-else-if="match.status === 'requested'" class="status-pill pending">等待回应</span>
           </div>
 
-          <h3 class="story-title">{{ primaryMatch.experience?.title || '一段匿名经历' }}</h3>
+          <h3 class="story-title">{{ match.experience?.title || '一段匿名经历' }}</h3>
 
-          <div v-if="primaryMatch.experience?.tags?.length" class="story-tags">
-            <span v-for="tag in primaryMatch.experience.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
+          <p v-if="match.experience?.content" class="story-excerpt">
+            {{ match.experience.content }}
+          </p>
+
+          <div v-if="match.reasons && match.reasons.length > 0" class="reason-strip">
+            <span class="reason-tag">推荐参考</span>
+            <span class="reason-text">{{ match.reasons.join(' · ') }}</span>
           </div>
 
-          <div v-if="primaryMatch.reasons.length" class="recommend-reason">
-            <span class="reason-label">推荐参考</span>
-            <span class="reason-text">{{ primaryMatch.reasons.join(' · ') }}</span>
-          </div>
-
-          <div class="story-footer">
-            <span class="later-count">
-              {{ primaryMatch.experience?.laterRecordCount ? `已记录 ${primaryMatch.experience.laterRecordCount} 段后来` : '已留下后来记录' }}
+          <div class="story-bottom">
+            <span class="progress-meta">
+              {{ match.experience?.laterRecordCount ? `已记录 ${match.experience.laterRecordCount} 条后续` : match.experience?.graduated ? '阶段已完成' : '持续记录中' }}
             </span>
-            <button class="action-btn" type="button" @click="openExperience(primaryMatch)">
-              {{ primaryMatch.status === 'requested' ? '等待回应' : primaryMatch.status === 'connected' ? '查看进展' : '查看后来记录' }}
+            <button
+              class="action-link"
+              type="button"
+              @click="openMatch(match)"
+            >
+              {{ formatStatus(match.status) }} ›
             </button>
           </div>
         </article>
+      </div>
+    </main>
 
-        <p v-else class="empty-note">暂时还没有足够接近的同路经历。后续有新记录时将自动呈现。</p>
+    <!-- Tab 2: Latest Experiences -->
+    <main v-else-if="currentTab === 'latest'" class="peer-feed">
+      <div class="feed-intro">按时间顺序浏览最新的匿名经历</div>
 
+      <div v-if="latestExperiences.length === 0" class="empty-feed">
+        <div class="empty-icon">◎</div>
+        <h3 class="empty-title">暂时没有更多最新经历</h3>
+        <p class="empty-desc">后续有其他同行者分享后将显示在这里。</p>
+      </div>
+
+      <div v-else class="story-list">
         <article
-          v-for="match in secondaryMatches"
-          :key="match.id"
-          class="peer-story-item peer-story-item--secondary"
-          role="button"
-          tabindex="0"
-          @click="openExperience(match)"
+          v-for="exp in latestExperiences"
+          :key="exp.id"
+          class="story-card"
         >
-          <div class="story-identity">
-            <div class="avatar-box avatar-box--small">
-              <span class="avatar-text">{{ (match.experience?.domain || '同')[0] }}</span>
+          <div class="author-row">
+            <div class="avatar-circle">
+              {{ (exp.domain || '同')[0] }}
             </div>
-            <div class="identity-info">
-              <div class="identity-top">
-                <strong class="identity-name">匿名同行者</strong>
-                <span class="identity-meta">{{ match.experience?.domain || '匿名经历' }} · {{ ago(match.experience?.createdAt || '') }}</span>
-              </div>
-              <h3 class="secondary-title">{{ match.experience?.title || '另一段匿名经历' }}</h3>
-              <p v-if="match.reasons[0]" class="secondary-reason">{{ match.reasons[0] }}</p>
+            <div class="author-info">
+              <span class="author-name">匿名同行者</span>
+              <span class="author-meta">{{ exp.domain }} · {{ ago(exp.createdAt) }}</span>
             </div>
-            <span class="row-arrow" aria-hidden="true">›</span>
+          </div>
+
+          <h3 class="story-title">{{ exp.title }}</h3>
+
+          <p v-if="exp.content" class="story-excerpt">
+            {{ exp.content }}
+          </p>
+
+          <div class="story-bottom">
+            <span class="progress-meta">
+              {{ exp.laterRecordCount ? `已记录 ${exp.laterRecordCount} 条后续` : exp.graduated ? '阶段已完成' : '持续记录中' }}
+            </span>
+            <button
+              class="action-link"
+              type="button"
+              @click="openExperience(exp)"
+            >
+              查看后来记录 ›
+            </button>
           </div>
         </article>
-      </section>
+      </div>
+    </main>
 
-      <section v-if="publishedExperiences.length" class="peer-section">
-        <div class="section-heading">
-          <h2 class="section-title">其他后来记录</h2>
-        </div>
-        <div class="public-list">
-          <button
-            v-for="experience in publishedExperiences"
-            :key="experience.id"
-            type="button"
-            class="public-row"
-            @click="openPublished(experience)"
-          >
-            <div class="avatar-box avatar-box--small">
-              <span class="avatar-text">{{ (experience.domain || '同')[0] }}</span>
+    <!-- Tab 3: My Requests -->
+    <main v-else class="peer-feed">
+      <div class="feed-intro">你发起的同路询问与回应状态</div>
+
+      <div v-if="loadingRequests" class="state-message">
+        正在读取请求记录…
+      </div>
+
+      <div v-else-if="requests.length === 0" class="empty-feed">
+        <div class="empty-icon">✉</div>
+        <h3 class="empty-title">暂无发出的同路请求</h3>
+        <p class="empty-desc">你可以向走过相似阶段的同行者询问应对体会。</p>
+        <button
+          class="empty-btn"
+          type="button"
+          @click="switchTab('recommended')"
+        >
+          去看看推荐经历
+        </button>
+      </div>
+
+      <div v-else class="story-list">
+        <article
+          v-for="req in requests"
+          :key="req.id"
+          class="story-card"
+          @click="openRequest(req)"
+        >
+          <div class="author-row">
+            <div class="avatar-circle">
+              {{ (req.experience?.domain || '问')[0] }}
             </div>
-            <div class="public-body">
-              <strong class="public-title">{{ experience.title }}</strong>
-              <small class="public-desc">{{ experience.domain }} · {{ experience.graduated ? '阶段已完成' : '持续记录中' }}</small>
+            <div class="author-info">
+              <span class="author-name">向同行者询问</span>
+              <span class="author-meta">{{ req.experience?.domain || '匿名' }} · {{ ago(req.createdAt) }}</span>
             </div>
-            <span class="row-arrow" aria-hidden="true">›</span>
-          </button>
-        </div>
-        <p v-if="item.limited" class="limit-note">已展示当前可推荐记录，后续会有新的更新。</p>
-      </section>
-    </template>
-  </section>
+            <span
+              class="status-pill"
+              :class="{ connected: req.status === 'connected', pending: req.status === 'requested' }"
+            >
+              {{ req.status === 'connected' ? '已同意' : req.status === 'declined' ? '已婉拒' : '等待回应' }}
+            </span>
+          </div>
+
+          <h3 class="story-title">{{ req.experience?.title || '同路申请' }}</h3>
+          <p v-if="req.requestReason" class="story-excerpt">
+            理由：{{ req.requestReason }}
+          </p>
+          <p v-if="req.requestQuestion" class="story-excerpt">
+            问题：{{ req.requestQuestion }}
+          </p>
+
+          <div class="story-bottom">
+            <span class="progress-meta">点击查看等待与沟通详情</span>
+            <span class="action-link">查看详情 ›</span>
+          </div>
+        </article>
+      </div>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.peer-network-page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.peer-v2 {
+  position: relative;
   box-sizing: border-box;
   width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
-  background: var(--gn-bg);
-  color: var(--gn-text);
+  min-height: 100vh;
+  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  background: #FFFFFF;
+  color: #242A32;
   font-family: var(--gn-font-body);
 }
 
 .peer-header {
-  padding: 8px 4px 4px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 20px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E8EBEF;
 }
 
-.peer-title {
+.header-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
-  line-height: 1.25;
-  color: var(--gn-ink);
+  color: #242A32;
+  letter-spacing: -0.3px;
 }
 
-.peer-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--gn-muted);
-}
-
-.segmented-control {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-}
-
-.segmented-control button {
-  min-height: 36px;
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
   border: 0;
-  border-radius: var(--gn-radius-small);
   background: transparent;
-  color: var(--gn-muted);
-  font-size: 13px;
-  font-weight: 500;
+  color: #39454C;
   cursor: pointer;
 }
 
-.segmented-control button.active {
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
+.segment-bar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 20px;
+  border-bottom: 1px solid #E8EBEF;
+  gap: 28px;
+  background: #FFFFFF;
+}
+
+.segment-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #757D87;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.segment-item.active {
+  color: #275F56;
   font-weight: 600;
 }
 
-.state-note,
-.empty-note {
-  margin: 24px 0;
-  color: var(--gn-muted);
+.segment-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #275F56;
+  border-radius: 2px;
+}
+
+.error-banner {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #FEF2F0;
+  border: 1px solid #F6DCDA;
+  color: #BD4545;
   font-size: 13px;
-  line-height: 1.6;
+}
+
+.state-message {
+  padding: 40px 20px;
+  color: #757D87;
+  font-size: 13px;
   text-align: center;
 }
 
-.error-note {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  color: var(--gn-danger);
-  font-size: 13px;
+.privacy-card {
+  margin: 20px;
+  padding: 20px;
+  border: 1px solid #E8EBEF;
+  border-radius: 12px;
+  background: #FFFFFF;
 }
 
-.privacy-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-}
-
-.privacy-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.privacy-tag {
-  align-self: flex-start;
-  padding: 2px 8px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
+.privacy-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #EAF4EE;
+  color: #275F56;
   font-size: 11px;
   font-weight: 600;
 }
 
-.privacy-header h2 {
-  margin: 2px 0 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--gn-ink);
+.privacy-title {
+  margin: 10px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #242A32;
 }
 
 .privacy-desc {
   margin: 0;
-  color: var(--gn-muted);
+  color: #757D87;
   font-size: 13px;
   line-height: 1.5;
 }
 
-.privacy-items {
+.privacy-scope {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #F7F8FA;
 }
 
-.privacy-row {
+.scope-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.privacy-row strong {
+.scope-row strong {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--gn-ink);
+  color: #242A32;
 }
 
-.privacy-row span {
+.scope-row span {
   font-size: 12px;
-  color: var(--gn-muted);
+  color: #757D87;
   line-height: 1.4;
 }
 
-.privacy-actions {
+.privacy-buttons {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .btn-primary {
-  min-height: 40px;
+  min-height: 48px;
   border: 0;
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-leaf);
-  color: #ffffff;
+  border-radius: 10px;
+  background: #275F56;
+  color: #FFFFFF;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -380,279 +624,196 @@ onMounted(load);
   opacity: 0.6;
 }
 
-.btn-link {
-  min-height: 32px;
-  border: 0;
-  background: transparent;
-  color: var(--gn-leaf-deep);
-  font-size: 12px;
+.btn-secondary {
+  min-height: 48px;
+  border: 1px solid #DCE1E5;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #242A32;
+  font-size: 13px;
   cursor: pointer;
-  text-decoration: underline;
 }
 
-.peer-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.peer-feed {
+  padding: 12px 20px 0;
 }
 
-.section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 2px;
+.feed-intro {
+  margin-bottom: 12px;
+  color: #757D87;
+  font-size: 12px;
 }
 
-.section-title {
-  margin: 0;
-  font-size: 14px;
+.empty-feed {
+  margin-top: 60px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.empty-icon {
+  font-size: 36px;
+  color: #92A9A0;
+}
+
+.empty-title {
+  margin: 16px 0 8px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--gn-ink);
+  color: #242A32;
 }
 
-.refresh-btn {
-  border: 0;
-  background: transparent;
-  color: var(--gn-leaf);
-  font-size: 12px;
+.empty-desc {
+  margin: 0;
+  color: #757D87;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.empty-btn {
+  margin-top: 18px;
+  min-height: 48px;
+  padding: 10px 20px;
+  border: 1px solid #DCE1E5;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #242A32;
+  font-size: 13px;
   cursor: pointer;
-  padding: 4px 6px;
 }
 
-.peer-story-item {
+.story-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
 }
 
-.story-identity {
+.story-card {
+  padding: 16px 0;
+  border-bottom: 1px solid #E8EBEF;
+}
+
+.story-card:last-child {
+  border-bottom: 0;
+}
+
+.author-row {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.avatar-box {
+.avatar-circle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 18px;
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
+  width: 34px;
+  height: 34px;
+  border-radius: 17px;
+  background: #EAF4EE;
+  color: #275F56;
+  font-size: 13px;
+  font-weight: 600;
   flex-shrink: 0;
 }
 
-.avatar-box--small {
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
-}
-
-.avatar-text {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.identity-info {
+.author-info {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.identity-name {
+.author-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--gn-ink);
-  line-height: 1.3;
+  color: #242A32;
 }
 
-.identity-meta {
+.author-meta {
+  margin-top: 2px;
   font-size: 11px;
-  color: var(--gn-muted);
-  line-height: 1.3;
+  color: #757D87;
 }
 
-.stage-pill {
-  padding: 2px 7px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  border: 1px solid var(--gn-line);
-  color: var(--gn-muted);
+.status-pill {
+  padding: 3px 8px;
+  border-radius: 6px;
   font-size: 11px;
-  flex-shrink: 0;
+  font-weight: 500;
+  background: #F7F8FA;
+  color: #757D87;
+}
+
+.status-pill.connected {
+  background: #EAF4EE;
+  color: #275F56;
+}
+
+.status-pill.pending {
+  background: #FFF8EE;
+  color: #947444;
 }
 
 .story-title {
-  margin: 0;
-  font-size: 16px;
+  margin: 10px 0 6px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--gn-ink);
-  line-height: 1.35;
+  line-height: 1.45;
+  color: #242A32;
 }
 
-.story-tags {
+.story-excerpt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #58616B;
+}
+
+.reason-strip {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-}
-
-.story-tags span {
-  padding: 2px 8px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  border: 1px solid var(--gn-line);
-  color: var(--gn-ink-soft);
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #F7F8FA;
   font-size: 11px;
 }
 
-.recommend-reason {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.reason-label {
-  color: var(--gn-muted);
+.reason-tag {
+  color: #757D87;
   font-weight: 500;
   flex-shrink: 0;
 }
 
 .reason-text {
-  color: var(--gn-ink-soft);
-}
-
-.story-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--gn-line);
-}
-
-.later-count {
-  font-size: 12px;
-  color: var(--gn-muted);
-}
-
-.action-btn {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.peer-story-item--secondary {
-  cursor: pointer;
-  padding: 12px 14px;
-}
-
-.peer-story-item--secondary:active {
-  background: var(--gn-paper-warm);
-}
-
-.identity-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.secondary-title {
-  margin: 3px 0 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gn-ink);
-  line-height: 1.35;
-}
-
-.secondary-reason {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: var(--gn-muted);
-  line-height: 1.4;
-}
-
-.row-arrow {
-  color: var(--gn-muted);
-  font-size: 18px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.public-list {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  overflow: hidden;
-}
-
-.public-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 0;
-  border-bottom: 1px solid var(--gn-line);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.public-row:last-child {
-  border-bottom: 0;
-}
-
-.public-row:active {
-  background: var(--gn-paper-warm);
-}
-
-.public-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.public-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gn-ink);
-  line-height: 1.3;
+  color: #58616B;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.public-desc {
-  font-size: 11px;
-  color: var(--gn-muted);
-  margin-top: 2px;
-  line-height: 1.3;
+.story-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
 }
 
-.limit-note {
-  margin: 8px 0 0;
-  color: var(--gn-muted);
+.progress-meta {
   font-size: 11px;
-  text-align: center;
+  color: #757D87;
+}
+
+.action-link {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: #275F56;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 </style>
