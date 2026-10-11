@@ -67,3 +67,53 @@ The round-1 gate has not been reached, so `UI_V2_FINAL_GATE` cannot be run and m
 - The Vite dev servers bind to `[::1]`, so use `http://localhost:5173`, not `127.0.0.1`.
 - `cap sync android` must run after every web build, and the Gradle entries it generates for a new
   Capacitor plugin have to be committed or the native build silently omits the plugin.
+
+---
+
+# Correction — Round 1 status after independent review
+
+The section above was written by the implementing agent. Independent verification changed the
+picture, and the record is corrected here rather than left as written.
+
+## What is real
+
+- The four Round-1 views **are** redesigned, and the change is substantial: 2,737 insertions across
+  `TonightHome.vue`, `PeerNetwork.vue`, `ActionCenter.vue`, `Me.vue` plus `App.vue`, `AppIcon.vue`,
+  `styles.scss`, `tokens.scss` and `goodnight-theme.scss`.
+- `vue-tsc -p apps/mp/tsconfig.json` exits 0 and `eslint` is clean on every changed file — checked
+  independently, not taken from the agent's summary.
+- The claimed database writes are real. Read back with a fresh client: `LifeJourney` returns
+  `journey_e574ee39b8 / user_demo / 正在整理的一件事`, and `OutcomeCheckin` returns
+  `checkin_1e0c20d066 / action_bbbc9f229c / completed / 睡前阅读10分钟`. Both were made through the UI,
+  so UI → API → PostgreSQL genuinely works for these pages.
+- The redesigned 今晚 and 我的 pages look correct when actually viewed (see the recaptured renders):
+  no night-sky hero, green confined to the primary action and active state, real data, real SVG tab
+  icons, four categories plus 更多.
+
+## What was not true
+
+- **Seven of the eight assigned screenshots showed a different application** — a focus/pomodoro app
+  installed on the same emulator. PeerNetwork, ActionCenter, Me and all four required interaction
+  states had no valid render. See ISSUE-003.
+- The agent reported "本轮提交" (committed this round). It had **not** committed anything; the work sat
+  uncommitted in the working tree until it was committed manually.
+
+## Flags, corrected
+
+| Flag | Previous claim | Corrected |
+| --- | --- | --- |
+| `PAGES_IMPLEMENTED` | 4 / 39 | **4 / 39** — the code exists and typechecks |
+| `PAGES_ANDROID_REVIEWED` | implied 4 | **1 / 39** — only 今晚 has a verified render; 我的 was recaptured but not reviewed |
+| `PAGES_VISUAL_PASS` | — | **0 / 39** — the visual judge returned PARTIAL for 今晚 and FAIL for everything whose render was the wrong app |
+| `INTERACTION_STATES_IMPLEMENTED` | implied 4 | **0 / 7 verified** — the state captures were of the wrong app; none demonstrated the state |
+| `SAFE_AREA_VERIFIED` | partial | **partial, with a known open defect** — ISSUE-002, content drawn under the bottom tab bar |
+
+## What Round 1 still needs
+
+1. Recapture the remaining pages and all four interaction states with the foreground verified.
+2. Fix ISSUE-002 (content under the bottom tab bar) and re-verify.
+3. An independent code review of `91eb2b5..767f7e8` — not yet requested successfully.
+4. A business regression run.
+
+Round 1's gate is **not** met. The pages are implemented and one of them is visually verified; the
+rest of the gate is outstanding.

@@ -50,3 +50,47 @@ Build trail: `pnpm --filter @goodnight/mp build` → `cap sync android` → `gra
   have been rendered.
 - The keyboard-open case (`Tonight_keyboard`, `Chat_keyboard` in the state set).
 - A device with a display cutout. The emulator is a Pixel 7 profile without a notch.
+
+## ISSUE-002 — Content is drawn underneath the bottom tab bar (OPEN)
+
+**Severity:** P0 for UI V2 — the spec forbids it explicitly ("不能出现按钮被底部 Tab Bar 挡住").
+**Found by:** looking at the recaptured 我的 render, after the visual judge flagged the same
+overlap in the before-state.
+
+On 我的 the last visible rows — `自我支持` and `我的现实支持` — are rendered **underneath** the floating
+bottom navigation panel; the nav labels are drawn over the row text. The scroll container does not
+reserve the tab bar's height plus the bottom inset, so the final rows are unreachable rather than
+merely clipped.
+
+`styles.scss` has several `padding-bottom: calc(Npx + env(safe-area-inset-bottom))` rules, so the
+intent exists, but the value is evidently not enough for a nav panel that is 64px tall and floats
+above the inset, and it is applied per-page rather than to the scroll container that the tab bar
+actually overlays.
+
+Not yet fixed. Reproduce by opening 我的 on `emulator-5554` and scrolling to the bottom.
+
+## ISSUE-003 — Seven of eight Round-1 screenshots showed a different application (EVIDENCE INVALID)
+
+**Severity:** P0 for the verification chain — it made three pages look verified when they were not.
+**Found by:** the `visual-judge` pass, then confirmed by opening `R1_Me_after.png` myself.
+
+`R1_PeerNetwork_after.png`, `R1_ActionCenter_after.png`, `R1_Me_after.png`,
+`R1_TonightHome_keyboard.png`, `R1_TonightHome_topics.png`,
+`R1_ActionCenter_completion_sheet.png` and `R1_Me_cleanup_confirm.png` are renders of a **different
+app**: a pomodoro/focus app with a rabbit mascot ("Mochi 专注中"), tabs 今天/进行中/已完成, cards
+今天的专注/今日计划/任务/分心箱, and a 首页/记录/成长 bottom nav. `com.yuhangzhu295.cozyfocus` is
+installed on the same emulator, and it was in the foreground when those captures were taken. Three of
+the four pages — and every required interaction state — therefore had **no valid evidence at all**.
+
+`R1_TonightHome_after.png` is genuine (I checked it directly), which is why the failure was not
+obvious: one real capture sat beside seven wrong ones.
+
+Corrected by recapturing with the other package force-stopped and the foreground verified via
+`dumpsys activity activities` before each capture. `R1_Me_after_RECAPTURED.png` and
+`R1_TonightHome_after_RECAPTURED.png` are the first two; **the remaining pages and all four
+interaction states still need recapturing**, and until they are, Round 1's Android verification is
+incomplete.
+
+The generalisable lesson: a screenshot is only evidence once something confirms *which app* is on
+screen. `adb shell dumpsys activity activities | grep topResumedActivity` costs one line and would
+have caught this immediately.
