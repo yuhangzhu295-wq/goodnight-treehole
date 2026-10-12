@@ -37,6 +37,8 @@ type PeerRequest = {
   id: string;
   journeyId: string;
   status: string;
+  /** 'active' or 'closed' once the request became a conversation. */
+  conversationStatus?: string;
   requestReason?: string;
   requestQuestion?: string;
   createdAt: string;
@@ -89,7 +91,9 @@ async function load() {
 async function loadRequests() {
   loadingRequests.value = true;
   try {
-    const res = await api.get<{ items: PeerRequest[] }>('/api/v1/peer-requests');
+    // scope=sent: this tab is "你发起的同路询问与回应状态". Without the scope it listed incoming
+    // requests, so a user who had sent one saw nothing and someone else's request looked like theirs.
+    const res = await api.get<{ items: PeerRequest[] }>('/api/v1/peer-requests?scope=sent');
     requests.value = res.items ?? [];
   } catch {
     requests.value = [];
@@ -135,8 +139,32 @@ function openExperience(experience: PeerExperience) {
   void router.push(`/pages/peer/detail?id=${encodeURIComponent(experience.id)}`);
 }
 
+/** 等待回应 / 已同意 / 会话中 / 结束, from the real status plus the conversation's own status. */
+function requestStatusLabel(req: PeerRequest) {
+  if (req.conversationStatus === 'active') return '会话中';
+  if (req.conversationStatus === 'closed') return '已结束';
+  if (req.status === 'connected') return '已同意';
+  if (req.status === 'declined') return '已婉拒';
+  if (req.status === 'blocked') return '已停止';
+  return '等待回应';
+}
+
 function openRequest(req: PeerRequest) {
-  void router.push(`/pages/peer/wait?matchId=${encodeURIComponent(req.id)}`);
+  const matchId = encodeURIComponent(req.id);
+  // Route by where the request actually is: an active or ended request opens its conversation, an
+  // agreed one still needs the boundary confirmed, and only an unanswered one goes to the wait page.
+  if (req.conversationStatus) {
+    void router.push(`/pages/peer/conversation?matchId=${matchId}`);
+    return;
+  }
+  if (req.status === 'connected') {
+    void router.push(`/pages/peer/consent?matchId=${matchId}`);
+    return;
+  }
+  if (req.status === 'requested') {
+    void router.push(`/pages/peer/wait?matchId=${matchId}`);
+  }
+  // declined / blocked: there is nothing further to open.
 }
 
 function ago(createdAt: string) {
@@ -413,9 +441,13 @@ onMounted(() => {
             </div>
             <span
               class="status-pill"
-              :class="{ connected: req.status === 'connected', pending: req.status === 'requested' }"
+              :class="{
+                connected: req.conversationStatus === 'active' || req.status === 'connected',
+                pending: req.status === 'requested' && !req.conversationStatus,
+                ended: req.conversationStatus === 'closed' || req.status === 'declined' || req.status === 'blocked',
+              }"
             >
-              {{ req.status === 'connected' ? '已同意' : req.status === 'declined' ? '已婉拒' : '等待回应' }}
+              {{ requestStatusLabel(req) }}
             </span>
           </div>
 
@@ -751,6 +783,12 @@ onMounted(() => {
 .status-pill.pending {
   background: #FFF8EE;
   color: #947444;
+}
+
+/* 已结束 / 已婉拒 / 已停止: a settled state, quieter than the pending one. */
+.status-pill.ended {
+  background: #F1F2F4;
+  color: #757D87;
 }
 
 .story-title {

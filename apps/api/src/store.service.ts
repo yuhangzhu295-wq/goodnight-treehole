@@ -5203,25 +5203,55 @@ export class StoreService implements OnModuleInit {
     return { conversation: await this.peerConversationForUser(conversation, currentUserId) };
   }
 
-  async peerRequestList(requestedUserId?: string) {
+  /**
+   * `scope` selects the direction: 'received' is the inbox on the user's own experiences (the
+   * default, and what 同行请求 lists with its accept/decline actions), 'sent' is what the user
+   * asked for. 同路人's 我的请求 tab needs 'sent'; without it the tab showed incoming requests
+   * under copy that claims they were the user's own.
+   */
+  async peerRequestList(requestedUserId?: string, scope: 'received' | 'sent' = 'received') {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerExperience) {
+      if (scope === 'sent') {
+        const sent = await this.peerPersistence.listSentRequests(userId);
+        const expIds = [...new Set(sent.map((m) => m.peerExperienceId))];
+        const exps = await this.peerPersistence.getExperiencesByIds(expIds);
+        const expMap = new Map(exps.map((e) => [e.id, e]));
+        return sent.map((m) => ({
+          ...this.peerMatchForUser(m, this.peerExperienceSummary(expMap.get(m.peerExperienceId))),
+          role: 'sent' as const,
+          conversationStatus: m.conversationStatus,
+        }));
+      }
       const matches = await this.peerPersistence.listRequestsForOwner(userId);
       const expIds = matches.map((m) => m.peerExperienceId);
       const exps = await this.peerPersistence.getExperiencesByIds(expIds);
       const expMap = new Map(exps.map((e) => [e.id, e]));
-      return matches.map((m) => this.peerMatchForUser(m, this.peerExperienceSummary(expMap.get(m.peerExperienceId))));
+      return matches.map((m) => ({
+        ...this.peerMatchForUser(m, this.peerExperienceSummary(expMap.get(m.peerExperienceId))),
+        role: 'received' as const,
+      }));
     }
     return this.peerMatches
       .filter((match) => {
-        const isOwner =
-          this.peerExperiences.find((experience) => experience.id === match.peerExperienceId)?.userId === userId;
+        const experience = this.peerExperiences.find((item) => item.id === match.peerExperienceId);
+        const isOwner = experience?.userId === userId;
         const awaitsConsent =
           match.status === 'connected' &&
           !this.peerConversations.some((conversation) => conversation.matchId === match.id);
+        if (scope === 'sent') {
+          return match.userId === userId && match.status !== 'suggested';
+        }
         return isOwner && (match.status === 'requested' || awaitsConsent);
       })
-      .map((match) => this.peerMatchForUser(match));
+      .map((match) => {
+        const conversation = this.peerConversations.find((item) => item.matchId === match.id);
+        return {
+          ...this.peerMatchForUser(match),
+          role: scope,
+          conversationStatus: conversation?.status,
+        };
+      });
   }
 
   /**

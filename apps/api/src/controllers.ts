@@ -763,9 +763,15 @@ export class PublicController {
   }
 
   @Get('peer-requests')
-  async peerRequests(@Headers('x-goodnight-user-id') userId?: string) {
+  async peerRequests(
+    @Headers('x-goodnight-user-id') userId?: string,
+    @Query('scope') scope?: string,
+  ) {
     const runtimeId = requireRuntimeUserId(userId);
-    return { items: await this.store.peerRequestList(runtimeId) };
+    // 'received' (the default) is the inbox on the user's own experiences; 'sent' is what the user
+    // asked for. 同路人's 我的请求 tab passes scope=sent.
+    const direction = scope === 'sent' ? 'sent' : 'received';
+    return { items: await this.store.peerRequestList(runtimeId, direction) };
   }
 
   @Patch('peer-experiences/:id')

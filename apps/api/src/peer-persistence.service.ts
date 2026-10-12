@@ -699,6 +699,33 @@ export class PeerPersistenceService {
     return rows.map(mapPeerMatchRow);
   }
 
+  /**
+   * The requests a user sent, carrying the conversation status.
+   *
+   * 同路人's 我的请求 tab is labelled "你发起的同路询问与回应状态", so it has to show what the user
+   * asked for and where it got to — including 会话中 and 结束. The received-side query
+   * (`listRequestsForOwner`) returns only pending items, so the tab showed other people's incoming
+   * requests under copy claiming they were the user's own, and nothing at all for a user who had
+   * actually sent one.
+   */
+  async listSentRequests(
+    userId: string,
+  ): Promise<Array<PeerMatchRecord & { role: 'sent'; conversationStatus?: string }>> {
+    const rows = await this.prisma.peerMatch.findMany({
+      where: {
+        userId,
+        status: { in: ['requested', 'connected', 'declined', 'blocked'] },
+      },
+      include: { conversation: { select: { status: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((row) => ({
+      ...mapPeerMatchRow(row),
+      role: 'sent' as const,
+      conversationStatus: row.conversation?.status ?? undefined,
+    }));
+  }
+
   async listMatchesForAdmin(params: { q?: string; status?: string }): Promise<PeerMatchRecord[]> {
     const rows = await this.prisma.peerMatch.findMany({
       orderBy: { createdAt: 'desc' },

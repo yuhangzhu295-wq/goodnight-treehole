@@ -435,3 +435,72 @@ that a Chinese message merely containing the word 网络 is not rewritten. Rever
 the test with `false` fails 3 named cases. On device, `R2_PeerConversation_sendfail.png` now reads
 网络连接不上，请检查网络后重试 with the draft preserved.
 
+
+## Found while working — pre-existing failures the CI gate cannot see (NOT a UI V2 issue)
+
+While checking that the peer-request change did not regress anything, `pnpm test:business` surfaced
+two deterministic failures in `tests/business/goodnight-2-incremental.spec.ts`. They are **not**
+caused by any UI V2 change: stashing every edit made for this page and re-running on the baseline
+reproduces exactly the same two failures.
+
+| Test | Failure |
+|---|---|
+| `persists situation, action, peer, safety and recovery records across refreshes` | `expected undefined to be 'pending_review'` — `POST /journeys/:id/graduation-consent` no longer returns the `draft` the spec reads at line 202 |
+| `connects two distinct persisted users through a reviewed experience and a 72 hour human conversation` | `actual value must be number or bigint, received "undefined"` — a numeric assertion reads `undefined`, around the match score / similarity fields |
+
+**Why nobody noticed:** `.github/workflows/ci.yml` runs `pnpm test:unit` and `pnpm test:batch1` only.
+The rest of `tests/business/` — this spec included — is not executed by CI, so a green CI run says
+nothing about it. That is the same shape as the earlier finding that a gate must compare counts, not
+membership: here the suite is simply outside the gate.
+
+Recorded rather than silently fixed: both sit in the graduation / peer-match contract, not in the
+page under work, and fixing them without understanding the intended contract would risk masking a
+real regression. They belong to the QA phase.
+
+
+## UI2-012 — 同路人's 我的请求 tab listed the wrong direction and could never show 会话中 / 结束 (FIXED)
+
+**Severity:** P0 for this tab — it showed an empty list to users who had actually sent requests.
+**Found by:** capturing the tab on device after building a real conversation.
+
+### Symptom
+
+The tab is labelled `你发起的同路询问与回应状态` ("the inquiries you initiated and how they were
+answered") and its empty state reads `暂无发出的同路请求` ("no peer requests sent yet"). With five
+requests genuinely sent by the demo identity — one of them an active conversation — the tab showed
+that empty state.
+
+### Root cause
+
+Two separate faults on the same tab:
+
+1. **Direction.** The tab fetched `/api/v1/peer-requests` with no scope, which returns requests
+   *received on the user's own experiences* (`listRequestsForOwner`). So a user who had sent requests
+   saw none, and a request someone else sent would have been displayed as if the user had sent it.
+2. **Status coverage.** Even on the received side the query returned only `requested` and
+   `connected`-without-a-conversation, so the `会话中` and `结束` states the design requires could
+   never appear. `openRequest` also always pushed `/pages/peer/wait`, which is wrong once a
+   conversation exists.
+
+### Fix
+
+- `listSentRequests(userId)` in `peer-persistence.service.ts`, returning the user's own matches in
+  every status with the conversation status attached.
+- `GET /api/v1/peer-requests?scope=sent|received`, defaulting to `received` so 同行请求
+  (`/pages/peer/requests`, the inbox with accept/decline) keeps its meaning unchanged.
+- The tab now requests `scope=sent`, labels the row from the real state
+  (等待回应 / 已同意 / 会话中 / 已结束 / 已婉拒 / 已停止) and routes by it: a conversation for an
+  active or ended request, the boundary confirmation for an agreed one, the wait page only while
+  it is unanswered.
+
+### Verification
+
+| Before | After |
+|---|---|
+| 0 items, `暂无发出的同路请求` | 5 items: one `会话中`, four `已结束` (`R2_PeerNetwork_requests_after.png`) |
+| — | tapping the `会话中` row opens the active conversation, composer included (`R2_PeerNetwork_requests_click.png`) |
+
+`pnpm typecheck` passes repo-wide, and `batch3-identity-matrix.spec.ts` — which asserts a 401 without
+an identity and that an experience owner sees an incoming request — still passes, since the default
+scope is unchanged.
+
