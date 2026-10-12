@@ -84,7 +84,24 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "IN_PROGRESS",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
+      "businessVerified": "yes",
+      "visualApproved": "fail",
+      "codeReviewApproved": "no",
+      "done": "no",
+      "evidence": {
+        "commit": "767f7e8",
+        "render": "artifacts/ui-v2/android/R1_TonightHome_after.png (genuine, inspected directly)",
+        "renderRecaptured": "artifacts/ui-v2/android/R1_TonightHome_after_RECAPTURED.png",
+        "business": "POST /api/v1/journeys through the UI; LifeJourney row journey_e574ee39b8 / user_demo / 正在整理的一件事 read back with a fresh client",
+        "visual": "visual-judge returned PARTIAL: excessive whitespace between the last record and the pinned CTA; the record row renders only its bottom and side borders; the CTA nearly abuts the nav; no topic chip selected by default",
+        "interaction": "keyboard state CAPTURED with the foreground verified (R1_TonightHome_keyboard_RECAPTURED.png) and it shows ISSUE-005: the primary action floats over the title and above the input field. The topic sheet is still unverified.",
+        "issue": "ISSUE-005 confirmed: with the keyboard open 继续整理 renders mid-page, above the input it submits, and the tab bar covers the 最近的记录 row."
+      },
+      "nextAction": "Fix ISSUE-005 (anchor the primary action to the keyboard edge, keep content scrollable between header and action, do not overlay content with the nav), then recapture the keyboard and topic-sheet states."
     },
     {
       "id": "UI-V2-02",
@@ -99,7 +116,23 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "IN_PROGRESS",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "no",
+      "businessVerified": "partial",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no",
+      "evidence": {
+        "commit": "767f7e8",
+        "render": "artifacts/ui-v2/android/R1_PeerNetwork_after_RECAPTURED.png (foreground verified as com.goodnight.treehole/.MainActivity, inspected directly)",
+        "business": "GET /api/v1/peers and /api/v1/peer-requests return real data; no write path exercised from this page",
+        "visual": "not judged on valid evidence - the earlier capture was the wrong app",
+        "interaction": "segmented 推荐/最新/我的请求 not verified by capture",
+        "issue": "ISSUE-004: the first two cards are visually identical. Verified against the database as two distinct rows, so the id-based dedupe works and the duplication is in the fixture data."
+      },
+      "nextAction": "Recapture the three segments, exercise a real action, then visual review."
     },
     {
       "id": "UI-V2-03",
@@ -114,7 +147,22 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "IN_PROGRESS",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
+      "businessVerified": "yes",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no",
+      "evidence": {
+        "commit": "767f7e8",
+        "render": "artifacts/ui-v2/android/R1_ActionCenter_after_RECAPTURED.png (foreground verified; not yet inspected by the reviewer)",
+        "business": "POST /api/v1/actions/<id>/checkin through the UI; OutcomeCheckin row checkin_1e0c20d066 / completed / 睡前阅读10分钟 read back",
+        "visual": "not judged on valid evidence",
+        "interaction": "completion sheet and decision sheet captures were of the WRONG APP (ISSUE-003); unverified"
+      },
+      "nextAction": "Recapture the completion sheet and decision input states, then visual review."
     },
     {
       "id": "UI-V2-04",
@@ -129,7 +177,23 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "IN_PROGRESS",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
+      "businessVerified": "partial",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no",
+      "evidence": {
+        "commit": "767f7e8",
+        "render": "artifacts/ui-v2/android/R1_Me_after_RECAPTURED.png and R1_Me_scrolled_bottom.png (foreground verified; inspected directly)",
+        "business": "GET /api/v1/me/profile and /api/v1/journeys render real counts; the DELETE /api/v1/me/data path was not exercised",
+        "visual": "not judged on valid evidence",
+        "interaction": "the clear-records confirmation capture was of the WRONG APP (ISSUE-003); unverified",
+        "closedIssue": "ISSUE-002 was my own false P0 - scrolling to the bottom shows the last row clears the nav. Closed as not a defect."
+      },
+      "nextAction": "Recapture the destructive-confirmation state, then visual review."
     },
     {
       "id": "UI-V2-05",
@@ -144,7 +208,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-06",
@@ -159,7 +230,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-07",
@@ -174,7 +252,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-08",
@@ -189,7 +274,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-09",
@@ -204,7 +296,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-10",
@@ -219,7 +318,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-11",
@@ -234,7 +340,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-12",
@@ -249,7 +362,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-13",
@@ -264,7 +384,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-14",
@@ -279,7 +406,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-15",
@@ -294,7 +428,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-16",
@@ -309,7 +450,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-17",
@@ -324,7 +472,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-18",
@@ -339,7 +494,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-19",
@@ -354,7 +516,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-20",
@@ -369,7 +538,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-21",
@@ -384,7 +560,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-22",
@@ -399,7 +582,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-23",
@@ -414,7 +604,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-24",
@@ -429,7 +626,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-25",
@@ -444,7 +648,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-26",
@@ -459,7 +670,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-27",
@@ -474,7 +692,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-28",
@@ -489,7 +714,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-29",
@@ -504,7 +736,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-30",
@@ -519,7 +758,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-31",
@@ -534,7 +780,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-32",
@@ -549,7 +802,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-33",
@@ -564,7 +824,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-34",
@@ -579,7 +846,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-35",
@@ -594,7 +868,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-36",
@@ -609,7 +890,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-37",
@@ -624,7 +912,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-38",
@@ -639,7 +934,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     },
     {
       "id": "UI-V2-39",
@@ -654,7 +956,14 @@
       "screenshot": "",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING"
+      "status": "PENDING",
+      "implemented": "no",
+      "rendered": "no",
+      "interactionTested": "no",
+      "businessVerified": "no",
+      "visualApproved": "no",
+      "codeReviewApproved": "no",
+      "done": "no"
     }
   ],
   "globalTasks": [
@@ -707,5 +1016,29 @@
       "title": "final-gate",
       "status": "PENDING"
     }
+  ],
+  "statusVocabulary": {
+    "perPageAxes": [
+      "implemented",
+      "rendered",
+      "interactionTested",
+      "businessVerified",
+      "visualApproved",
+      "codeReviewApproved",
+      "done"
+    ],
+    "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
+  },
+  "head": "1008522",
+  "updatedAt": "2026-10-12T02:03:51.567Z",
+  "captureProcedure": [
+    "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
+    "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
+    "Launch with am start -n com.goodnight.treehole/.MainActivity. Do NOT rely on monkey.",
+    "Read topResumedActivity and compare the COMPLETE package/activity string. A truncated regex once made com.yuhangzhu295.cozyfocus read as \"com.yuhangzhu\" and was misread as goodnight.",
+    "Perform the tap/navigation/input.",
+    "Re-check the complete topResumedActivity immediately before the capture.",
+    "After capturing, record package, activity, route, timestamp, device and APK sha256.",
+    "If any check does not match exactly, the screenshot is INVALID and must not support a PASS."
   ]
 }

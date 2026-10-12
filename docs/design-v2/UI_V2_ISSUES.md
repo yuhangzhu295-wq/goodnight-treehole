@@ -140,3 +140,31 @@ is recorded rather than fixed.
 
 Related: the visual judge independently described the before-state content as "统一规格的推荐样本"
 (uniform recommendation samples), which is the same observation from the visual side.
+
+## ISSUE-005 — With the keyboard open the primary action floats over the page (CONFIRMED, OPEN)
+
+**Severity:** P0 — the primary action obscures the content it belongs to, and the spec requires the
+main action to be easy to find and not to fight the input.
+**Found by:** capturing the keyboard state properly and looking at it.
+**Evidence:** `artifacts/ui-v2/android/R1_TonightHome_keyboard_RECAPTURED.png`
+(foreground verified `com.goodnight.treehole/.MainActivity`, `mInputShown=true` at capture).
+
+With the soft keyboard open on 今晚:
+
+- the green `继续整理` button is rendered **in the middle of the page**, directly under the heading
+  `今天有什么想说的?` and **above** the input field it submits;
+- the input card is pushed below the button, so the visual order becomes heading → submit button →
+  field, which is backwards;
+- the floating tab bar sits over the `最近的记录` row (`继续上次的旅程`), so content is genuinely
+  obscured rather than merely scrolled under.
+
+**This contradicts the implementing agent's report**, which stated the button "浮在软键盘上方可见"
+as evidence that the keyboard case was handled. It is visible, and it is in the wrong place.
+
+The intent — keep the action reachable above the keyboard — is right; the implementation has moved the
+button out of the document flow without anchoring it to the keyboard edge, so it lands over the
+content. Not fixed.
+
+**What would settle it:** with the keyboard open, the action should sit immediately above the keyboard
+and below the field, with the page content scrolling between the header and the action; the tab bar
+should not overlay content in that state.
