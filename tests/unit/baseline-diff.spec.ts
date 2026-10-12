@@ -15,25 +15,20 @@ describe('Baseline Failure Diff Comparator', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const baselineDocPath = path.join(repoRoot, 'docs/architecture/TEST_BASELINE_FAILURES.md');
 
-  it('parses the recorded baseline failures from TEST_BASELINE_FAILURES.md', () => {
+  it('records an empty baseline now that every documented failure is fixed or explicitly skipped', () => {
     expect(fs.existsSync(baselineDocPath)).toBe(true);
     const content = fs.readFileSync(baselineDocPath, 'utf8');
     const entries = parseBaselineFailures(content);
 
-    // Exactly 12 baseline failures are documented
-    expect(entries.length).toBe(12);
+    // The tolerated set is empty. Every test that used to be listed here now passes or is skipped
+    // as NOT_RUN_NO_SECRET, so a failure from here on is a new regression rather than a known one.
+    expect(entries).toEqual([]);
 
-    const files = entries.map((e) => e.file);
-    expect(files).toContain('front-me.spec.ts');
-    expect(files).toContain('front-publish-private.spec.ts');
-    expect(files).toContain('front-publish-public.spec.ts');
-    expect(files).toContain('front-tools.spec.ts');
-    expect(files).toContain('goodnight-2-incremental.spec.ts');
-    expect(files).toContain('third-stage-memory-independent.spec.ts');
-    expect(files).toContain('third-stage-monthly-report.spec.ts');
-
-    const frontMe = entries.find((e) => e.file === 'front-me.spec.ts');
-    expect(frontMe?.title).toBe('loads profile, stats, report, and persists privacy settings');
+    // The cleared set stays in the document so the history is not lost - and it must not be parsed
+    // as the active baseline, or those failures would silently be tolerated again.
+    expect(content).toContain('### The set that was cleared, for the record');
+    expect(content).toContain('third-stage-monthly-report.spec.ts');
+    expect(content).toContain('goodnight-2-incremental.spec.ts');
   });
 
   it('reports pass when actual failures are a strict subset of known baseline failures', () => {
