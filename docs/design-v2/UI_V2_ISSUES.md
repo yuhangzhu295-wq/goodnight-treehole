@@ -253,3 +253,32 @@ explained; the fourth is a deliberate judgment.
 | The record row renders only its bottom and side borders, so it reads as a half-drawn card | **Explained, no change.** `.list-row` is `border: 0; border-bottom: 1px solid #E8EBEF` inside a `.list-rows` with `border-top` — a flat row with hairline dividers, which is what the V2 spec asks for ("普通业务列表优先分割线"). There is no radius or side border in the scoped CSS and no global rule for `.list-row`. What the review saw is a thin-line artifact at capture scale, not a container. |
 | Excessive whitespace between the last record and the CTA | **Deliberate, not a defect.** The page has one record and a pinned action; the gap is the unfilled remainder of the viewport. Collapsing it would mean either stretching the content or floating the action mid-page, and the latter is exactly ISSUE-005. A short page with a pinned primary action is normal on a phone. It will look different with more records, which is the honest test. |
 | No topic chip selected by default (the reference pre-selects 感情) | **Explained.** The topic sheet does have a default: 暂时说不清 carries the checkmark (`R1_TonightHome_topics_FIXED.png`). Pre-selecting 感情 would assert a category the user has not chosen, which is worse than asserting none. |
+
+## ISSUE-007 — Another project's automation steals the emulator foreground (ENVIRONMENT)
+
+**Severity:** not an app defect, but it invalidated seven screenshots once and cost repeated retries.
+**Found by:** reading logcat after a launch kept losing the foreground.
+
+```
+ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.yuhangzhu295.cozyfocus/.MainActivity}
+  with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION)
+```
+
+`uid 2000` is the shell user, so this is issued from the **host over adb** — not by the app, and not
+by anything on the device. Something on this machine is starting `com.yuhangzhu295.cozyfocus`
+roughly every 35 seconds, and `io.appium.settings` is installed, so it is most likely another
+project's UI automation running against the same emulator.
+
+`pm disable-user` does not stop it: the package reports `enabled=0` and is still launched.
+
+**Working practice, not a fix:**
+
+1. Launch with `am start -n com.goodnight.treehole/.MainActivity`, then verify the **complete**
+   `topResumedActivity` string.
+2. Navigate and capture within roughly 20 seconds — inside the window before the other automation
+   runs again. A long sleep between launch and capture loses the foreground every time.
+3. Keep the foreground check on the capture line itself, so a missed window produces no file rather
+   than a wrong-app screenshot.
+
+The proper fix is a dedicated AVD that the other automation does not target, or stopping that
+automation while UI V2 runs. Neither is mine to do unilaterally — it belongs to another project.

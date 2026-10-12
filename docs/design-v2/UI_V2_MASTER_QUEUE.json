@@ -415,13 +415,21 @@
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
+      "businessVerified": "partial",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "evidence": {
+        "commit": "PENDING",
+        "render": "artifacts/ui-v2/android/R2_NotificationCenter_after.png (foreground verified; real data: two read notifications grouped under 更早)",
+        "business": "GET /api/v1/notifications returns the two rows shown; PATCH /notifications/:id/read preserved for the tap path and reused for 全部已读",
+        "preserved": "data-testid notification-{id}, the ISSUE-010 fix (navigation does not depend on the read receipt), the unread/read distinction, and both existing API calls",
+        "change": "hero and the four illustration PNGs removed; date grouping, type·relative-time subtitles and a working 全部已读 added"
+      },
+      "nextAction": "Exercise the tap-to-open path and 全部已读 against an unread notification, then visual review."
     },
     {
       "id": "UI-V2-15",
@@ -1038,7 +1046,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T03:41:10.048Z",
+  "updatedAt": "2026-10-12T03:56:56.981Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
