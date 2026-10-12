@@ -109,3 +109,34 @@ again. Launching with `am start -n com.goodnight.treehole/.MainActivity` and the
 
 So the capture procedure is: force-stop the other package, `am start -n` the target, **verify
 `topResumedActivity`**, and only then capture. `monkey` alone is not sufficient on this emulator.
+
+## ISSUE-004 — The 同路 feed shows two visually identical experiences (DATA, not UI)
+
+**Severity:** P1 — the spec forbids it ("不能将同一个经历重复显示成两个独立对象", "不同真实经历必须拥有不同身份和数据"), but the cause is the fixture data, not the rendering.
+**Found by:** looking at the recaptured 同路人 render.
+
+The first two cards on 同路人 are identical in identity (匿名同行者), time (5天前留下), title
+(我把消息留到第二天再看), domain (关系) and excerpt; they differ only in their action label
+(已连接 vs 查看后来记录).
+
+**Checked against the database rather than assumed.** They are two distinct rows:
+
+```
+experience_8a3d80c2f0 | user_guest | 我把消息留到第二天再看 | 关系 | graduated | published | 2026-10-06 16:48:32
+experience_0e8066823c | user_guest | 我把消息留到第二天再看 | 关系 | graduated | published | 2026-10-06 16:47:24
+```
+
+So the UI's id-based dedupe — the thing the implementing agent added and claimed — **works**: two
+rows render as two cards, not one row twice. The defect is that the seeded data contains two
+near-identical experiences 68 seconds apart, most likely left by an earlier test run.
+
+**Classification:** data quality, not a rendering bug. Closing it by changing the UI would be wrong —
+the feed is correctly showing what exists.
+
+**What would fix it:** decide whether the product should collapse near-identical experiences
+(same author, domain and title) into one, or whether the fixture data should be cleaned. That is a
+product decision, and cleaning the development database is not something to do unilaterally, so this
+is recorded rather than fixed.
+
+Related: the visual judge independently described the before-state content as "统一规格的推荐样本"
+(uniform recommendation samples), which is the same observation from the visual side.
