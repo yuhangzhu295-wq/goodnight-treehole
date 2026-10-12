@@ -76,5 +76,27 @@ Those assertions are **not** passes and are not asserted into one:
 [baseline-diff] Total Failures 0 | Known Baseline 0 | New Regressions 0 | exit 0
 ```
 
-`pnpm typecheck` passes across the repo. The baseline file's tolerated set is now empty, so any
-future failure is a new regression rather than a known one.
+`pnpm typecheck` and `pnpm lint` pass; `pnpm test:unit` is 36/36. The baseline file's tolerated set is
+now empty, so any future failure is a new regression rather than a known one.
+
+## GitHub evidence
+
+CI run **38241230444** on `dd6b3db` — `✓ Regression Gate and Validation` in 6m51s. That job runs the
+migration-immutability check, `prisma migrate deploy` against a fresh database, typecheck, lint, unit
+tests, the Batch 1 gate, **the full business suite**, and the baseline-diff gate.
+
+Two CI failures were fixed on the way there, both caused by earlier commits on this branch rather
+than by the contract work:
+
+1. The UI V2 commits added plain Node `.mjs` scripts under `scripts/` and `apps/api/`. They are not
+   in a tsconfig, so eslint fell back to `js.configs.recommended`, which reports every use of
+   `process` and `console` as undefined — 68 errors. `eslint.config.mjs` gained a block for
+   `**/*.{js,mjs,cjs}` that turns off `no-undef`. Declaring the globals instead was tried first and
+   was wrong: it collided with the scripts that already import them from `node:process`, producing
+   `no-redeclare` errors in 150 files.
+2. Clearing the baseline broke `tests/unit/baseline-diff.spec.ts`, which pinned "exactly 12 baseline
+   failures are documented". That spec now asserts the tolerated set is empty and that the cleared
+   set is preserved below it for the record.
+
+Earlier pushes on this branch were red for cause 1 while I was working, so the branch was not green
+for several commits. It is green now.
