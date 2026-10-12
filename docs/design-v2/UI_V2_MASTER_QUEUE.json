@@ -367,17 +367,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
+      "screenshot": "artifacts/ui-v2/android/R2_RealityHandoff_after.png",
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
       "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
+      "rendered": "yes",
+      "interactionTested": "yes",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Reached from 行动 -> 找现实中的人. The 求助文本预览 is real logic, not static copy: changing the support method from 听我说 10 分钟 to 陪我出去走走 rewrote the preview text (R2_RealityHandoff_method.png), while the recipient choice does not vary it. The page states 系统不会自动联系任何人, which matches the contract that nothing is ever sent."
     },
     {
       "id": "UI-V2-13",
@@ -1056,7 +1057,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T07:46:37.896Z",
+  "updatedAt": "2026-10-12T11:48:59.933Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
