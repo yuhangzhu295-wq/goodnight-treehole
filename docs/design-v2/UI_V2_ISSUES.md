@@ -209,3 +209,35 @@ Every capture above had `topResumedActivity` compared as the complete
 rejected by that check during this round (cozyfocus took the foreground again), and one was
 discarded because a swipe from the bottom edge opened Google Lens instead - the guard caught the
 first two; the third was captured without the guard on the capture line and deleted on inspection.
+
+## ISSUE-006 — Garbled text in 最近完成 is test-input corruption, NOT an app defect (CLOSED)
+
+**Severity:** investigated as a possible P0 (an app that corrupts Chinese user text would be
+disqualifying for a Chinese-language product). **It is not the app.**
+
+The ActionCenter's 最近完成 row renders `j�K�10����`, and the database shows the same mojibake for that
+`OutcomeCheckin.reflection` — the classic pattern of GBK bytes read as UTF-8.
+
+**Tested the app's own path with known-good UTF-8**, writing the request body with Node so no shell
+could touch it:
+
+```
+sent    : 中文编码验证-1791772517068
+returned: 中文编码验证-1791772517068
+MATCH   : YES - round-trips correctly
+```
+
+The journey was created through `POST /api/v1/journeys` and read back from the API unchanged, so
+app → API → PostgreSQL preserves UTF-8 correctly.
+
+**The corruption comes from the test typing tools.** `adb shell input text` and the UI-automation
+type action cannot carry non-ASCII reliably — Git Bash also converts a Chinese shell argument to GBK
+before `curl` sees it, which I reproduced while building this test. The rows the implementing agent
+typed through those tools are therefore stored corrupted.
+
+**Consequences:** not an app defect, so nothing to fix in the product. But the corrupted rows are now
+in the development database and show up in the UI, which is misleading during visual review, and the
+same tool would corrupt any future text fixture. Recorded so the next round uses an API call with a
+file body for text fixtures instead of a typing tool.
+
+Cleanup: the two journeys created while investigating were removed.
