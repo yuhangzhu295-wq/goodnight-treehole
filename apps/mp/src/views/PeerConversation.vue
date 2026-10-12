@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 
@@ -7,6 +7,7 @@ const route = useRoute();
 const router = useRouter();
 const matchId = computed(() => String(route.query.matchId ?? ''));
 const conversation = ref<any>(null);
+const listRef = ref<HTMLElement | null>(null);
 const draft = ref('');
 const busy = ref(false);
 const assistBusy = ref(false);
@@ -16,10 +17,18 @@ const closeConfirmOpen = ref(false);
 const safetyOpen = ref(false);
 const reportReason = ref('');
 
+/** A conversation opens on the newest message and follows it, rather than on the first one. */
+async function scrollToLatest() {
+  await nextTick();
+  const list = listRef.value;
+  if (list) list.scrollTop = list.scrollHeight;
+}
+
 async function load() {
   try {
     const response = await api.get<any>('/api/v1/peer-conversations');
     conversation.value = response.items.find((item: any) => item.matchId === matchId.value) ?? null;
+    await scrollToLatest();
   } catch (cause: any) {
     error.value = cause?.message ?? '匿名会话加载失败';
   }
@@ -174,7 +183,7 @@ onMounted(load);
     <template v-else>
       <p class="boundary-tip">不交换联系方式，不透露真实身份</p>
 
-      <main class="chat-messages">
+      <main ref="listRef" class="chat-messages">
         <p v-if="!conversation.messages.length" class="empty-message">
           可以从具体经历或当下感受开始交流。
         </p>
@@ -301,8 +310,11 @@ onMounted(load);
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
-  min-height: 100vh;
-  overflow-x: hidden;
+  /* A fixed-height column, not a growing page: the message list scrolls inside it and the composer
+     stays pinned at the bottom. With `min-height` the page grew with the messages instead, so the
+     composer ended up at the end of the content and `position: sticky` never engaged. */
+  height: 100vh;
+  overflow: hidden;
   padding: 12px 16px calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
@@ -432,7 +444,10 @@ onMounted(load);
   flex-direction: column;
   gap: 12px;
   flex: 1;
-  min-height: 280px;
+  /* The scroll container. `min-height: 0` lets it shrink below its content so the composer below
+     keeps its place instead of being pushed off the bottom. */
+  min-height: 0;
+  overflow-y: auto;
   padding: 8px 0;
 }
 
@@ -494,8 +509,8 @@ onMounted(load);
 /* The composer keeps every real control - the AI assist, the character count and send - but reads as
    an input area rather than another card: a hairline top divider instead of a full border and radius. */
 .composer {
-  position: sticky;
-  bottom: 0;
+  /* The column layout pins this; it does not need to be sticky. */
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 6px;

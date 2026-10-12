@@ -358,3 +358,80 @@ covered by the same change but still needs an active conversation to capture —
 PATCH failed the `router.push` never ran and the tap appeared dead. Navigation and the read receipt
 are now separate, and a failed receipt shows a message while the content still opens.
 
+
+## UI2-010 — The composer was not pinned, and a conversation opened on the oldest message (FIXED)
+
+**Severity:** P0 for this page — you could not type without scrolling to the very end.
+**Found by:** opening the active conversation on `emulator-5554`.
+
+### Symptom
+
+Opening an active conversation showed the **beginning** of the history with the composer nowhere on
+screen. The composer only appeared after scrolling to the absolute end, and the last message sat
+behind the tab bar on the way there.
+
+### Root cause
+
+`.conversation-page` was `min-height: 100vh` with `overflow-x: hidden`. Together those make the page
+its own scroll container whose height equals its content, so the body scrolls instead and
+`.composer { position: sticky; bottom: 0 }` never engages — a sticky box cannot move inside a
+containing block that has no scroll range. The composer therefore sat at the end of the content as
+if it were static, and nothing scrolled the list to the newest message because the view had no
+scroll logic at all (`ref` count in the file: one, for the conversation object).
+
+### Fix
+
+- `.conversation-page`: `height: 100vh` + `overflow: hidden` — a fixed-height column.
+- `.chat-messages`: `flex: 1; min-height: 0; overflow-y: auto` — the list is the scroll container.
+- `.composer`: dropped `position: sticky; bottom: 0` for `flex: 0 0 auto`; the column pins it.
+- `scrollToLatest()` after load, so the page opens on the newest message.
+
+### Verification
+
+| State | Evidence |
+|---|---|
+| Opens on the newest message, composer pinned | `R2_PeerConversation_active.png` |
+| Soft keyboard: composer above it, tab bar hidden | `R2_PeerConversation_keyboard.png` (also `dumpsys input_method` `mInputShown=true`) |
+| Typing: counter and enabled 发送 | `R2_PeerConversation_typed.png` — `20/1000`, 发送 dark |
+| Send: message appended, composer cleared | `R2_PeerConversation_sent.png`; server listed 12 messages, last `hello world from adb` |
+| Failed send: draft kept, 发送 stays enabled | `R2_PeerConversation_sendfail.png` |
+| Network recovery: the retry succeeds | server listed 13 messages, last `offline-send-test` |
+| Closed | `R2_PeerConversation_after.png`, `R2_PeerGraduation_after.png` |
+| Expired | `R2_PeerConversation_expired.png` — forced by moving `expiresAt` an hour into the past, then restored; the API's own expiry path flipped the status, the composer disappeared and the closed panel appeared |
+| Anonymous identity shown | header `匿名同行会话` / `不交换联系方式，不透露真实身份` in every capture |
+
+The fixtures behind these captures come from `scripts/ui2-create-active-conversation.mjs`, which
+drives the real flow (privacy gate → experience → admin review → match → request → respond → both
+consents) instead of flipping a status column.
+
+## UI2-011 — A network failure printed the platform's English text into the interface (FIXED)
+
+**Severity:** medium — user-visible untranslated text on every page that can fail offline.
+**Found by:** cutting `adb reverse` and tapping 发送.
+
+### Symptom
+
+With the API unreachable, the conversation showed **`Failed to fetch`** in red, in the middle of an
+otherwise entirely Chinese interface.
+
+### Root cause
+
+57 call sites render `cause?.message`, and the fallback only applies when the message is missing. A
+network failure always carries one — the platform's own English ("Failed to fetch" on the Android
+WebView, "Load failed" on iOS, "Network request failed" under Capacitor) — so the raw text went
+straight to the screen. The two raw-`fetch` helpers (`uploadMedia`, `deleteMedia`) bypassed the
+wrapper entirely.
+
+### Fix
+
+`apps/mp/src/friendly-error.ts` — a zero-import leaf mapping those phrasings to
+`网络连接不上，请检查网络后重试`, and leaving the API's own Chinese messages untouched. Applied in
+`withIdentity` (so every call is covered) and in both raw-fetch helpers.
+
+### Verification
+
+`tests/unit/friendly-error.spec.ts` — 7 cases, including that an API message is passed through and
+that a Chinese message merely containing the word 网络 is not rewritten. Reverse-proved: replacing
+the test with `false` fails 3 named cases. On device, `R2_PeerConversation_sendfail.png` now reads
+网络连接不上，请检查网络后重试 with the draft preserved.
+

@@ -1,5 +1,6 @@
 import { createApiClient } from '@goodnight/api-sdk';
 import { ensureIdentity, getIdentityCredential } from './identity';
+import { friendlyError } from './friendly-error';
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -13,8 +14,12 @@ const client = createApiClient({ baseUrl, getIdentity: getIdentityCredential });
  * relying on view-mount ordering.
  */
 async function withIdentity<T>(call: () => Promise<T>): Promise<T> {
-  await ensureIdentity();
-  return await call();
+  try {
+    await ensureIdentity();
+    return await call();
+  } catch (cause) {
+    throw friendlyError(cause);
+  }
 }
 
 export const api = {
@@ -38,26 +43,34 @@ export async function uploadMedia(file: File, usageType = 'mood'): Promise<Uploa
   const form = new FormData();
   form.append('file', file);
   form.append('usageType', usageType);
-  const credential = await ensureIdentity();
-  const response = await fetch(`${baseUrl}/api/v1/media/upload`, {
-    method: 'POST',
-    body: form,
-    headers: credential ? { 'x-goodnight-user-id': credential } : undefined,
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload?.message ?? '图片上传失败');
-  return payload.item as UploadedMedia;
+  try {
+    const credential = await ensureIdentity();
+    const response = await fetch(`${baseUrl}/api/v1/media/upload`, {
+      method: 'POST',
+      body: form,
+      headers: credential ? { 'x-goodnight-user-id': credential } : undefined,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.message ?? '图片上传失败');
+    return payload.item as UploadedMedia;
+  } catch (cause) {
+    throw friendlyError(cause);
+  }
 }
 
 export async function deleteMedia(assetId: string) {
-  const credential = await ensureIdentity();
-  const response = await fetch(`${baseUrl}/api/v1/media/${assetId}`, {
-    method: 'DELETE',
-    headers: credential ? { 'x-goodnight-user-id': credential } : undefined,
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.message ?? '图片删除失败');
+  try {
+    const credential = await ensureIdentity();
+    const response = await fetch(`${baseUrl}/api/v1/media/${assetId}`, {
+      method: 'DELETE',
+      headers: credential ? { 'x-goodnight-user-id': credential } : undefined,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload?.message ?? '图片删除失败');
+    }
+  } catch (cause) {
+    throw friendlyError(cause);
   }
 }
 

@@ -113,13 +113,13 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R2_PeerNetwork_after.png",
+      "issue": "UI2-004 (the feed shows near-identical rows: my own fixture duplicates, now hidden via admin review)",
       "gitCommit": "",
       "status": "IN_PROGRESS",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
+      "interactionTested": "yes",
       "businessVerified": "partial",
       "visualApproved": "no",
       "codeReviewApproved": "no",
@@ -132,7 +132,8 @@
         "interaction": "segmented 推荐/最新/我的请求 not verified by capture",
         "issue": "UI2-004: the first two cards are visually identical. Verified against the database as two distinct rows, so the id-based dedupe works and the duplication is in the fixture data."
       },
-      "nextAction": "Recapture the three segments, exercise a real action, then visual review."
+      "nextAction": "Recapture the three segments, exercise a real action, then visual review.",
+      "note": "The 推荐 feed renders; the 已连接 link opens the conversation. Its rows are indistinguishable while the fixtures share a title, which is data, not layout."
     },
     {
       "id": "UI-V2-03",
@@ -315,17 +316,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R2_PeerConversation_{active,keyboard,typed,sent,sendfail,recovered,bottom,after,expired}.png",
+      "issue": "UI2-008 fixed (footer covered by the tab bar), UI2-010 fixed (composer not pinned, no scroll to the newest message), UI2-011 fixed (raw English network text)",
       "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
-      "visualApproved": "no",
-      "codeReviewApproved": "no",
-      "done": "no"
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
+      "visualApproved": "WAITING_REVIEW",
+      "codeReviewApproved": "WAITING_REVIEW",
+      "done": "no",
+      "note": "States exercised on emulator-5554: short, long and many messages; soft keyboard; scrolled to the bottom; failed send with the draft kept; network recovery; re-entry; closed; forced-expiry then restored; anonymous identity shown; AI assist failing honestly without a fake success. Send verified server-side (12 then 13 messages)."
     },
     {
       "id": "UI-V2-11",
@@ -337,17 +339,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
+      "screenshot": "artifacts/ui-v2/android/R2_PeerGraduation_after.png",
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
       "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
+      "rendered": "yes",
+      "interactionTested": "yes",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Reached by tapping 留下感受 on the closed conversation, which is itself the click test for UI2-008."
     },
     {
       "id": "UI-V2-12",
@@ -381,8 +384,8 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R2_SafetySupport_after.png",
+      "issue": "UI2-008 (same covered-footer class)",
       "gitCommit": "",
       "status": "PENDING",
       "implemented": "yes",
@@ -399,7 +402,8 @@
         "preserved": "all five original data-testids, both tel: links (120, 12356), the handoff route, the stayHere acknowledge call, the three steps verbatim, the official source note, and the saved-plan section",
         "change": "the danger block moved to the top with both hotlines directly dialable; the full-bleed hero was removed"
       },
-      "nextAction": "Exercise the 120/12356 links and the acknowledge POST, and verify the saved-plan section renders with a real plan."
+      "nextAction": "Exercise the 120/12356 links and the acknowledge POST, and verify the saved-plan section renders with a real plan.",
+      "note": "Redesigned in acfd8f9; the 5 original test ids and both tel: links preserved."
     },
     {
       "id": "UI-V2-14",
@@ -411,13 +415,13 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R2_NotificationCenter_after.png",
+      "issue": "UI2-009 fixed (a failed read receipt used to swallow the tap)",
       "gitCommit": "",
       "status": "PENDING",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "partial",
+      "interactionTested": "yes",
       "businessVerified": "partial",
       "visualApproved": "no",
       "codeReviewApproved": "no",
@@ -429,7 +433,8 @@
         "preserved": "data-testid notification-{id}, the UI2-009 fix (navigation does not depend on the read receipt), the unread/read distinction, and both existing API calls",
         "change": "hero and the four illustration PNGs removed; date grouping, type·relative-time subtitles and a working 全部已读 added"
       },
-      "nextAction": "Exercise the tap-to-open path and 全部已读 against an unread notification, then visual review."
+      "nextAction": "Exercise the tap-to-open path and 全部已读 against an unread notification, then visual review.",
+      "note": "The activation notice opens the active conversation, which is the deep link the Round 2 captures were reached through."
     },
     {
       "id": "UI-V2-15",
@@ -1046,7 +1051,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T03:56:56.981Z",
+  "updatedAt": "2026-10-12T05:17:37.520Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
