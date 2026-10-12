@@ -51,31 +51,29 @@ Build trail: `pnpm --filter @goodnight/mp build` → `cap sync android` → `gra
 - The keyboard-open case (`Tonight_keyboard`, `Chat_keyboard` in the state set).
 - A device with a display cutout. The emulator is a Pixel 7 profile without a notch.
 
-## ISSUE-002 — Content appears under the bottom tab bar (UNVERIFIED — may not be a defect)
+## ISSUE-002 — CLOSED, not a defect (my report was wrong)
 
-**Status:** reported by me from a single screenshot, then found to be untested. Kept as a record of
-the mistake rather than deleted.
+**Status:** closed with evidence. Kept as a record of the mistake, not deleted.
 
-On the recaptured 我的 render the last visible rows (`自我支持`, `我的现实支持`) are drawn underneath
-the floating bottom navigation, with the nav labels over the row text. I wrote that the rows were
-"unreachable rather than merely clipped".
+I reported that content on 我的 was drawn under the bottom tab bar and that the final rows were
+unreachable. **Both halves were wrong.**
 
-**That conclusion was not tested, and the reasoning behind it is wrong.** A fixed bottom navigation
-having content scroll beneath it is normal; it is only a defect if the final row cannot be scrolled
-clear of the nav. The capture was taken at the initial scroll position, so it shows the middle of a
-scrollable page, which is what a page with more content than one screen looks like.
+The capture I judged was taken at the initial scroll position, so it showed the middle of a scrollable
+page. A fixed bottom navigation having content scroll beneath it is normal; it is only a defect if the
+last row cannot be scrolled clear.
 
-The geometry does not obviously support a defect either: the tab bar is 64px tall at
-`bottom: calc(8px + env(safe-area-inset-bottom))`, so it occupies 72px, and the active
-`.phone-shell` rule sets `padding-bottom: 88px` — 16px of clearance, and more once the bottom inset
-is non-zero.
+**Test performed:** opened 我的, swiped to the very bottom, captured
+`artifacts/ui-v2/android/R1_Me_scrolled_bottom.png`. The last content — the destructive
+`清理我的记录` action, in the danger red — sits fully above the tab bar with clear space beneath the
+设置 group (`隐私与数据`, `帮助与反馈`). Nothing is clipped and nothing is unreachable.
 
-**The test that would settle it:** open 我的, scroll to the very bottom, and check whether the last
-row sits fully above the nav. If it does, close this as not-a-defect. If it does not, the scroll
-container is not reserving the nav height and it is a real P0.
+The geometry agreed once checked: the tab bar occupies 72px and the active `.phone-shell` rule
+provides 88px of bottom padding.
 
-Not run: the emulator stopped (`adb devices` empty, no emulator process) before the scroll could be
-performed, and it has not been restarted.
+**The mistake, named:** I asserted a P0 from one screenshot without performing the scroll that would
+have falsified it — the same error I had just criticised in the implementing agent, and the same error
+the project has now made three times. It is recorded here so the pattern is visible rather than
+quietly fixed.
 
 ## ISSUE-003 — Seven of eight Round-1 screenshots showed a different application (EVIDENCE INVALID)
 
@@ -102,3 +100,12 @@ incomplete.
 The generalisable lesson: a screenshot is only evidence once something confirms *which app* is on
 screen. `adb shell dumpsys activity activities | grep topResumedActivity` costs one line and would
 have caught this immediately.
+
+**Mechanism, now identified.** The other app does not merely happen to be in the foreground — it takes
+it back. Measured: after `am force-stop com.yuhangzhu295.cozyfocus` and a `monkey -p
+com.goodnight.treehole` launch, `topResumedActivity` was `com.yuhangzhu295.cozyfocus/.MainActivity`
+again. Launching with `am start -n com.goodnight.treehole/.MainActivity` and then verifying put
+晚安树洞 on top (pid 3804) and it stayed there.
+
+So the capture procedure is: force-stop the other package, `am start -n` the target, **verify
+`topResumedActivity`**, and only then capture. `monkey` alone is not sufficient on this emulator.
