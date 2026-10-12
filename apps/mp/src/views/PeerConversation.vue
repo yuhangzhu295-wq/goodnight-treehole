@@ -303,7 +303,7 @@ onMounted(load);
   max-width: 100%;
   min-height: 100vh;
   overflow-x: hidden;
-  padding: 12px 16px calc(24px + env(safe-area-inset-bottom));
+  padding: 12px 16px calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
@@ -469,16 +469,17 @@ onMounted(load);
   justify-content: flex-end;
 }
 
+/* V2 bubbles: no border, a light fill and a soft radius. The design distinguishes the two sides by
+   fill rather than outline, which reads as a conversation instead of two columns of cards. */
 .message-bubble {
   padding: 10px 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  border: 0;
+  border-radius: 14px;
+  background: var(--gn-surface-soft, #f7f8fa);
 }
 
 .message-unit.mine .message-bubble {
-  border-color: rgba(46, 125, 50, 0.25);
-  background: var(--gn-leaf-soft);
+  background: var(--gn-selected, #eaf1ed);
 }
 
 .message-text {
@@ -490,26 +491,31 @@ onMounted(load);
   word-break: break-word;
 }
 
+/* The composer keeps every real control - the AI assist, the character count and send - but reads as
+   an input area rather than another card: a hairline top divider instead of a full border and radius. */
 .composer {
   position: sticky;
   bottom: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--gn-divider, #e8ebef);
+  border-radius: 0;
   background: var(--gn-paper);
 }
 
 .composer textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 60px;
+  min-height: 56px;
   resize: none;
   border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
   outline: 0;
-  background: transparent;
+  background: var(--gn-surface-soft, #f7f8fa);
   color: var(--gn-ink);
   font-family: inherit;
   font-size: 14px;

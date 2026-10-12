@@ -1,6 +1,11 @@
 # UI V2 — Issues
 
-## ISSUE-001 — Page titles were drawn under the Android status bar (FIXED)
+Numbering note: these IDs are namespaced `UI2-*` because the repository already carries a separate
+"product audit" `ISSUE-001..027` series referenced from `apps/api` and `apps/admin`. The two series
+overlapped at 005 and 007, and a comment in `NotificationCenter.vue` cited the product-audit
+ISSUE-010 next to a UI V2 fix. Everything in this file is UI V2 only.
+
+## UI2-001 — Page titles were drawn under the Android status bar (FIXED)
 
 **Severity:** P0 for UI V2 — it affected every page, so no page could pass visual review.
 **Found by:** rendering the current build on the emulator, not by reading source.
@@ -37,8 +42,8 @@ re-enabled — and it is the form the V2 spec asks for, which forbids pinning a 
 
 | File | What it shows |
 | --- | --- |
-| `artifacts/ui-v2/android/ISSUE-001_PeerNetwork_before.png` | 同路人 title drawn over the clock |
-| `artifacts/ui-v2/android/ISSUE-001_PeerNetwork_after.png` | Status bar on its own band, title below it |
+| `artifacts/ui-v2/android/UI2-001_PeerNetwork_before.png` | 同路人 title drawn over the clock |
+| `artifacts/ui-v2/android/UI2-001_PeerNetwork_after.png` | Status bar on its own band, title below it |
 
 Build trail: `pnpm --filter @goodnight/mp build` → `cap sync android` → `gradlew assembleDebug` →
 `adb install -r` → relaunch → navigate to 同路人 → screenshot. APK SHA and device details are in
@@ -51,7 +56,7 @@ Build trail: `pnpm --filter @goodnight/mp build` → `cap sync android` → `gra
 - The keyboard-open case (`Tonight_keyboard`, `Chat_keyboard` in the state set).
 - A device with a display cutout. The emulator is a Pixel 7 profile without a notch.
 
-## ISSUE-002 — CLOSED, not a defect (my report was wrong)
+## UI2-002 — CLOSED, not a defect (my report was wrong)
 
 **Status:** closed with evidence. Kept as a record of the mistake, not deleted.
 
@@ -75,7 +80,7 @@ have falsified it — the same error I had just criticised in the implementing a
 the project has now made three times. It is recorded here so the pattern is visible rather than
 quietly fixed.
 
-## ISSUE-003 — Seven of eight Round-1 screenshots showed a different application (EVIDENCE INVALID)
+## UI2-003 — Seven of eight Round-1 screenshots showed a different application (EVIDENCE INVALID)
 
 **Severity:** P0 for the verification chain — it made three pages look verified when they were not.
 **Found by:** the `visual-judge` pass, then confirmed by opening `R1_Me_after.png` myself.
@@ -110,7 +115,7 @@ again. Launching with `am start -n com.goodnight.treehole/.MainActivity` and the
 So the capture procedure is: force-stop the other package, `am start -n` the target, **verify
 `topResumedActivity`**, and only then capture. `monkey` alone is not sufficient on this emulator.
 
-## ISSUE-004 — The 同路 feed shows two visually identical experiences (DATA, not UI)
+## UI2-004 — The 同路 feed shows two visually identical experiences (DATA, not UI)
 
 **Severity:** P1 — the spec forbids it ("不能将同一个经历重复显示成两个独立对象", "不同真实经历必须拥有不同身份和数据"), but the cause is the fixture data, not the rendering.
 **Found by:** looking at the recaptured 同路人 render.
@@ -141,7 +146,7 @@ is recorded rather than fixed.
 Related: the visual judge independently described the before-state content as "统一规格的推荐样本"
 (uniform recommendation samples), which is the same observation from the visual side.
 
-## ISSUE-005 — With the keyboard open the primary action floated over the page (FIXED)
+## UI2-005 — With the keyboard open the primary action floated over the page (FIXED)
 
 **Severity:** P0 — the primary action obscures the content it belongs to, and the spec requires the
 main action to be easy to find and not to fight the input.
@@ -210,7 +215,7 @@ rejected by that check during this round (cozyfocus took the foreground again), 
 discarded because a swipe from the bottom edge opened Google Lens instead - the guard caught the
 first two; the third was captured without the guard on the capture line and deleted on inspection.
 
-## ISSUE-006 — Garbled text in 最近完成 is test-input corruption, NOT an app defect (CLOSED)
+## UI2-006 — Garbled text in 最近完成 is test-input corruption, NOT an app defect (CLOSED)
 
 **Severity:** investigated as a possible P0 (an app that corrupts Chinese user text would be
 disqualifying for a Chinese-language product). **It is not the app.**
@@ -251,10 +256,10 @@ explained; the fourth is a deliberate judgment.
 | --- | --- |
 | The green CTA nearly abuts the floating bottom nav | **Fixed.** The action sat at `bottom: 60px` while the nav occupies 8px→72px, so the button's lower 12px was behind the bar. Moved to `80px`, which clears the nav's top edge with a gap. Evidence: `R1_TonightHome_spacing_FIXED.png`. |
 | The record row renders only its bottom and side borders, so it reads as a half-drawn card | **Explained, no change.** `.list-row` is `border: 0; border-bottom: 1px solid #E8EBEF` inside a `.list-rows` with `border-top` — a flat row with hairline dividers, which is what the V2 spec asks for ("普通业务列表优先分割线"). There is no radius or side border in the scoped CSS and no global rule for `.list-row`. What the review saw is a thin-line artifact at capture scale, not a container. |
-| Excessive whitespace between the last record and the CTA | **Deliberate, not a defect.** The page has one record and a pinned action; the gap is the unfilled remainder of the viewport. Collapsing it would mean either stretching the content or floating the action mid-page, and the latter is exactly ISSUE-005. A short page with a pinned primary action is normal on a phone. It will look different with more records, which is the honest test. |
+| Excessive whitespace between the last record and the CTA | **Deliberate, not a defect.** The page has one record and a pinned action; the gap is the unfilled remainder of the viewport. Collapsing it would mean either stretching the content or floating the action mid-page, and the latter is exactly UI2-005. A short page with a pinned primary action is normal on a phone. It will look different with more records, which is the honest test. |
 | No topic chip selected by default (the reference pre-selects 感情) | **Explained.** The topic sheet does have a default: 暂时说不清 carries the checkmark (`R1_TonightHome_topics_FIXED.png`). Pre-selecting 感情 would assert a category the user has not chosen, which is worse than asserting none. |
 
-## ISSUE-007 — Another project's automation steals the emulator foreground (ENVIRONMENT)
+## UI2-007 — Another project's automation steals the emulator foreground (ENVIRONMENT)
 
 **Severity:** not an app defect, but it invalidated seven screenshots once and cost repeated retries.
 **Found by:** reading logcat after a launch kept losing the foreground.
@@ -282,3 +287,74 @@ project's UI automation running against the same emulator.
 
 The proper fix is a dedicated AVD that the other automation does not target, or stopping that
 automation while UI V2 runs. Neither is mine to do unilaterally — it belongs to another project.
+
+## UI2-008 — On the closed conversation the primary action was unreachable under the tab bar (FIXED)
+
+**Severity:** P0 for this page — the only action on the state could not be tapped.
+**Found by:** rendering `同路 → 已连接` on `emulator-5554` and trying to use it.
+**Fixed in:** this change (see below).
+
+### Symptom
+
+`匿名同行会话 / 会话已经结束` rendered correctly, but the footer card's green `留下感受` button sat
+**underneath the floating tab bar**, with its label showing faintly through the bar. In the active
+state the same band holds the composer (`.composer` is `position: sticky; bottom: 0`), so the
+textarea, 帮我整理一下 and 发送 were in the same covered region — you could not have started typing
+either. The tab bar only hides once the keyboard opens, and the keyboard only opens if you can tap
+the textarea, so there was no way in.
+
+### Why it was not UI2-002
+
+UI2-002 was my own false P0: on the notification list the last row is *scrollable*, so scrolling
+reveals it. I checked that first here. This page **does not scroll** — two swipes produced
+byte-identical screenshots — so there was no way to bring the button out.
+
+### Proof chain
+
+| Step | Evidence |
+|---|---|
+| App is foreground | `topResumedActivity` = `com.goodnight.treehole/.MainActivity` (complete string, no truncated-package regex) |
+| Route is the conversation | read the capture: `匿名同行会话 / 会话已经结束` |
+| Page does not scroll | two `input swipe` up, `cmp` against the previous capture → byte-identical |
+| The button does not respond | tap at its centre (539,1928) → byte-identical, no navigation |
+| Taps and coordinates do work | control tap on the 我的 tab (916,2216) → navigated to 我的 |
+| Geometry explains it | page reserved `24px + safe-area`; the tab bar occupies `10px + safe-area` to `82px + safe-area`; the button spans 24–60px from the bottom, entirely inside the covered band |
+
+### Root cause
+
+`.goodnight-page` globally reserves `padding-bottom: calc(130px + env(safe-area-inset-bottom))` for
+the floating tab bar. `.conversation-page` re-declared the **`padding` shorthand** as
+`12px 16px calc(24px + ...)`, which silently discarded that reserve, and scoped styles out-specify
+the global rule (the scoped attribute selector adds specificity), so the 24px won.
+
+### Fix
+
+Added shared tab-bar geometry tokens to `tokens.scss` — `--gn-tabbar-height`, `--gn-tabbar-gap`,
+`--gn-tabbar-reserve` — used them in the effective `.tabbar` rule so the bar and the reserve cannot
+drift apart, and set `.conversation-page` to
+`padding: 12px 16px calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom))`.
+
+### Audit of the same pattern elsewhere
+
+Every other page that overrides the bottom padding uses 96–128px, all clear of the 82px band:
+`ActionCenter` 96, `DecisionVault`/`HelpFaqs`/`FeedbackHelp`/`FutureSelf`/`MemoryCenter`/`PeerConsent`/
+`PeerExperienceDetail`/`PeerGraduation`/`PeerMatchWaiting`/`PrivacySettings`/`PeerRequests`/
+`RealityHandoff`/`StableSelf`/`Recovery`/`SupportPlan` 112, `ReportMonth` 110, `TonightHome` 128,
+`Archive` 112. `PeerConversation` at 24 was the lone outlier, so this was a single-page defect
+rather than a systemic one.
+
+### Verification
+
+After the fix the button clears the tab bar and tapping it navigates to `同行结束`
+(`R2_PeerConversation_after.png`, `R2_PeerConversation_tap_leave.png`). The active-state composer is
+covered by the same change but still needs an active conversation to capture — see the queue.
+
+## UI2-009 — A failed read receipt stopped the notification from opening its target (FIXED)
+
+**Severity:** medium — a tap silently did nothing.
+**Fixed in:** `2d9fed3`.
+
+`NotificationCenter.open()` marked the notice read and navigated inside one `try` block, so when the
+PATCH failed the `router.push` never ran and the tap appeared dead. Navigation and the read receipt
+are now separate, and a failed receipt shows a message while the content still opens.
+

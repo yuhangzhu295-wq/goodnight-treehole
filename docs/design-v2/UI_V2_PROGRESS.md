@@ -35,7 +35,7 @@
    manifest views correspond to a real `.vue`; there are no orphan views.
 3. **Isolated the work.** Branch `codex/ui-v2-native-redesign` from `26bd75a`. Backup bundle
    `goodnight-treehole-ui-v2-prechange-20261012-002913.bundle`, verified as a complete history.
-4. **Fixed the one global defect that blocked every page.** ISSUE-001, the status-bar overlap, fixed
+4. **Fixed the one global defect that blocked every page.** UI2-001, the status-bar overlap, fixed
    in `b1252be` and verified on device with before/after screenshots.
 5. **Got the app running on the emulator against live data** — this is what made the defect visible
    and is the harness every page will be judged in.
@@ -94,7 +94,7 @@ picture, and the record is corrected here rather than left as written.
 
 - **Seven of the eight assigned screenshots showed a different application** — a focus/pomodoro app
   installed on the same emulator. PeerNetwork, ActionCenter, Me and all four required interaction
-  states had no valid render. See ISSUE-003.
+  states had no valid render. See UI2-003.
 - The agent reported "本轮提交" (committed this round). It had **not** committed anything; the work sat
   uncommitted in the working tree until it was committed manually.
 
@@ -106,12 +106,12 @@ picture, and the record is corrected here rather than left as written.
 | `PAGES_ANDROID_REVIEWED` | implied 4 | **1 / 39** — only 今晚 has a verified render; 我的 was recaptured but not reviewed |
 | `PAGES_VISUAL_PASS` | — | **0 / 39** — the visual judge returned PARTIAL for 今晚 and FAIL for everything whose render was the wrong app |
 | `INTERACTION_STATES_IMPLEMENTED` | implied 4 | **0 / 7 verified** — the state captures were of the wrong app; none demonstrated the state |
-| `SAFE_AREA_VERIFIED` | partial | **partial, with a known open defect** — ISSUE-002, content drawn under the bottom tab bar |
+| `SAFE_AREA_VERIFIED` | partial | **partial, with a known open defect** — UI2-002, content drawn under the bottom tab bar |
 
 ## What Round 1 still needs
 
 1. Recapture the remaining pages and all four interaction states with the foreground verified.
-2. Fix ISSUE-002 (content under the bottom tab bar) and re-verify.
+2. Fix UI2-002 (content under the bottom tab bar) and re-verify.
 3. An independent code review of `91eb2b5..767f7e8` — not yet requested successfully.
 4. A business regression run.
 

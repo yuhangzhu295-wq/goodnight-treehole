@@ -157,7 +157,7 @@ let removeKeyboardListeners: (() => void) | null = null;
  * web view when the keyboard opens: `innerHeight` shrinks by the keyboard height, and the keyboard
  * occupies no additional space inside the resulting viewport. Offsetting a fixed element by the raw
  * keyboard height therefore moved it up twice - measured on the emulator as 继续整理 floating in the
- * middle of the page, above the input it submits (ISSUE-005).
+ * middle of the page, above the input it submits (UI2-005).
  *
  * The difference between the layout and visual viewports is correct in both modes: zero when the
  * window is resized, the keyboard height when the keyboard overlays instead.

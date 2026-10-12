@@ -44,7 +44,7 @@ const tabbarPaths = new Set([
  *
  * With the keyboard up the web view is resized, so a fixed bottom action lands at the bottom of the
  * remaining viewport - directly under the tab bar, which then draws its labels over it. Measured on
- * the emulator: 继续整理 rendered behind 同路/行动/我的 (ISSUE-005). Hiding the bar while typing is also
+ * the emulator: 继续整理 rendered behind 同路/行动/我的 (UI2-005). Hiding the bar while typing is also
  * the normal behaviour on a phone: the user is entering text, not navigating.
  */
 const keyboardOpen = ref(false);

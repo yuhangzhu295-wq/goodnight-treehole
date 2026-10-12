@@ -15,6 +15,11 @@
   --gn-danger: #BD4545;
   --gn-radius-card: 12px;
   --gn-radius-small: 8px;
+  /* Geometry of the floating bottom tab bar. Pages that pin content to the bottom of the viewport
+     must reserve --gn-tabbar-reserve, or that content ends up underneath the bar and untappable. */
+  --gn-tabbar-height: 72px;
+  --gn-tabbar-gap: 10px;
+  --gn-tabbar-reserve: calc(var(--gn-tabbar-height) + var(--gn-tabbar-gap) + 12px);
   --gn-shadow-soft: none;
   --gn-shadow-card: none;
   --gn-font-display: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;

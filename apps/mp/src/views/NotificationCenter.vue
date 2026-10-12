@@ -99,7 +99,7 @@ async function markAllRead() {
 
 async function open(item: Notice) {
   // Navigation must not depend on the read receipt. Previously both were in one try block,
-  // so a failed mark-read stopped the tap from opening its target at all (ISSUE-010).
+  // so a failed mark-read stopped the tap from opening its target at all (UI2-009).
   if (item.status === 'unread') {
     try {
       await api.patch(`/api/v1/notifications/${item.id}/read`);

@@ -76,5 +76,5 @@ and must not enter real business data.
 ## Progress
 
 Only the global layout foundation has been changed so far: the status-bar overlap that affected every
-page (see `UI_V2_ISSUES.md`, ISSUE-001). No page has been redesigned yet, so every row above is
+page (see `UI_V2_ISSUES.md`, UI2-001). No page has been redesigned yet, so every row above is
 `PENDING` and the round-1 gate has not been reached.

@@ -4129,10 +4129,10 @@ body {
 }
 
 .tabbar {
-  bottom: calc(10px + env(safe-area-inset-bottom));
+  bottom: calc(var(--gn-tabbar-gap) + env(safe-area-inset-bottom));
   width: min(398px, calc(100vw - 28px));
-  height: 72px;
-  min-height: 72px;
+  height: var(--gn-tabbar-height);
+  min-height: var(--gn-tabbar-height);
   padding: 8px 10px;
   border: 1px solid var(--gn-border);
   border-radius: 12px;
