@@ -385,13 +385,21 @@
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
+      "implemented": "yes",
+      "rendered": "yes",
       "interactionTested": "no",
-      "businessVerified": "no",
+      "businessVerified": "partial",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "evidence": {
+        "commit": "PENDING",
+        "render": "artifacts/ui-v2/android/R2_SafetySupport_after.png (foreground verified as com.goodnight.treehole/.MainActivity)",
+        "business": "the saved support plan still loads from GET /api/v1/me/support-plan; the safety acknowledge POST and the two tel: links were not exercised",
+        "preserved": "all five original data-testids, both tel: links (120, 12356), the handoff route, the stayHere acknowledge call, the three steps verbatim, the official source note, and the saved-plan section",
+        "change": "the danger block moved to the top with both hotlines directly dialable; the full-bleed hero was removed"
+      },
+      "nextAction": "Exercise the 120/12356 links and the acknowledge POST, and verify the saved-plan section renders with a real plan."
     },
     {
       "id": "UI-V2-14",
@@ -1030,7 +1038,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T03:27:07.352Z",
+  "updatedAt": "2026-10-12T03:41:10.048Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
