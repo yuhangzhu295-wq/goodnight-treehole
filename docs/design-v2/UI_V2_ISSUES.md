@@ -51,23 +51,31 @@ Build trail: `pnpm --filter @goodnight/mp build` → `cap sync android` → `gra
 - The keyboard-open case (`Tonight_keyboard`, `Chat_keyboard` in the state set).
 - A device with a display cutout. The emulator is a Pixel 7 profile without a notch.
 
-## ISSUE-002 — Content is drawn underneath the bottom tab bar (OPEN)
+## ISSUE-002 — Content appears under the bottom tab bar (UNVERIFIED — may not be a defect)
 
-**Severity:** P0 for UI V2 — the spec forbids it explicitly ("不能出现按钮被底部 Tab Bar 挡住").
-**Found by:** looking at the recaptured 我的 render, after the visual judge flagged the same
-overlap in the before-state.
+**Status:** reported by me from a single screenshot, then found to be untested. Kept as a record of
+the mistake rather than deleted.
 
-On 我的 the last visible rows — `自我支持` and `我的现实支持` — are rendered **underneath** the floating
-bottom navigation panel; the nav labels are drawn over the row text. The scroll container does not
-reserve the tab bar's height plus the bottom inset, so the final rows are unreachable rather than
-merely clipped.
+On the recaptured 我的 render the last visible rows (`自我支持`, `我的现实支持`) are drawn underneath
+the floating bottom navigation, with the nav labels over the row text. I wrote that the rows were
+"unreachable rather than merely clipped".
 
-`styles.scss` has several `padding-bottom: calc(Npx + env(safe-area-inset-bottom))` rules, so the
-intent exists, but the value is evidently not enough for a nav panel that is 64px tall and floats
-above the inset, and it is applied per-page rather than to the scroll container that the tab bar
-actually overlays.
+**That conclusion was not tested, and the reasoning behind it is wrong.** A fixed bottom navigation
+having content scroll beneath it is normal; it is only a defect if the final row cannot be scrolled
+clear of the nav. The capture was taken at the initial scroll position, so it shows the middle of a
+scrollable page, which is what a page with more content than one screen looks like.
 
-Not yet fixed. Reproduce by opening 我的 on `emulator-5554` and scrolling to the bottom.
+The geometry does not obviously support a defect either: the tab bar is 64px tall at
+`bottom: calc(8px + env(safe-area-inset-bottom))`, so it occupies 72px, and the active
+`.phone-shell` rule sets `padding-bottom: 88px` — 16px of clearance, and more once the bottom inset
+is non-zero.
+
+**The test that would settle it:** open 我的, scroll to the very bottom, and check whether the last
+row sits fully above the nav. If it does, close this as not-a-defect. If it does not, the scroll
+container is not reserving the nav height and it is a real P0.
+
+Not run: the emulator stopped (`adb devices` empty, no emulator process) before the scroll could be
+performed, and it has not been restarted.
 
 ## ISSUE-003 — Seven of eight Round-1 screenshots showed a different application (EVIDENCE INVALID)
 
