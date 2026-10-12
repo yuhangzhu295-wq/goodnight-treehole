@@ -333,7 +333,7 @@ onUnmounted(() => {
     <!-- Sticky Bottom CTA -->
     <div
       class="sticky-cta"
-      :style="{ bottom: isKeyboardOpen ? `${keyboardHeight}px` : 'calc(60px + env(safe-area-inset-bottom))' }"
+      :style="{ bottom: isKeyboardOpen ? `${keyboardHeight}px` : 'calc(80px + env(safe-area-inset-bottom))' }"
     >
       <button
         class="primary-btn"

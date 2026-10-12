@@ -241,3 +241,15 @@ same tool would corrupt any future text fixture. Recorded so the next round uses
 file body for text fixtures instead of a typing tool.
 
 Cleanup: the two journeys created while investigating were removed.
+
+## Visual-judge findings on 今晚 — dispositions
+
+The first visual review returned PARTIAL for 今晚 with four points. Three are now resolved or
+explained; the fourth is a deliberate judgment.
+
+| Finding | Disposition |
+| --- | --- |
+| The green CTA nearly abuts the floating bottom nav | **Fixed.** The action sat at `bottom: 60px` while the nav occupies 8px→72px, so the button's lower 12px was behind the bar. Moved to `80px`, which clears the nav's top edge with a gap. Evidence: `R1_TonightHome_spacing_FIXED.png`. |
+| The record row renders only its bottom and side borders, so it reads as a half-drawn card | **Explained, no change.** `.list-row` is `border: 0; border-bottom: 1px solid #E8EBEF` inside a `.list-rows` with `border-top` — a flat row with hairline dividers, which is what the V2 spec asks for ("普通业务列表优先分割线"). There is no radius or side border in the scoped CSS and no global rule for `.list-row`. What the review saw is a thin-line artifact at capture scale, not a container. |
+| Excessive whitespace between the last record and the CTA | **Deliberate, not a defect.** The page has one record and a pinned action; the gap is the unfilled remainder of the viewport. Collapsing it would mean either stretching the content or floating the action mid-page, and the latter is exactly ISSUE-005. A short page with a pinned primary action is normal on a phone. It will look different with more records, which is the honest test. |
+| No topic chip selected by default (the reference pre-selects 感情) | **Explained.** The topic sheet does have a default: 暂时说不清 carries the checkmark (`R1_TonightHome_topics_FIXED.png`). Pre-selecting 感情 would assert a category the user has not chosen, which is worse than asserting none. |

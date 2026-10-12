@@ -89,7 +89,7 @@
       "rendered": "yes",
       "interactionTested": "partial",
       "businessVerified": "yes",
-      "visualApproved": "fail",
+      "visualApproved": "partial",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
@@ -97,11 +97,11 @@
         "render": "artifacts/ui-v2/android/R1_TonightHome_after.png (genuine, inspected directly)",
         "renderRecaptured": "artifacts/ui-v2/android/R1_TonightHome_after_RECAPTURED.png",
         "business": "POST /api/v1/journeys through the UI; LifeJourney row journey_e574ee39b8 / user_demo / 正在整理的一件事 read back with a fresh client",
-        "visual": "visual-judge returned PARTIAL: excessive whitespace between the last record and the pinned CTA; the record row renders only its bottom and side borders; the CTA nearly abuts the nav; no topic chip selected by default",
+        "visual": "PARTIAL from the first review. The CTA/nav overlap is fixed (R1_TonightHome_spacing_FIXED.png); the half-drawn row was a thin-line capture artifact, not a container; the whitespace is the unfilled remainder of a short page with a pinned action; the topic sheet does have a default (暂时说不清). Needs a re-review on the current build.",
         "interaction": "keyboard state now verified in both directions with the foreground and mInputShown checked at capture. The topic sheet remains unverified.",
         "issue": "ISSUE-005 FIXED and reverse-proved: keyboard open -> tab bar hidden and the action sits above the keyboard; keyboard dismissed -> bar restored and the action returns to place."
       },
-      "nextAction": "Capture the topic-sheet state (tap 更多) with the foreground verified, then fix the PARTIAL visual findings (whitespace, half-drawn record row, CTA/nav gap)."
+      "nextAction": "Re-review 今晚 on the current build, then Round 2."
     },
     {
       "id": "UI-V2-02",
@@ -1029,8 +1029,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "c8009e4",
-  "updatedAt": "2026-10-12T03:10:25.973Z",
+  "head": "PENDING",
+  "updatedAt": "2026-10-12T03:27:07.352Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
