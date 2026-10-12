@@ -28,8 +28,24 @@ const outPath = process.argv[2];
 const steps = process.argv.slice(3).map((step) => step.split(':'));
 if (!outPath) throw new Error('usage: ui2-capture.mjs <outPath> [tap:x:y|swipe:x1:y1:x2:y2|sleep:ms]...');
 
+/** Re-asserts our activity until the complete foreground string is ours. */
+function ensureForeground(attempts = 6) {
+  for (let i = 0; i < attempts; i += 1) {
+    if (foreground() === APP) return true;
+    shell('am', 'start', '-n', APP);
+    sleep(1500);
+  }
+  return foreground() === APP;
+}
+
+// The taps have to happen while OUR app is in front. Doing them first and only then checking the
+// foreground meant that when the other automation had the screen, every tap went to it and the
+// capture afterwards showed our app looking unchanged - a silent no-op that looks like a dead button.
+if (!ensureForeground()) throw new Error('could not bring the app to the foreground before the steps');
+
 for (const step of steps) {
   const [kind, ...rest] = step;
+  if (!ensureForeground()) throw new Error('lost the foreground before a step');
   if (kind === 'tap') shell('input', 'tap', rest[0], rest[1]);
   else if (kind === 'swipe') shell('input', 'swipe', rest[0], rest[1], rest[2], rest[3], '300');
   else if (kind === 'text') shell('input', 'text', rest.join(':'));
@@ -40,9 +56,8 @@ for (const step of steps) {
 
 // Re-assert the foreground and capture, retrying if the other automation got there first.
 for (let attempt = 1; attempt <= 6; attempt += 1) {
-  if (foreground() !== APP) {
-    shell('am', 'start', '-n', APP);
-    sleep(1500);
+  if (!ensureForeground()) {
+    console.log(`attempt ${attempt}: could not reclaim the foreground, retrying`);
     continue;
   }
   const png = execFileSync(ADB, ['-s', SERIAL, 'exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 });
@@ -51,9 +66,18 @@ for (let attempt = 1; attempt <= 6; attempt += 1) {
     console.log(`attempt ${attempt}: foreground changed to ${confirmed} during capture, retrying`);
     continue;
   }
+  // A capture taken during a rotation transition comes back landscape (2400x1080) even though the
+  // display is portrait (1080x2400). That is a malformed frame, not a screenshot of the page.
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (width >= height) {
+    console.log(`attempt ${attempt}: capture was ${width}x${height} (not portrait), retrying`);
+    sleep(1500);
+    continue;
+  }
   const { writeFileSync } = await import('node:fs');
   writeFileSync(outPath, png);
-  console.log(`captured ${outPath} (${png.length} bytes) with fg=${confirmed}`);
+  console.log(`captured ${outPath} (${png.length} bytes, ${width}x${height}) with fg=${confirmed}`);
   process.exit(0);
 }
 throw new Error('could not capture: the foreground was never confirmed');

@@ -121,10 +121,11 @@ onMounted(load);
 
       <p class="draft-note">AI 仅用于整理草稿，内容需经你本人确认后发出。</p>
 
-      <label class="confirm-row">
-        <input type="checkbox" checked disabled>
-        <span>我已知晓并遵守上述匿名同行边界。</span>
-      </label>
+      <!-- The design states this as a note, not as a checkbox. The previous row was
+           `<input type="checkbox" checked disabled>` with no state behind it: it could not be
+           unchecked, nothing read it, and it claimed the user had acknowledged the boundaries when
+           they had not. The consent itself is the button below, which is the explicit action. -->
+      <p class="consent-note">接受请求 ≠ 同意开始聊天；需要双方明确确认。</p>
 
       <div class="consent-actions">
         <button
@@ -370,22 +371,15 @@ onMounted(load);
   line-height: 1.45;
 }
 
-.confirm-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* The design's statement that accepting a request is not the same as agreeing to chat. */
+.consent-note {
+  margin: 0;
   padding: 8px 10px;
   border-radius: var(--gn-radius-small);
   background: var(--gn-leaf-soft);
   color: var(--gn-leaf-deep);
   font-size: 12px;
-  line-height: 1.4;
-  cursor: pointer;
-}
-
-.confirm-row input {
-  accent-color: var(--gn-leaf);
-  margin: 0;
+  line-height: 1.45;
 }
 
 .consent-actions {

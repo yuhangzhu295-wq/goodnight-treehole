@@ -504,3 +504,38 @@ Two separate faults on the same tab:
 an identity and that an experience owner sees an incoming request — still passes, since the default
 scope is unchanged.
 
+
+## UI2-013 — The consent page's acknowledgement was a fake control (FIXED)
+
+**Severity:** medium — a safety-adjacent statement asserted on the user's behalf.
+**Found by:** tapping the primary action on `/pages/peer/consent` on device.
+
+### Symptom
+
+Above the primary action the page showed a ticked `我已知晓并遵守上述匿名同行边界。` box. It looked
+like an acknowledgement the user had given. It was not one.
+
+### Root cause
+
+`<input type="checkbox" checked disabled>` — hard-coded checked *and* disabled, with no state
+variable in the component and nothing reading it. The user could not uncheck it, so the page claimed
+an acknowledgement that had never been given; and the primary button was gated only by
+`busy || !match`, so the box changed nothing either way.
+
+The design for this page (`逐页提示词/09_PeerConsent.md`, `设计图/09_PeerConsent.png`) has no checkbox
+at all. It has the statement `接受请求 ≠ 同意开始聊天；需要双方明确确认。` and one primary action, and
+the brief says `同意是必经的明确操作` — the consent itself is the button, and it must be a deliberate
+action rather than a pre-filled box.
+
+### Fix
+
+Replaced the row with the design's statement, and removed the now-dead `.confirm-row` rules.
+
+### What was already correct
+
+The consent gate itself works and is worth recording, because it is the part the brief cares about:
+after tapping `同意并开始同行` the match held `ownerConsentAt` while `requesterConsentAt` stayed
+undefined, and no conversation was created — so accepting a request did not become an active chat.
+The page then moved to `请求状态` (`R2_PeerMatchWaiting_after.png`), which is the correct state for the
+side that has consented and is waiting for the other.
+
