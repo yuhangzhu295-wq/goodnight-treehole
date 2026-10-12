@@ -396,7 +396,7 @@
       "status": "PENDING",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
+      "interactionTested": "partial",
       "businessVerified": "partial",
       "visualApproved": "no",
       "codeReviewApproved": "no",
@@ -409,7 +409,7 @@
         "change": "the danger block moved to the top with both hotlines directly dialable; the full-bleed hero was removed"
       },
       "nextAction": "Exercise the 120/12356 links and the acknowledge POST, and verify the saved-plan section renders with a real plan.",
-      "note": "Redesigned in acfd8f9; the 5 original test ids and both tel: links preserved."
+      "note": "Reached from 行动 -> 先缓一缓. The danger block, the three 可以先做的事 steps, both action rows and the footer disclaimer all render. Emergency links: 紧急医疗求助 120 opened the dialer with 120 pre-filled (R2_SafetySupport_dialer.png) - no call was placed, the dialer needs an explicit Call. 12356 was seen to bring the dialer to the front (topResumedActivity com.google.android.dialer/...MainActivityDialAlias) but its number was never captured on screen: the dialer was still blank on the first attempt and every retry afterwards lost the foreground to the other project's automation or found the app no longer on this page. Recorded as partial, not verified."
     },
     {
       "id": "UI-V2-14",
@@ -1057,7 +1057,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T11:48:59.933Z",
+  "updatedAt": "2026-10-12T12:10:43.023Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
