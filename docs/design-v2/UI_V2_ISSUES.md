@@ -202,7 +202,7 @@ should not overlay content in that state.
 | 今晚 keyboard dismissed | `R1_TonightHome_keyboard_dismissed.png` (mInputShown=false) | PASS - bar restored, action back in place |
 | 今晚 topic sheet | `R1_TonightHome_topics_FIXED.png` | PASS - six categories, 暂时说不清 checked, mask behind |
 | 我的 destructive confirmation | `R1_Me_cleanup_confirm_FIXED.png` | PASS - 确认清理 in the danger red, 暂不清理 neutral, copy states it is irreversible |
-| 行动 completion sheet | not captured | OPEN |
+| 行动 completion sheet | `R1_ActionCenter_completion_FIXED.png` | PASS - sheet opens on 完成; tapping 保存这次记录 moved the OutcomeCheckin for that action from pending to completed in PostgreSQL |
 
 Every capture above had `topResumedActivity` compared as the complete
 `com.goodnight.treehole/.MainActivity` string immediately before the shot. Two captures were

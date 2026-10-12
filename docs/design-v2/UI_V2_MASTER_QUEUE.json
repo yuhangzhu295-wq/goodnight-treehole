@@ -150,19 +150,19 @@
       "status": "IN_PROGRESS",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "partial",
+      "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "no",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "commit": "767f7e8",
-        "render": "artifacts/ui-v2/android/R1_ActionCenter_after_RECAPTURED.png (foreground verified; not yet inspected by the reviewer)",
+        "render": "R1_ActionCenter_current.png (live action) and R1_ActionCenter_completion_FIXED.png (sheet).",
         "business": "POST /api/v1/actions/<id>/checkin through the UI; OutcomeCheckin row checkin_1e0c20d066 / completed / 睡前阅读10分钟 read back",
         "visual": "not judged on valid evidence",
-        "interaction": "completion sheet and decision sheet captures were of the WRONG APP (ISSUE-003); unverified"
+        "interaction": "current-action state and the completion sheet both captured with the foreground verified; the sheet was exercised for real - 保存这次记录 moved the OutcomeCheckin for action_a3d872b807 from pending to completed in PostgreSQL."
       },
-      "nextAction": "Recapture the completion sheet and decision input states, then visual review."
+      "nextAction": "Visual review of the valid captures; the earlier PARTIAL findings on 今晚 still need fixing."
     },
     {
       "id": "UI-V2-04",
@@ -1029,8 +1029,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "PENDING",
-  "updatedAt": "2026-10-12T02:23:02.151Z",
+  "head": "c8009e4",
+  "updatedAt": "2026-10-12T03:10:25.973Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
@@ -1040,5 +1040,27 @@
     "Re-check the complete topResumedActivity immediately before the capture.",
     "After capturing, record package, activity, route, timestamp, device and APK sha256.",
     "If any check does not match exactly, the screenshot is INVALID and must not support a PASS."
-  ]
+  ],
+  "independentReview": {
+    "status": "WAITING_REVIEW",
+    "attemptedAt": "2026-10-12T03:05:18.666Z",
+    "scope": "git diff 91eb2b5..c8009e4 -- apps/mp",
+    "attempts": [
+      "code-reviewer: quota exhausted (claude-sonnet-4-6 RESOURCE_EXHAUSTED, resets in ~65h)",
+      "architecture-reviewer: provider unreachable (dial tcp 184.173.136.86:443 timeout)",
+      "code-reviewer retry: provider unreachable (dial tcp 31.13.90.33:443 timeout)"
+    ],
+    "note": "No independent reviewer could be reached. Per the standing rule the code is marked WAITING_REVIEW and is NOT self-approved; other READY work continues. The four Round-1 pages must not be treated as a frozen baseline until this is resolved."
+  },
+  "round1InteractionStates": {
+    "total": 5,
+    "verified": 5,
+    "list": [
+      "今晚 keyboard open",
+      "今晚 keyboard dismissed",
+      "今晚 topic sheet",
+      "我的 destructive confirmation",
+      "行动 completion sheet"
+    ]
+  }
 }
