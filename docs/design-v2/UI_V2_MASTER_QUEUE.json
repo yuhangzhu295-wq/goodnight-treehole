@@ -98,10 +98,10 @@
         "renderRecaptured": "artifacts/ui-v2/android/R1_TonightHome_after_RECAPTURED.png",
         "business": "POST /api/v1/journeys through the UI; LifeJourney row journey_e574ee39b8 / user_demo / 正在整理的一件事 read back with a fresh client",
         "visual": "visual-judge returned PARTIAL: excessive whitespace between the last record and the pinned CTA; the record row renders only its bottom and side borders; the CTA nearly abuts the nav; no topic chip selected by default",
-        "interaction": "keyboard state CAPTURED with the foreground verified (R1_TonightHome_keyboard_RECAPTURED.png) and it shows ISSUE-005: the primary action floats over the title and above the input field. The topic sheet is still unverified.",
-        "issue": "ISSUE-005 confirmed: with the keyboard open 继续整理 renders mid-page, above the input it submits, and the tab bar covers the 最近的记录 row."
+        "interaction": "keyboard state now verified in both directions with the foreground and mInputShown checked at capture. The topic sheet remains unverified.",
+        "issue": "ISSUE-005 FIXED and reverse-proved: keyboard open -> tab bar hidden and the action sits above the keyboard; keyboard dismissed -> bar restored and the action returns to place."
       },
-      "nextAction": "Fix ISSUE-005 (anchor the primary action to the keyboard edge, keep content scrollable between header and action, do not overlay content with the nav), then recapture the keyboard and topic-sheet states."
+      "nextAction": "Capture the topic-sheet state (tap 更多) with the foreground verified, then fix the PARTIAL visual findings (whitespace, half-drawn record row, CTA/nav gap)."
     },
     {
       "id": "UI-V2-02",
@@ -1029,8 +1029,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "1008522",
-  "updatedAt": "2026-10-12T02:03:51.567Z",
+  "head": "PENDING",
+  "updatedAt": "2026-10-12T02:23:02.151Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",

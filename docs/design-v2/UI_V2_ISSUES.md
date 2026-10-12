@@ -141,7 +141,7 @@ is recorded rather than fixed.
 Related: the visual judge independently described the before-state content as "统一规格的推荐样本"
 (uniform recommendation samples), which is the same observation from the visual side.
 
-## ISSUE-005 — With the keyboard open the primary action floats over the page (CONFIRMED, OPEN)
+## ISSUE-005 — With the keyboard open the primary action floated over the page (FIXED)
 
 **Severity:** P0 — the primary action obscures the content it belongs to, and the spec requires the
 main action to be easy to find and not to fight the input.
@@ -161,9 +161,34 @@ With the soft keyboard open on 今晚:
 **This contradicts the implementing agent's report**, which stated the button "浮在软键盘上方可见"
 as evidence that the keyboard case was handled. It is visible, and it is in the wrong place.
 
-The intent — keep the action reachable above the keyboard — is right; the implementation has moved the
-button out of the document flow without anchoring it to the keyboard edge, so it lands over the
-content. Not fixed.
+The intent — keep the action reachable above the keyboard — is right; the implementation moved the
+button out of the document flow without anchoring it to the keyboard edge, so it landed over the
+content.
+
+### Fix, in two parts (both were needed)
+
+**1. The offset was applied twice.** `keyboardWillShow` set `keyboardHeight` to `info.keyboardHeight`,
+the raw keyboard height. But Android *resizes* the web view for the keyboard (no `windowSoftInputMode`
+is set), so `innerHeight` had already shrunk by that amount and the keyboard occupied no further space
+inside the viewport. Offsetting a fixed element by the full height moved it up twice, which is why it
+landed mid-page. The offset is now derived from the layout/visual viewport difference, which is zero
+in resize mode and the keyboard height in overlay mode — correct either way.
+
+**2. The tab bar hid only after a second attempt.** With the button anchored correctly it sat *behind*
+the tab bar, whose labels were drawn over it. Hiding the bar while typing is both the fix and the normal
+phone behaviour. The first attempt detected the keyboard from the same viewport difference and never
+fired, for the reason above: in resize mode that difference is zero. It now uses the Capacitor
+`keyboardWillShow`/`keyboardWillHide` events, which fire in both modes.
+
+### Verified both directions
+
+| State | Evidence | Result |
+| --- | --- | --- |
+| Keyboard open | `R1_TonightHome_keyboard_FIXED3.png` (`mInputShown=true`) | tab bar hidden, 继续整理 directly above the keyboard, unobstructed |
+| Keyboard dismissed | `R1_TonightHome_keyboard_dismissed.png` (`mInputShown=false`) | tab bar restored, action back in place, real data loading |
+
+The earlier captures are kept: `R1_TonightHome_keyboard_RECAPTURED.png` shows the double-offset
+defect and `..._FIXED.png` / `..._FIXED2.png` show the intermediate states that were still wrong.
 
 **What would settle it:** with the keyboard open, the action should sit immediately above the keyboard
 and below the field, with the page content scrolling between the header and the action; the tab bar

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
+import { Keyboard } from '@capacitor/keyboard';
 import AppIcon from './components/icons/AppIcon.vue';
 
 const route = useRoute();
@@ -38,7 +39,45 @@ const tabbarPaths = new Set([
   '/pages/journey/detail',
   '/pages/recovery/index',
 ]);
-const showTabbar = computed(() => tabbarPaths.has(route.path));
+/**
+ * The tab bar hides while the soft keyboard is open.
+ *
+ * With the keyboard up the web view is resized, so a fixed bottom action lands at the bottom of the
+ * remaining viewport - directly under the tab bar, which then draws its labels over it. Measured on
+ * the emulator: 继续整理 rendered behind 同路/行动/我的 (ISSUE-005). Hiding the bar while typing is also
+ * the normal behaviour on a phone: the user is entering text, not navigating.
+ */
+const keyboardOpen = ref(false);
+let removeKeyboardListeners: (() => void) | null = null;
+
+onMounted(() => {
+  // The plugin events, NOT the visual-viewport difference.
+  //
+  // Android resizes the web view for the keyboard, so innerHeight shrinks with it and
+  // `innerHeight - visualViewport.height` stays near zero - the difference only measures anything
+  // when the keyboard overlays instead of resizing. A first attempt used the difference and the bar
+  // never hid. keyboardWillShow/Hide fire in both modes.
+  try {
+    const showHandle = Keyboard.addListener('keyboardWillShow', () => {
+      keyboardOpen.value = true;
+    });
+    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+      keyboardOpen.value = false;
+    });
+    removeKeyboardListeners = () => {
+      void showHandle.then((h) => h.remove());
+      void hideHandle.then((h) => h.remove());
+    };
+  } catch {
+    // No plugin (plain web build): the bar simply stays visible.
+  }
+});
+
+onUnmounted(() => {
+  removeKeyboardListeners?.();
+});
+
+const showTabbar = computed(() => tabbarPaths.has(route.path) && !keyboardOpen.value);
 const activeTab = computed(() => {
   if (route.path.startsWith('/pages/tonight')) return 'tonight';
   if (route.path.startsWith('/pages/peers')) return 'peers';

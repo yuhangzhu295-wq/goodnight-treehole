@@ -150,13 +150,31 @@ async function createJourney() {
 
 let removeKeyboardListeners: (() => void) | null = null;
 
+/**
+ * How far the keyboard actually intrudes on the web view, in CSS px.
+ *
+ * NOT `info.keyboardHeight`. The window uses the default soft-input mode, so Android *resizes* the
+ * web view when the keyboard opens: `innerHeight` shrinks by the keyboard height, and the keyboard
+ * occupies no additional space inside the resulting viewport. Offsetting a fixed element by the raw
+ * keyboard height therefore moved it up twice - measured on the emulator as 继续整理 floating in the
+ * middle of the page, above the input it submits (ISSUE-005).
+ *
+ * The difference between the layout and visual viewports is correct in both modes: zero when the
+ * window is resized, the keyboard height when the keyboard overlays instead.
+ */
+function viewportKeyboardInset(): number {
+  const viewport = window.visualViewport;
+  if (!viewport) return 0;
+  return Math.max(0, window.innerHeight - viewport.height - (viewport.offsetTop || 0));
+}
+
 onMounted(() => {
   restoreDraft();
   void load();
 
   try {
-    const showHandle = Keyboard.addListener('keyboardWillShow', (info) => {
-      keyboardHeight.value = info.keyboardHeight;
+    const showHandle = Keyboard.addListener('keyboardWillShow', () => {
+      keyboardHeight.value = viewportKeyboardInset();
       isKeyboardOpen.value = true;
     });
     const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
@@ -173,11 +191,12 @@ onMounted(() => {
 
   if (window.visualViewport) {
     const onViewportResize = () => {
-      const diff = window.innerHeight - (window.visualViewport?.height ?? window.innerHeight);
-      if (diff > 120) {
-        keyboardHeight.value = diff;
+      const inset = viewportKeyboardInset();
+      if (inset > 120) {
+        keyboardHeight.value = inset;
         isKeyboardOpen.value = true;
       } else if (!removeKeyboardListeners) {
+        // Only the fallback owns this state; with the plugin present it drives show/hide itself.
         keyboardHeight.value = 0;
         isKeyboardOpen.value = false;
       }
