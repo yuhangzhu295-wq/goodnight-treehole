@@ -544,3 +544,53 @@ undefined, and no conversation was created — so accepting a request did not be
 The page then moved to `请求状态` (`R2_PeerMatchWaiting_after.png`), which is the correct state for the
 side that has consented and is waiting for the other.
 
+
+## UI2-014 — Two symptom options on the temperature step were unreachable (FIXED)
+
+**Severity:** medium — the option simply could not be chosen.
+
+`.symptom-list` was `display: flex; flex-wrap: nowrap; overflow: hidden` with six chips. The sixth
+(`脑子停不下来`) was clipped by the container and could never be tapped; nothing indicated it was
+there. It now wraps, so all six are reachable and visible
+(`R2_JourneyDetail_temperature_v2.png`).
+
+Found while redesigning the page rather than by looking for it: the V1 style hid the overflow, and the
+V2 restyle removed the reason for the constraint.
+
+## UI2-015 — JourneyDetail still carried the V1 language (FIXED)
+
+The page's own brief asks for a **stable top bar**, a readable event timeline, Chinese statuses and
+always-discoverable actions, replacing the big emotion cards.
+
+What was there: a dark night-sky hero with stars and a tree cutout, serif headings, and illustration
+images inside the content — for all five flow steps.
+
+What changed:
+
+| Piece | Before | After |
+|---|---|---|
+| `JourneyFlowShell` | night-sky hero, per-step question as the title, `118px` bottom padding | flat white bar with a stable `当前旅程` title; the step's heading moved into the step's own content; bottom padding uses `--gn-tabbar-reserve` |
+| `SituationConfirmationScreen` | gradient paper, three illustration backgrounds | flat sections with hairline separators |
+| `EmotionTemperatureScreen` | gradient sheet, a bench illustration | flat card; symptom chips wrap (UI2-014) |
+| `SupportIntentScreen` | eight intent cards each with an illustration image | flat cards with icons |
+| `StabilizeScreen` | gradient panels, two illustration backgrounds | flat cards |
+| `JourneyTimelineScreen` | warm paper, illustrated scene images, serif heading | status card + timeline + 接下来 rows, matching `设计图/05_JourneyDetail.png` |
+
+Every `data-testid`, prop, emit and API call was preserved; `domain`, `stage` and `status` were added
+as props so the statuses can be rendered in Chinese.
+
+### A global rule was winning on one property
+
+`.section-heading` in `styles.scss` sets `justify-content: space-between`. The scoped rule in the
+temperature step set `display: flex` and `gap` but not `justify-content`, so the global value applied
+and pushed the icon and the `情绪温度计` label to opposite ends. Fixed by claiming the property in the
+scoped rule. The other 47 class names touched by this work were checked against the global sheet with
+a self-tested detector; this was the only collision.
+
+### Verified on device
+
+`R2_JourneyDetail_confirm_v2.png`, `R2_JourneyDetail_temperature_v2.png`,
+`R2_JourneyDetail_intent_v2.png`, `R2_JourneyDetail_timeline_v2.png` — confirm, temperature, intent and
+timeline all render in the V2 style, and the timeline shows real entries (`毕业同意复现`, `关系 · 正在计划`,
+第 2 天, two recorded events). The **stabilize step was not captured**; its markup and behaviour were
+preserved but its appearance is unverified.

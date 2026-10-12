@@ -191,17 +191,17 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
 </script>
 
 <template>
-  <JourneyFlowShell :mode="flowStep" :title="sceneCopy.title" :subtitle="sceneCopy.subtitle" @back="router.back()">
+  <JourneyFlowShell :mode="flowStep" title="当前旅程" @back="router.back()">
     <p v-if="error" class="journey-error" role="alert">{{ error }}</p>
     <AiDegradationNotice :notice="aiNotice" />
     <p v-if="loading && !detail" class="loading-note">正在打开这段经历…</p>
     <template v-if="detail">
-      <SituationConfirmationScreen v-if="flowStep === 'confirm' && detail.snapshot" :snapshot="detail.snapshot" :busy="busy" :analyzing="analysisBusy" @confirm="confirmSituation" @reanalyze="reanalyze" />
-      <EmotionTemperatureScreen v-else-if="flowStep === 'temperature'" @save="saveTemperature" @skip="flowStep = 'intent'" />
-      <SupportIntentScreen v-else-if="flowStep === 'intent'" :busy="busy" :intensity="intensity" @choose="chooseIntent" />
-      <StabilizeScreen v-else-if="flowStep === 'stabilize'" :journey-id="detail.journey.id" />
+      <SituationConfirmationScreen v-if="flowStep === 'confirm' && detail.snapshot" :snapshot="detail.snapshot" :busy="busy" :analyzing="analysisBusy" :heading="sceneCopy.title" :subheading="sceneCopy.subtitle" @confirm="confirmSituation" @reanalyze="reanalyze" />
+      <EmotionTemperatureScreen v-else-if="flowStep === 'temperature'" :heading="sceneCopy.title" :subheading="sceneCopy.subtitle" @save="saveTemperature" @skip="flowStep = 'intent'" />
+      <SupportIntentScreen v-else-if="flowStep === 'intent'" :busy="busy" :intensity="intensity" :heading="sceneCopy.title" :subheading="sceneCopy.subtitle" @choose="chooseIntent" />
+      <StabilizeScreen v-else-if="flowStep === 'stabilize'" :journey-id="detail.journey.id" :heading="sceneCopy.title" :subheading="sceneCopy.subtitle" />
       <template v-else>
-        <JourneyTimelineScreen :title="detail.journey.title" :created-at="detail.journey.createdAt" :initial-intensity="detail.journey.initialIntensity" :current-intensity="intensity" :updates="chronologicalUpdates" :later="later" :busy="busy" @update:later="later = $event" @save-later="saveLater" @action="router.push(`/pages/action/index?journeyId=${detail.journey.id}`)" @change-support="flowStep = 'intent'" />
+        <JourneyTimelineScreen :title="detail.journey.title" :created-at="detail.journey.createdAt" :domain="detail.journey.domain" :stage="detail.journey.stage" :status="detail.journey.status" :initial-intensity="detail.journey.initialIntensity" :current-intensity="intensity" :updates="chronologicalUpdates" :later="later" :busy="busy" @update:later="later = $event" @save-later="saveLater" @action="router.push(`/pages/action/index?journeyId=${detail.journey.id}`)" @change-support="flowStep = 'intent'" />
         <button v-if="detail.journey.status === 'active' || detail.journey.status === 'paused'" class="archive-trigger" data-testid="journey-archive-start" :disabled="busy" @click="requestArchive">归档这段旅程</button>
         <button
           v-if="completedActions > 0 && detail.journey.status !== 'completed' && detail.journey.status !== 'archived'"

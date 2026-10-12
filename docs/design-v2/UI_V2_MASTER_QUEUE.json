@@ -206,18 +206,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "artifacts/ui-v2/android/R2_JourneyDetail_after.png",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R2_JourneyDetail_{confirm_v2,temperature_v2,intent_v2,timeline_v2}.png",
+      "issue": "UI2-014 fixed (two symptom options were clipped and unreachable), UI2-015 fixed (the V1 night-sky hero, illustrations and serif type replaced by the design's stable bar, status card and timeline)",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
+      "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
+      "interactionTested": "partial",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Opened from 今晚 -> the recent-journey card. It lands on the flow's first step (confirm 发生了什么/现在/影响), rendered by SituationConfirmationScreen in the older illustrated style, so this is the entry state only - the temperature/intent/stabilize/timeline steps are not captured and the page is not yet redesigned to V2."
+      "note": "All five steps were restyled to the V2 flat language and every data-testid, prop, emit and API call kept. Four steps were captured on device; the stabilize step was not, so its appearance is unverified. The confirm/temperature/intent steps were clicked through to reach the timeline, so the flow is exercised, but the stabilize controls (breathing, cooldown, note) were not."
     },
     {
       "id": "UI-V2-06",
@@ -1057,7 +1057,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T12:10:43.023Z",
+  "updatedAt": "2026-10-12T12:48:57.892Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
