@@ -193,3 +193,19 @@ defect and `..._FIXED.png` / `..._FIXED2.png` show the intermediate states that 
 **What would settle it:** with the keyboard open, the action should sit immediately above the keyboard
 and below the field, with the page content scrolling between the header and the action; the tab bar
 should not overlay content in that state.
+
+## Round 1 interaction states — capture status
+
+| State | Evidence | Result |
+| --- | --- | --- |
+| 今晚 keyboard open | `R1_TonightHome_keyboard_FIXED3.png` (mInputShown=true) | PASS - bar hidden, action above the keyboard |
+| 今晚 keyboard dismissed | `R1_TonightHome_keyboard_dismissed.png` (mInputShown=false) | PASS - bar restored, action back in place |
+| 今晚 topic sheet | `R1_TonightHome_topics_FIXED.png` | PASS - six categories, 暂时说不清 checked, mask behind |
+| 我的 destructive confirmation | `R1_Me_cleanup_confirm_FIXED.png` | PASS - 确认清理 in the danger red, 暂不清理 neutral, copy states it is irreversible |
+| 行动 completion sheet | not captured | OPEN |
+
+Every capture above had `topResumedActivity` compared as the complete
+`com.goodnight.treehole/.MainActivity` string immediately before the shot. Two captures were
+rejected by that check during this round (cozyfocus took the foreground again), and one was
+discarded because a swipe from the bottom edge opened Google Lens instead - the guard caught the
+first two; the third was captured without the guard on the capture line and deleted on inspection.
