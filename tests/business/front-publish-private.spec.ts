@@ -1,25 +1,30 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { createApiTestApp, waitForAiJob } from './helpers';
+import { PrismaClient } from '@prisma/client';
+import { createApiTestApp, waitForAiJob, dapiConfigured } from './helpers';
 import { StoreService, type AIJob } from '../../apps/api/src/store.service';
 
 describe('front private publish business flow', () => {
   let app: INestApplication;
+  let prisma: PrismaClient;
 
   beforeAll(async () => {
     app = await createApiTestApp();
+    prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
   });
 
   afterAll(async () => {
+    await prisma?.$disconnect();
     await app.close();
   });
 
   it('keeps a private mood out of the square and persists its asynchronous private letter', async () => {
     const server = app.getHttpServer();
     const content = `private mood ${Date.now()}`;
-    const store = app.get(StoreService);
-    const jobsBefore = store.aiJobs.length;
+    // AIJob became database-authoritative in Batch 1, so the in-memory store.aiJobs getter now
+    // throws by design. The count has to come from the table that owns the rows.
+    const jobsBefore = await prisma.aIJob.count();
     const created = await request(server)
       .post('/api/v1/moods')
       .send({ content, emotion: 'anxious', visibility: 'PRIVATE', replyStyle: 'poetic' })
@@ -30,13 +35,8 @@ describe('front private publish business flow', () => {
     expect(created.body.job.id).toBeTruthy();
     expect(created.body.jobs).toHaveLength(1);
     expect(created.body.diary.id).toBeTruthy();
-    expect(created.body.diary.hasLetter).toBe(false);
     expect(created.body.next).toBe('/pages/diary/index');
-    expect(store.aiJobs).toHaveLength(jobsBefore + 1);
-
-    const completed = await waitForAiJob(server, created.body.job.id);
-    expect(completed.status).toBe('succeeded');
-    expect(completed.job.providerId).toBe('provider_dapi_deepseek');
+    expect(await prisma.aIJob.count()).toBe(jobsBefore + 1);
 
     await request(server).get('/api/v1/posts').expect((response) => {
       expect(response.body.items.some((item: any) => item.content === content)).toBe(false);
@@ -121,4 +121,21 @@ describe('front private publish business flow', () => {
       persist.mockRestore();
     }
   });
+
+  // The AI letter itself needs DAPI credentials; without them the job stops at 'fallback', which is
+  // NOT_RUN_NO_SECRET and is reported as skipped rather than asserted into a pass. The
+  // not-yet-attached assertion lives here too: it describes a reply that is still being generated,
+  // and the fallback attaches one before the create response even returns.
+  it.skipIf(!dapiConfigured)('renders the private letter through a real AI job', async () => {
+    const server = app.getHttpServer();
+    const created = await request(server)
+      .post('/api/v1/moods')
+      .send({ content: `private ai mood ${Date.now()}`, emotion: 'anxious', visibility: 'PRIVATE', replyStyle: 'poetic' })
+      .expect(201);
+
+    expect(created.body.diary.hasLetter).toBe(false);
+    const completed = await waitForAiJob(server, created.body.job.id);
+    expect(completed.status).toBe('succeeded');
+    expect(completed.job.providerId).toBe('provider_dapi_deepseek');
+  }, 120_000);
 });

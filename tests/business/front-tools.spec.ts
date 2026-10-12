@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { createApiTestApp, waitForAiJob } from './helpers';
+import { createApiTestApp, waitForAiJob, requireDapi } from './helpers';
 
 describe('front tool interactions', () => {
   let app: INestApplication;
@@ -14,11 +14,12 @@ describe('front tool interactions', () => {
     await app.close();
   });
 
-  it('runs decompose and generic tools, then saves a real diary record', async () => {
+  it('runs decompose and generic tools, then saves a real diary record', async (ctx) => {
     const server = app.getHttpServer();
     const decompose = await request(server).post('/api/v1/tools/decompose').send({ content: 'tool decompose input' }).expect(201);
     expect(decompose.body.taskId).toBeTruthy();
     const decomposeResult = await waitForAiJob(server, decompose.body.taskId);
+    requireDapi(ctx);
     expect(decomposeResult.status).toBe('succeeded');
     expect(decomposeResult.result).toBeTruthy();
     expect(decomposeResult.job.providerId).toBe('provider_dapi_deepseek');

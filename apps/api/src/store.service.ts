@@ -4354,14 +4354,14 @@ export class StoreService implements OnModuleInit {
   async saveGraduationConsent(journeyId: string, decision: 'willing' | 'later' | 'no', requestedUserId?: string) {
     const journey = await this.requireJourney(journeyId, requestedUserId);
     if (journey.status !== 'completed') throw new BadRequestException('请先完成这段旅程');
-    if (decision !== 'willing') return { decision, graduation: await this.graduationSummary(journeyId), draft: null };
+    if (decision !== 'willing') return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft: null };
     await this.privacyAllows(journey.userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名经验分享');
     const existing = DIRECT_DB_MODELS.PeerExperience
       ? await this.peerPersistence.findPendingReviewExperienceByJourneyAndUser(journeyId, journey.userId)
       : this.peerExperiences.find(
           (item) => item.journeyId === journeyId && item.userId === journey.userId && item.status === 'pending_review',
         );
-    if (existing) return { decision, graduation: await this.graduationSummary(journeyId), draft: existing };
+    if (existing) return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft: existing };
     const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
     const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 6);
     const actions = await this.batch1Persistence.listActionsForJourney(journeyId);
@@ -4395,7 +4395,7 @@ export class StoreService implements OnModuleInit {
     };
     if (DIRECT_DB_MODELS.PeerExperience) {
       const created = await this.peerPersistence.createExperience(draftData);
-      return { decision, graduation: await this.graduationSummary(journeyId), draft: created };
+      return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft: created };
     }
     const draft: PeerExperienceRecord = {
       ...draftData,
@@ -4406,7 +4406,7 @@ export class StoreService implements OnModuleInit {
     };
     this.peerExperiences.unshift(draft);
     await this.persistAndFlush();
-    return { decision, graduation: await this.graduationSummary(journeyId), draft };
+    return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft };
   }
 
   async updatePeerExperience(
@@ -4432,7 +4432,7 @@ export class StoreService implements OnModuleInit {
         retrospective: typeof input.retrospective === 'string' ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000)) : undefined,
       };
       const updated = await this.peerPersistence.updateExperience(experienceId, userId, cleanInput);
-      return { item: this.peerExperienceSummary(updated) };
+      return { item: { ...this.peerExperienceSummary(updated), status: updated.status } };
     }
     const item = this.peerExperiences.find(
       (experience) =>
@@ -4463,7 +4463,7 @@ export class StoreService implements OnModuleInit {
       item.retrospective = this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000));
     item.updatedAt = now();
     await this.persistAndFlush();
-    return { item: this.peerExperienceSummary(item) };
+    return { item: { ...this.peerExperienceSummary(item), status: item.status } };
   }
 
   async createPeerExperience(
@@ -4546,7 +4546,10 @@ export class StoreService implements OnModuleInit {
     }
     const updateCount = journey ? await this.batch1Persistence.countUpdatesForJourney(journey.id) : 0;
     const checkinCount = journey ? await this.batch1Persistence.countCheckinsForJourney(journey.id) : 0;
-    return { item: this.peerExperienceSummary(created, updateCount, checkinCount) };
+    // The author of a draft has to be told it is awaiting review. `peerExperienceSummary` is the
+    // projection for other viewers and deliberately leaves the moderation status out, so the
+    // owner-facing write responses add it back here.
+    return { item: { ...this.peerExperienceSummary(created, updateCount, checkinCount), status: created.status } };
   }
 
   async peerNetwork(requestedUserId?: string, focusMatchId?: string) {

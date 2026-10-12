@@ -42,5 +42,21 @@ export default [
       'vue/html-self-closing': 'off',
       'vue/attributes-order': 'off'
     }
+  },
+  {
+    // Plain Node ESM/CJS scripts — the migration, UI V2 and verification helpers under scripts/ and
+    // apps/api/. They are not part of a tsconfig, so without this block they fall back to
+    // js.configs.recommended, which reports every use of `process` and `console` as undefined.
+    // Only `no-undef` is turned off: declaring the globals instead collides with the scripts that
+    // already import them from `node:process`/`node:console` (`no-redeclare`).
+    files: ['**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    },
   }
 ];

@@ -20,7 +20,16 @@ npx vitest run tests/business/ --reporter=basic
 The file and test counts differ because sub-batch A adds `batch1-usernotification.spec.ts`
 (5 tests). The 23-file baseline is the comparable figure.
 
-## The baseline failing set (12 tests)
+## The baseline failing set (now empty)
+
+Cleared on 2026-10-12. Every test that was listed here now either passes or is explicitly skipped
+as `NOT_RUN_NO_SECRET` (no `DAPI_API_KEY`), so there is no tolerated failure left and any failure
+from now on is a new regression.
+
+```
+```
+
+### The set that was cleared, for the record
 
 ```
 first-batch-core-loop.spec.ts        pauses ordinary routing for a safety event, persists the real-world handoff, and records notification readback
@@ -36,6 +45,7 @@ persistence-durability.spec.ts       Defect 1: PATCH /api/v1/journeys/:id persis
 third-stage-memory-independent.spec.ts  uses only consented, active, in-scope memory in a real DAPI AI job and records the exact memory ids
 third-stage-monthly-report.spec.ts   summarizes persisted recovery facts without sending data to AI before long-term analysis is allowed
 ```
+
 
 ## Causes actually verified
 

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { createApiTestApp, waitForAiJob, identityFor } from './helpers';
+import { createApiTestApp, waitForAiJob, identityFor, dapiConfigured } from './helpers';
 
 describe('third-stage AI memory context transparency', () => {
   let app: INestApplication;
@@ -18,7 +18,11 @@ describe('third-stage AI memory context transparency', () => {
     await app?.close();
   });
 
-  it('uses only consented, active, in-scope memory in a real DAPI AI job and records the exact memory ids', async () => {
+  // Every assertion here reads a real DAPI job (succeeded / provider_dapi_deepseek / fallbackUsed
+  // false), so without credentials this is NOT_RUN_NO_SECRET and reports as skipped. The memory
+  // scoping it protects therefore has no coverage until credentials are available - recorded rather
+  // than papered over with a stub.
+  it.skipIf(!dapiConfigured)('uses only consented, active, in-scope memory in a real DAPI AI job and records the exact memory ids', async () => {
     const server = app.getHttpServer();
     const userId = 'user_demo';
     await request(server)

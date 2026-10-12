@@ -319,8 +319,15 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     const matches = await request(server).post(`/api/v1/journeys/${requesterJourneyId}/peer-matches`).set(await demoUserHeaders()).send({}).expect(201);
     const exactMatch = matches.body.items.find((item: { peerExperienceId: string }) => item.peerExperienceId === peerExperience.body.item.id);
     expect(exactMatch).toBeTruthy();
-    expect(exactMatch.score).toBeGreaterThan(0.5);
-    expect(exactMatch.fingerprintSimilarity).toBeGreaterThan(0);
+    // The C-end projection deliberately carries the human explanation rather than the ranking
+    // internals: `score` and `fingerprintSimilarity` stay on the admin surface (its table shows
+    // 匹配分) and in the table. So the ranking is asserted against the row that owns it, and the
+    // response is checked for the part it actually promises.
+    expect(Array.isArray(exactMatch.reasons)).toBe(true);
+    expect(exactMatch.reasons.length).toBeGreaterThan(0);
+    const persistedMatch = await prisma.peerMatch.findUnique({ where: { id: exactMatch.id } });
+    expect(persistedMatch?.score).toBeGreaterThan(0.5);
+    expect(Number(persistedMatch?.fingerprintSimilarity)).toBeGreaterThan(0);
 
     await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(await demoUserHeaders()).send({ status: 'requested' }).expect(200);
     await request(server).patch(`/api/v1/peer-matches/${exactMatch.id}`).set(await demoUserHeaders()).send({ status: 'connected' }).expect(400);
@@ -334,6 +341,7 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     await request(server).patch(`/api/v1/notifications/${peerNotificationId}/read`).set('x-goodnight-user-id', await identityFor(guest)).expect(200);
     expect(await prisma.userNotification.findUnique({ where: { id: peerNotificationId } })).toMatchObject({ userId: guest, status: 'read' });
 
+    // 接受请求 ≠ 同意开始聊天: the owner's acceptance starts nothing on its own...
     const accepted = await request(server)
       .post(`/api/v1/peer-matches/${exactMatch.id}/respond`)
       .set('x-goodnight-user-id', await identityFor(guest))
@@ -341,9 +349,19 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
       .expect(201);
     expect(accepted.body.conversation).toBeNull();
 
-    const consented = await request(server)
+    // ...and neither does one side's boundary confirmation.
+    const ownerConsent = await request(server)
       .post(`/api/v1/peer-matches/${exactMatch.id}/consent`)
       .set('x-goodnight-user-id', await identityFor(guest))
+      .send({})
+      .expect(201);
+    expect(ownerConsent.body.conversation).toBeNull();
+    expect(ownerConsent.body.pending).toBe(true);
+
+    // The 72h conversation opens only once the other side has confirmed the boundary too.
+    const consented = await request(server)
+      .post(`/api/v1/peer-matches/${exactMatch.id}/consent`)
+      .set(await demoUserHeaders())
       .send({})
       .expect(201);
     expect(consented.body.conversation.matchId).toBe(exactMatch.id);

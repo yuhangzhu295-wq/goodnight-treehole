@@ -448,14 +448,19 @@ reproduces exactly the same two failures.
 | `persists situation, action, peer, safety and recovery records across refreshes` | `expected undefined to be 'pending_review'` — `POST /journeys/:id/graduation-consent` no longer returns the `draft` the spec reads at line 202 |
 | `connects two distinct persisted users through a reviewed experience and a 72 hour human conversation` | `actual value must be number or bigint, received "undefined"` — a numeric assertion reads `undefined`, around the match score / similarity fields |
 
-**Why nobody noticed:** `.github/workflows/ci.yml` runs `pnpm test:unit` and `pnpm test:batch1` only.
-The rest of `tests/business/` — this spec included — is not executed by CI, so a green CI run says
-nothing about it. That is the same shape as the earlier finding that a gate must compare counts, not
-membership: here the suite is simply outside the gate.
+**CORRECTION (same day).** This section first claimed CI runs only `test:unit` and `test:batch1`, so
+the suite was outside the gate. That was wrong — I read it off a grep that only matched `run:` lines
+containing `test:`. CI *does* run the whole suite (`tsx scripts/test-runner.ts`) and then
+`scripts/check-baseline-failures.ts`.
 
-Recorded rather than silently fixed: both sit in the graduation / peer-match contract, not in the
-page under work, and fixing them without understanding the intended contract would risk masking a
-real regression. They belong to the QA phase.
+The real reason a green CI hid these: the gate tolerates a documented baseline of known failures
+(`docs/architecture/TEST_BASELINE_FAILURES.md`, 12 tests) and only fails on *new* regressions. Both
+failures above were in that baseline, so CI reported "0 new regressions" while they stayed broken.
+That is the membership-vs-count blind spot again — a test listed as "known to fail" can stay broken
+indefinitely without the gate objecting.
+
+Both are now fixed, the whole suite passes, and the baseline has been cleared, so any failure from
+now on is a new regression.
 
 
 ## UI2-012 — 同路人's 我的请求 tab listed the wrong direction and could never show 会话中 / 结束 (FIXED)

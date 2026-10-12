@@ -164,3 +164,19 @@ export async function waitForAiJob(server: unknown, jobId: string, timeoutMs = 1
     `AI job ${jobId} did not reach a terminal state; last status: ${response?.body?.status ?? 'unknown'}`,
   );
 }
+
+/**
+ * True when DAPI credentials are present.
+ *
+ * Without them an AI job stops at 'fallback' rather than 'succeeded', so any assertion on a real AI
+ * result is NOT_RUN_NO_SECRET. Those assertions call `requireDapi` and the test is reported as
+ * skipped — never as a pass, which would claim the capability had been exercised.
+ */
+export const dapiConfigured = Boolean(process.env.DAPI_API_KEY);
+
+/** Skips the current test when DAPI credentials are absent. */
+export function requireDapi(ctx: { skip: (reason?: string) => void }) {
+  if (!dapiConfigured) {
+    ctx.skip('NOT_RUN_NO_SECRET: 没有 DAPI_API_KEY，AI 任务停在 fallback');
+  }
+}

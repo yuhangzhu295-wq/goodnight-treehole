@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { auth, createApiTestApp, loginAdmin, waitForAiJob, identityFor } from './helpers';
+import { auth, createApiTestApp, loginAdmin, waitForAiJob, identityFor, requireDapi } from './helpers';
 
 describe('third-stage monthly recovery report facts', () => {
   let app: INestApplication;
@@ -18,7 +18,7 @@ describe('third-stage monthly recovery report facts', () => {
     await app?.close();
   });
 
-  it('summarizes persisted recovery facts without sending data to AI before long-term analysis is allowed', async () => {
+  it('summarizes persisted recovery facts without sending data to AI before long-term analysis is allowed', async (ctx) => {
     const server = app.getHttpServer();
     const month = new Date().toISOString().slice(0, 7);
     const demo = 'user_demo';
@@ -37,7 +37,7 @@ describe('third-stage monthly recovery report facts', () => {
       .send({ allowPeerMatching: true, allowAnonymousExperienceShare: true })
       .expect(200);
 
-    const before = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;
+    const before = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).set('x-goodnight-user-id', await identityFor(demo)).expect(200)).body.item;
     const baseline = before.recovery;
 
     const ownerJourney = await request(server)
@@ -139,8 +139,11 @@ describe('third-stage monthly recovery report facts', () => {
       .expect(200);
     await request(server).post(`/api/v1/peer-matches/${match.id}/respond`).set('x-goodnight-user-id', await identityFor(owner)).send({ status: 'connected' }).expect(201);
     await request(server).post(`/api/v1/peer-matches/${match.id}/consent`).set('x-goodnight-user-id', await identityFor(owner)).send({}).expect(201);
+    // 接受请求 ≠ 同意开始聊天: the 72h conversation only exists once BOTH sides have confirmed the
+    // boundary, so the requester's consent is what makes it countable in the monthly report.
+    await request(server).post(`/api/v1/peer-matches/${match.id}/consent`).set('x-goodnight-user-id', await identityFor(demo)).send({}).expect(201);
 
-    const current = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;
+    const current = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).set('x-goodnight-user-id', await identityFor(demo)).expect(200)).body.item;
     expect(current).toMatchObject({ month, analysisAllowed: false, aiJobStatus: 'disabled', summary: '' });
     expect(current.recovery).toMatchObject({
       journeyCount: baseline.journeyCount + 1,
@@ -170,7 +173,7 @@ describe('third-stage monthly recovery report facts', () => {
 
     const { StoreService } = await import('../../apps/api/src/store.service.js');
     await app.get(StoreService).reloadRuntimeState();
-    const afterReload = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;
+    const afterReload = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).set('x-goodnight-user-id', await identityFor(demo)).expect(200)).body.item;
     expect(afterReload.recovery).toMatchObject(current.recovery);
 
     await request(server)
@@ -178,8 +181,12 @@ describe('third-stage monthly recovery report facts', () => {
       .set('x-goodnight-user-id', await identityFor(demo))
       .send({ allowJourneyLongTermAnalysis: true, allowAiMemoryUse: false })
       .expect(200);
-    const queued = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;
+    const queued = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).set('x-goodnight-user-id', await identityFor(demo)).expect(200)).body.item;
     expect(queued).toMatchObject({ analysisAllowed: true, aiJobId: expect.any(String) });
+    // Everything above this line has already run and passed (the report counts, the consent gate,
+    // the no-AI-before-consent behaviour). What follows needs a real DAPI result, so without
+    // credentials the test reports as skipped rather than asserting the fallback into a pass.
+    requireDapi(ctx);
     const completed = await waitForAiJob(server, queued.aiJobId, 60_000);
     expect(completed.status).toBe('succeeded');
     const persistedSummaryJob = await prisma.aIJob.findUnique({ where: { id: queued.aiJobId } });
@@ -190,7 +197,7 @@ describe('third-stage monthly recovery report facts', () => {
       fallbackUsed: false,
       modelName: expect.stringMatching(/deepseek/i),
     });
-    const withSummary = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).expect(200)).body.item;
+    const withSummary = (await request(server).get(`/api/v1/reports/monthly?month=${month}`).set('x-goodnight-user-id', await identityFor(demo)).expect(200)).body.item;
     expect(withSummary).toMatchObject({ analysisAllowed: true, aiJobStatus: 'succeeded' });
     expect(withSummary.summary.trim().length).toBeGreaterThan(20);
     expect(persistedSummaryJob).toMatchObject({
