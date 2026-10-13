@@ -1218,17 +1218,17 @@ export class PublicController {
   }
 
   @Post('posts/:id/favorite')
-  async favorite(@Param('id') id: string) {
+  async favorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const post = this.store.getPost(id, true);
-    this.store.addFavorite(this.store.getDemoUserId(), 'post', id);
+    this.store.addFavorite(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
     return { item: this.store.decoratePost(post) };
   }
 
   @Delete('posts/:id/favorite')
-  async deleteFavorite(@Param('id') id: string) {
+  async deleteFavorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const post = this.store.getPost(id, true);
-    this.store.removeFavoriteByTarget(this.store.getDemoUserId(), 'post', id);
+    this.store.removeFavoriteByTarget(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
     return { item: this.store.decoratePost(post) };
   }
@@ -1307,14 +1307,15 @@ export class PublicController {
   }
 
   @Post('moods/:id/queue-ai-replies')
-  queueReplies(@Param('id') id: string) {
+  queueReplies(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const mood = this.store.moods.find((item) => item.id === id);
     const post = this.store.posts.find((item) => item.moodId === id);
     const styles: AIStyle[] = ['warm', 'rational', 'light', 'clear', 'poetic'];
     const jobs = styles.map((style) =>
       this.store.queueAI({
         taskType: 'public_ai_reply',
-        userId: mood?.userId ?? this.store.getDemoUserId(),
+        userId: mood?.userId ?? userId,
         sourceId: id,
         style,
         content: mood?.content ?? '',
@@ -1456,8 +1457,8 @@ export class PublicController {
   }
 
   @Get('letters/today')
-  today() {
-    const userId = this.store.getDemoUserId();
+  today(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.userId === userId);
     const sourceId = letter?.sourceMoodId ?? this.store.moods.find((item) => item.userId === userId)?.id ?? 'mood_1';
     const source =
@@ -1482,7 +1483,7 @@ export class PublicController {
 
   @Get('letters')
   letters(@Query('status') status?: string, requestedUserId?: string) {
-    const userId = requestedUserId || this.store.getDemoUserId();
+    const userId = requireRuntimeUserId(requestedUserId);
     let items = this.store.letters.filter((item) => item.userId === userId);
     if (status === 'unread') items = items.filter((item) => item.status === 'unread');
     if (status === 'favorited' || status === 'fav')
@@ -1565,8 +1566,11 @@ export class PublicController {
   }
 
   @Post('letters/generate')
-  generateLetter(@Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean }) {
-    const userId = this.store.getDemoUserId();
+  generateLetter(
+    @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.userId === userId);
     if (letter) return this.regenerate(letter.id, body);
     const queued = this.store.queueLetterGeneration({
@@ -1617,8 +1621,8 @@ export class PublicController {
   }
 
   @Post('letters/:id/favorite')
-  async favoriteLetter(@Param('id') id: string) {
-    const userId = this.store.getDemoUserId();
+  async favoriteLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     this.store.addFavorite(userId, 'letter', id);
@@ -1627,8 +1631,8 @@ export class PublicController {
   }
 
   @Delete('letters/:id/favorite')
-  async deleteFavoriteLetter(@Param('id') id: string) {
-    const userId = this.store.getDemoUserId();
+  async deleteFavoriteLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     this.store.removeFavoriteByTarget(userId, 'letter', id);
@@ -1653,25 +1657,25 @@ export class PublicController {
   }
 
   @Post('tools/emotion-decompose')
-  decompose(@Body() body: { content: string }) {
+  decompose(@Body() body: { content: string }, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const job = this.store.queueAI({
       taskType: 'breakdown',
       content: body.content,
       style: 'rational',
-      userId: this.store.getDemoUserId(),
+      userId: requireRuntimeUserId(requestedUserId),
       sourceId: `task_${Date.now()}`,
     });
     return { taskId: job.id, jobId: job.id, status: job.status, job };
   }
 
   @Post('ai/tools/breakdown')
-  aiBreakdown(@Body() body: { content: string; mood?: string; style?: AIStyle }) {
+  aiBreakdown(@Body() body: { content: string; mood?: string; style?: AIStyle }, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const job = this.store.queueAI({
       taskType: 'breakdown',
       content: body.content,
       mood: body.mood,
       style: body.style ?? 'rational',
-      userId: this.store.getDemoUserId(),
+      userId: requireRuntimeUserId(requestedUserId),
       sourceId: `task_${Date.now()}`,
     });
     return { taskId: job.id, jobId: job.id, status: job.status, job };
@@ -1683,7 +1687,10 @@ export class PublicController {
   }
 
   @Post('tools/run')
-  runTool(@Body() body: { toolId?: string; type?: string; content?: string; input?: string; style?: AIStyle }) {
+  runTool(
+    @Body() body: { toolId?: string; type?: string; content?: string; input?: string; style?: AIStyle },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
     const toolType = body.type ?? body.toolId ?? 'rewrite';
     const text = body.input ?? body.content ?? '';
     const style =
@@ -1698,7 +1705,7 @@ export class PublicController {
               ? 'light'
               : 'warm');
     const job = this.store.queueAI({
-      userId: this.store.getDemoUserId(),
+      userId: requireRuntimeUserId(requestedUserId),
       sourceId: `tool_${Date.now()}`,
       taskType: toolType,
       style,
@@ -1738,7 +1745,8 @@ export class PublicController {
   }
 
   @Post('tools/emotion-decompose/:taskId/save')
-  async saveDecompose(@Param('taskId') taskId: string) {
+  async saveDecompose(@Param('taskId') taskId: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const job = DIRECT_DB_MODELS.AIJob
       ? await this.batch1Persistence.getAiJob(taskId)
       : this.store.aiJobs.find((item) => item.id === taskId);
@@ -1748,7 +1756,7 @@ export class PublicController {
     )?.structured;
     this.store.diaries.unshift({
       id: id('diary'),
-      userId: this.store.getDemoUserId(),
+      userId,
       emotion: '焦虑',
       content: job?.result ?? `情绪拆解结果 ${taskId}`,
       hasLetter: false,
@@ -1816,7 +1824,7 @@ export class PublicController {
     },
     requestedUserId?: string,
   ) {
-    const targetUserId = requestedUserId || this.store.getDemoUserId();
+    const targetUserId = requireRuntimeUserId(requestedUserId);
     const diary = {
       id: `diary_${Date.now()}`,
       userId: targetUserId,
@@ -1835,13 +1843,13 @@ export class PublicController {
   }
 
   @Post('diaries/export')
-  async exportDiaries() {
-    return { item: await this.store.createDiaryExport(this.store.getDemoUserId()) };
+  async exportDiaries(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    return { item: await this.store.createDiaryExport(requireRuntimeUserId(requestedUserId)) };
   }
 
   @Get('exports/:assetId/download')
-  downloadDiaryExport(@Param('assetId') assetId: string) {
-    const download = this.store.getExportDownload(assetId, this.store.getDemoUserId());
+  downloadDiaryExport(@Param('assetId') assetId: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const download = this.store.getExportDownload(assetId, requireRuntimeUserId(requestedUserId));
     return new StreamableFile(fs.createReadStream(download.filePath), {
       type: download.asset.mimeType,
       length: download.asset.size,
@@ -1905,7 +1913,7 @@ export class PublicController {
     @Query('hasLetter') hasLetter?: string,
     requestedUserId?: string,
   ) {
-    const userId = requestedUserId || this.store.getDemoUserId();
+    const userId = requireRuntimeUserId(requestedUserId);
     const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
     const items = this.diaryEntries(userId)
       .filter((item) => !month || item.createdAt.startsWith(month))
@@ -1917,7 +1925,7 @@ export class PublicController {
 
   @Get('diaries/months')
   diaryMonths(requestedUserId?: string) {
-    const userId = requestedUserId || this.store.getDemoUserId();
+    const userId = requireRuntimeUserId(requestedUserId);
     const items = [
       ...new Set(
         this.diaryEntries(userId)
@@ -1963,8 +1971,8 @@ export class PublicController {
   }
 
   @Get('diaries/:id')
-  diary(@Param('id') id: string) {
-    const item = this.diaryEntries(this.store.getDemoUserId()).find((diary) => diary.id === id);
+  diary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const item = this.diaryEntries(requireRuntimeUserId(requestedUserId)).find((diary) => diary.id === id);
     if (!item) return { item: null };
     return { item: this.decorateDiaryEntry(item) };
   }
@@ -1977,7 +1985,7 @@ export class PublicController {
 
   @Get('favorites')
   favorites(@Query('type') type?: string, requestedUserId?: string) {
-    const userId = requestedUserId || this.store.getDemoUserId();
+    const userId = requireRuntimeUserId(requestedUserId);
     const items = this.store.favorites
       .filter((item) => item.userId === userId && (!type || item.targetType === type))
       .map((item) => {
@@ -2018,8 +2026,8 @@ export class PublicController {
   }
 
   @Delete('favorites/:id')
-  async deleteFavoriteItem(@Param('id') id: string) {
-    this.store.removeFavoriteById(this.store.getDemoUserId(), id);
+  async deleteFavoriteItem(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    this.store.removeFavoriteById(requireRuntimeUserId(requestedUserId), id);
     await this.store.persistAndFlush();
     return { ok: true };
   }
@@ -2169,10 +2177,11 @@ export class PublicController {
   }
 
   @Get('feedback')
-  feedbackTickets() {
+  feedbackTickets(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
     return {
       items: this.store.feedbackTickets
-        .filter((item) => item.userId === this.store.getDemoUserId())
+        .filter((item) => item.userId === userId)
         .map((item) => this.store.decorateFeedbackTicket(item)),
     };
   }

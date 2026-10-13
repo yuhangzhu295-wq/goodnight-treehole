@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { createApiTestApp, waitForAiJob, dapiConfigured } from './helpers';
+import { createApiTestApp, waitForAiJob, dapiConfigured, demoUserHeaders } from './helpers';
 import { StoreService, type AIJob } from '../../apps/api/src/store.service';
 
 describe('front private publish business flow', () => {
@@ -38,12 +38,12 @@ describe('front private publish business flow', () => {
     expect(created.body.next).toBe('/pages/diary/index');
     expect(await prisma.aIJob.count()).toBe(jobsBefore + 1);
 
-    await request(server).get('/api/v1/posts').expect((response) => {
+    await request(server).get('/api/v1/posts').set(await demoUserHeaders()).expect((response) => {
       expect(response.body.items.some((item: any) => item.content === content)).toBe(false);
     });
     let linkedDiary = false;
     for (let attempt = 0; attempt < 20 && !linkedDiary; attempt += 1) {
-      const diaries = await request(server).get('/api/v1/diaries').expect(200);
+      const diaries = await request(server).get('/api/v1/diaries').set(await demoUserHeaders()).expect(200);
       linkedDiary = diaries.body.items.some((item: any) => item.id === created.body.diary.id && item.hasLetter);
       if (!linkedDiary) await new Promise((resolve) => setTimeout(resolve, 100));
     }

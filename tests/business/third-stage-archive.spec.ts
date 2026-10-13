@@ -116,7 +116,10 @@ describe('third-stage journey archive business loop', () => {
       .set('x-goodnight-user-id', await identityFor(demo))
       .expect(201);
     expect(exported.body.item.asset).toMatchObject({ usageType: 'journey-archive-export', status: 'ready' });
-    const file = await request(server).get(exported.body.item.downloadUrl).expect(200);
+    const file = await request(server)
+      .get(exported.body.item.downloadUrl)
+      .set('x-goodnight-user-id', await identityFor(demo))
+      .expect(200);
     expect(file.headers['content-type']).toContain('application/json');
     expect(file.text).toContain('goodnight-treehole-journey-archive-export/v1');
     expect(file.text).toContain(journeyId);

@@ -73,6 +73,7 @@ describe('persistence durability regression tests', () => {
     // not whether the endpoint returns 200 or 201. Status code must not gate the durability check.
     const saveRes = await request(server)
       .post(`/api/v1/tools/emotion-decompose/${taskId}/save`)
+      .set(await demoUserHeaders())
       .send({});
 
     // Assert durability in PostgreSQL through a fresh PrismaClient immediately after the HTTP response

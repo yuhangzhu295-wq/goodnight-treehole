@@ -53,7 +53,7 @@ describe('third-stage privacy 2.0 business boundaries', () => {
       .expect(201);
     const journeyId = journey.body.journey.id as string;
 
-    await request(server).post('/api/v1/diaries/export').expect(403);
+    await request(server).post('/api/v1/diaries/export').set(await demoUserHeaders()).expect(403);
     await request(server).post(`/api/v1/reports/monthly/${new Date().toISOString().slice(0, 7)}/poster`).set(await demoUserHeaders()).expect(403);
     await request(server).post('/api/v1/memory').set(await demoUserHeaders()).send({ title: '有限记忆', content: '这条记忆必须经过同意。' }).expect(403);
     await request(server).get(`/api/v1/journeys/${journeyId}/peers`).set(await demoUserHeaders()).expect(403);
@@ -75,7 +75,7 @@ describe('third-stage privacy 2.0 business boundaries', () => {
     };
     await request(server).patch('/api/v1/settings/privacy').set(await demoUserHeaders()).send(allowed).expect(200);
 
-    expect((await request(server).post('/api/v1/diaries/export').expect(201)).body.item.asset).toMatchObject({ status: 'ready' });
+    expect((await request(server).post('/api/v1/diaries/export').set(await demoUserHeaders()).expect(201)).body.item.asset).toMatchObject({ status: 'ready' });
     expect(
       (await request(server).post('/api/v1/memory').set(await demoUserHeaders()).send({ title: '有限记忆', content: '由我自己选择保存。', scope: 'all_ai' }).expect(201)).body.item,
     ).toMatchObject({ title: '有限记忆', status: 'active' });

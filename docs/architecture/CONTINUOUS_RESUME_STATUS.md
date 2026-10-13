@@ -10,7 +10,7 @@ Working tree clean.
 - CI **green** on `c16b71a` (run 38396476874) and on the commits before it. The job runs the
   migration-immutability check, `prisma migrate deploy` on a fresh database, typecheck, lint, unit
   tests, the Batch 1 gate, **the full business suite**, and the baseline-diff gate.
-- Full business suite: **42/42 files, 276 passed / 0 failed / 7 skipped**. Baseline-diff gate
+- Full business suite: **42/42 files, 277 passed / 0 failed / 7 skipped**. Baseline-diff gate
   `Total Failures 0 | Known Baseline 0 | New Regressions 0`, exit 0.
 - `pnpm typecheck` clean; `pnpm lint` 0 errors (9 pre-existing warnings); `pnpm test:unit` 36/36.
 
@@ -95,7 +95,7 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
 4. **Fixed** (`207b514`) — the journey root lock is unconditional in both entry points.
 5. **Fixed** — RecoverySnapshot registered with three exits; graduation and the derived snapshot are
    one atomic transaction.
-6. **Open (P1)** — Self routes still silently fall back to the demo user.
+6. **CLOSED** — the fallback was on 21 C-end routes, none of them Self routes (the ones the finding cited are peer routes and were already fixed). Measured: six of six read routes answered 200 without a credential and one served a real record. All 21 now require an identity; two remaining fallbacks are intentional (`/auth/demo`, and an admin route behind `this.admin(auth)`). See `DEMO_USER_FALLBACK_CLOSURE.md`. Seven specs were relying on the removed fallback and now send the demo identity.
 7. **Open (P1)** — the audited admin memory read has no route, and the admin table still expands
    content from list rows.
 8. **Open (P1)** — `MemoryCenter.vue` does not call the new re-consent route, so the approved flow is
