@@ -3,14 +3,14 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-**HEAD at this writing:** `52ff3e7` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
+**HEAD at this writing:** `c16b71a` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
 **Last verified evidence:**
-- CI **green** on `52ff3e7` (run 38251486463) and on the two commits before it. The job runs the
+- CI **green** on `c16b71a` (run 38396476874) and on the commits before it. The job runs the
   migration-immutability check, `prisma migrate deploy` on a fresh database, typecheck, lint, unit
   tests, the Batch 1 gate, **the full business suite**, and the baseline-diff gate.
-- Full business suite: **41/41 files, 272 passed / 0 failed / 7 skipped**. Baseline-diff gate
+- Full business suite: **42/42 files, 276 passed / 0 failed / 7 skipped**. Baseline-diff gate
   `Total Failures 0 | Known Baseline 0 | New Regressions 0`, exit 0.
 - `pnpm typecheck` clean; `pnpm lint` 0 errors (9 pre-existing warnings); `pnpm test:unit` 36/36.
 
@@ -29,7 +29,7 @@ Working tree clean.
 | 9 | B3 MessageToFutureSelf + worker (A6: consent read inside the claim transaction) | implemented, tested | `batch3-future-self-authority.spec.ts` |
 | 10 | **B3-R11 revocable anonymous session** (P0: identity spoofing) | implemented, live-verified | credential `<sessionId>.<secret>`, only `sha256(secret)` stored, DB lookup so instances agree and restarts preserve identity; expiry / per-device revocation / rotation. `batch3-identity-credential.spec.ts` (16), `docs/architecture/IDENTITY_CREDENTIAL_STORAGE.md` |
 | 11 | **Legacy sweep data loss (P0)** | fixed, reproduced, mutation-proven | reproduced on the real DB (`moodCount 13 → 0`); ownership rule in `relational-runtime.mapper.ts`; `tests/business/legacy-sweep-ownership.spec.ts` 4/4; **M50** proven. `docs/architecture/LEGACY_SWEEP_DATA_LOSS_AUDIT.md` |
-| 12 | Batch 3 final gate | **not run** | `PERSISTENCE_BATCH3_STABLE` stays **false** |
+| 12 | Batch 3 final gate | **1 of 8 gates established** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. The other seven are not established; `PERSISTENCE_BATCH3_STABLE` stays **false** |
 | 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **not started** | the audit's §3.1 lists them with writer counts; the ownership rule closed the exposure, this removes the dual writer |
 | 14 | Test database isolation | partial | the runner leases a database per file; the design's seed/fixture rules are not done |
 | 15 | CI | **green** | see above; the tolerated-failure baseline was **cleared**, so any failure is now a new regression |
@@ -74,6 +74,12 @@ commit/push.
 
 Details: `docs/architecture/PEER_JOURNEY_CONTRACT_FIXES.md`.
 
+3. **`FutureSelf.vue` blanked itself when the optional context was refused** (A8). The letter list
+   and three optional context lists loaded in one `Promise.all`, and `/me/recovery` is gated on
+   `allowRecoveryData`, so turning that consent off hid letters that were independently readable.
+   The letters are now the critical path and the optional context degrades on its own. Pinned by a
+   test in `batch3-future-self-authority.spec.ts`.
+
 Six specs were **stale**, not the product: two asserted single-sided consent (the contract is
 two-sided), two called endpoints with no credential (relying on the demo fallback R-06 removed), one
 read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **skipped** via
@@ -110,6 +116,12 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
   `WAITING_REVIEW` rather than self-approved.
 
 ## Environment facts that cost time (read before the next session)
+
+0. **WSL2 suspends and the forwarded ports die with it.** `ensure-infra.mjs` probes TCP properly
+   and reports the containers reachable, but the VM can suspend seconds later, so the next process
+   sees `ECONNREFUSED`. Hold it awake for the whole run, e.g. `(wsl.exe -e sleep 1200 &)` before
+   `ensure-infra.mjs`, and pass an explicit IPv4 `DATABASE_URL` (`127.0.0.1`, not `localhost`)
+   to the test runner, which otherwise prefers the `.env` value.
 
 1. **The local API is not in watch mode.** It runs as `npx tsx src/main.ts`, so after editing
    `apps/api/src` the endpoint keeps returning old results until the process on port 3000 is killed
