@@ -905,7 +905,7 @@ Leased databases created by tracked `prisma migrate deploy`, two independently i
 
 | Gate | Evidence needed | At reviewed HEAD |
 | --- | --- | --- |
-| `SELF_FULL_FLUSH=false` | SQL trace per operation + forced legacy flush: no snapshot writes/sweeps on the ten tables | **Not established** |
+| `SELF_FULL_FLUSH=false` | SQL trace per operation + forced legacy flush: no snapshot writes/sweeps on the ten tables | **ESTABLISHED** — `tests/business/batch3-self-full-flush.spec.ts` (4/4) with statement-level triggers on all ten tables, probe self-tests, and a discriminating mutation. See `BATCH3_SELF_FULL_FLUSH_GATE.md`, including the stated limitation that a single guard's removal is not observable |
 | `SELF_DUAL_WRITER=false` | complete writer inventory, permitted cross-boundary detaches, worker cutover, SQL trace | **Not established** |
 | `MEMORY_STATE_PASS=true` | four eligibility predicates; the §0.5/A5 contract — allowed operations per state, effective expiry, the explicit re-consent action, irreversible delete, the named `MemoryCenter.vue` change, and the AI linearization point; expiry/revocation races and guard mutations | **Blocked by S2 + A5** |
 | `DECISION_STATE_PASS=true` | the states that exist, plus `outcome` as an **optional** state (§0.5/A1, §0.6/A1) — **not** a mandatory six-state walk; the §0.6/A2 predicates and the superseded-cooldown terminal state; DB-time deadline transition; worker/manual/cooldown races and mutations | **Blocked by S3 + A1/A2** |
