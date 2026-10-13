@@ -255,4 +255,36 @@ describe('Batch 3: FutureSelf database authority (B3-S4)', () => {
 
     await prisma.decisionRecord.delete({ where: { id: foreignDecision.id } }).catch(() => undefined);
   });
+
+  it('the letters stay readable when the optional recovery context is refused (A8)', async () => {
+    // A seeded user: resolveRuntimeUserId also checks the store's in-memory user list, which is
+    // hydrated at boot, so an id created after boot answers 404 on the privacy route.
+    const headers = { 'x-goodnight-user-id': await identityFor(owner) };
+
+    // The letters are the page; the recovery context is optional. The view used to load both in one
+    // Promise.all, so a refused optional read blanked the page and hid the letters that were
+    // independently readable. This pins the independence the fix relies on.
+    try {
+      await request(server)
+        .patch('/api/v1/me/privacy')
+        .set(headers)
+        .send({ allowRecoveryData: false })
+        .expect(200);
+
+      await request(server)
+        .post('/api/v1/future-messages')
+        .set(headers)
+        .send({ content: '这封信应当仍然读得到', deliverAt: new Date(Date.now() + 86_400_000).toISOString() })
+        .expect(201);
+
+      const recovery = await request(server).get('/api/v1/me/recovery').set(headers);
+      expect(recovery.status).toBe(403);
+
+      const messages = await request(server).get('/api/v1/future-messages').set(headers).expect(200);
+      expect(messages.body.items.map((item: { content: string }) => item.content)).toContain('这封信应当仍然读得到');
+    } finally {
+      // Other tests in this file share the leased database, so the consent goes back.
+      await request(server).patch('/api/v1/me/privacy').set(headers).send({ allowRecoveryData: true });
+    }
+  });
 });

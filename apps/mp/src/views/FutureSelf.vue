@@ -29,6 +29,8 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const notice = ref('');
+/** Set when an optional context list could not be read, so it is not mistaken for "no records". */
+const contextNotice = ref('');
 
 const contextOptions = computed(() => {
   if (contextType.value === 'journey') {
@@ -91,21 +93,32 @@ const scheduledDeliveryText = computed(() => {
 async function load() {
   loading.value = true;
   error.value = '';
+  contextNotice.value = '';
+  // The letters are the page; the three context lists are optional extras. They used to load in one
+  // `Promise.all` with the letters, so turning off 恢复 data made `/me/recovery` reject and blanked
+  // the whole page even though the letters were independently readable. The optional context now
+  // degrades on its own, and says so instead of looking like "you have no records".
   try {
-    const [messageResult, journeyResult, decisionResult, recoveryResult] = await Promise.all([
-      api.get<any>('/api/v1/future-messages'),
-      api.get<any>('/api/v1/journeys'),
-      api.get<any>('/api/v1/decisions'),
-      api.get<any>('/api/v1/me/recovery'),
-    ]);
+    const messageResult = await api.get<any>('/api/v1/future-messages');
     items.value = messageResult.items ?? [];
-    journeys.value = journeyResult.items ?? [];
-    decisions.value = decisionResult.items ?? [];
-    recoveries.value = recoveryResult.items ?? [];
   } catch (cause: any) {
     error.value = cause?.message ?? '未来信暂时没有打开';
   } finally {
     loading.value = false;
+  }
+
+  const optional = await Promise.allSettled([
+    api.get<any>('/api/v1/journeys'),
+    api.get<any>('/api/v1/decisions'),
+    api.get<any>('/api/v1/me/recovery'),
+  ]);
+  const [journeyResult, decisionResult, recoveryResult] = optional;
+  journeys.value = journeyResult.status === 'fulfilled' ? journeyResult.value.items ?? [] : [];
+  decisions.value = decisionResult.status === 'fulfilled' ? decisionResult.value.items ?? [] : [];
+  recoveries.value = recoveryResult.status === 'fulfilled' ? recoveryResult.value.items ?? [] : [];
+  const unavailable = optional.filter((result) => result.status === 'rejected').length;
+  if (unavailable) {
+    contextNotice.value = `有 ${unavailable} 类关联记录暂时读不到，这封信仍然可以单独保存。`;
   }
 }
 
@@ -202,6 +215,7 @@ onMounted(() => {
             <option value="">请选择</option>
             <option v-for="option in contextOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
           </select>
+          <small v-if="contextNotice" class="context-notice" role="status">{{ contextNotice }}</small>
         </label>
       </fieldset>
 
@@ -470,6 +484,10 @@ onMounted(() => {
   gap: 6px;
   color: var(--gn-muted);
   font-size: 12px;
+}
+
+.context-notice {
+  color: var(--gn-gold, #b45309);
 }
 
 .future-save {
