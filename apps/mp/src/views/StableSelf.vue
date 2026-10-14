@@ -136,22 +136,22 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page stable-self-page">
-    <header class="stable-header">
+    <header class="stable-bar">
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <div class="header-titles">
-        <h1 class="stable-title">清醒时候的我</h1>
-        <p class="stable-subtitle">记录状态良好时的习惯与支持锚点，供低谷期参考</p>
-      </div>
+      <h1 class="stable-bar-title">清醒时候的我</h1>
     </header>
+
+    <div class="stable-lead">
+      <h2>清醒时候的提醒</h2>
+      <p>记录状态良好时的习惯与支持锚点，供低谷期参考</p>
+    </div>
+
     <p v-if="loading" class="state-note">正在读取你的提醒卡…</p>
-    <form v-else class="stable-paper" @submit.prevent="save">
-      <section class="stable-section stable-description">
-        <div class="section-title">
-          <b>1</b>
-          <h2>我想变成什么样的人</h2>
-        </div>
+    <form v-else class="stable-form" @submit.prevent="save">
+      <section class="stable-section">
+        <h2 class="section-title">我想变成什么样的人</h2>
         <textarea
           v-model="profile.stableDescription"
           maxlength="500"
@@ -159,28 +159,46 @@ onMounted(load);
         ></textarea>
       </section>
       <section class="stable-section">
-        <div class="section-title">
-          <b>2</b>
-          <h2>当我快失控时，请先提醒我</h2>
-        </div>
-        <div class="stable-choices">
+        <h2 class="section-title">当我快失控时，请先提醒我</h2>
+        <div class="option-rows">
           <button
             v-for="item in anchors"
             :key="item"
             type="button"
+            class="option-row"
             :class="{ selected: profile.stabilityAnchors.includes(item) }"
             @click="toggle('stabilityAnchors', item)"
           >
-            {{ item }}
+            <span class="option-check" aria-hidden="true">{{
+              profile.stabilityAnchors.includes(item) ? '✓' : ''
+            }}</span>
+            <span class="option-label">{{ item }}</span>
           </button>
-          <span v-for="item in profile.stabilityAnchors.filter((value) => !anchors.includes(value))" :key="item">{{ item
-          }}<button type="button" :aria-label="`移除${item}`" @click="toggle('stabilityAnchors', item)">
-            ×
-          </button></span>
-          <button v-if="editingKey !== 'stabilityAnchors'" type="button" @click="editingKey = 'stabilityAnchors'">
-            ＋ 补充
-          </button>
+          <div
+            v-for="item in profile.stabilityAnchors.filter((value) => !anchors.includes(value))"
+            :key="item"
+            class="option-row selected"
+          >
+            <span class="option-check" aria-hidden="true">✓</span>
+            <span class="option-label">{{ item }}</span>
+            <button
+              class="option-remove"
+              type="button"
+              :aria-label="`移除${item}`"
+              @click="toggle('stabilityAnchors', item)"
+            >
+              ×
+            </button>
+          </div>
         </div>
+        <button
+          v-if="editingKey !== 'stabilityAnchors'"
+          class="add-trigger"
+          type="button"
+          @click="editingKey = 'stabilityAnchors'"
+        >
+          ＋ 补充
+        </button>
         <div v-if="editingKey === 'stabilityAnchors'" class="stable-add">
           <input
             v-model="custom.stabilityAnchors"
@@ -190,32 +208,51 @@ onMounted(load);
           /><button type="button" @click="add('stabilityAnchors')">添加</button>
         </div>
       </section>
+
+      <p class="trust-note">这只是你自己记录过的判断，不是 AI 对你的结论。</p>
       <section class="stable-section">
-        <div class="section-title">
-          <b>3</b>
-          <h2>对我重要的人和事</h2>
-        </div>
-        <div class="stable-choices">
+        <h2 class="section-title">对我重要的人和事</h2>
+        <div class="option-rows">
           <button
             v-for="contact in contacts"
             :key="contact.id"
             type="button"
+            class="option-row"
             :class="{ selected: profile.contactPeople.includes(contact.nickname) }"
             @click="toggle('contactPeople', contact.nickname)"
           >
-            {{ contact.nickname }}
+            <span class="option-check" aria-hidden="true">{{
+              profile.contactPeople.includes(contact.nickname) ? '✓' : ''
+            }}</span>
+            <span class="option-label">{{ contact.nickname }}</span>
           </button>
-          <span
+          <div
             v-for="item in profile.contactPeople.filter(
               (value) => !contacts.some((contact) => contact.nickname === value),
             )"
             :key="item"
-          >{{ item
-          }}<button type="button" :aria-label="`移除${item}`" @click="toggle('contactPeople', item)">×</button></span>
-          <button v-if="editingKey !== 'contactPeople'" type="button" @click="editingKey = 'contactPeople'">
-            ＋ 补充
-          </button>
+            class="option-row selected"
+          >
+            <span class="option-check" aria-hidden="true">✓</span>
+            <span class="option-label">{{ item }}</span>
+            <button
+              class="option-remove"
+              type="button"
+              :aria-label="`移除${item}`"
+              @click="toggle('contactPeople', item)"
+            >
+              ×
+            </button>
+          </div>
         </div>
+        <button
+          v-if="editingKey !== 'contactPeople'"
+          class="add-trigger"
+          type="button"
+          @click="editingKey = 'contactPeople'"
+        >
+          ＋ 补充
+        </button>
         <div v-if="editingKey === 'contactPeople'" class="stable-add">
           <input
             v-model="custom.contactPeople"
@@ -253,23 +290,22 @@ onMounted(load);
           </button>
         </div>
       </details>
-      <section class="stable-section reminder-section">
-        <div class="section-title">
-          <b>4</b>
-          <h2>一句把我拉回现实的话</h2>
-        </div>
+      <section class="stable-section">
+        <h2 class="section-title">一句把我拉回现实的话</h2>
         <textarea
           v-model="profile.realityReminder"
           maxlength="500"
           placeholder="写一句你清醒时愿意对难受的自己说的话。"
         ></textarea>
       </section>
-      <p v-if="error" class="error-note" role="alert">{{ error }}</p>
-      <p v-if="saved" class="saved-note" role="status">{{ saved }}</p>
-      <button class="stable-save" data-testid="stable-self-save" :disabled="saving" type="submit">
-        {{ saving ? '正在保存…' : '保存稳定参考卡' }}
-      </button>
       <small v-if="currentId" class="version-note">最近保存：{{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
+      <div class="stable-cta">
+        <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+        <p v-if="saved" class="saved-note" role="status">{{ saved }}</p>
+        <button class="stable-save" data-testid="stable-self-save" :disabled="saving" type="submit">
+          {{ saving ? '正在保存…' : '保存稳定参考卡' }}
+        </button>
+      </div>
     </form>
   </section>
 </template>
@@ -285,156 +321,171 @@ onMounted(load);
   flex-direction: column;
   gap: 12px;
   overflow-x: hidden;
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  /* Room for the fixed action bar and the floating tab bar, so the last section and the
+     version note are never covered. */
+  padding: 12px 16px calc(var(--gn-tabbar-reserve) + 120px + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
 }
 
-.stable-header {
+/* A stable bar with a bare chevron and the page title, then the page's own heading, per the design. */
+.stable-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 4px 4px;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  margin: 0 -16px 4px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .back-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  margin-top: 2px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--gn-ink);
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.header-titles {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.stable-title {
+.stable-bar-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
   color: var(--gn-ink);
 }
 
-.stable-subtitle {
-  margin: 4px 0 0;
+.stable-lead h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--gn-ink);
+}
+
+.stable-lead p {
+  margin: 6px 0 0;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--gn-muted);
 }
 
-.stable-paper {
+.stable-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  padding: 16px;
-  background: var(--gn-paper);
+  gap: 4px;
 }
 
 .stable-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-bottom: 12px;
+  gap: 10px;
+  padding: 14px 0;
   border-bottom: 1px solid var(--gn-line);
 }
 
 .section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.section-title b {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--gn-paper-warm);
-  border: 1px solid var(--gn-line);
-  color: var(--gn-leaf);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.section-title h2 {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
   color: var(--gn-ink);
 }
 
 .stable-section textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 72px;
+  min-height: 120px;
   resize: none;
   border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  padding: 10px 12px;
-  background: var(--gn-paper-warm);
+  border-radius: var(--gn-radius-card);
+  padding: 12px 14px;
+  background: var(--gn-paper);
   color: var(--gn-ink);
   font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-.stable-choices,
-.saved-tags {
+.stable-section textarea::placeholder {
+  color: var(--gn-muted);
+}
+
+.option-rows {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
 }
 
-.stable-choices > button,
-.stable-choices > span,
-.saved-tags button {
-  display: inline-flex;
+.option-row {
+  display: flex;
   align-items: center;
-  min-height: 30px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  padding: 0 10px;
-  background: var(--gn-paper-warm);
+  gap: 12px;
+  width: 100%;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--gn-line);
+  background: transparent;
   color: var(--gn-ink);
   font: inherit;
-  font-size: 12px;
+  text-align: left;
   cursor: pointer;
 }
 
-.stable-choices > button.selected {
-  border-color: var(--gn-leaf);
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
-  font-weight: 500;
+.option-row:last-child {
+  border-bottom: 0;
 }
 
-.stable-choices > span {
-  gap: 4px;
+.option-check {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 15px;
+  line-height: 1;
 }
 
-.stable-choices > span button {
+.option-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--gn-ink);
+  overflow-wrap: anywhere;
+}
+
+.option-remove {
+  flex-shrink: 0;
   border: 0;
-  padding: 0;
+  padding: 0 2px;
   background: transparent;
   color: var(--gn-muted);
-  font-size: 14px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.add-trigger {
+  align-self: flex-start;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--gn-leaf-deep);
+  font: inherit;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -448,79 +499,111 @@ onMounted(load);
 .daily-outline input {
   box-sizing: border-box;
   width: 100%;
-  min-height: 34px;
+  min-height: 40px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
-  padding: 6px 10px;
-  background: var(--gn-paper-warm);
+  padding: 8px 12px;
+  background: var(--gn-paper);
   color: var(--gn-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .stable-add button {
-  border: 1px solid var(--gn-line);
+  border: 1px solid var(--gn-leaf);
   border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  color: var(--gn-ink);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 
-.daily-outline {
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  padding: 10px 12px;
+/* The design's trust note: a bare muted block, no card border. */
+.trust-note {
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  padding: 12px 14px;
   background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.daily-outline {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .daily-outline summary {
   cursor: pointer;
   color: var(--gn-ink);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .daily-outline label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 12px;
   color: var(--gn-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .saved-tags {
-  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .saved-tags button {
-  min-height: 24px;
-  font-size: 11px;
-}
-
-.reminder-section {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.reminder-section textarea {
-  min-height: 60px;
-}
-
-.stable-save {
-  display: block;
-  width: 100%;
-  min-height: 40px;
-  margin-top: 6px;
-  border: 1px solid var(--gn-leaf);
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
+  padding: 0 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Fixed rather than sticky: .goodnight-page sets overflow-x: hidden, so the page is its own
+   scroll container and a sticky child has no scrollport to stick to. */
+.stable-cta {
+  position: fixed;
+  right: 0;
+  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gn-line);
+  background: var(--gn-bg);
+}
+
+.stable-cta > * {
+  width: 100%;
+  max-width: 398px;
+}
+
+/* The design's primary action spans the bar. */
+.stable-save {
+  min-height: 52px;
+  border: 0;
+  border-radius: var(--gn-radius-card);
   background: var(--gn-leaf);
   color: #fff;
   font: inherit;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -534,24 +617,24 @@ onMounted(load);
 .saved-note {
   margin: 0;
   border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1.4;
+  text-align: center;
 }
 
 .state-note {
-  background: var(--gn-paper);
+  background: var(--gn-paper-warm);
   color: var(--gn-muted);
 }
 
 .error-note {
-  background: var(--gn-paper);
+  background: var(--gn-paper-warm);
   color: var(--gn-danger);
 }
 
 .saved-note {
-  background: var(--gn-paper);
+  background: var(--gn-leaf-soft);
   color: var(--gn-leaf-deep);
 }
 
@@ -564,6 +647,18 @@ onMounted(load);
 
 @media (max-width: 374px) {
   .stable-self-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .stable-bar {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .stable-cta {
     padding-left: 12px;
     padding-right: 12px;
   }
