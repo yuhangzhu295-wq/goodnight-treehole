@@ -594,3 +594,43 @@ a self-tested detector; this was the only collision.
 timeline all render in the V2 style, and the timeline shows real entries (`毕业同意复现`, `关系 · 正在计划`,
 第 2 天, two recorded events). The **stabilize step was not captured**; its markup and behaviour were
 preserved but its appearance is unverified.
+
+## UI2-016 — A failed profile request renders the whole page blank (FOUND, NOT FIXED)
+
+**Severity:** P1 — a blank screen is the worst failure mode: no message, no retry, not even the bar.
+
+`MeProfile.vue`'s root element is `<section ... v-if="profile">`, and its `load()` has no `try/catch`:
+
+```ts
+const profile = ref<any>();
+async function load() {
+  profile.value = (await api.get<any>('/api/v1/me/profile')).item;
+}
+```
+
+So when `GET /me/profile` fails, `profile` stays `undefined`, the root never renders, and the page is
+an empty white screen with an unhandled promise rejection. Observed on `emulator-5554` while the API
+was down: a completely blank frame, and logcat showed only the API error, no JS crash.
+
+**This is pre-existing, not a restyle regression.** `git show HEAD:apps/mp/src/views/MeProfile.vue`
+has the same `v-if="profile"` on its root, and the same missing catch.
+
+**Fix (not applied):** keep the bar always rendered, gate only the content, and show the error with a
+retry — the shape used elsewhere on this branch. My attempt broke the template's tag balance (the
+build failed with `Invalid end tag`) and was reverted rather than left half-done.
+
+**Worth checking across the app:** any other view whose root is gated on a loaded value has the same
+failure mode. A blank page should be a deliberate empty state, never the default when a request fails.
+
+## MeProfile — restyle discarded, needs redoing
+
+A restyle was produced and verified at code level (build ✓, typecheck ✓, its single testid
+`front-profile-back` preserved, script untouched, CSS inside the style block). It adopted the design's
+chrome copy — bar title 匿名资料, section titles 基本资料 / 账号安全, row labels 昵称 / 匿名编号 /
+账号状态 — following the precedent already set by the reviewed `Me.vue`, while omitting the design's
+device-management rows, its explainer row, its security note and its 保存资料 button (no endpoint
+exists for that button, so it would be a fake control).
+
+That work was **discarded**: while fixing UI2-016 I broke the template, and my `git checkout` to
+restore a green build also removed the restyle, which had never been committed. The page is back at
+HEAD. It needs redoing, and the fix for UI2-016 should be made in the same pass.
