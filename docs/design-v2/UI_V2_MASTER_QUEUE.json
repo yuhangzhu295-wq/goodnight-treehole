@@ -768,18 +768,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
+      "screenshot": "artifacts/ui-v2/android/R3_MeProfile_after.png",
       "issue": "UI2-016 FIXED: the root was `<section v-if=\"profile\">` with no try/catch, so a failed profile request rendered a completely blank page. The root and the bar now always render, only the content is gated, and a failure shows a message with a retry.",
       "gitCommit": "",
       "status": "PENDING",
       "implemented": "yes",
-      "rendered": "no",
+      "rendered": "yes",
       "interactionTested": "no",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Restyle adopted from the design plus the UI2-016 fix. VERIFIED at code level: build ✓, typecheck ✓, `front-profile-back` preserved, the API call byte-identical, the root no longer gated, the file ends with </style> and its tags balance (the build is the proof — vue-tsc does not check template structure). The design's chrome copy was adopted (bar title 匿名资料, section titles 基本资料/账号安全, row labels 昵称/匿名编号/账号状态/匿名身份说明), following the precedent of the already-reviewed Me.vue. NOT VERIFIED visually: the emulator shut down mid-render. Deliberate omissions, each because no real action exists behind it: the design's 保存资料 CTA (there is no PATCH/PUT for the profile), its 已登录设备 / 查看与撤销会话 row (listActiveForUser returns no deviceId while revoke-device requires one, and there is no per-session revoke route), its 匿名身份说明 chevron (no explaining page), and the row chevrons. The root class also dropped `goodnight-page`, which returns the shell's safe-area top padding so the bar clears the status bar, and drops the 130px tab-bar reserve that this route does not need."
+      "note": "Restyle adopted from the design plus the UI2-016 fix. VERIFIED at code level: build ✓, typecheck ✓, `front-profile-back` preserved, the API call byte-identical, the root no longer gated, the file ends with </style> and its tags balance (the build is the proof — vue-tsc does not check template structure). The design's chrome copy was adopted (bar title 匿名资料, section titles 基本资料/账号安全, row labels 昵称/匿名编号/账号状态/匿名身份说明), following the precedent of the already-reviewed Me.vue. NOT VERIFIED visually: the emulator shut down mid-render. Deliberate omissions, each because no real action exists behind it: the design's 保存资料 CTA (there is no PATCH/PUT for the profile), its 已登录设备 / 查看与撤销会话 row (listActiveForUser returns no deviceId while revoke-device requires one, and there is no per-session revoke route), its 匿名身份说明 chevron (no explaining page), and the row chevrons. The root class also dropped `goodnight-page`, which returns the shell's safe-area top padding so the bar clears the status bar, and drops the 130px tab-bar reserve that this route does not need. RENDERED AND VERIFIED: the capture is the API-failure state, which is the exact case that used to produce a blank page. The page now shows the bar (‹ 匿名资料), the message 服务暂时不可用，请稍后重试 and a 重新读取 retry button — UI2-016 is fixed in the wild, not just in the code. The loaded (success) state is still unverified because the API was down for the whole capture window."
     },
     {
       "id": "UI-V2-30",
@@ -1066,7 +1066,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T05:21:17.178Z",
+  "updatedAt": "2026-10-14T07:06:01.566Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
