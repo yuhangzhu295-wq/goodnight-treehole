@@ -18,6 +18,21 @@ const options = [
   { value: 'yes', label: '做到了' },
 ];
 const signals = ref<Record<string, string>>(Object.fromEntries(fields.map((field) => [field.key, 'partial'])));
+/** Which change the page is asking about. The design shows one topic at a time; the six indicators
+ *  and their three states are all still here, so `signals` keeps its exact shape. */
+const activeField = ref(fields[0].key);
+const activeFieldLabel = computed(() => fields.find((field) => field.key === activeField.value)?.label ?? '');
+const activePlaceholder = computed(() => {
+  const prompts: Record<string, string> = {
+    food: '今天吃了什么？可以只写一句。',
+    outside: '今天出门了吗？见了什么样的光？',
+    humanContact: '今天和谁说过话？可以只写一句。',
+    sleep: '今天睡得怎么样？可以只写一句。',
+    mustDo: '今天做完的那件事是什么？',
+    comfort: '今天做了什么让自己舒服一点的事？',
+  };
+  return prompts[activeField.value] ?? '记录今天的真实状态，可以只写一句。';
+});
 const items = ref<any[]>([]);
 const summary = ref('');
 const journeyId = ref<string>();
@@ -32,6 +47,21 @@ const recent = computed(() =>
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, 7),
 );
+/** The last seven days, from the real records. A day with a record is marked; a day without is not
+ *  scored or coloured — the brief forbids turning this into a metric. */
+const week = computed(() => {
+  const recordedDays = new Set(items.value.map((item) => new Date(item.createdAt).toDateString()));
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  return Array.from({ length: 7 }, (_, offset) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - offset));
+    return {
+      key: date.toISOString().slice(0, 10),
+      weekday: weekdays[date.getDay()],
+      recorded: recordedDays.has(date.toDateString()),
+    };
+  });
+});
 const latestChange = computed(() => {
   if (recent.value.length < 2) return '再记录一次后，这里会按每一项告诉你发生了什么变化。';
   const [latest, previous] = recent.value;
@@ -77,6 +107,18 @@ function visibleSignals(item: any) {
   );
 }
 
+/** The row's own words if the person wrote any, otherwise what they marked as done. */
+function historyTitle(item: any) {
+  const written = typeof item.summary === 'string' ? item.summary.trim() : '';
+  return written || visibleSignals(item);
+}
+
+/** The design's second line is date · category; the category is the first thing marked done. */
+function historyKind(item: any) {
+  const done = fields.find((field) => item.signals?.[field.key] === 'yes');
+  return done?.label ?? '生活记录';
+}
+
 async function load() {
   error.value = '';
   privacyBlocked.value = false;
@@ -118,12 +160,9 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page recovery-page">
-    <header class="recovery-header">
+    <header class="recovery-bar">
       <button class="back-btn" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
-      <div class="header-titles">
-        <h1 class="recovery-title">生活恢复记录</h1>
-        <p class="recovery-subtitle">记录日常生活基本指标，持续观察恢复进展</p>
-      </div>
+      <h1 class="recovery-bar-title">生活恢复</h1>
     </header>
     <section v-if="privacyBlocked" class="privacy-gate" data-testid="recovery-privacy-gate">
       <h2>先由你决定要不要保存</h2>
@@ -131,52 +170,76 @@ onMounted(load);
       <button @click="router.push('/pages/settings/privacy')">去隐私设置</button>
     </section>
     <template v-else>
+      <div class="recovery-lead">
+        <h2>今天的状态</h2>
+        <p>记录现实里的变化，不给自己打分。</p>
+      </div>
+
       <p v-if="error" class="error-note">{{ error }}</p>
-      <section class="recovery-paper">
-        <h2>今日指标记录</h2>
-        <article v-for="field in fields" :key="field.key" class="signal-row">
-          <div>
-            <span class="signal-icon" aria-hidden="true">{{ field.icon }}</span><strong>{{ field.label }}</strong>
+
+      <!-- The design asks one topic at a time. All six indicators and their three states remain, so
+           the signals payload the API receives is unchanged. -->
+      <section class="recovery-block">
+        <h3>今天有哪些变化？</h3>
+        <div class="topic-chips">
+          <button
+            v-for="field in fields"
+            :key="field.key"
+            type="button"
+            :class="{ selected: activeField === field.key }"
+            @click="activeField = field.key"
+          >
+            {{ field.label }}
+          </button>
+        </div>
+      </section>
+
+      <section class="recovery-block">
+        <h3>{{ activeFieldLabel }}</h3>
+        <fieldset class="state-options">
+          <legend class="sr-only">{{ activeFieldLabel }}</legend>
+          <label v-for="option in options" :key="option.value">
+            <input v-model="signals[activeField]" type="radio" :name="activeField" :value="option.value" />
+            <span>{{ option.label }}</span>
+          </label>
+        </fieldset>
+        <label class="note-field">
+          <span class="sr-only">今天的记录</span>
+          <textarea id="recovery-summary" v-model="summary" maxlength="500" :placeholder="activePlaceholder" />
+        </label>
+      </section>
+
+      <section class="recovery-block">
+        <h3>最近一周</h3>
+        <div class="week-grid">
+          <div v-for="day in week" :key="day.key" class="week-day">
+            <span class="week-label">{{ day.weekday }}</span>
+            <span class="week-mark" :class="{ recorded: day.recorded }">{{ day.recorded ? '✓' : '·' }}</span>
           </div>
-          <fieldset>
-            <legend class="sr-only">{{ field.label }}</legend>
-            <label v-for="option in options" :key="option.value"><input v-model="signals[field.key]" type="radio" :name="field.key" :value="option.value" /><span>{{
-              option.label
-            }}</span></label>
-          </fieldset>
-        </article>
+        </div>
+        <p class="block-note">{{ latestChange }}</p>
       </section>
-      <section class="change-note">
-        <label for="recovery-summary">今日变化与备注（可选）</label><textarea
-          id="recovery-summary"
-          v-model="summary"
-          maxlength="500"
-          placeholder="记录今天状态或日常细节…"
-        ></textarea>
-      </section>
-      <button class="recovery-save" data-testid="recovery-save" :disabled="saving" @click="save">
-        {{ saving ? '正在保存…' : '保存今天的记录' }}
-      </button>
-      <section class="recent-change">
-        <h2>最近一次变化</h2>
-        <p>{{ latestChange }}</p>
-      </section>
-      <section v-if="stableComparison" class="stable-comparison">
-        <h2>与稳定期参考比对</h2>
-        <p>{{ stableComparison }}</p>
-      </section>
-      <section class="recent-days">
-        <h2>最近记录</h2>
+
+      <section class="recovery-block">
+        <h3>以前的记录</h3>
         <p v-if="!recent.length" class="empty">还没有恢复记录。今天可以先留下第一条。</p>
-        <article v-for="item in recent" :key="item.id">
-          <div class="recent-body">
-            <strong>{{ dayLabel(item.createdAt) }}</strong>
-            <p>{{ visibleSignals(item) }}</p>
-            <small v-if="item.summary">{{ item.summary }}</small>
-          </div>
-          <em aria-hidden="true">›</em>
-        </article>
+        <div v-else class="history-list">
+          <article v-for="item in recent" :key="item.id" class="history-row">
+            <span class="history-copy">
+              <strong>{{ historyTitle(item) }}</strong>
+              <small>{{ dayLabel(item.createdAt) }} · {{ historyKind(item) }}</small>
+            </span>
+            <em aria-hidden="true">›</em>
+          </article>
+        </div>
+        <p v-if="stableComparison" class="block-note">{{ stableComparison }}</p>
       </section>
+
+      <div class="recovery-cta">
+        <button class="recovery-save" data-testid="recovery-save" :disabled="saving" @click="save">
+          {{ saving ? '正在保存…' : '记录今天' }}
+        </button>
+      </div>
     </template>
   </section>
 </template>
@@ -518,5 +581,264 @@ onMounted(load);
   .signal-row {
     grid-template-columns: minmax(0, 1fr) 156px;
   }
+}
+
+/* --- V2 layout, matching 设计图/16_Recovery.png ---------------------------------------------
+   These come last on purpose: appending inside the block means nothing here silently loses to an
+   older rule for the same selector. */
+
+.recovery-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  margin: 0 -16px 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.recovery-bar-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+/* The design's bar carries a bare chevron, not a bordered button. */
+.recovery-page .back-btn {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 22px;
+}
+
+.recovery-lead h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+  color: var(--gn-ink);
+}
+
+.recovery-lead p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+}
+
+.recovery-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.recovery-block h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.topic-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topic-chips button {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: 10px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.topic-chips button.selected {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
+}
+
+.state-options {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.state-options label {
+  flex: 1;
+}
+
+.state-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.state-options span {
+  display: grid;
+  place-items: center;
+  min-height: 38px;
+  border: 1px solid var(--gn-line);
+  border-radius: 10px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.state-options input:checked + span {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
+}
+
+.state-options input:focus-visible + span {
+  outline: 2px solid var(--gn-leaf-soft);
+  outline-offset: 2px;
+}
+
+.note-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 140px;
+  padding: 14px 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card, 12px);
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: none;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding: 14px 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-card, 12px);
+  background: var(--gn-paper);
+}
+
+.week-day {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.week-label {
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.week-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 14px;
+}
+
+.week-mark.recorded {
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+}
+
+.block-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--gn-muted);
+}
+
+.history-list {
+  display: grid;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 0;
+}
+
+.history-row + .history-row {
+  border-top: 1px solid var(--gn-line);
+}
+
+.history-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.history-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  overflow-wrap: anywhere;
+}
+
+.history-copy small {
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.history-row em {
+  color: var(--gn-muted);
+  font-style: normal;
+}
+
+/* Fixed rather than sticky: .goodnight-page sets overflow-x: hidden, so the page is its own scroll
+   container and a sticky child has no scrollport to stick to. */
+.recovery-cta {
+  position: fixed;
+  right: 0;
+  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  left: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gn-line);
+  background: var(--gn-bg);
+}
+
+/* The design's primary action spans the bar. */
+.recovery-cta .recovery-save {
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  border-radius: var(--gn-radius-small, 8px);
+  background: var(--gn-leaf);
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recovery-cta .recovery-save:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.recovery-page {
+  padding-bottom: calc(var(--gn-tabbar-reserve) + 110px + env(safe-area-inset-bottom));
 }
 </style>

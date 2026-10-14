@@ -475,17 +475,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R3_Recovery_after.png",
+      "issue": "The first attempt appended its CSS after </style>, so the page rendered unstyled; reverted and redone inside the block.",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Restructured to the design: a bare-chevron bar, 今天的状态 with the design's copy, the six indicators as topic chips, the selected topic's three-state control, a contextual note, a real 最近一周 grid built from the records, 以前的记录 rows of title + date · category, and a pinned full-width 记录今天. The signals payload is unchanged: all six indicators and their three states still reach the API in the same shape. Deviations: 最近一次变化 and 与稳定期参考比对 are kept as subdued single lines (the brief forbids dropping functionality to match a mock), and the week grid marks only whether a day has a record rather than scoring it."
     },
     {
       "id": "UI-V2-17",
@@ -1058,7 +1059,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T00:33:32.130Z",
+  "updatedAt": "2026-10-14T02:31:53.991Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
