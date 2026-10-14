@@ -31,6 +31,8 @@ const error = ref('');
 const notice = ref('');
 /** Set when an optional context list could not be read, so it is not mistaken for "no records". */
 const contextNotice = ref('');
+/** The real consent the delivery worker reads before it may notify; the row reports it honestly. */
+const reminderConsent = ref<boolean | null>(null);
 
 const contextOptions = computed(() => {
   if (contextType.value === 'journey') {
@@ -90,6 +92,14 @@ const scheduledDeliveryText = computed(() => {
   return deliverAt.value ? '预计 ' + formatMoment(new Date(deliverAt.value).toISOString()) + ' 通过提醒送达' : '正在准备送达时间';
 });
 
+/** States the real consent, including when it could not be read, rather than promising a reminder. */
+const reminderCopy = computed(() => {
+  if (reminderConsent.value === null) return '暂时读不到授权状态，可以到隐私设置里查看';
+  return reminderConsent.value
+    ? '允许时发送；可以在隐私设置中关闭'
+    : '当前未开启，打开后才会到期提醒';
+});
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -111,11 +121,14 @@ async function load() {
     api.get<any>('/api/v1/journeys'),
     api.get<any>('/api/v1/decisions'),
     api.get<any>('/api/v1/me/recovery'),
+    api.get<any>('/api/v1/me/privacy'),
   ]);
-  const [journeyResult, decisionResult, recoveryResult] = optional;
+  const [journeyResult, decisionResult, recoveryResult, privacyResult] = optional;
   journeys.value = journeyResult.status === 'fulfilled' ? journeyResult.value.items ?? [] : [];
   decisions.value = decisionResult.status === 'fulfilled' ? decisionResult.value.items ?? [] : [];
   recoveries.value = recoveryResult.status === 'fulfilled' ? recoveryResult.value.items ?? [] : [];
+  reminderConsent.value =
+    privacyResult.status === 'fulfilled' ? Boolean(privacyResult.value?.item?.allowFutureSelfNotifications) : null;
   const unavailable = optional.filter((result) => result.status === 'rejected').length;
   if (unavailable) {
     contextNotice.value = `有 ${unavailable} 类关联记录暂时读不到，这封信仍然可以单独保存。`;
@@ -165,34 +178,32 @@ onMounted(() => {
 
 <template>
   <section class="goodnight-page future-page">
-    <header class="future-header">
+    <header class="future-bar">
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <div class="header-titles">
-        <h1 class="future-title">写给未来的我</h1>
-        <p class="future-subtitle">记录希望在未来送达的个人留言与提醒事项</p>
-      </div>
+      <h1 class="future-bar-title">写给未来的我</h1>
     </header>
 
-    <form class="future-paper" @submit.prevent="save">
-      <div class="paper-heading">
-        <h2>撰写留言</h2>
-        <p>记录希望未来提醒自己的一段话与送达时间。</p>
-      </div>
+    <div class="future-lead">
+      <h2>留给之后的自己</h2>
+      <p>这是一封由你决定什么时候再看的信。</p>
+    </div>
+
+    <form class="future-form" @submit.prevent="save">
       <label class="letter-field">
         <span class="sr-only">写给未来自己的内容</span>
-        <textarea v-model="content" maxlength="1200" placeholder="写下希望在未来指定时间提醒自己的话…"></textarea>
+        <textarea v-model="content" maxlength="1200" placeholder="有些事想提醒以后那时的我……"></textarea>
         <small>{{ content.length }}/1200</small>
       </label>
 
-      <fieldset class="delivery-field">
-        <legend>送达时间设置</legend>
+      <fieldset class="form-block">
+        <legend>什么时候再看</legend>
         <div class="time-options">
           <button type="button" :class="{ selected: timePreset === 'tomorrow' }" @click="changePreset('tomorrow')">明天晚上</button>
           <button type="button" :class="{ selected: timePreset === 'week' }" @click="changePreset('week')">一周后</button>
           <button type="button" :class="{ selected: timePreset === 'month' }" @click="changePreset('month')">一个月后</button>
-          <button type="button" :class="{ selected: timePreset === 'custom' }" @click="changePreset('custom')">自定义</button>
+          <button type="button" :class="{ selected: timePreset === 'custom' }" @click="changePreset('custom')">自己选</button>
         </div>
         <label v-if="timePreset === 'custom'" class="custom-time">
           具体送达时间
@@ -201,7 +212,21 @@ onMounted(() => {
         <p v-else class="delivery-note">{{ scheduledDeliveryText }}</p>
       </fieldset>
 
-      <fieldset class="context-field">
+      <!-- The consent the delivery worker actually reads (allowFutureSelfNotifications), reported
+           honestly and pointing at the real toggle rather than claiming a reminder will be sent. -->
+      <fieldset class="form-block">
+        <legend>通知</legend>
+        <button class="notify-row" type="button" @click="router.push('/pages/settings/privacy')">
+          <span class="notify-icon"><AppIcon name="bell" :size="18" /></span>
+          <span class="notify-copy">
+            <strong>到期提醒</strong>
+            <small>{{ reminderCopy }}</small>
+          </span>
+          <AppIcon name="arrow" :size="17" />
+        </button>
+      </fieldset>
+
+      <fieldset class="form-block">
         <legend>关联记录 <small>可选</small></legend>
         <div class="context-types">
           <label v-for="option in [['none', '不关联'], ['journey', '一段旅程'], ['decision', '一个决定'], ['recovery', '一次恢复']]" :key="option[0]">
@@ -221,26 +246,31 @@ onMounted(() => {
 
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
       <p v-if="error" class="error-note" role="alert">{{ error }}</p>
-      <button class="future-save" data-testid="future-self-save" type="submit" :disabled="saving || !canSave">
-        {{ saving ? '正在保存…' : '保存未来留言' }}
-      </button>
-      <p class="private-note"><AppIcon name="heart" :size="14" /> 默认只对你自己可见，不会自动公开。</p>
     </form>
 
-    <p v-if="loading" class="state-note">正在读取写下的未来信…</p>
-    <section v-else class="letters-section">
-      <div class="section-label"><h2>已保存的留言</h2></div>
-      <p v-if="!items.length" class="empty-note">还没有留给未来的话。你可以从一句简单的话开始。</p>
+    <section class="letters-section">
+      <div class="section-label"><h2>已保存的信</h2></div>
+      <p v-if="loading" class="state-note">正在读取写下的未来信…</p>
+      <p v-else-if="!items.length" class="empty-note">还没有留给未来的话。你可以从一句简单的话开始。</p>
       <div v-else class="letters-list">
         <article v-for="item in items" :key="item.id" class="saved-letter" :class="{ delivered: item.deliveredAt }">
-          <p class="letter-content">{{ item.content }}</p>
-          <div class="letter-meta">
-            <span v-if="item.contextLabel" class="context-tag">{{ item.contextLabel }}</span>
-            <span>{{ deliveryState(item) }}</span>
-          </div>
+          <span class="saved-icon"><AppIcon name="message" :size="18" /></span>
+          <span class="saved-copy">
+            <strong>{{ deliveryState(item) }}</strong>
+            <small>
+              {{ item.deliveredAt ? '已送达' : '已保存 · 尚未到期' }}<template v-if="item.contextLabel"> · {{ item.contextLabel }}</template>
+            </small>
+          </span>
         </article>
       </div>
     </section>
+
+    <div class="future-cta">
+      <button class="future-save" data-testid="future-self-save" type="button" :disabled="saving || !canSave" @click="save">
+        {{ saving ? '正在保存…' : '保存给未来的信' }}
+      </button>
+      <p class="private-note"><AppIcon name="heart" :size="14" /> 默认只对你自己可见，不会自动公开。</p>
+    </div>
   </section>
 </template>
 
@@ -261,28 +291,159 @@ onMounted(() => {
   font-family: var(--gn-font-body);
 }
 
-.future-header {
+/* A stable bar with a bare chevron, then the letter's own heading, per the design. */
+.future-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 4px 4px;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  margin: 0 -16px 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gn-line, #e8ebef);
+}
+
+.future-bar-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--gn-ink);
+}
+
+.future-lead h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+  color: var(--gn-ink);
+}
+
+.future-lead p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted);
 }
 
 .back-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  margin-top: 2px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--gn-ink);
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.future-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+/* The design's form sections are bare: a legend, then the controls. */
+.form-block {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.form-block legend,
+.form-block > h3 {
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.form-block legend small {
+  font-weight: 400;
+  color: var(--gn-muted);
+}
+
+.notify-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--gn-ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.notify-icon,
+.saved-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--gn-paper-warm, #f7f8fa);
+  color: var(--gn-ink-soft, #4a525d);
+}
+
+.notify-copy,
+.saved-copy {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notify-copy strong,
+.saved-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.notify-copy small,
+.saved-copy small {
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.saved-letter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.saved-letter + .saved-letter {
+  border-top: 1px solid var(--gn-line, #e8ebef);
+}
+
+/* The primary action sits at the bottom of the viewport, above the tab bar.
+   `position: fixed` rather than sticky: `.goodnight-page` sets `overflow-x: hidden`, which makes it
+   the scroll container, so a sticky child has no scrollport to stick to and stays at the content end
+   underneath the tab bar. */
+.future-cta {
+  position: fixed;
+  right: 0;
+  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  left: 0;
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gn-line, #e8ebef);
+  background: var(--gn-bg, #ffffff);
+}
+
+/* Room for the fixed action so the last saved letter is never covered. */
+.future-page {
+  padding-bottom: calc(var(--gn-tabbar-reserve) + 120px + env(safe-area-inset-bottom));
 }
 
 .header-titles {
@@ -344,16 +505,17 @@ onMounted(() => {
 .letter-field textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 110px;
+  /* The design gives the letter itself the most room on the page. */
+  min-height: 210px;
   resize: none;
   border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  padding: 10px 12px 26px;
-  background: var(--gn-paper-warm);
+  border-radius: var(--gn-radius-card, 12px);
+  padding: 14px 16px 26px;
+  background: var(--gn-paper, #ffffff);
   color: var(--gn-ink);
   font: inherit;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .letter-field small {
@@ -569,48 +731,10 @@ onMounted(() => {
   flex-direction: column;
 }
 
-.saved-letter {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--gn-line);
-}
-
-.saved-letter:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.saved-letter:first-child {
-  padding-top: 0;
-}
-
-.saved-letter.delivered {
-  opacity: 0.75;
-}
-
-.letter-content {
-  margin: 0;
-  color: var(--gn-ink);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.letter-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--gn-muted);
-  font-size: 11px;
-}
-
-.context-tag {
-  color: var(--gn-leaf-deep);
-  background: var(--gn-leaf-soft);
-  padding: 1px 6px;
-  border-radius: var(--gn-radius-small);
-}
+/* The V1 row rules used to live here. They merged with the new row layout — the old
+   `flex-direction: column` combined with the new `align-items: center` centred every row's icon and
+   text — so they are gone rather than left to fight the replacement. `.letter-content`,
+   `.letter-meta` and `.context-tag` went with them: the template no longer renders them. */
 
 .sr-only {
   position: absolute;

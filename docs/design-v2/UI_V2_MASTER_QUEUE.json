@@ -452,17 +452,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
-      "issue": "",
+      "screenshot": "artifacts/ui-v2/android/R3_FutureSelf_{after,bottom}.png",
+      "issue": "A8 degradation fixed (the page blanked when the optional recovery context was refused); the CTA was behind the tab bar; the API 500 surfaced as raw English",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Restructured to the design: a bare-chevron bar, 留给之后的自己 with the design's copy, an input-first textarea, 什么时候再看 chips, a 通知 row reporting the real allowFutureSelfNotifications consent, and 已保存的信 rows of icon + status. Deviations: no 全部 › beside 已保存的信 (no destination exists, and the list is not truncated); 关联记录 is kept because the brief forbids dropping functionality to match a mock; and 明天晚上 is kept as a fourth preset beyond the design's three."
     },
     {
       "id": "UI-V2-16",
@@ -1057,7 +1058,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-12T12:48:57.892Z",
+  "updatedAt": "2026-10-14T00:33:32.130Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",

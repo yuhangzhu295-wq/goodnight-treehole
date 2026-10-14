@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   friendlyError,
   NETWORK_FAILURE_MESSAGE,
+  SERVER_FAILURE_MESSAGE,
   UNKNOWN_FAILURE_MESSAGE,
 } from '../../apps/mp/src/friendly-error';
 
@@ -40,6 +41,18 @@ describe('friendlyError', () => {
   it('replaces a non-Error rejection', () => {
     expect(friendlyError(undefined).message).toBe(UNKNOWN_FAILURE_MESSAGE);
     expect(friendlyError('boom').message).toBe(UNKNOWN_FAILURE_MESSAGE);
+  });
+
+  it("replaces Nest's unhandled-500 body", () => {
+    // Seen on the ActionCenter and 写给未来的我 when the API lost its database connection: the user
+    // was shown the server's own English "Internal server error".
+    expect(friendlyError(new Error('Internal server error')).message).toBe(SERVER_FAILURE_MESSAGE);
+    expect(friendlyError(new Error('  Internal Server Error  ')).message).toBe(SERVER_FAILURE_MESSAGE);
+  });
+
+  it('does not rewrite a longer message that merely contains the phrase', () => {
+    const other = new Error('Internal server error while saving your letter');
+    expect(friendlyError(other).message).toBe('Internal server error while saving your letter');
   });
 
   it('does not match an unrelated error', () => {
