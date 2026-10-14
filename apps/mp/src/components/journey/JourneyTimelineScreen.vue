@@ -92,7 +92,7 @@ const date = (value: string) => {
       <h2>经历时间线</h2>
       <ol class="timeline-list">
         <li v-for="item in updates" :key="item.id" class="timeline-row">
-          <span class="timeline-mark" aria-hidden="true"><AppIcon :name="visual(item).icon" :size="15" /></span>
+          <span class="timeline-mark" aria-hidden="true" />
           <div class="timeline-body">
             <p class="timeline-when">{{ date(item.createdAt) }} · {{ visual(item).title }}</p>
             <p class="timeline-text">{{ item.content }}</p>
@@ -184,7 +184,7 @@ const date = (value: string) => {
 }
 
 .status-stage {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--gn-text, #242a32);
 }
 
@@ -219,22 +219,22 @@ const date = (value: string) => {
 .timeline-row:not(:last-child)::before {
   content: '';
   position: absolute;
-  top: 22px;
+  top: 20px;
   bottom: 0;
   left: 12px;
   width: 1px;
-  background: var(--gn-line, #e8ebef);
+  background: var(--gn-green-light, #eaf4ee);
 }
 
 .timeline-mark {
   z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  border: 2px solid var(--gn-green, #275f56);
   border-radius: 50%;
-  background: var(--gn-green-light, #eaf4ee);
-  color: var(--gn-green-dark, #1e4d45);
+  background: var(--gn-bg, #ffffff);
 }
 
 .timeline-when {
@@ -324,21 +324,26 @@ const date = (value: string) => {
   gap: 8px;
 }
 
+/* The design shows these as bare list rows — title, subtitle, chevron — not as bordered cards. */
 .next-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  min-height: 58px;
-  padding: 10px 14px;
-  border: 1px solid var(--gn-border, #e8ebef);
-  border-radius: var(--gn-radius-card, 12px);
-  background: var(--gn-card, #ffffff);
+  min-height: 54px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--gn-text, #242a32);
   text-align: left;
   font: inherit;
   cursor: pointer;
+}
+
+.next-row + .next-row {
+  border-top: 1px solid var(--gn-border, #e8ebef);
 }
 
 .next-row:disabled {

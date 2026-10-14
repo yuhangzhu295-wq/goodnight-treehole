@@ -42,15 +42,16 @@ const emit = defineEmits<{ back: [] }>();
   background: var(--gn-bg, #ffffff);
 }
 
+/* The design's bar carries a bare chevron, not a bordered button. */
 .back-control {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 1px solid var(--gn-border, #e8ebef);
-  border-radius: 50%;
-  background: var(--gn-card, #ffffff);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--gn-text, #242a32);
   cursor: pointer;
 }
