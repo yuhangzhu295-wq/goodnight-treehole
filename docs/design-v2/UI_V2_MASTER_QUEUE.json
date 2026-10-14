@@ -548,13 +548,14 @@
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
+      "implemented": "yes",
       "rendered": "no",
       "interactionTested": "no",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Layout adopted from the design's shared language: a bare-chevron bar with the subtitle moved out to the page lead, sections as bare hairline rows instead of cards, a bolder section title, and the four memory states colour-coded (active/disabled/expired/deleted) because the brief asks for them to be strictly distinguishable. VERIFIED at code level: build ✓, typecheck ✓, all six data-testids unchanged, and no user-facing string added, changed or removed (the only text difference is where the subtitle renders). NOT VERIFIED visually — I could not navigate to this page on the emulator, so no screenshot exists and the design comparison has not been made. Deliberate omissions the implementer flagged: the design's interactive toggle (this page only reads the two consent flags; adding a write would be a contract change, and a toggle that only navigates is a fake control), its 管理 section and 了解使用方式 link (no such data), its row icons/chevrons (no per-record icon, no detail view), and its closing deletion note (no equivalent text in the file, and inventing product copy is not a restyle)."
     },
     {
       "id": "UI-V2-20",
@@ -1061,7 +1062,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T03:06:22.316Z",
+  "updatedAt": "2026-10-14T03:19:59.131Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",

@@ -180,13 +180,12 @@ onMounted(load);
 
 <template>
   <section class="goodnight-page memory-page">
-    <header class="memory-header">
+    <header class="memory-bar">
       <button class="back-btn" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
-      <div class="header-titles">
-        <h1 class="memory-title">AI 记忆中心</h1>
-        <p class="memory-subtitle">管理系统记录的信息与使用范围</p>
-      </div>
+      <h1 class="memory-bar-title">AI 记忆中心</h1>
     </header>
+
+    <p class="memory-lead">管理系统记录的信息与使用范围</p>
 
     <div class="memory-status-strip">
       <div class="status-strip-info">
@@ -467,50 +466,46 @@ onMounted(load);
 .memory-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  /* No bottom tab bar on /pages/memory/index, so the page only reserves the safe area. */
+  padding: 0 16px calc(32px + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
 }
 
-.memory-header {
+/* The V2 bar: a bare chevron and the page title, closed by a full-bleed hairline. */
+.memory-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 4px 4px;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .back-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  margin-top: 2px;
-  padding: 0;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 0 2px;
   border: 0;
   background: transparent;
-  color: var(--gn-muted);
+  color: var(--gn-ink);
   font-size: 26px;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.header-titles {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.memory-title {
+.memory-bar-title {
   margin: 0;
   font-size: 24px;
   font-weight: 700;
@@ -518,36 +513,41 @@ onMounted(load);
   color: var(--gn-ink);
 }
 
-.memory-subtitle {
-  margin: 4px 0 0;
+/* The page's own subtitle, as content under the bar instead of inside it. */
+.memory-lead {
+  margin: 14px 0 0;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--gn-muted);
 }
 
+/* Permission state: a bare row (bold title, muted note) closed by a hairline, not a card. */
 .memory-status-strip {
   display: flex;
   align-items: center;
-  padding: 10px 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .status-strip-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 
 .status-strip-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
   color: var(--gn-ink);
 }
 
 .status-strip-note {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--gn-muted);
 }
 
@@ -556,54 +556,53 @@ onMounted(load);
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper-warm);
+  padding: 14px 0;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .notice-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
 }
 
 .notice-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
   color: var(--gn-ink);
 }
 
 .notice-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--gn-muted);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .notice-btn {
-  min-height: 30px;
-  padding: 0 12px;
+  min-height: 34px;
+  padding: 0 14px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
   background: var(--gn-paper);
   color: var(--gn-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .status-msg {
-  margin: 0;
+  margin: 12px 0 0;
   padding: 10px 14px;
   border-radius: var(--gn-radius-card);
   border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
+  background: var(--gn-paper-warm);
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .status-msg.error {
@@ -618,15 +617,13 @@ onMounted(load);
   color: var(--gn-muted);
 }
 
-/* Forms */
+/* Forms: bare blocks separated by hairlines, matching the rest of the page. */
 .form-surface {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .form-header {
@@ -636,15 +633,16 @@ onMounted(load);
 }
 
 .form-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
   color: var(--gn-ink);
 }
 
 .form-close-btn {
   border: 0;
   background: transparent;
-  font-size: 20px;
+  font-size: 22px;
   color: var(--gn-muted);
   cursor: pointer;
   padding: 0 4px;
@@ -654,7 +652,7 @@ onMounted(load);
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .form-label {
@@ -668,18 +666,20 @@ onMounted(load);
 .form-select {
   box-sizing: border-box;
   width: 100%;
+  min-height: 42px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
-  padding: 8px 10px;
-  background: var(--gn-bg);
+  padding: 9px 12px;
+  background: var(--gn-paper);
   color: var(--gn-ink);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .form-textarea {
-  min-height: 72px;
+  min-height: 96px;
   resize: vertical;
+  line-height: 1.6;
 }
 
 .form-row-2 {
@@ -696,25 +696,25 @@ onMounted(load);
 }
 
 .btn-cancel {
-  min-height: 32px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 16px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
   background: var(--gn-paper);
   color: var(--gn-ink);
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 
 .btn-submit {
-  min-height: 32px;
-  padding: 0 16px;
+  min-height: 40px;
+  padding: 0 18px;
   border: 0;
   border-radius: var(--gn-radius-small);
   background: var(--gn-leaf);
   color: #fff;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -722,20 +722,21 @@ onMounted(load);
   opacity: 0.6;
 }
 
-/* Create button bar */
+/* Create trigger: the page's own add control, kept in flow above the records. */
 .create-bar {
   display: flex;
+  padding: 16px 0 4px;
 }
 
 .create-btn {
   width: 100%;
-  min-height: 42px;
+  min-height: 48px;
   border: 1px dashed var(--gn-line);
   border-radius: var(--gn-radius-card);
   background: var(--gn-paper);
   color: var(--gn-leaf-deep);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -743,40 +744,39 @@ onMounted(load);
   background: var(--gn-paper-warm);
 }
 
-/* Group section & Records */
+/* Group section & Records: bare rows closed by hairlines, no card borders. */
 .group-section {
   display: flex;
   flex-direction: column;
 }
 
+/* The section's own heading text, kept verbatim, restyled as a bold section title. */
 .section-label {
-  padding: 8px 4px 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--gn-muted);
+  padding: 18px 0 10px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--gn-ink);
 }
 
 .records-container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
 .record-surface {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  padding: 14px 0;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .record-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .record-title-wrap {
@@ -789,17 +789,23 @@ onMounted(load);
 
 .record-title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--gn-ink);
-  line-height: 1.3;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
+/* Colour-code the state so 允许使用 / 已暂停 / 已到期 / 已删除 never read alike. */
 .status-badge {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
+  flex-shrink: 0;
+  padding: 2px 7px;
   border: 1px solid var(--gn-line);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
   color: var(--gn-muted);
 }
 
@@ -809,20 +815,35 @@ onMounted(load);
   border-color: transparent;
 }
 
+.status-badge.disabled {
+  color: var(--gn-gold);
+}
+
+.status-badge.expired {
+  color: var(--gn-muted);
+}
+
+.status-badge.deleted {
+  color: var(--gn-danger);
+}
+
 .edit-memory {
+  flex-shrink: 0;
+  min-height: 32px;
   border: 0;
   background: transparent;
   color: var(--gn-muted);
   font-size: 13px;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 2px 0;
 }
 
 .record-content {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--gn-text);
-  line-height: 1.5;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .record-meta-strip {
@@ -830,7 +851,7 @@ onMounted(load);
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--gn-muted);
 }
 
@@ -841,53 +862,58 @@ onMounted(load);
 .disclosure-strip {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-top: 4px;
+  gap: 6px;
 }
 
 .usage-note {
   align-self: flex-start;
   border: 0;
   background: transparent;
-  padding: 0;
+  padding: 2px 0;
   color: var(--gn-leaf-deep);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .disclosure-text {
-  margin: 2px 0 0;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
   font-size: 12px;
   color: var(--gn-muted);
-  line-height: 1.4;
-  background: var(--gn-paper-warm);
-  padding: 6px 10px;
-  border-radius: var(--gn-radius-small);
+  line-height: 1.5;
 }
 
 .record-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 16px;
   border-top: 1px solid var(--gn-line);
-  padding-top: 8px;
-  margin-top: 2px;
+  padding-top: 10px;
 }
 
 .action-link {
   border: 0;
   background: transparent;
-  padding: 0;
+  padding: 4px 0;
   color: var(--gn-muted);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .action-link:hover,
 .action-link:active {
   color: var(--gn-ink);
+}
+
+/* Re-consent is the only route back from 已到期, so it reads as the row's primary action. */
+.action-link.action-reconsent {
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
 }
 
 .action-link.action-danger {
@@ -898,9 +924,9 @@ onMounted(load);
 .edit-inline-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   border-top: 1px solid var(--gn-line);
-  padding-top: 10px;
+  padding-top: 12px;
   margin-top: 4px;
 }
 
@@ -908,7 +934,7 @@ onMounted(load);
   padding: 24px 16px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  background: var(--gn-paper-warm);
   text-align: center;
 }
 
@@ -916,11 +942,18 @@ onMounted(load);
   margin: 0;
   font-size: 13px;
   color: var(--gn-muted);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 @media (max-width: 374px) {
   .memory-page {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .memory-bar {
+    margin-right: -12px;
+    margin-left: -12px;
     padding-right: 12px;
     padding-left: 12px;
   }
