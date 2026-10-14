@@ -178,11 +178,10 @@ onMounted(load);
       >
         ‹
       </button>
-      <div class="header-titles">
-        <h1 class="privacy-title">隐私设置</h1>
-        <p class="privacy-subtitle">管理内容可见范围、AI 使用偏好与个人数据</p>
-      </div>
+      <h1 class="privacy-title">隐私与数据</h1>
     </header>
+
+    <p class="privacy-lead">管理内容可见范围、AI 使用偏好与个人数据</p>
 
     <p v-if="loadError" class="privacy-error" role="alert">{{ loadError }}</p>
     <p v-if="message" class="privacy-feedback" role="status" aria-live="polite">{{ message }}</p>
@@ -921,5 +920,41 @@ onMounted(load);
     padding-right: 12px;
     padding-left: 12px;
   }
+}
+
+/* --- V2 shell, matching 设计图/36_PrivacySettings.png --------------------------------------
+   These come last so nothing here loses to an older rule for the same selector, and they must sit
+   inside this block: appended after the closing tag they would never load. */
+
+.privacy-header {
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.privacy-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.privacy-lead {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+}
+
+/* The design's rows are bare, separated by hairlines — not a card. */
+.privacy-page .group-surface {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.privacy-page .group-row + .group-row {
+  border-top: 1px solid var(--gn-line);
 }
 </style>
