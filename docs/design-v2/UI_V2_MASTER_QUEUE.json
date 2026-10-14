@@ -498,17 +498,18 @@
       "implementation": "",
       "tests": "",
       "reviewer": "",
-      "screenshot": "",
+      "screenshot": "artifacts/ui-v2/android/R3_SupportPlan_after.png",
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "partial",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Layout adopted from the design: a bare-chevron bar titled 低谷预案, the note box, per-section title + 编辑 › toggling that one section into the existing chip editor, readable rows when not editing, and a pinned full-width 保存预案. Both data-testids, the sections array and keys, and the PUT /me/support-plan payload are unchanged. The real data has four sections where the mock shows three, and the real titles differ from the mock's, so the real ones are kept. UNVERIFIED: the saved-row rendering — the API was erroring during the capture (the page showed 服务暂时不可用), so only the empty state was exercised."
     },
     {
       "id": "UI-V2-18",
@@ -1059,7 +1060,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T02:31:53.991Z",
+  "updatedAt": "2026-10-14T02:46:09.443Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",

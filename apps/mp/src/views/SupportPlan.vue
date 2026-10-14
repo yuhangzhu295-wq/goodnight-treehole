@@ -151,61 +151,73 @@ onMounted(load);
   <section class="goodnight-page support-plan-page">
     <header class="support-header">
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">‹</button>
-      <div class="header-titles">
-        <h1 class="support-title">我的低谷预案</h1>
-        <p class="support-subtitle">提前设置低谷期的应对策略与现实支持方式</p>
-      </div>
+      <h1 class="support-title">低谷预案</h1>
     </header>
+    <p class="plan-note">这份预案只在你需要时使用。紧急危险请先联系现实救助。</p>
     <p v-if="loading" class="state-note">正在读取你保存的预案…</p>
-    <form v-else class="plan-paper" @submit.prevent="save">
+    <form v-else class="plan-body" @submit.prevent="save">
       <section v-for="section in sections" :key="section.key" class="plan-section">
         <div class="section-head">
-          <b>{{ section.number }}</b>
-          <div>
-            <h2>{{ section.title }}</h2>
-            <p>{{ section.note }}</p>
+          <h2>{{ section.title }}</h2>
+          <button
+            type="button"
+            class="edit-link"
+            @click="editingKey = editingKey === section.key ? null : section.key"
+          >
+            {{ editingKey === section.key ? '完成' : '编辑' }}
+            <span aria-hidden="true">›</span>
+          </button>
+        </div>
+        <div v-if="editingKey !== section.key" class="plan-rows">
+          <div v-for="(item, index) in draft[section.key]" :key="item" class="plan-row">
+            <span class="row-badge">{{ index + 1 }}</span>
+            <span class="row-body">
+              <b class="row-title">{{ item }}</b>
+              <small class="row-sub">{{ section.note }}</small>
+            </span>
+            <span class="row-chevron" aria-hidden="true">›</span>
           </div>
+          <p v-if="!draft[section.key].length" class="row-empty">{{ section.note }}</p>
         </div>
-        <div class="choice-wrap">
-          <button
-            v-for="choice in section.suggestions"
-            :key="choice"
-            type="button"
-            :class="{ selected: draft[section.key].includes(choice) }"
-            @click="toggle(section.key, choice)"
-          >
-            {{ choice }}
-          </button>
-          <button
-            v-for="contact in section.key === 'safePeople' ? contacts : []"
-            :key="contact.id"
-            type="button"
-            :class="{ selected: draft.safePeople.includes(contact.nickname) }"
-            @click="toggle('safePeople', contact.nickname)"
-          >
-            {{ contact.nickname }}
-          </button>
-          <span
-            v-for="choice in draft[section.key].filter(
-              (value) =>
-                !section.suggestions.includes(value) && !contacts.some((contact) => contact.nickname === value),
-            )"
-            :key="choice"
-            class="custom-choice"
-          >{{ choice
-          }}<button type="button" :aria-label="`移除${choice}`" @click="toggle(section.key, choice)">×</button></span>
-          <button v-if="editingKey !== section.key" type="button" class="add-choice" @click="editingKey = section.key">
-            ＋ 补充
-          </button>
-        </div>
-        <div v-if="editingKey === section.key" class="custom-entry">
-          <input
-            v-model="custom[section.key]"
-            :aria-label="`补充${section.title}`"
-            maxlength="80"
-            placeholder="补充一项真实情况"
-            @keydown.enter.prevent="addCustom(section.key)"
-          /><button type="button" @click="addCustom(section.key)">添加</button>
+        <div v-else class="section-edit">
+          <div class="choice-wrap">
+            <button
+              v-for="choice in section.suggestions"
+              :key="choice"
+              type="button"
+              :class="{ selected: draft[section.key].includes(choice) }"
+              @click="toggle(section.key, choice)"
+            >
+              {{ choice }}
+            </button>
+            <button
+              v-for="contact in section.key === 'safePeople' ? contacts : []"
+              :key="contact.id"
+              type="button"
+              :class="{ selected: draft.safePeople.includes(contact.nickname) }"
+              @click="toggle('safePeople', contact.nickname)"
+            >
+              {{ contact.nickname }}
+            </button>
+            <span
+              v-for="choice in draft[section.key].filter(
+                (value) =>
+                  !section.suggestions.includes(value) && !contacts.some((contact) => contact.nickname === value),
+              )"
+              :key="choice"
+              class="custom-choice"
+            >{{ choice
+            }}<button type="button" :aria-label="`移除${choice}`" @click="toggle(section.key, choice)">×</button></span>
+          </div>
+          <div class="custom-entry">
+            <input
+              v-model="custom[section.key]"
+              :aria-label="`补充${section.title}`"
+              maxlength="80"
+              placeholder="补充一项真实情况"
+              @keydown.enter.prevent="addCustom(section.key)"
+            /><button type="button" @click="addCustom(section.key)">添加</button>
+          </div>
         </div>
       </section>
       <details class="more-support">
@@ -261,10 +273,10 @@ onMounted(load);
       </details>
       <p v-if="error" class="error-note" role="alert">{{ error }}</p>
       <p v-if="savedNotice" class="saved-note" role="status">{{ savedNotice }}</p>
-      <button class="save-plan" data-testid="support-plan-save" :disabled="saving" type="submit">
-        {{ saving ? '正在保存…' : '保存我的低谷预案' }}
-      </button>
       <small v-if="currentId" class="version-note">已保存于 {{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
+      <button class="save-plan" data-testid="support-plan-save" :disabled="saving" type="submit">
+        {{ saving ? '正在保存…' : '保存预案' }}
+      </button>
     </form>
   </section>
 </template>
@@ -280,7 +292,7 @@ onMounted(load);
   flex-direction: column;
   gap: 12px;
   overflow-x: hidden;
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
+  padding: 8px 16px calc(var(--gn-tabbar-reserve) + 78px + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
@@ -288,107 +300,154 @@ onMounted(load);
 
 .support-header {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 4px 4px;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0 8px;
 }
 
 .back-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  margin-top: 2px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
+  border: 0;
+  background: transparent;
   color: var(--gn-ink);
-  font-size: 24px;
+  font-size: 26px;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.header-titles {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
 .support-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1.25;
   color: var(--gn-ink);
 }
 
-.support-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.4;
+.plan-note {
+  margin: 0;
+  border-radius: var(--gn-radius-card);
+  padding: 12px 14px;
+  background: var(--gn-paper-warm);
   color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.plan-paper {
+.plan-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  padding: 16px;
-  background: var(--gn-paper);
+  gap: 4px;
 }
 
 .plan-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-bottom: 12px;
+  gap: 6px;
+  padding: 14px 0;
   border-bottom: 1px solid var(--gn-line);
 }
 
 .section-head {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.section-head b {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--gn-paper-warm);
-  border: 1px solid var(--gn-line);
-  color: var(--gn-leaf);
-  font-size: 11px;
-  font-weight: 600;
-  margin-top: 1px;
-}
-
-.section-head > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .section-head h2 {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
   color: var(--gn-ink);
 }
 
-.section-head p {
-  margin: 0;
+.edit-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--gn-leaf-deep);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.plan-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.row-badge {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.row-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--gn-ink);
+  overflow-wrap: anywhere;
+}
+
+.row-sub {
   color: var(--gn-muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.row-chevron {
+  flex-shrink: 0;
+  color: var(--gn-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.row-empty {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.section-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .choice-wrap {
@@ -472,6 +531,7 @@ onMounted(load);
 }
 
 .more-support {
+  margin-top: 14px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
   padding: 10px 12px;
@@ -512,18 +572,25 @@ onMounted(load);
 }
 
 .save-plan {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  z-index: 20;
   display: block;
-  width: 100%;
-  min-height: 40px;
-  margin-top: 6px;
-  border: 1px solid var(--gn-leaf);
+  width: auto;
+  max-width: 398px;
+  margin: 0 auto;
+  min-height: 50px;
+  border: 0;
   border-radius: var(--gn-radius-small);
   background: var(--gn-leaf);
   color: #fff;
   font: inherit;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
 .save-plan:disabled {
