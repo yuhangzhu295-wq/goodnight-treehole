@@ -198,12 +198,16 @@ onMounted(async () => {
 
 <template>
   <section v-if="report" class="page goodnight-page rest-page report-page">
-    <header class="monthly-hero">
+    <header class="report-bar">
       <button class="report-back" data-testid="front-report-back" aria-label="返回" @click="router.back()">‹</button>
-      <p class="monthly-logo">❧ 晚安树洞</p>
-      <h1>这个月，你是怎么<br>走过来的？</h1>
-      <button class="monthly-month" data-testid="filter-report-month" @click="monthOpen = true"><span data-visual-mask="time">{{ monthLabel }}</span>⌄</button>
+      <h1 class="report-bar-title">月度回顾</h1>
     </header>
+
+    <div class="report-lead">
+      <h2>{{ monthLabel }}回顾</h2>
+      <p>记录的是实际发生的事，不是情绪成绩。</p>
+      <button class="monthly-month" data-testid="filter-report-month" @click="monthOpen = true"><span data-visual-mask="time">{{ monthLabel }}</span>⌄</button>
+    </div>
 
     <AiDegradationNotice :notice="aiNotice" />
 
@@ -423,5 +427,73 @@ onMounted(async () => {
   .monthly-brief-grid article { padding-right: 6px; padding-left: 6px; }
   .monthly-brief-grid strong { font-size: 14px; }
   .monthly-life-row { grid-template-columns: 78px minmax(0, 1fr) 46px; gap: 5px; }
+}
+
+/* --- V2 shell, matching 设计图/32_ReportMonth.png ------------------------------------------
+   The design's bar and lead replace the decorative hero. These rules must sit inside the style
+   block, before the closing tag: appended after it they never load at all. The page keeps every
+   real section below (the mock shows a simpler report, and deleting real sections to match it is
+   not allowed). */
+
+.report-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  margin: 0 -16px 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.report-bar-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+/* The design's bar carries a bare chevron, not a bordered button. */
+.report-page .report-back {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.report-lead h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+  color: var(--gn-ink);
+}
+
+.report-lead p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted);
+}
+
+.report-page .monthly-month {
+  margin-top: 12px;
+}
+
+/* Cards become bare blocks closed by a hairline, the language the rest of the V2 set uses. */
+.report-page .monthly-brief,
+.report-page .monthly-story-card,
+.report-page .monthly-life-card,
+.report-page .monthly-trend-card {
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--gn-line);
+  background: transparent;
+  box-shadow: none;
+  padding: 18px 0 0;
 }
 </style>
