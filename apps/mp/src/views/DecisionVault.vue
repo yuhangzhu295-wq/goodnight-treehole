@@ -32,6 +32,15 @@ let timer = 0;
 const activeItems = computed(() => items.value.filter((item) => item.status !== 'archived'));
 const archivedItems = computed(() => items.value.filter((item) => item.status === 'archived'));
 
+/** Purely presentational: which leading icon a record draws for its real status. */
+const statusIcon: Record<DecisionStatus, string> = {
+  draft: 'bookmark',
+  cooling: 'clock',
+  ready: 'spark',
+  decided: 'check-circle',
+  archived: 'bookmark',
+};
+
 function reasonOf(item: DecisionItem) {
   return item.criteria.find((part) => !part.startsWith('情绪强度:')) ?? '给自己一点时间，再回来看看。';
 }
@@ -171,16 +180,15 @@ onBeforeUnmount(() => window.clearInterval(timer));
 </script>
 
 <template>
-  <main class="decision-page">
-    <header class="decision-header">
-      <button class="back-button" type="button" aria-label="返回" @click="router.back()">
+  <main class="goodnight-page decision-page">
+    <header class="decision-bar">
+      <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <div class="header-titles">
-        <h1 class="decision-title">决定保险箱</h1>
-        <p class="decision-subtitle">暂存重要决定，设置冷静期后再行确认</p>
-      </div>
+      <h1 class="decision-bar-title">决定保险箱</h1>
     </header>
+
+    <p class="decision-lead">暂存重要决定，设置冷静期后再行确认</p>
 
     <section class="vault-content">
       <form class="decision-composer" @submit.prevent="saveForLater">
@@ -192,12 +200,12 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
         <label class="line-field">
           <span class="field-icon" aria-hidden="true">◈</span>
-          <span><strong>为什么现在想做</strong><input v-model="draft.reason" maxlength="400" placeholder="当前最担心什么，或最想确认什么？" /></span>
+          <span class="field-body"><strong>为什么现在想做</strong><input v-model="draft.reason" maxlength="400" placeholder="当前最担心什么，或最想确认什么？" /></span>
         </label>
 
         <div class="line-field intensity-row">
           <span class="field-icon" aria-hidden="true">⌁</span>
-          <span><strong>当前情绪强度</strong><small>{{ draft.intensity }}/10</small></span>
+          <span class="field-body"><strong>当前情绪强度</strong><small>{{ draft.intensity }}/10</small></span>
           <input v-model.number="draft.intensity" type="range" min="1" max="10" aria-label="当前情绪强度" />
         </div>
 
@@ -231,6 +239,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
         <p class="section-desc">冷静期结束后可重新评估并记录决定。</p>
         <div class="saved-list">
           <article v-for="item in activeItems" :key="item.id" class="saved-item" :data-status="item.status">
+            <span class="item-icon" aria-hidden="true"><AppIcon :name="statusIcon[item.status]" :size="18" /></span>
             <div class="saved-copy">
               <strong class="item-question">{{ item.question }}</strong>
               <span class="item-reason">{{ reasonOf(item) }}</span>
@@ -276,43 +285,41 @@ onBeforeUnmount(() => window.clearInterval(timer));
   max-width: 430px;
   margin: 0 auto;
   min-height: 100vh;
+  overflow-x: hidden;
+  /* /pages/decision/index carries no floating tab bar, so the page only reserves the safe area. */
+  padding: 12px 16px calc(32px + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
 }
 
-.decision-header {
+/* The V2 bar: a bare chevron and the page title, closed by a hairline. */
+.decision-bar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  padding: 8px 4px 12px;
+  min-height: 56px;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gn-line);
 }
 
-.back-button {
+.back-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  margin-top: 2px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
+  border: 0;
+  background: transparent;
   color: var(--gn-ink);
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.header-titles {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.decision-title {
+.decision-bar-title {
   margin: 0;
   font-size: 24px;
   font-weight: 700;
@@ -320,91 +327,99 @@ onBeforeUnmount(() => window.clearInterval(timer));
   color: var(--gn-ink);
 }
 
-.decision-subtitle {
-  margin: 4px 0 0;
+/* The page's own subtitle, as content under the bar instead of inside it. */
+.decision-lead {
+  margin: 14px 0 0;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--gn-muted);
 }
 
 .vault-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
+/* Sections are bare blocks closed by a hairline, not bordered cards. */
 .decision-composer,
 .saved-section,
 .archive-section {
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 0 16px;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .composer-heading,
 .section-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
   color: var(--gn-ink);
 }
 
 .section-desc {
-  margin: 4px 0 12px;
-  font-size: 12px;
+  margin: 4px 0 0;
+  font-size: 13px;
   color: var(--gn-muted);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .quote-field {
   display: block;
-  margin: 12px 0 8px;
+  margin: 12px 0 0;
 }
 
 .quote-field textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 72px;
+  min-height: 76px;
   resize: none;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  background: var(--gn-paper);
   padding: 10px 12px;
   color: var(--gn-ink);
   font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
+/* One control per row, separated by hairlines. */
 .line-field {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  min-height: 44px;
+  gap: 10px;
+  min-height: 48px;
   border-bottom: 1px solid var(--gn-line);
-  padding: 4px 0;
+  padding: 6px 0;
 }
 
 .field-icon {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--gn-paper-warm);
   color: var(--gn-leaf);
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1;
 }
 
-.line-field > span:nth-child(2) {
+.field-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .line-field strong,
 .cooldown-field legend {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--gn-ink);
 }
 
@@ -420,7 +435,8 @@ onBeforeUnmount(() => window.clearInterval(timer));
 }
 
 .intensity-row {
-  grid-template-columns: 28px 100px 1fr;
+  grid-template-columns: 24px 92px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .intensity-row small {
@@ -434,7 +450,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
 }
 
 .cooldown-field {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   padding: 0;
   border: 0;
 }
@@ -462,10 +478,10 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
 .duration-options span {
   display: grid;
-  height: 34px;
+  height: 38px;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  background: var(--gn-paper);
   color: var(--gn-muted);
   font-size: 13px;
   place-items: center;
@@ -482,60 +498,61 @@ onBeforeUnmount(() => window.clearInterval(timer));
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 12px 0;
-  padding: 8px 12px;
-  border-radius: var(--gn-radius-small);
-  border: 1px solid var(--gn-line);
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
   background: var(--gn-paper-warm);
   color: var(--gn-muted);
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .composer-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  margin-top: 14px;
 }
 
 .composer-actions button,
 .item-action {
-  min-height: 38px;
+  min-height: 44px;
   border-radius: var(--gn-radius-small);
   font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .primary-action {
-  border: 1px solid var(--gn-leaf);
+  border: 0;
   background: var(--gn-leaf);
   color: #fff;
 }
 
 .secondary-action {
   border: 1px solid var(--gn-line);
-  background: var(--gn-paper-warm);
+  background: var(--gn-paper);
   color: var(--gn-ink);
 }
 
 .notice,
 .error,
 .loading {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gn-paper-warm);
   font-size: 13px;
+  line-height: 1.5;
 }
 
 .notice {
-  background: var(--gn-paper);
   color: var(--gn-leaf-deep);
 }
 
 .error {
-  background: var(--gn-paper);
   color: var(--gn-danger);
 }
 
@@ -547,12 +564,16 @@ onBeforeUnmount(() => window.clearInterval(timer));
 .saved-list {
   display: flex;
   flex-direction: column;
+  margin-top: 10px;
 }
 
+/* A record is an icon tile plus its copy, closed by a hairline. */
 .saved-item {
-  display: flex;
-  flex-direction: column;
-  padding: 12px 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 0;
   border-bottom: 1px solid var(--gn-line);
 }
 
@@ -561,103 +582,118 @@ onBeforeUnmount(() => window.clearInterval(timer));
   padding-bottom: 0;
 }
 
-.saved-item:first-child {
-  padding-top: 0;
+.item-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--gn-paper-warm);
+  color: var(--gn-ink-soft);
+}
+
+/* The two states that are still waiting on the user carry the leaf colour. */
+.saved-item[data-status='cooling'] .item-icon,
+.saved-item[data-status='ready'] .item-icon {
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
 }
 
 .saved-copy {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .item-question {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--gn-ink);
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .item-reason {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--gn-muted);
-  line-height: 1.4;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .item-meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--gn-muted);
 }
 
 .status-pill {
   align-self: flex-start;
-  border-radius: var(--gn-radius-small);
+  border-radius: 999px;
   background: var(--gn-paper-warm);
-  border: 1px solid var(--gn-line);
-  padding: 2px 8px;
+  padding: 3px 9px;
   color: var(--gn-muted);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .status-pill.ready {
-  border-color: var(--gn-leaf);
   background: var(--gn-leaf-soft);
   color: var(--gn-leaf-deep);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .status-pill.decided {
-  border-color: var(--gn-line);
   background: var(--gn-paper-warm);
-  color: var(--gn-ink);
+  color: var(--gn-ink-soft);
 }
 
 .saved-copy textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 54px;
+  min-height: 56px;
   resize: none;
   border: 1px solid var(--gn-line);
   border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  background: var(--gn-paper);
   padding: 8px 10px;
   color: var(--gn-ink);
   font: inherit;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .item-action {
   align-self: flex-start;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--gn-leaf);
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
   background: var(--gn-leaf);
   color: #fff;
 }
 
 .item-action.ghost {
   border: 1px solid var(--gn-line);
-  background: var(--gn-paper-warm);
+  background: var(--gn-paper);
   color: var(--gn-ink);
 }
 
 .own-decision {
   margin: 2px 0;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border-left: 3px solid var(--gn-leaf);
   border-radius: 0 var(--gn-radius-small) var(--gn-radius-small) 0;
   background: var(--gn-paper-warm);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--gn-ink);
+  overflow-wrap: anywhere;
 }
 
 .archive-section summary {
   cursor: pointer;
   color: var(--gn-ink);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .archive-item {
@@ -669,27 +705,32 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
 .archive-item strong {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--gn-ink);
 }
 
 .archive-item p {
   margin: 4px 0;
   color: var(--gn-ink-soft);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .archive-item small {
   color: var(--gn-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
+/* The closing note, as the soft filled block the design shows. */
 .boundary-note {
-  margin: 4px 0 0;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--gn-paper-warm);
   color: var(--gn-muted);
-  font-size: 11px;
-  line-height: 1.5;
-  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
 }
 
 .sr-only {
@@ -707,8 +748,15 @@ button:disabled {
 
 @media (max-width: 374px) {
   .decision-page {
-    padding-left: 12px;
     padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .decision-bar {
+    margin-right: -12px;
+    margin-left: -12px;
+    padding-right: 12px;
+    padding-left: 12px;
   }
 }
 </style>
