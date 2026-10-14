@@ -950,13 +950,14 @@
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
+      "implemented": "yes",
       "rendered": "no",
       "interactionTested": "no",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Rebuilt from a bare 19-line component with no style block into the design's structure: bar 数据使用说明, the intro 你的数据怎么用 / 以实际生效的授权和服务端行为为准。, and four titled sections (保存什么 / 什么时候用 AI / 分享给谁 / 如何管理与删除). Where the mock and the page's own copy overlapped, the page's more specific sentences were kept so nothing it used to tell the reader was lost. VERIFIED at code level: build ✓, typecheck ✓, front-data-policy-back preserved. NOT VERIFIED visually."
     },
     {
       "id": "UI-V2-38",
@@ -1067,7 +1068,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T07:58:22.267Z",
+  "updatedAt": "2026-10-14T09:00:26.633Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
