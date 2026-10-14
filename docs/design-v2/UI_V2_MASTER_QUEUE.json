@@ -594,13 +594,15 @@
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
+      "implemented": "yes",
       "rendered": "no",
       "interactionTested": "no",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "Layout adopted from the design's shared language: the gradient hero with its tree cutout replaced by a bare-chevron bar and a page lead, the tabs and the 旅程归档 entry merged into one chip row, the time-scope filter moved under the tabs, the card replaced by month groups of hairline rows, and the page's bottom padding reserving the tab bar (this route IS in tabbarPaths). VERIFIED at code level: build ✓, typecheck ✓, and the testid VALUES are unchanged — the diff only renames the loop variable, so `index === 0 ? ...` became `entry.index === 0 ? ...` and renders identical attribute values. NOT VERIFIED visually. Deliberate omissions: the design's search icon (no search API or behaviour exists, so it would be a dead control), its 关系/工作/生活 category chips (those categories are not in the data contract; the page keeps its two real axes, content type and time scope), and its row subtitles and footer note (design-only copy). The page keeps its own heading 日记与回信 rather than the mock's 旅程归档, because the page covers diaries, posts and letters too.",
+      "commitNote": "PROCESS ERROR: most of this file was committed inside a29bb46, whose message says \"restyle DecisionVault ... one file touched\". It was not one file — my `git add -A` swept the in-flight Archive.vue in while a background agent was still writing it. I had verified DecisionVault while Archive was clean and then committed after the agent wrote the file. The swept code was checked afterwards and is coherent (build and typecheck pass, testid values unchanged), and the remainder is committed on its own. Do not run `git add -A` while a background agent is writing the same working tree."
     },
     {
       "id": "UI-V2-22",
@@ -1063,7 +1065,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T03:36:15.087Z",
+  "updatedAt": "2026-10-14T03:39:26.522Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",

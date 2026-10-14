@@ -407,7 +407,7 @@ onMounted(load);
 .archive-detail-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
 .archive-detail-head p { margin: 0; color: var(--gn-leaf); font-size: 11px; }
 .archive-detail-head h2 { margin: 4px 0 0; color: var(--gn-ink); font-size: 19px; }
-.archive-detail-head button { display: grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; color: var(--gn-muted); font-size: 22px; cursor: pointer; }
+.archive-detail-head button { display: grid; width: 30px; height: 30px; min-height: 30px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--gn-paper-warm); box-shadow: none; color: var(--gn-muted); font-size: 22px; cursor: pointer; }
 .archive-detail-block { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--gn-line); }
 .archive-detail-block h3 { margin: 0; color: var(--gn-ink); font-size: 14px; font-weight: 700; }
 .archive-detail-block > p { margin: 7px 0 0; color: var(--gn-ink-soft); font-size: 13px; line-height: 1.7; }
