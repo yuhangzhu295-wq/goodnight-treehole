@@ -927,13 +927,14 @@
       "issue": "",
       "gitCommit": "",
       "status": "PENDING",
-      "implemented": "no",
+      "implemented": "yes",
       "rendered": "no",
       "interactionTested": "no",
       "businessVerified": "no",
       "visualApproved": "no",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "note": "The page structure already matched the mock (grouped rows with toggle tracks and section labels), so this was the shell and the card rather than a rebuild: the bar now carries only the title (‹ 隐私与数据, the design's wording), the subtitle moved below it as a page lead keeping its text, the bar gained the design's hairline, and .group-surface stopped being a card so the rows are bare with hairline separators. VERIFIED at code level: build ✓, typecheck ✓, all 24 data-testids untouched. NOT VERIFIED visually: two navigation attempts landed on 生活恢复 instead, because the Me list shifts as its content changes, and no PrivacySettings frame was captured."
     },
     {
       "id": "UI-V2-37",
@@ -1066,7 +1067,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "PENDING",
-  "updatedAt": "2026-10-14T07:06:01.566Z",
+  "updatedAt": "2026-10-14T07:58:22.267Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
