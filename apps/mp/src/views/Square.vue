@@ -34,6 +34,19 @@ function emotionTone(emotion: string) {
   }[emotion] ?? 'green';
 }
 
+/** The post's real creation time. This read a hardcoded "2 小时前", which is a mock value. */
+function relativeTime(value: string) {
+  if (!value) return '时间未记录';
+  const minutes = Math.floor((Date.now() - Date.parse(value)) / 60_000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(value));
+}
+
 function postIllustration(emotion: string) {
   return {
     委屈: '🥺',
@@ -166,10 +179,9 @@ onMounted(() => {
           <div class="post-meta">
             <strong>匿名树洞</strong>
             <span class="tag" :class="emotionTone(post.emotion)">{{ post.emotion }}</span>
-            <span class="muted">· 2 小时前</span>
+            <span class="muted">· {{ relativeTime(post.createdAt) }}</span>
           </div>
           <p class="post-content">{{ post.content }}</p>
-          <span class="wish-tag">想被理解</span>
           <p class="reply-count">已收到 <strong :data-visual-mask="index === 0 ? 'stat' : undefined">{{ post.replyCount }}</strong> 条温柔回应 ›</p>
         </div>
         <div class="card-illustration">{{ postIllustration(post.emotion) }}</div>
