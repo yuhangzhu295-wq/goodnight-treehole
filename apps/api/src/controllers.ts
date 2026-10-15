@@ -40,6 +40,7 @@ import { MonthlyReportService } from './monthly-report.service.js';
 import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService } from './self-persistence.service.js';
+import { FeedbackPersistenceService } from './feedback-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import { demoIdentityAllowed } from './identity-credential.js';
 import { AnonymousSessionService, currentIdentity, SESSION_TTL_MS } from './anonymous-session.service.js';
@@ -294,6 +295,7 @@ export class PublicController {
     @Inject(MonthlyReportService) private readonly reports: MonthlyReportService,
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
     @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
+    @Inject(FeedbackPersistenceService) private readonly feedbackPersistence: FeedbackPersistenceService,
     @Inject(AnonymousSessionService) private readonly sessions: AnonymousSessionService,
   ) {}
 
@@ -2165,16 +2167,10 @@ export class PublicController {
   }
 
   @Get('feedback/faqs')
-  faqs() {
-    // The frontend reads exactly the same records the admin CRUD writes.
-    // Do not inject display-only fallback questions here: a disabled/deleted FAQ
-    // must disappear after the next frontend reload.
-    return {
-      items: this.store.faqs
-        .filter((item) => item.enabled)
-        .slice()
-        .sort((a, b) => a.sortOrder - b.sortOrder),
-    };
+  async faqs() {
+    // Read from the table the console writes. Do not inject display-only fallback questions here: a
+    // disabled/deleted FAQ must disappear after the next frontend reload.
+    return { items: await this.feedbackPersistence.listPublicFaqs() };
   }
 
   @Post('feedback')
@@ -2254,6 +2250,7 @@ export class AdminController {
     @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
     @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
     @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
+    @Inject(FeedbackPersistenceService) private readonly feedbackPersistence: FeedbackPersistenceService,
   ) {}
 
   private admin(auth?: string, allowedRoles?: string[]) {
@@ -3600,27 +3597,17 @@ export class AdminController {
   }
 
   @Get('faqs')
-  adminFaqs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.list(this.store.faqs, page, pageSize);
+  async adminFaqs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.list(await this.feedbackPersistence.listFaqsForAdmin(), page, pageSize);
   }
   @Post('faqs')
-  async createFaq(@Headers('authorization') auth: string, @Body() body: { question: string; answer: string }) {
+  async createFaq(@Headers('authorization') auth: string, @Body() body: { question: string; answer: string; sortOrder?: number }) {
     const admin = this.admin(auth);
     const question = body.question?.trim();
     const answer = body.answer?.trim();
     if (!question || !answer) throw new BadRequestException('问题和答案不能为空');
-    const faq = {
-      id: `faq_${Date.now()}`,
-      question,
-      answer,
-      sortOrder: this.store.faqs.length + 1,
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
-    this.store.faqs.unshift(faq);
+    const faq = await this.feedbackPersistence.createFaq({ question, answer, sortOrder: body.sortOrder });
     this.store.audit(admin.id, 'FAQ_CREATE', 'FAQ', faq.id, null, faq);
-    this.store.persist();
-    await this.store.flush();
     return { item: faq };
   }
   @Put('faqs/:id')
@@ -3630,18 +3617,10 @@ export class AdminController {
     @Body() body: Partial<{ question: string; answer: string; enabled: boolean; sortOrder: number }>,
   ) {
     const admin = this.admin(auth);
-    const faq = this.store.faqs.find((f) => f.id === id);
-    if (!faq) throw new NotFoundException('FAQ 不存在');
-    const before = { ...faq };
-    const update = { ...body };
-    if (update.question !== undefined) update.question = update.question.trim();
-    if (update.answer !== undefined) update.answer = update.answer.trim();
-    if ((update.question !== undefined && !update.question) || (update.answer !== undefined && !update.answer))
-      throw new BadRequestException('问题和答案不能为空');
-    Object.assign(faq, update);
-    this.store.audit(admin.id, 'FAQ_UPDATE', 'FAQ', id, before, faq);
-    this.store.persist();
-    await this.store.flush();
+    if (body.question !== undefined && !String(body.question).trim()) throw new BadRequestException('问题和答案不能为空');
+    if (body.answer !== undefined && !String(body.answer).trim()) throw new BadRequestException('问题和答案不能为空');
+    const faq = await this.feedbackPersistence.updateFaq(id, body);
+    this.store.audit(admin.id, 'FAQ_UPDATE', 'FAQ', id, null, faq);
     return { item: faq };
   }
 
@@ -3656,11 +3635,10 @@ export class AdminController {
   @Delete('faqs/:id')
   async deleteFaq(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const faq = this.store.faqs.find((item) => item.id === id);
-    if (!faq) throw new NotFoundException('FAQ 不存在');
-    this.store.faqs = this.store.faqs.filter((f) => f.id !== id);
-    this.store.audit(admin.id, 'FAQ_DELETE', 'FAQ', id, faq, null);
-    await this.store.flush();
+    // The service answers 404 for an id it does not have, and hands the deleted row back so the
+    // audit record can name what was removed rather than only its id.
+    const { deleted } = await this.feedbackPersistence.deleteFaq(id);
+    this.store.audit(admin.id, 'FAQ_DELETE', 'FAQ', id, deleted, null);
     return { ok: true };
   }
 

@@ -22,6 +22,9 @@ export const DIRECT_DB_MODELS = {
   DecisionRecord: 'decisionRecords',
   CooldownItem: 'cooldownItems',
   MessageToFutureSelf: 'messagesToFutureSelf',
+  // Batch 4's first conversion. The console's FAQ routes now read and write FaqItem through
+  // feedback-persistence.service.ts, so the flush no longer needs to hydrate, upsert or sweep it.
+  FaqItem: 'faqs',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;
