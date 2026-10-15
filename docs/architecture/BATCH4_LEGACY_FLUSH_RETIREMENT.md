@@ -1,0 +1,94 @@
+# Persistence Batch 4 — retire the legacy flush, model by model
+
+**Status: NOT STARTED. This document is the plan and the per-model contract; no model has been converted.**
+
+**Related:** `LEGACY_SWEEP_DATA_LOSS_AUDIT.md` (the exposure and the ownership rule that closed it),
+`BATCH3_SELF_FULL_FLUSH_GATE.md` (the method a per-model gate copies),
+`direct-db-models.ts` (the registry that makes a conversion take effect).
+
+## 1. What Batch 4 is, measured rather than assumed
+
+Converting a model to database authority in this codebase is **not** writing its database paths from
+scratch. Measured across the 16 models `LEGACY_SWEEP_DATA_LOSS_AUDIT.md` §3.1 lists:
+
+| Shape | Count | Models |
+| --- | --- | --- |
+| DB read present (`mapper` `findMany`) **and** legacy upsert **and** sweep | 14 | `Mood`, `Post`, `Diary`, `Letter`, `Favorite`, `Reply`, `MediaAsset`, `FeedbackTicket`, `FeedbackCategory`, `FaqItem`, `ReplyPreset`, `AdminUserNote`, `PeerReputation`, `AgentDecisionLog` |
+| no mapper path at all | 2 | `AIProvider`, `AIStyleRoute` |
+
+So for 14 of the 16, Batch 4 is **registration plus three exits plus verification** — the expensive
+part (the read, the write, the mapping) is already there and is already exercised by the flush. That
+is why the registry exists, and it is why `BATCH3_SELF_FULL_FLUSH_GATE.md` could establish a gate by
+registering ten Self tables and asserting the flush then issued **no statement at all** against them.
+
+`AIProvider` and `AIStyleRoute` are the exception and need their mapper paths written first; the audit
+notes `AIProvider` is additionally **swept twice** (an `if/else` in the sweep), so converting it also
+removes a duplicate sweep.
+
+## 2. The per-model contract
+
+A model is converted when **all six** hold. Anything less is partial and must be recorded as such.
+
+1. **Registered.** `DIRECT_DB_MODELS.<Model> = '<collection>'`. This single line applies three
+   pre-wired guards: no boot hydration, no legacy upsert, no absence sweep.
+2. **Every reader converted.** The store must not read `this.<collection>` anywhere on a request
+   path. Measured, not eyeballed — currently `posts` has 9 in-memory reads, `letters` 8, `moods` 5.
+   A reader left behind serves a value frozen at boot until a flush writes it, which is *worse* than
+   the legacy behaviour because it never refreshes.
+3. **Every writer converted.** Writes go through a database-authoritative path. A model where some
+   writes still go to the in-memory array and are persisted by a later flush is **not** converted,
+   even if that flush is now the only writer.
+4. **A gate test exists.** The statement-level trigger method of `BATCH3_SELF_FULL_FLUSH_GATE.md`,
+   scoped to this model: a forced legacy flush issues no INSERT/UPDATE/DELETE against the table. With
+   the probe's own self-tests (a zero-row UPDATE and a zero-row DELETE are recorded, so an empty
+   result means "no statement" rather than "blind detector").
+5. **A reverse proof exists.** The registering guard is removed and the gate test fails. Without it
+   the gate is a claim, not a guard — and note the gate document's stated limitation: for a model
+   whose other guards are already ineffective, removing the single registration is not observable, so
+   the reverse proof must target something the observers can see.
+6. **A read-back check exists.** A row written by a **direct** database write (a test, a script,
+   another instance) is still returned by the read path after a flush. This is the regression the
+   ownership rule was written for and is what proves the sweep is truly gone rather than merely
+   delayed.
+
+## 3. Why one at a time
+
+The 14 conversions are independent and cheap individually. Doing them in one change would mean a
+single regression — a reader left behind, a flush that still upserts — would have 14 candidate causes
+and no way to attribute it. The rule is therefore **one model per commit**, each with its own gate and
+reverse proof, and each verified by a suite run, not by reasoning.
+
+## 4. Order, and why this order
+
+Most independent first, most entangled last, so a failure is attributable:
+
+1. `FaqItem` — no user relationship, two readers, admin-authored. Lowest blast radius.
+2. `ReplyPreset` — same shape.
+3. `FeedbackCategory` — same shape.
+4. `MediaAsset` — referenced by `Mood.attachmentIds` and `FeedbackTicket.screenshots`; the FK work
+   starts here, but only inward (upload/read), not from the parents.
+5. `FeedbackTicket` — depends on 4.
+6. `AdminUserNote` — cascades from an admin; worth doing before the user-facing models.
+7. `PeerReputation` — single-owner counters.
+8. `AgentDecisionLog` — written by AI flows; needs the AI paths checked.
+9. `Favorite` — read from `PostDetail` and lists.
+10. `Reply` — read with its post.
+11. `Letter` — read by several views and the home dashboard.
+12. `Diary` — derived from `Mood`; converting `Mood` first is required.
+13. `Post` — derived from `Mood`; the square and moderation read it.
+14. `Mood` — last of the 14: both `Post` and `Diary` derive from it, so it converts cleanly only once
+    its readers are database-authoritative.
+15. `AIProvider` — needs its mapper path written, and carries the duplicate sweep.
+16. `AIStyleRoute` — needs its mapper path written.
+
+## 5. What Batch 4 does not claim
+
+- **It does not make the application multi-instance safe.** The 14 conversions remove the legacy
+  dual writer for those models; other concerns (`store` arrays that are still authoritative for
+  un-converted models, caches, and the reload/flush interplay) are unchanged. The design's own wording
+  is that Batch 4 "removes the dual writer", not that it finishes persistence.
+- **It does not change any schema.** No migration is required for a registration; the tables and
+  columns already exist. Any schema change would be a new migration, and **applied migrations are
+  immutable**.
+- **It must not be run against production data to "see what happens".** Conversions are verified on
+  the leased test database, and the read-back check in §2.6 is what stands in for that.
