@@ -137,10 +137,17 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
    public. Both are fixed and reverse-proved. The matrix is corrected in
    `SELF_ROUTE_IDENTITY_MATRIX.md` §4–5. **Still open:** `queueAI`'s unreachable
    `input.userId ?? getDemoUserId()` default (Batch 4).
-7. **Open (P1)** — the audited admin memory read has no route, and the admin table still expands
-   content from list rows.
-8. **Open (P1)** — `MemoryCenter.vue` does not call the new re-consent route, so the approved flow is
-   unreachable from the product.
+7. **CLOSED as stale** (2026-10-15) — the finding read *"the audited admin memory read has no route,
+   and the admin table still expands content from list rows."* Both halves are addressed:
+   `GET /api/admin/v1/memory/:id` (`controllers.ts:2860`) calls
+   `getAuditedMemoryForAdmin(id, admin.id)`, and the list route
+   (`controllers.ts:2869`) returns metadata only with a comment stating the search never runs over
+   the memory text. Fixed in a commit after the review was written.
+8. **CLOSED as stale** (2026-10-15) — the finding read *"`MemoryCenter.vue` does not call the new
+   re-consent route, so the approved flow is unreachable from the product."* It does call it:
+   `apps/mp/src/views/MemoryCenter.vue:133` posts to `/api/v1/me/memories/:id/reactivate`, and the
+   control renders for `effectiveState(item) === 'expired'` as `data-testid="memory-reconsent"`
+   ("重新确认使用", line 378). The route is `controllers.ts:1206`.
 9. **Fixed** (`207b514`) — M9/M10 insert their racy read before the barrier and genuinely fail.
 10. **Open (P2)** — mutation coverage is missing for the memory exits, the eligibility predicates,
     deletion terminality and the audited read.
