@@ -6,9 +6,18 @@ the columns are separate on purpose.
 **HEAD at this writing:** `a3a106e` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
-**Last verified evidence (2026-10-15):**
+**Last verified evidence (2026-10-15, second pass):**
+- **Latest full run: `tests/business` + `tests/api` + `tests/e2e` = 60/60 files, 326 passed / 0 failed / 8 skipped.**
 - `pnpm typecheck` clean; `pnpm lint` **0 errors** (9 pre-existing warnings); `pnpm test:unit` **38/38**.
-- `tests/business` + `tests/api` + `tests/e2e`: **56/56 files, 298 passed / 0 failed** (7 skipped).
+- **Latest full run (2026-10-15): `tests/business` + `tests/api` + `tests/e2e` = 60/60 files,
+  326 passed / 0 failed / 8 skipped.** One file (`third-stage-persistence-independent`) failed inside
+  that run with `Can't reach database server at 172.31.189.221:5432` — the WSL VM suspending
+  mid-suite, not a regression. Re-run alone: 2/2.
+- `tests/unit` 38/38; `pnpm typecheck` clean; `pnpm lint` **0 errors** (9 pre-existing warnings).
+- Reverse proofs on this branch: **M-E** (reply gate reads cache → 403 becomes 201), **M-F** (journey owner
+  filter removed → 8 of 16 foreign-id cases report `stranger got 200/201`), **M-G** (safety read gated
+  on consent → `expected 200 "OK", got 403`), **M-H** (claim's status guard removed →
+  `expected 'superseded' to be 'delivered'`), plus the three mutations for the write-ownership fix.
 - `tests/cross`: **did not run** — refuses without a DAPI key (`A supplied DAPI key is required for
   cross-end AI acceptance`). That is `NOT_RUN_NO_SECRET`, **not** a pass, and it means the one edit
   made to `tests/cross/cross.spec.ts` in this pass is unverified.
@@ -37,7 +46,7 @@ failure is now a new regression.
 | 11 | **Legacy sweep data loss (P0)** | fixed, reproduced, mutation-proven | reproduced on the real DB (`moodCount 13 → 0`); ownership rule in `relational-runtime.mapper.ts`; `tests/business/legacy-sweep-ownership.spec.ts` 4/4; **M50** proven. `docs/architecture/LEGACY_SWEEP_DATA_LOSS_AUDIT.md` |
 | 11a | **C-end write paths filed everything under `user_demo` (P0)** | fixed `57b6714`, mutation-proven, device-verified | `createMood` resolved its owner with the fixed demo id and never read the request identity, so a mood created by an anonymous session was stored under `user_demo` and was **absent from its author's own diary list** while the demo account held it. Also made "not interested" global and `favoritedByCurrentUser` identical for every viewer. Fixed with `viewerUserId()` (reads) and `requireViewerId()` (writes, 401 without). `tests/business/cend-write-ownership.spec.ts` 7/7; three mutations each fail the named assertion |
 | 11b | **`GET /api/v1/tonight` served the demo account's private dashboard (P0)** | fixed `c8d48e8`, reverse-proved | The identity matrix listed this as a public "Tonight summary"; it returns the caller's journey, actions, check-ins, follow-ups, peer matches and latest letter. Measured: no credential and an unrelated credential both received `user_demo`'s PRIVATE journey. Now 401 without an identity |
-| 12 | Batch 3 final gate | **2 of 8 gates established** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. **`SELF_ROUTE_IDENTITY_PASS=true` ESTABLISHED** (2026-10-15) for its identity and ownership axes — 87/87 C-end and 4/4 admin routes have a 401 negative test, 43/43 parameterised routes have foreign-id evidence, mutation M-F fails 8/16; `BATCH3_ROUTE_IDENTITY_GATE.md`. Its consent axis is enforced centrally by `privacyAllows` and is **not** claimed per route. The other six gates are not established; `PERSISTENCE_BATCH3_STABLE` stays **false** |
+| 12 | Batch 3 final gate | **2 of 8 established, 2 more partly** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. **`SELF_ROUTE_IDENTITY_PASS=true` ESTABLISHED** (2026-10-15) for its identity and ownership axes — 87/87 C-end and 4/4 admin routes have a 401 negative test, 43/43 parameterised routes have foreign-id evidence, mutation M-F fails 8/16; `BATCH3_ROUTE_IDENTITY_GATE.md`. **`PRIVACY_PASS` and `MULTI_INSTANCE_SELECTED_FLOWS_PASS` PARTLY established** (2026-10-15) — see the design's §4 rows for exactly what each now holds and what neither claims (consent is enforced centrally by `privacyAllows`; one Self flow races, not all; no Self flush/reload race). `PERSISTENCE_BATCH3_STABLE` stays **false** |
 | 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **not started** | the audit's §3.1 lists them with writer counts; the ownership rule closed the exposure, this removes the dual writer |
 | 14 | Test database isolation | partial | the runner leases a database per file; the design's seed/fixture rules are not done |
 | 15 | CI | **green** | see above; the tolerated-failure baseline was **cleared**, so any failure is now a new regression |
