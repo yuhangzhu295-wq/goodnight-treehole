@@ -110,8 +110,22 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
 ## Open findings from the Batch 3 review
 
 1. **Fixed** (`207b514`) — AI eligibility is one owner-scoped statement.
-2. **Open (P1)** — the in-process privacy cache is still consulted by two display projections and by
-   `createReply`, so a cross-instance revocation can lag. The write gate must read the database.
+2. **Narrowed to a display-only lag, and now pinned** (2026-10-15). The finding read *"the
+   in-process privacy cache is still consulted by two display projections and by `createReply`, so a
+   cross-instance revocation can lag. The write gate must read the database."* Re-measured: the
+   `createReply` half was already fixed (it awaits `getPrivacySettings`), and every authorization
+   path goes through `privacyAllows` (16 callers), which reads the row whenever
+   `DIRECT_DB_MODELS.PrivacySetting` is true - as does `activeMemoriesForTask`'s live branch. What
+   remains cache-backed is **display only**: `decoratePost`'s `allowHumanReplies` and
+   `peerExperienceSummary`'s `allowAnonymousExperienceStats`. A stale display can offer a reply the
+   server then refuses with 403; no reply gets through.
+   The gate was unpinned - a change back to the cached accessor would not have failed any test - so
+   `tests/business/privacy-gate-reads-database.spec.ts` now revokes **directly in PostgreSQL**,
+   asserts the process cache is still stale (so the scenario is what it claims), expects 403 with the
+   privacy message, then restores consent and expects 201. **M-E** (gate reads
+   `getCachedPrivacySettings`) fails it with `expected 403 "Forbidden", got 201 "Created"`.
+   The display lag is left as a bounded, documented behaviour rather than fixed by making
+   `decoratePost` async and adding a batched privacy read per feed; that is a scoped follow-up.
 3. **Fixed** (`207b514`) — memory state operations refuse on an effectively expired row.
 4. **Fixed** (`207b514`) — the journey root lock is unconditional in both entry points.
 5. **Fixed** — RecoverySnapshot registered with three exits; graduation and the derived snapshot are
