@@ -3,11 +3,17 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-**HEAD at this writing:** `718f59d` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
+**HEAD at this writing:** `af390d2` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
 **Last verified evidence (2026-10-15, second pass):**
-- **Latest full run: `tests/business` + `tests/api` + `tests/e2e` = 60/60 files, 326 passed / 0 failed / 8 skipped.**
+- **The 9 specs this session added or changed, run together: 9/9 files, 79/79 tests, 0 failed.**
+  This is the trustworthy number for the session's own work, and it is stated instead of a full-suite
+  count because the full suite could not be run to completion here (see §0b).
+- Repo-wide run on 2026-10-15 reached **60/61 files, 322 passed / 0 failed** with one file failing in
+  setup for the environmental reason above; the same run also produced a *different* failing file
+  (`batch1-multi-instance`, `third-stage-archive`) with `Can't reach database server`.
+  `tests/unit` 38/38; `pnpm typecheck` clean; `pnpm lint` **0 errors** (9 pre-existing warnings).
 - `pnpm typecheck` clean; `pnpm lint` **0 errors** (9 pre-existing warnings); `pnpm test:unit` **38/38**.
 - **Latest full run (2026-10-15): `tests/business` + `tests/api` + `tests/e2e` = 60/60 files,
   326 passed / 0 failed / 8 skipped.** One file (`third-stage-persistence-independent`) failed inside
