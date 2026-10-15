@@ -3,16 +3,22 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-**HEAD at this writing:** `c16b71a` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
+**HEAD at this writing:** `a3a106e` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
-**Last verified evidence:**
-- CI **green** on `c16b71a` (run 38396476874) and on the commits before it. The job runs the
-  migration-immutability check, `prisma migrate deploy` on a fresh database, typecheck, lint, unit
-  tests, the Batch 1 gate, **the full business suite**, and the baseline-diff gate.
-- Full business suite: **42/42 files, 277 passed / 0 failed / 7 skipped**. Baseline-diff gate
-  `Total Failures 0 | Known Baseline 0 | New Regressions 0`, exit 0.
-- `pnpm typecheck` clean; `pnpm lint` 0 errors (9 pre-existing warnings); `pnpm test:unit` 36/36.
+**Last verified evidence (2026-10-15):**
+- `pnpm typecheck` clean; `pnpm lint` **0 errors** (9 pre-existing warnings); `pnpm test:unit` **38/38**.
+- `tests/business` + `tests/api` + `tests/e2e`: **56/56 files, 298 passed / 0 failed** (7 skipped).
+- `tests/cross`: **did not run** — refuses without a DAPI key (`A supplied DAPI key is required for
+  cross-end AI acceptance`). That is `NOT_RUN_NO_SECRET`, **not** a pass, and it means the one edit
+  made to `tests/cross/cross.spec.ts` in this pass is unverified.
+- The write-ownership fix is reverse-proved by three mutations (see `DEMO_USER_FALLBACK_CLOSURE.md`).
+- CI on the commits before `a3a106e` was green; `a3a106e` itself has not been through CI yet.
+
+Earlier evidence: CI **green** on `c16b71a` (run 38396476874) — migration-immutability check,
+`prisma migrate deploy` on a fresh database, typecheck, lint, unit tests, the Batch 1 gate, the full
+business suite, and the baseline-diff gate. The tolerated-failure baseline was **cleared**, so any
+failure is now a new regression.
 
 ## Where the work stands
 
@@ -29,11 +35,13 @@ Working tree clean.
 | 9 | B3 MessageToFutureSelf + worker (A6: consent read inside the claim transaction) | implemented, tested | `batch3-future-self-authority.spec.ts` |
 | 10 | **B3-R11 revocable anonymous session** (P0: identity spoofing) | implemented, live-verified | credential `<sessionId>.<secret>`, only `sha256(secret)` stored, DB lookup so instances agree and restarts preserve identity; expiry / per-device revocation / rotation. `batch3-identity-credential.spec.ts` (16), `docs/architecture/IDENTITY_CREDENTIAL_STORAGE.md` |
 | 11 | **Legacy sweep data loss (P0)** | fixed, reproduced, mutation-proven | reproduced on the real DB (`moodCount 13 → 0`); ownership rule in `relational-runtime.mapper.ts`; `tests/business/legacy-sweep-ownership.spec.ts` 4/4; **M50** proven. `docs/architecture/LEGACY_SWEEP_DATA_LOSS_AUDIT.md` |
+| 11a | **C-end write paths filed everything under `user_demo` (P0)** | fixed `57b6714`, mutation-proven, device-verified | `createMood` resolved its owner with the fixed demo id and never read the request identity, so a mood created by an anonymous session was stored under `user_demo` and was **absent from its author's own diary list** while the demo account held it. Also made "not interested" global and `favoritedByCurrentUser` identical for every viewer. Fixed with `viewerUserId()` (reads) and `requireViewerId()` (writes, 401 without). `tests/business/cend-write-ownership.spec.ts` 7/7; three mutations each fail the named assertion |
+| 11b | **`GET /api/v1/tonight` served the demo account's private dashboard (P0)** | fixed `c8d48e8`, reverse-proved | The identity matrix listed this as a public "Tonight summary"; it returns the caller's journey, actions, check-ins, follow-ups, peer matches and latest letter. Measured: no credential and an unrelated credential both received `user_demo`'s PRIVATE journey. Now 401 without an identity |
 | 12 | Batch 3 final gate | **1 of 8 gates established** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. The other seven are not established; `PERSISTENCE_BATCH3_STABLE` stays **false** |
 | 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **not started** | the audit's §3.1 lists them with writer counts; the ownership rule closed the exposure, this removes the dual writer |
 | 14 | Test database isolation | partial | the runner leases a database per file; the design's seed/fixture rules are not done |
 | 15 | CI | **green** | see above; the tolerated-failure baseline was **cleared**, so any failure is now a new regression |
-| 16 | C-end UI V2 (39 pages) | Rounds 1–2 done, 3–4 not started | `docs/design-v2/UI_V2_MASTER_QUEUE.json`; see below |
+| 16 | C-end UI V2 (39 pages) | Rounds 1–2 rendered; Round 3 implemented (1 page partial); **Round 4 not started** | `docs/design-v2/UI_V2_MASTER_QUEUE.json`; see below |
 | 17 | Android verification | not done | `PHYSICAL_ANDROID_VERIFIED=false` (no physical device) |
 | 18 | Admin verification | not done | |
 | 19 | Security / privacy regression | partial | |
@@ -57,11 +65,24 @@ notification tap), `UI2-010` (composer not pinned, conversation opened on its ol
 wrong direction), `UI2-013` (consent page's fake acknowledgement), `UI2-014` (two symptom options
 clipped and unreachable), `UI2-015` (JourneyDetail still V1).
 
-**Next UI entry point:** the stabilize step of JourneyDetail was restyled but **not captured**, so its
-appearance is unverified. After that, Round 3 (11 pages) then Round 4 (14 pages), following the
-per-page loop in each page's `逐页提示词/NN_*.md`: read the design → preserve the data contract →
-minimal UI change → targeted tests → real emulator screenshot → visual-judge → fix → regression →
-commit/push.
+**Next UI entry point:** Round 3 is implemented (10 pages; `ReportMonth` is shell-only, and the six
+pages below still owe a device render), and **Round 4 (14 pages) has one page touched**: `Square.vue`
+had its hardcoded `· 2 小时前` and `想被理解` replaced with real data (`d51f378`) — a data fix, not the
+restyle, so its hero, cards and mood pills are still the V1 language. Round 4's remaining pages:
+MoodCreate, PostDetail, LetterToday, ToolIndex, ToolDecompose, ToolRun, DiaryList, DiaryDetail,
+LetterList, LetterDetail, FavoriteList, FeedbackHelp, HelpFaqs.
+
+Round 3 pages that still owe a verified render: PrivacySettings, DataPolicy, ReportMonth's lower
+half, Archive, MemoryCenter, DecisionVault.
+
+Follow the per-page loop in each page's `逐页提示词/NN_*.md`: read the design → preserve the data
+contract → minimal UI change → targeted tests → real emulator screenshot → visual-judge → fix →
+regression → commit/push.
+
+**A note for the next session about `Square`:** its design (`22_Square.png`) is a flat list with
+`最新/热门` tabs, and the API's `GET /api/v1/posts` takes only `emotion`/`mood` — there is **no sort
+parameter**, so a `热门` tab has no backend today. Either add a real `sort` parameter or leave the tab
+out; do not ship a tab that only reorders the fetched page and calls itself 热门.
 
 ## Product defects fixed on this branch (not UI)
 
@@ -96,6 +117,12 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
 5. **Fixed** — RecoverySnapshot registered with three exits; graduation and the derived snapshot are
    one atomic transaction.
 6. **CLOSED** — the fallback was on 21 C-end routes, none of them Self routes (the ones the finding cited are peer routes and were already fixed). Measured: six of six read routes answered 200 without a credential and one served a real record. All 21 now require an identity; two remaining fallbacks are intentional (`/auth/demo`, and an admin route behind `this.admin(auth)`). See `DEMO_USER_FALLBACK_CLOSURE.md`. Seven specs were relying on the removed fallback and now send the demo identity.
+   **A second pass (2026-10-15) covered the two shapes the first pass could not:** writes that never
+   consulted the identity at all (`createMood`, `uploadMedia`, `createFeedbackTicket`, `createReply`,
+   `hidePostForCurrentUser`), and `GET /api/v1/tonight`, which the identity matrix had itself declared
+   public. Both are fixed and reverse-proved. The matrix is corrected in
+   `SELF_ROUTE_IDENTITY_MATRIX.md` §4–5. **Still open:** `queueAI`'s unreachable
+   `input.userId ?? getDemoUserId()` default (Batch 4).
 7. **Open (P1)** — the audited admin memory read has no route, and the admin table still expands
    content from list rows.
 8. **Open (P1)** — `MemoryCenter.vue` does not call the new re-consent route, so the approved flow is
@@ -117,25 +144,44 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
 
 ## Environment facts that cost time (read before the next session)
 
-0. **WSL2 suspends and the forwarded ports die with it.** `ensure-infra.mjs` probes TCP properly
-   and reports the containers reachable, but the VM can suspend seconds later, so the next process
-   sees `ECONNREFUSED`. Hold it awake for the whole run, e.g. `(wsl.exe -e sleep 1200 &)` before
-   `ensure-infra.mjs`, and pass an explicit IPv4 `DATABASE_URL` (`127.0.0.1`, not `localhost`)
-   to the test runner, which otherwise prefers the `.env` value.
+0. **WSL2 suspends and the forwarded ports die with it.** Hold it awake for the whole run from the
+   Windows side - `(wsl.exe -e sleep 21600 &)` in a Git Bash session works and survives tool calls;
+   a `nohup sleep` started *inside* WSL does not, because WSL tears the process tree down when the
+   invoking command returns. Symptom when it lapses: `psql: FATAL: the database system is shutting
+   down`, then `[INFRASTRUCTURE_FAILURE] Cannot connect to PostgreSQL`. A `-l -v` state of `Stopped`
+   that flips to `Running` on the next invocation is this, not a test failure.
+   `netsh interface portproxy` needs an elevated shell and cannot be recreated here, so point
+   `DATABASE_URL`/`REDIS_URL` at the WSL IP directly (`wsl.exe -e bash -lc "hostname -I"`), and pass
+   `TEST_PG_PORT=5432` - the `.env` values use ports 15432/16379 that no longer forward.
 
 1. **The local API is not in watch mode.** It runs as `npx tsx src/main.ts`, so after editing
    `apps/api/src` the endpoint keeps returning old results until the process on port 3000 is killed
    and `pnpm --filter @goodnight/api dev` is restarted.
 2. **`adb reverse tcp:3000 tcp:3000` is lost** when the emulator or adb server restarts. The app then
    shows `网络连接不上，请检查网络后重试` (the UI2-011 message) and every page looks empty.
-3. **Another project's automation steals the emulator foreground** about every 35 seconds
-   (`com.yuhangzhu295.cozyfocus`, launched from uid 2000; `pm disable-user` does not stop it). Use
-   `scripts/ui2-capture.mjs`, which re-asserts our activity **before each tap** and refuses to write a
-   capture unless the complete `topResumedActivity` is ours and the frame is portrait.
-4. **github.com:443 is intermittently unreachable**; `git push` may need several retries over minutes.
+3. **Another project's automation steals the emulator foreground** (`com.yuhangzhu295.cozyfocus`,
+   running as its own process; `pm disable-user` does not stop it). The rate is worse than "about
+   every 35 seconds": on 2026-10-15 a `dumpsys` check reported our activity on top and a screenshot
+   taken seconds later showed CozyFocus, and a tap issued in that window landed in the other app and
+   looked like "submit did nothing". Use `scripts/ui2-capture.mjs`, which re-asserts our activity
+   **before each tap** and refuses to write a capture unless the complete `topResumedActivity` is ours
+   and the frame is portrait; `scripts/device-mood-e2e.sh` is a smaller version that aborts instead of
+   tapping blind. Neither can close the check-to-tap gap. **Do not kill the other project's processes.**
+   For data questions, prefer verifying with the credential the app holds
+   (`scripts/verify-device-credential-ownership.mjs`) over tapping the UI.
+4. **`adb shell` paths get mangled by Git Bash**: `/data/data/...` becomes `C:/Program Files/Git/...`.
+   Set `MSYS_NO_PATHCONV=1` for those commands.
+5. **github.com:443 is intermittently unreachable**; `git push` may need several retries over minutes.
    Always confirm `git rev-parse HEAD origin/<branch>` collapses to one line before calling it pushed.
 
 ## Next entry point
 
-Batch 3's final gate (task 12) and then Batch 4 (task 13), or continue the UI V2 rounds — both are
-valid; Batch 4 is the data-safety one and carries higher risk than the UI track.
+The identity/data-safety thread is at a clean stopping point: both P0s found in this pass are fixed,
+reverse-proved, device-verified and pushed. The largest remaining user-facing item is **UI V2
+Round 4 (14 pages)**, then Round 3's six missing renders. **Batch 4** (task 13) is the higher-risk
+data-safety one — it removes the dual writer for the 16 models in
+`LEGACY_SWEEP_DATA_LOSS_AUDIT.md` §3.1 — and Batch 3's remaining seven gates (task 12) sit next to it.
+
+Two things to re-check before starting either: the API on port 3000 must be restarted after any
+`apps/api/src` edit (it is not in watch mode), and `adb reverse tcp:3000 tcp:3000` must be re-applied
+after an emulator or adb-server restart.
