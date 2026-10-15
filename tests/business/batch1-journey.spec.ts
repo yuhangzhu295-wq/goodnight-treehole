@@ -116,8 +116,9 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
       await freshPrisma.$disconnect();
     }
 
-    // 1. Read through GET /api/v1/tonight (home read path)
-    const tonightRes = await request(server).get('/api/v1/tonight').expect(200);
+    // 1. Read through GET /api/v1/tonight (home read path). The home payload is the caller's own
+    // private dashboard, so the request names whose it wants.
+    const tonightRes = await request(server).get('/api/v1/tonight').set(await demoUserHeaders()).expect(200);
     expect(tonightRes.body.item.journey).not.toBeNull();
     expect(tonightRes.body.item.journey.id).toBe(journeyId);
     expect(tonightRes.body.item.journey.title).toBe('数据库门禁专用旅程标题');

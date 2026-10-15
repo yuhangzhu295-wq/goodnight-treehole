@@ -145,7 +145,6 @@ The following endpoints do not expose private personal data and are intentionall
 | GET | `/api/v1/letters` | General letters mailbox read for the default/public experience (private letters accessed via `/api/v1/me/letters` or `/api/v1/letters/:id`). |
 | GET | `/api/v1/letters/today` | Today's public letter prompt. |
 | GET | `/api/v1/config` | Application configuration defaults (features, flags). |
-| GET | `/api/v1/tonight` | Tonight summary and inspirational quote. |
 | GET | `/api/v1/debug/fingerprint` | Build version and runtime instance identifier. |
 | GET | `/api/v1/tools` | Available AI tool catalog and descriptors. |
 | GET | `/api/v1/reply-presets` | Community reply chip presets. |
@@ -154,4 +153,50 @@ The following endpoints do not expose private personal data and are intentionall
 | POST | `/api/admin/v1/login` | Admin authentication endpoint (issues signed bearer token). |
 | POST | `/api/admin/v1/auth/login` | Alias for admin authentication. |
 | POST | `/api/admin/v1/auth/logout` | Admin logout endpoint. |
+
+---
+
+## 4. Correction: `/api/v1/tonight` was listed here and does not belong (2026-10-15)
+
+The row removed from §3 read *"Tonight summary and inspirational quote"*. That described the
+**route's name**, not its implementation. `tonightHome()` returns the caller's active journey,
+active actions, due check-ins, follow-ups, peer matches and latest letter - every one of them
+private per-user data - and the route called it with no user, so the store substituted the demo id.
+
+Measured with the API running, not inferred:
+
+```
+GET /api/v1/tonight, no credential at all
+  -> 200, journey { id: "journey_6182a7f03d", userId: "user_demo",
+                    title: "毕业同意复现", visibility: "PRIVATE" }
+     plus that user's pending DECISION_COOLDOWN and FUTURE_SELF follow-ups and its peer matches
+
+GET /api/v1/tonight, credential of a freshly issued, unrelated anonymous user
+  -> 200, the identical payload
+```
+
+Both a caller with no identity and a caller with a *different* valid identity received `user_demo`'s
+private dashboard. The route now resolves the caller (`requireRuntimeUserId`) and `tonightHome`
+takes a required `userId`, so a request without an identity is refused with 401.
+
+This is the same defect class as §2 R-06; the difference is that here the documentation had
+declared the leak to be by design, which is why the first pass over these routes did not look at it.
+A route is public because of what it returns, not because of what it is called.
+
+## 5. The C-end write routes, which §2 did not cover
+
+§2 lists routes that *decided* identity from a fallback. These did not decide at all: they called
+`getDemoUserId()` directly, a fixed string, and took no identity from the request. See
+`DEMO_USER_FALLBACK_CLOSURE.md` §"Second pass" for the measurements and the reverse proofs.
+
+| Method | Path | Identity source (after) | Before |
+| --- | --- | --- | --- |
+| POST | `/api/v1/moods` | `requireViewerId()` in the store, 401 without | hardcoded `user_demo` |
+| POST | `/api/v1/posts` | same (alias of the above) | hardcoded `user_demo` |
+| POST | `/api/v1/media/upload` | `requireViewerId()`, 401 without | hardcoded `user_demo` |
+| POST | `/api/v1/feedback` | `requireViewerId()`, 401 without | hardcoded `user_demo` |
+| POST | `/api/v1/posts/:id/replies` | `requireViewerId()`; `anonymous: true` stores no author | hardcoded `user_demo` unless anonymous |
+| POST | `/api/v1/posts/:id/hide` | `viewerUserId()`, 401 without | hardcoded `user_demo` |
+| GET | `/api/v1/posts` | `viewerUserId()` for hides and `favoritedByCurrentUser`; readable without identity | demo account's hides and favourites for every viewer |
+
 

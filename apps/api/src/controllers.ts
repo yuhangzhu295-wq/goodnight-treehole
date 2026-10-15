@@ -391,9 +391,25 @@ export class PublicController {
     return { item, enforcedKeys: ENFORCED_SETTING_KEYS, notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS };
   }
 
+  /**
+   * The home dashboard: the caller's active journey, actions, due check-ins, follow-ups, peer
+   * matches and latest letter. Every one of those is private per-user data, so this is not a public
+   * route. It used to be documented as one ("Tonight summary and inspirational quote") while the
+   * implementation called `tonightHome()` with no user and therefore returned `user_demo`'s private
+   * journey to whoever asked - measured with no credential and with a different user's credential,
+   * both receiving the same PRIVATE journey.
+   */
+  /**
+   * The home dashboard: the caller's active journey, actions, due check-ins, follow-ups, peer
+   * matches and latest letter. Every one of those is private per-user data, so this is not a public
+   * route. It used to be documented as one ("Tonight summary and inspirational quote") while the
+   * implementation called `tonightHome()` with no user and therefore returned `user_demo`'s private
+   * journey to whoever asked - measured with no credential and with a different user's credential,
+   * both receiving the same PRIVATE journey.
+   */
   @Get('tonight')
-  async tonight() {
-    return { item: await this.store.tonightHome() };
+  async tonight(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    return { item: await this.store.tonightHome(requireRuntimeUserId(requestedUserId)) };
   }
 
   @Get('journeys')

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { assertTestDatabaseUrl } from '../business/helpers.js';
+import { assertTestDatabaseUrl, demoUserHeaders } from '../business/helpers.js';
 import { DAPI_PROVIDER_ID } from '../../apps/api/src/remote-ai-provider.service.js';
 
 assertTestDatabaseUrl();
@@ -92,6 +92,7 @@ describe('cross terminal acceptance loops', () => {
 
     await request(server)
       .post('/api/v1/feedback')
+      .set(await demoUserHeaders())
       .send({ categoryId: 'cat_1', content: feedbackText, sourcePage: '/pages/feedback/index', assetIds: [] })
       .expect(201);
     await request(server)

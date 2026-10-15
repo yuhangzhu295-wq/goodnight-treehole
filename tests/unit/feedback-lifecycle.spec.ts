@@ -3,6 +3,15 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PublicController } from '../../apps/api/src/controllers.js';
 import { StoreService } from '../../apps/api/src/store.service.js';
+import { runWithIdentity } from '../../apps/api/src/anonymous-session.service.js';
+
+/**
+ * These unit tests call the store directly, so no request carries an identity. Writes require one,
+ * so it is published explicitly here rather than inherited from a default.
+ */
+function asUser<T>(userId: string, fn: () => T): T {
+  return runWithIdentity({ userId, sessionId: `unit-${userId}` }, fn);
+}
 
 const temporaryFiles: string[] = [];
 
@@ -48,28 +57,38 @@ describe('feedback media and lifecycle', () => {
   it('persists MediaAsset ids, decorates them as real URLs, and protects attached files', async () => {
     const store = createStore();
     const asset = addFeedbackAsset(store);
-    const ticket = await store.createFeedbackTicket({
-      categoryId: 'cat_1',
-      content: '截图上传后的反馈',
-      sourcePage: '/pages/help/feedback',
-      assetIds: [asset.id],
-    });
+    const ticket = await asUser('user_demo', () =>
+      store.createFeedbackTicket({
+        categoryId: 'cat_1',
+        content: '截图上传后的反馈',
+        sourcePage: '/pages/help/feedback',
+        assetIds: [asset.id],
+      }),
+    );
 
     expect(ticket.screenshots).toEqual([asset.id]);
     expect(store.decorateFeedbackTicket(ticket).screenshots).toEqual([
       expect.objectContaining({ id: asset.id, url: asset.url, mimeType: 'image/png' }),
     ]);
     await expect(store.deleteMediaAsset(asset.id)).rejects.toMatchObject({ status: 403 });
-    await expect(store.createFeedbackTicket({
-      categoryId: 'cat_1',
-      content: '超过上限的截图',
-      assetIds: [asset.id, asset.id, asset.id],
-    })).rejects.toMatchObject({ status: 400 });
+    // The identity is supplied here too: a request with none is refused with 401 before any body
+    // validation, so without it this would assert the wrong rejection.
+    await expect(
+      asUser('user_demo', () =>
+        store.createFeedbackTicket({
+          categoryId: 'cat_1',
+          content: '超过上限的截图',
+          assetIds: [asset.id, asset.id, asset.id],
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it('moves reply work through processing before a ticket can be resolved', async () => {
     const store = createStore();
-    const ticket = await store.createFeedbackTicket({ categoryId: 'cat_1', content: '请协助处理', assetIds: [] });
+    const ticket = await asUser('user_demo', () =>
+      store.createFeedbackTicket({ categoryId: 'cat_1', content: '请协助处理', assetIds: [] }),
+    );
 
     await expect(store.updateFeedbackTicketStatus('admin_1', ticket.id, 'resolved')).rejects.toMatchObject({ status: 400 });
     const replied = await store.replyToFeedbackTicket('admin_1', ticket.id, '已经收到，会尽快处理。');

@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { StoreService } from '../../apps/api/src/store.service.js';
 import { RemoteAiProviderService } from '../../apps/api/src/remote-ai-provider.service.js';
+import { runWithIdentity } from '../../apps/api/src/anonymous-session.service.js';
+
+/**
+ * These unit tests call the store directly, so no request carries an identity. Writes require one,
+ * so it is published explicitly here rather than inherited from a default.
+ */
+function asUser<T>(userId: string, fn: () => T): T {
+  return runWithIdentity({ userId, sessionId: `unit-${userId}` }, fn);
+}
 
 /**
  * A StoreService persistence stub that answers the one database read these unit tests now reach:
@@ -90,7 +99,7 @@ describe('domain services', () => {
     // createReply became async when the human-reply gate started reading the database (R-02), so
     // this test has to await it: without the await, `reply` is a Promise and `reply.id` is
     // undefined, which made the assertion below pass against a reply that was never created.
-    const reply = await store.createReply('post_1', { content: '我也在这里', anonymous: true });
+    const reply = await asUser('user_demo', () => store.createReply('post_1', { content: '我也在这里', anonymous: true }));
     expect(reply.id).toBeTruthy();
     store.moderateReply('admin_1', reply.id, 'block');
     expect(store.replies.filter((item) => item.postId === 'post_1' && item.status === 'published').some((item) => item.id === reply.id)).toBe(false);

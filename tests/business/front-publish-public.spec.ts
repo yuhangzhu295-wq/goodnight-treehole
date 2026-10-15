@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { auth, createApiTestApp, loginAdmin, waitForAiJob, dapiConfigured } from './helpers';
+import { auth, createApiTestApp, demoUserHeaders, loginAdmin, waitForAiJob, dapiConfigured } from './helpers';
 
 describe('front public publish business flow', () => {
   let app: INestApplication;
@@ -20,6 +20,7 @@ describe('front public publish business flow', () => {
     const content = `public business post ${Date.now()}`;
     const created = await request(server)
       .post('/api/v1/posts')
+      .set(await demoUserHeaders())
       .send({ content, mood: 'work', visibility: 'PUBLIC', style: 'warm' })
       .expect(201);
 
@@ -44,6 +45,7 @@ describe('front public publish business flow', () => {
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/posts')
+      .set(await demoUserHeaders())
       .send({ content: `public ai post ${Date.now()}`, mood: 'work', visibility: 'PUBLIC', style: 'warm' })
       .expect(201);
 

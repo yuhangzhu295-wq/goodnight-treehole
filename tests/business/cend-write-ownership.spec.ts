@@ -54,6 +54,7 @@ describe('C-end write ownership follows the caller, not a fixed demo id', () => 
     await prisma.post.deleteMany({ where: { id: { in: postIds } } });
     await prisma.diary.deleteMany({ where: { content: { startsWith: marker } } });
     await prisma.mood.deleteMany({ where: { content: { startsWith: marker } } });
+    await prisma.lifeJourney.deleteMany({ where: { title: { startsWith: marker } } });
     await prisma?.$disconnect();
     await app.close();
   });
@@ -142,6 +143,37 @@ describe('C-end write ownership follows the caller, not a fixed demo id', () => 
     // constant back, so one user's "not interested" removed the post for everybody.
     expect(await visibleTo(other)).toBe(false);
     expect(await visibleTo(owner)).toBe(true);
+  });
+
+  it('refuses the home dashboard without an identity', async () => {
+    await request(server).get('/api/v1/tonight').expect(401);
+  });
+
+  /**
+   * The home payload is the caller's own private dashboard (journey, actions, due check-ins,
+   * follow-ups, peer matches, latest letter). It used to be served with no identity check at all,
+   * so a caller with no credential - or a different user's credential - received `user_demo`'s
+   * PRIVATE journey. Asserting that each caller sees their own journey is what makes this
+   * discriminate; asserting only "200" would not.
+   */
+  it('serves the home dashboard of the caller, not the demo account', async () => {
+    await request(server)
+      .post('/api/v1/journeys')
+      .set('x-goodnight-user-id', await identityFor(other))
+      .send({ title: `${marker}-tonight`, domain: '生活', content: '首页归属探针' })
+      .expect(201);
+
+    const theirs = await request(server)
+      .get('/api/v1/tonight')
+      .set('x-goodnight-user-id', await identityFor(other))
+      .expect(200);
+    expect(theirs.body.item.journey?.userId).toBe(other);
+
+    const owners = await request(server)
+      .get('/api/v1/tonight')
+      .set('x-goodnight-user-id', await identityFor(owner))
+      .expect(200);
+    expect(owners.body.item.journey?.userId).not.toBe(other);
   });
 
   it('reports favourited state for the caller, not for the demo account', async () => {

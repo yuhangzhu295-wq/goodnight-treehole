@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { assertTestDatabaseUrl } from '../business/helpers.js';
+import { assertTestDatabaseUrl, demoUserHeaders } from '../business/helpers.js';
 
 assertTestDatabaseUrl();
 
@@ -22,6 +22,7 @@ describe('main user/admin flows', () => {
       .send({ username: 'admin', password: 'admin123' });
     const reply = await request(server)
       .post('/api/v1/posts/post_1/replies')
+      .set(await demoUserHeaders())
       .send({ content: '前台回复抽屉发布', anonymous: true })
       .expect(201);
     await request(server)

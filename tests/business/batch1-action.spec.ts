@@ -93,8 +93,9 @@ describe('Batch 1 Sub-batch E: ActionCommitment and OutcomeCheckin database auth
       await freshPrisma.$disconnect();
     }
 
-    // Read path 1: GET /api/v1/tonight (Home)
-    const homeRes = await request(server).get('/api/v1/tonight').expect(200);
+    // Read path 1: GET /api/v1/tonight (Home). The home payload is the caller's own private
+    // dashboard, so the request names whose it wants.
+    const homeRes = await request(server).get('/api/v1/tonight').set(await demoUserHeaders()).expect(200);
     const homeItem = homeRes.body.item ?? {};
     const homeActiveActions = homeItem.activeActions ?? [];
     const homeDueCheckins = homeItem.dueCheckins ?? [];

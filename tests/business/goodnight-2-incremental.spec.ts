@@ -202,7 +202,8 @@ describe('GoodnightTreeHole 2.0 incremental business loop', () => {
     expect(consent.body.draft.status).toBe('pending_review');
     expect(await prisma.peerExperience.findUnique({ where: { id: consent.body.draft.id } })).toMatchObject({ status: 'pending_review', journeyId });
 
-    const refreshed = await request(server).get('/api/v1/tonight').expect(200);
+    // The home payload is the caller's own private dashboard, so the request names whose it wants.
+    const refreshed = await request(server).get('/api/v1/tonight').set(await demoUserHeaders()).expect(200);
     expect(refreshed.body.item.journey).toBeNull();
 
     const persisted = await prisma.lifeJourney.findUnique({ where: { id: journeyId }, include: { snapshot: true, commitments: true, peerExperiences: true, recoverySnapshots: true } });

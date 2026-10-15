@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { auth, createApiTestApp, loginAdmin } from './helpers';
+import { auth, createApiTestApp, demoUserHeaders, loginAdmin } from './helpers';
 
 describe('deprecated endpoints regression', () => {
   let app: INestApplication;
@@ -92,6 +92,7 @@ describe('deprecated endpoints regression', () => {
       const content = `post visibility test ${Date.now()}`;
       const created = await request(server)
         .post('/api/v1/posts')
+        .set(await demoUserHeaders())
         .send({ content, mood: 'work', visibility: 'PUBLIC' })
         .expect(201);
 
@@ -156,6 +157,7 @@ describe('deprecated endpoints regression', () => {
       const content = `post review test ${Date.now()}`;
       const created = await request(server)
         .post('/api/v1/posts')
+        .set(await demoUserHeaders())
         .send({ content, mood: 'work', visibility: 'PUBLIC' })
         .expect(201);
 

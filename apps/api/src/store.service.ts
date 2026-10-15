@@ -3259,7 +3259,17 @@ export class StoreService implements OnModuleInit {
     if ((this.privacySettings[userId] as any)?.[key] !== true) throw new ForbiddenException(message);
   }
 
-  async tonightHome(userId = this.getDemoUserId()) {
+  /**
+   * The home dashboard for one user. The identity is required rather than defaulted: the payload is
+   * that user's private journey, actions, check-ins, follow-ups, matches and latest letter, so a
+   * caller that did not name a user must be refused instead of shown the demo account's.
+   */
+  /**
+   * The home dashboard for one user. The identity is required rather than defaulted: the payload is
+   * that user's private journey, actions, check-ins, follow-ups, matches and latest letter, so a
+   * caller that did not name a user must be refused instead of shown the demo account's.
+   */
+  async tonightHome(userId: string) {
     const journey = await this.batch1Persistence.getActiveJourneyForUser(userId);
     const activeActions = await this.batch1Persistence.listActiveActionsForUser(userId, 3);
     const dueCheckins = await this.batch1Persistence.listDueCheckinsForUser(userId, 3);
