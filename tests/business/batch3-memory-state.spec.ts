@@ -194,6 +194,33 @@ describe('Batch 3: MemoryItem state machine', () => {
     expect(await eligible()).not.toContain(id);
   });
 
+  /**
+   * 2.1 sets `status: 'deleted'` and `deletedAt` together, so it is stopped by the `status` predicate
+   * and never demonstrates the `deletedAt IS NULL` predicate at all. Mutation M-I3 (that predicate
+   * removed from the query) left 2.1 green — proof the predicate was unpinned rather than redundant.
+   *
+   * This case isolates it: `status` stays `'active'` while `deletedAt` is set. The row's stored status
+   * claims it is live and only the tombstone says it is gone, so only the `deletedAt` predicate can
+   * exclude it.
+   *
+   * Scope, stated plainly: the product's single delete path (`self-persistence.service.ts:1128-1131`)
+   * writes both fields in one update, so a row with `status='active'` and a set `deletedAt` is not
+   * reachable through the app today. That is defence in depth, not a fix — the value is that a future
+   * migration, script, or a change to the delete path that separates the two writes cannot silently
+   * put a deleted row into a prompt.
+   */
+  it('2.1b a tombstone alone excludes a memory even when status still says active', async () => {
+    const id = await createMemory('墓碑');
+    await prisma.memoryItem.update({ where: { id }, data: { status: 'active', deletedAt: new Date() } });
+
+    const row = await prisma.memoryItem.findUnique({ where: { id } });
+    expect(row?.status).toBe('active');
+    expect(row?.deletedAt).not.toBeNull();
+
+    const eligibleIds = (await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id);
+    expect(eligibleIds).not.toContain(id);
+  });
+
   it('2.2 The scope allowlist still applies on top of the four predicates', async () => {
     const journeyScoped = await createMemory('范围');
     await prisma.memoryItem.update({ where: { id: journeyScoped }, data: { scope: 'journey' } });
