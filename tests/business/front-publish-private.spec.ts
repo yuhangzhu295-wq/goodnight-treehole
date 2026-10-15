@@ -27,6 +27,7 @@ describe('front private publish business flow', () => {
     const jobsBefore = await prisma.aIJob.count();
     const created = await request(server)
       .post('/api/v1/moods')
+      .set(await demoUserHeaders())
       .send({ content, emotion: 'anxious', visibility: 'PRIVATE', replyStyle: 'poetic' })
       .expect(201);
 
@@ -93,6 +94,7 @@ describe('front private publish business flow', () => {
     try {
       const selected = await request(server)
         .post('/api/v1/moods')
+        .set(await demoUserHeaders())
         .send({ content: `public poetic mood ${Date.now()}`, emotion: 'anxious', visibility: 'PUBLIC', replyStyle: 'poetic' })
         .expect(201);
 
@@ -103,6 +105,7 @@ describe('front private publish business flow', () => {
 
       const fallback = await request(server)
         .post('/api/v1/moods')
+        .set(await demoUserHeaders())
         .send({ content: `public fallback mood ${Date.now()}`, emotion: 'anxious', visibility: 'PUBLIC', replyStyles: ['unsupported-style'] })
         .expect(201);
 
@@ -130,6 +133,7 @@ describe('front private publish business flow', () => {
     const server = app.getHttpServer();
     const created = await request(server)
       .post('/api/v1/moods')
+      .set(await demoUserHeaders())
       .send({ content: `private ai mood ${Date.now()}`, emotion: 'anxious', visibility: 'PRIVATE', replyStyle: 'poetic' })
       .expect(201);
 

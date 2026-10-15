@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { assertTestDatabaseUrl } from '../business/helpers.js';
+import { assertTestDatabaseUrl, demoUserHeaders } from '../business/helpers.js';
 
 describe('api contracts', () => {
   let app: INestApplication;
@@ -25,6 +25,7 @@ describe('api contracts', () => {
       .expect(201);
     const mood = await request(server)
       .post('/api/v1/moods')
+      .set(await demoUserHeaders())
       .send({ content: '公开树洞测试', emotion: '工作', visibility: 'PUBLIC' })
       .expect(201);
     const postId = mood.body.post.id;

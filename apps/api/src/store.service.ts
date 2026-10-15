@@ -44,6 +44,7 @@ import {
 } from './remote-ai-provider.service.js';
 import { resolveUploadsDirectory, visualFixtureMode } from './runtime-environment.js';
 import { scheduleFollowUp } from './follow-up-queue.js';
+import { currentIdentity } from './anonymous-session.service.js';
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
@@ -2059,7 +2060,7 @@ export class StoreService implements OnModuleInit {
     sourcePage?: unknown;
     assetIds?: unknown;
   }) {
-    const userId = this.getDemoUserId();
+    const userId = this.requireViewerId();
     const content = typeof input.content === 'string' ? input.content.trim() : '';
     if (!content) throw new BadRequestException('反馈内容不能为空');
     if (content.length > 500) throw new BadRequestException('反馈内容不能超过 500 字');
@@ -2161,7 +2162,10 @@ export class StoreService implements OnModuleInit {
     const dimensions = imageDimensions(file.buffer, file.mimetype);
     const asset: MediaAsset = {
       id: assetId,
-      userId: this.getDemoUserId(),
+      // Uploads are owned by the caller. createMood refuses attachments whose asset.userId is not
+      // the mood owner, so attributing uploads to the demo account while attributing moods to the
+      // caller would make every attached image look like somebody else's.
+      userId: this.requireViewerId(),
       storageKey,
       url: `/uploads/${storageKey}`,
       mimeType: file.mimetype,
@@ -2178,7 +2182,7 @@ export class StoreService implements OnModuleInit {
     return asset;
   }
 
-  async createDiaryExport(userId = this.getDemoUserId()) {
+  async createDiaryExport(userId: string) {
     await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
     const generatedAt = now();
     const diaries = this.diaries
@@ -2291,11 +2295,11 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  getDiaryExportDownload(assetId: string, userId = this.getDemoUserId()) {
+  getDiaryExportDownload(assetId: string, userId: string) {
     return this.getExportDownload(assetId, userId);
   }
 
-  getExportDownload(assetId: string, userId = this.getDemoUserId()) {
+  getExportDownload(assetId: string, userId: string) {
     const asset = this.assets.find(
       (item) =>
         item.id === assetId &&
@@ -2486,8 +2490,9 @@ export class StoreService implements OnModuleInit {
       post.reviewStatus === 'published' &&
       ownerPrivacy?.allowHumanReplies !== false &&
       systemAllowsHumanReplies;
+    const viewer = this.viewerUserId();
     (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser = this.favorites.some(
-      (item) => item.userId === this.getDemoUserId() && item.targetType === 'post' && item.targetId === post.id,
+      (item) => item.userId === viewer && item.targetType === 'post' && item.targetId === post.id,
     );
     return post;
   }
@@ -2800,6 +2805,31 @@ export class StoreService implements OnModuleInit {
 
   getDemoUserId() {
     return 'user_demo';
+  }
+
+  /**
+   * The user this request is acting as, or null when the request carries no identity.
+   *
+   * Per-viewer state (hidden posts, favourited flags) must be derived from this, never from
+   * getDemoUserId(): the demo id is a fixed string, so using it makes every viewer share one
+   * account's hides and favourites - a public reader would see the feed filtered by a stranger's
+   * preferences. A request without an identity has no viewer, and "no viewer" means "nothing is
+   * hidden and nothing is favourited", which is the honest answer rather than borrowing somebody's.
+   */
+  private viewerUserId(): string | null {
+    return currentIdentity()?.userId ?? null;
+  }
+
+  /**
+   * The viewer for a request that must have one, refused with 401 when it does not.
+   *
+   * Writes use this rather than viewerUserId(): a record has to belong to somebody, so "no identity"
+   * is a refusal (the R-06 rule), not an invitation to pick an owner.
+   */
+  private requireViewerId(): string {
+    const userId = this.viewerUserId();
+    if (!userId) throw new UnauthorizedException('缺少用户身份凭证');
+    return userId;
   }
 
   /**
@@ -3178,7 +3208,7 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private assertCanWrite(userId = this.getDemoUserId()) {
+  private assertCanWrite(userId: string) {
     const user = this.users.find((item) => item.id === userId);
     if (user?.status === 'limited' || user?.status === 'banned') {
       throw new ForbiddenException('当前账号已被禁言或限制发布，请联系管理员');
@@ -6580,13 +6610,18 @@ export class StoreService implements OnModuleInit {
   async publicPosts(emotion?: string) {
     const normalized = normalizeStoreEmotion(emotion);
     const normalizedValue = String(normalized);
+    // The feed is readable without an identity. Only a request that carries one has hides to apply;
+    // a request without one hides nothing, instead of reusing the demo account's hide list.
+    const viewer = this.viewerUserId();
     const hiddenPostIds = new Set(
-      (
-        await this.prisma.hiddenPost.findMany({
-          where: { userId: this.getDemoUserId() },
-          select: { postId: true },
-        })
-      ).map((item) => item.postId),
+      viewer
+        ? (
+            await this.prisma.hiddenPost.findMany({
+              where: { userId: viewer },
+              select: { postId: true },
+            })
+          ).map((item) => item.postId)
+        : [],
     );
     this.posts.forEach((post) => this.decoratePost(post));
     return this.posts.filter(
@@ -6600,7 +6635,11 @@ export class StoreService implements OnModuleInit {
 
   async hidePostForCurrentUser(postId: string) {
     this.getPost(postId, true);
-    const userId = this.getDemoUserId();
+    // Hiding is per-viewer state, so it needs a viewer. Without this the write landed on the demo
+    // account and the feed happened to read the same constant back, which made the feature look
+    // correct while no real user's choice was ever stored.
+    const userId = this.viewerUserId();
+    if (!userId) throw new UnauthorizedException('缺少用户身份凭证');
     const item = await this.prisma.hiddenPost.upsert({
       where: { userId_postId: { userId, postId } },
       create: { userId, postId },
@@ -6636,8 +6675,12 @@ export class StoreService implements OnModuleInit {
     journeyId?: string;
   }) {
     if (!input.content?.trim()) throw new NotFoundException('内容不能为空');
-    const userId = this.getDemoUserId();
-    this.assertCanWrite();
+    // The mood belongs to the caller, resolved from the request identity rather than a fixed demo id.
+    // Measured before this change: a mood created by an anonymous session was stored under
+    // user_demo, so the creator could not see it in their own diary list while the demo account
+    // could. The save reported success and the record was lost to the person who wrote it.
+    const userId = this.requireViewerId();
+    this.assertCanWrite(userId);
     const emotion = normalizeStoreEmotion(input.emotion);
     const risk = this.detectRisk(input.content);
     const attachmentIds = Array.from(new Set(input.assetIds ?? []));
@@ -8176,12 +8219,16 @@ export class StoreService implements OnModuleInit {
       throw new ForbiddenException('当前内容不允许真人回应');
     }
     if (!input.content?.trim()) throw new NotFoundException('回复内容不能为空');
-    this.assertCanWrite();
+    // A reply marked anonymous has no author on purpose; a signed reply belongs to the caller.
+    // Either way the identity comes from the request, so a reply can no longer be filed under the
+    // demo account - which is what made "my reply" and "somebody else's reply" the same record.
+    const viewerId = this.requireViewerId();
+    this.assertCanWrite(viewerId);
     const risk = this.detectRisk(input.content);
     const reply: ReplyItem = {
       id: id('reply'),
       postId,
-      userId: input.anonymous ? undefined : this.getDemoUserId(),
+      userId: input.anonymous ? undefined : viewerId,
       type: 'USER',
       style: 'human',
       content: input.content.trim(),

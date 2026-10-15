@@ -65,8 +65,10 @@ describe('domain services', () => {
     (store as any).selfPersistence = {
       getPrivacySettings: async () => ({ allowDataExport: true }),
     };
-    const result = await store.createDiaryExport();
-    const download = store.getDiaryExportDownload(result.asset.id);
+    // The identity is stated rather than defaulted: the store no longer picks an owner for a caller
+    // that did not name one, so a fixture needing the demo user has to say so.
+    const result = await store.createDiaryExport('user_demo');
+    const download = store.getDiaryExportDownload(result.asset.id, 'user_demo');
 
     try {
       expect(result.asset.status).toBe('ready');
