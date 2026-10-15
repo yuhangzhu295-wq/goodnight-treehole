@@ -128,3 +128,18 @@ Most independent first, most entangled last, so a failure is attributable:
   immutable**.
 - **It must not be run against production data to "see what happens".** Conversions are verified on
   the leased test database, and the read-back check in §2.6 is what stands in for that.
+
+## 6. Position at the last update
+
+| Model | Status | Evidence |
+| --- | --- | --- |
+| `FaqItem` | **DONE** | `37b909a`, gate `batch4-faq-item-gate.spec.ts`, mutation M-K |
+| `ReplyPreset` | **DONE** | `3f2409d`, same gate widened, mutation M-L |
+| `FeedbackCategory` | **DONE** | `bd4b726`, registered jointly with its pair, mutation M-M |
+| `FeedbackTicket` | **DONE** | `bd4b726`, write path in `feedback-persistence.service.ts` |
+| `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
+| the other 11 | not started | see §4's order |
+
+The gate file is now shared by four models, with a statement-level probe on each table and a
+self-test per table. Adding a model means adding its name to `TARGET_TABLES`, its two self-test
+statements, and its read-back case — not writing a new file.
