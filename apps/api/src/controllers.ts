@@ -2160,10 +2160,8 @@ export class PublicController {
   }
 
   @Get('feedback/categories')
-  categories() {
-    return {
-      items: this.store.feedbackCategories.filter((item) => item.enabled).sort((a, b) => a.sortOrder - b.sortOrder),
-    };
+  async categories() {
+    return { items: await this.feedbackPersistence.listPublicCategories() };
   }
 
   @Get('feedback/faqs')
@@ -3682,23 +3680,14 @@ export class AdminController {
   }
 
   @Get('feedback-categories')
-  adminCategories(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    const items = this.store.feedbackCategories.map((item) => ({
-      ...item,
-      ticketCount: this.store.feedbackTickets.filter((ticket) => ticket.categoryId === item.id).length,
-    }));
-    return this.list(items, page, pageSize);
+  async adminCategories(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.list(await this.feedbackPersistence.listCategoriesForAdmin(), page, pageSize);
   }
   @Post('feedback-categories')
-  async createCategory(@Headers('authorization') auth: string, @Body() body: { name: string }) {
+  async createCategory(@Headers('authorization') auth: string, @Body() body: { name: string; sortOrder?: number }) {
     const admin = this.admin(auth);
-    const name = body.name?.trim();
-    if (!name) throw new BadRequestException('分类名称不能为空');
-    const item = { id: `cat_${Date.now()}`, name, sortOrder: this.store.feedbackCategories.length + 1, enabled: true };
-    this.store.feedbackCategories.unshift(item);
+    const item = await this.feedbackPersistence.createCategory({ name: body.name, sortOrder: body.sortOrder });
     this.store.audit(admin.id, 'FEEDBACK_CATEGORY_CREATE', 'FeedbackCategory', item.id, null, item);
-    this.store.persist();
-    await this.store.flush();
     return { item };
   }
   @Put('feedback-categories/:id')
@@ -3708,16 +3697,9 @@ export class AdminController {
     @Body() body: Partial<{ name: string; enabled: boolean; sortOrder: number }>,
   ) {
     const admin = this.admin(auth);
-    const item = this.store.feedbackCategories.find((c) => c.id === id);
-    if (!item) throw new NotFoundException('反馈分类不存在');
-    const before = { ...item };
-    const update = { ...body };
-    if (update.name !== undefined) update.name = update.name.trim();
-    if (update.name !== undefined && !update.name) throw new BadRequestException('分类名称不能为空');
-    Object.assign(item, update);
-    this.store.audit(admin.id, 'FEEDBACK_CATEGORY_UPDATE', 'FeedbackCategory', id, before, item);
-    this.store.persist();
-    await this.store.flush();
+    if (body.name !== undefined && !String(body.name).trim()) throw new BadRequestException('分类名称不能为空');
+    const item = await this.feedbackPersistence.updateCategory(id, body);
+    this.store.audit(admin.id, 'FEEDBACK_CATEGORY_UPDATE', 'FeedbackCategory', id, null, item);
     return { item };
   }
 

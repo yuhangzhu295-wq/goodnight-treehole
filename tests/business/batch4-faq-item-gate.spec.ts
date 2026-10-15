@@ -62,6 +62,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma?.$executeRawUnsafe('DROP TABLE IF EXISTS "batch4_flush_probe"').catch(() => undefined);
     await prisma.faqItem.deleteMany({ where: { question: { startsWith: 'batch4 probe' } } });
     await prisma.replyPreset.deleteMany({ where: { text: { startsWith: 'batch4 probe' } } });
+    await prisma.feedbackCategory.deleteMany({ where: { name: { startsWith: 'batch4 probe' } } });
     await prisma?.$disconnect();
     await app?.close();
   });
@@ -196,6 +197,76 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       .expect(200);
     const gone = await prisma.replyPreset.findUnique({ where: { id } });
     expect(gone).toBeNull();
+  }, 120_000);
+
+  /**
+   * FeedbackCategory is in the **dual-write** state on purpose: its routes read and write the table,
+   * but the model is not registered, because `FeedbackTicket` - still flush-owned - carries a
+   * `categoryId` FK whose rows are hydrated from the same legacy snapshot. Registering the category
+   * alone strands every stored ticket on a category the flush no longer writes. The pair converts
+   * together.
+   *
+   * What this test therefore pins is the state that holds *until then*: a directly written category
+   * is served by the read path, and the console tally counts from the table rather than from the
+   * legacy array. It deliberately does **not** assert the category survives a flush, because right now
+   * the flush still owns it and it would not.
+   */
+  it('a category written straight to PostgreSQL is served, with a tally counted from the table', async () => {
+    const name = `batch4 probe category ${Date.now()}`;
+    const direct = await prisma.feedbackCategory.create({
+      data: { name, sortOrder: 998, enabled: true },
+    });
+
+    const front = await request(server).get('/api/v1/feedback/categories').expect(200);
+    expect((front.body.items ?? []).some((item: any) => item.id === direct.id)).toBe(true);
+
+    // The admin tally is computed by the database, not by the legacy feedbackTickets array. A
+    // directly-written ticket must show up in it, which is what proves the count reads the table.
+    await prisma.feedbackTicket.create({
+      data: {
+        userId: 'user_demo',
+        categoryId: direct.id,
+        content: 'batch4 probe ticket',
+        sourcePage: '/pages/help/feedback',
+        // priority has no schema default, so a fixture has to state it.
+        priority: 'medium',
+      },
+    });
+
+    const admin = await request(server)
+      .get('/api/admin/v1/feedback-categories')
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+    const row = (admin.body.items ?? []).find((item: any) => item.id === direct.id);
+    expect(row?.ticketCount).toBe(1);
+
+    await prisma.feedbackTicket.deleteMany({ where: { content: 'batch4 probe ticket' } });
+    const adminAfter = await request(server)
+      .get('/api/admin/v1/feedback-categories')
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+    expect((adminAfter.body.items ?? []).find((item: any) => item.id === direct.id)?.ticketCount).toBe(0);
+  }, 120_000);
+
+  it('the console can create, disable a category, and the form stops offering it', async () => {
+    const created = await request(server)
+      .post('/api/admin/v1/feedback-categories')
+      .set('Authorization', auth(adminToken))
+      .send({ name: `batch4 probe category ${Date.now()}` })
+      .expect(201);
+    const id = created.body.item.id as string;
+
+    const front = await request(server).get('/api/v1/feedback/categories').expect(200);
+    expect((front.body.items ?? []).some((item: any) => item.id === id)).toBe(true);
+
+    await request(server)
+      .patch(`/api/admin/v1/feedback-categories/${id}`)
+      .set('Authorization', auth(adminToken))
+      .send({ enabled: false })
+      .expect(200);
+
+    const frontAfter = await request(server).get('/api/v1/feedback/categories').expect(200);
+    expect((frontAfter.body.items ?? []).some((item: any) => item.id === id)).toBe(false);
   }, 120_000);
 
   it('the console can create, update and disable a FAQ through the database path', async () => {

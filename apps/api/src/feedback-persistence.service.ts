@@ -135,4 +135,64 @@ export class FeedbackPersistenceService {
     await this.prisma.replyPreset.delete({ where: { id } });
     return { ok: true, deleted: existing };
   }
+
+  // ------------------------------------------------------------------
+  // FeedbackCategory
+  // ------------------------------------------------------------------
+
+  /**
+   * Enabled categories in display order, for the feedback form.
+   *
+   * An operator controls which categories exist, so an empty or all-disabled table is a real state the
+   * form must handle rather than something to paper over with an invented category. The route returns
+   * what is enabled; the C-end shows its own "other" path when the list is empty.
+   */
+  async listPublicCategories() {
+    return this.prisma.feedbackCategory.findMany({
+      where: { enabled: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  /**
+   * Every category for the console, each with its ticket count.
+   *
+   * The count is computed by the database with a `groupBy`, not by loading every ticket into memory
+   * and filtering - the previous route did the latter, which is why it could not be converted before
+   * `FeedbackCategory` was: it read the legacy `feedbackTickets` array for its tally. This reads the
+   * table, so it works whether or not `FeedbackTicket` is itself registered yet.
+   */
+  async listCategoriesForAdmin() {
+    const categories = await this.prisma.feedbackCategory.findMany({ orderBy: { sortOrder: 'asc' } });
+    const counts = await this.prisma.feedbackTicket.groupBy({
+      by: ['categoryId'],
+      _count: { _all: true },
+    });
+    const tally = new Map(counts.map((row) => [row.categoryId, row._count._all]));
+    return categories.map((category) => ({
+      ...category,
+      ticketCount: tally.get(category.id) ?? 0,
+    }));
+  }
+
+  async createCategory(input: { name: string; sortOrder?: number }) {
+    const name = input.name?.trim();
+    if (!name) throw new BadRequestException('分类名称不能为空');
+    const sortOrder = input.sortOrder ?? (await this.prisma.feedbackCategory.count());
+    return this.prisma.feedbackCategory.create({ data: { name, sortOrder, enabled: true } });
+  }
+
+  async updateCategory(id: string, patch: { name?: string; enabled?: boolean; sortOrder?: number }) {
+    const existing = await this.prisma.feedbackCategory.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('反馈分类不存在');
+    const data: Record<string, unknown> = {};
+    if (patch.name !== undefined) {
+      const name = patch.name.trim();
+      if (!name) throw new BadRequestException('分类名称不能为空');
+      data.name = name;
+    }
+    if (patch.enabled !== undefined) data.enabled = patch.enabled;
+    if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
+    return this.prisma.feedbackCategory.update({ where: { id }, data });
+  }
 }

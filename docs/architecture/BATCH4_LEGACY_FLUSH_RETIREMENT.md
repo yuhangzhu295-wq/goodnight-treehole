@@ -51,12 +51,48 @@ A model is converted when **all six** hold. Anything less is partial and must be
    ownership rule was written for and is what proves the sweep is truly gone rather than merely
    delayed.
 
-## 3. Why one at a time
+## 2a. A coupling the order in §4 did not anticipate (found on model 3)
+
+`FeedbackCategory` looked independent - admin-authored, two readers, no user relationship - so it was
+scheduled third. It is not independent, and the failure is instructive about how the flush works:
+
+the legacy `FeedbackTicket` upsert carries a `categoryId` FK, and its rows are hydrated **from the
+same snapshot** that hydrates the categories. Register `FeedbackCategory` while `FeedbackTicket` still
+belongs to the flush and the flush stops writing the category table while continuing to write tickets
+that reference it - every stored ticket is then stranded on a row that the snapshot no longer carries.
+
+The symptom is not a routing error but a **foreign-key failure inside a later flush** with a
+backtrace that names the ticket table, which is where the temptation is to conclude the ticket mapping
+is at fault. It is not; the missing row is the category.
+
+**Consequence for the order:** the console's category routes already read and write the table
+(`feedback-persistence.service.ts`, and the admin tally is a database `groupBy` rather than the legacy
+array filter that made this impossible before). What is deferred is the *registration*.
+`FeedbackCategory` and `FeedbackTicket` convert **together**, as one unit, with the category's
+registration landing in the same change as the ticket's.
+
+Two further models pair with their referrers:
+
+| Model | Pair with | Because |
+| --- | --- | --- |
+| `FeedbackCategory` | `FeedbackTicket` | the ticket's `categoryId` FK and shared hydration |
+| `MediaAsset` | its publishers | `Mood.attachmentIds` and `FeedbackTicket.screenshots` store ids, not FKs — but the upload path owns the row, so an uploaded asset written after a flush would be swept |
 
 The 14 conversions are independent and cheap individually. Doing them in one change would mean a
 single regression — a reader left behind, a flush that still upserts — would have 14 candidate causes
 and no way to attribute it. The rule is therefore **one model per commit**, each with its own gate and
 reverse proof, and each verified by a suite run, not by reasoning.
+
+## 3. Why one at a time
+
+Each conversion is independent in cost but not in risk. A single change that converts several models
+turns one failure into an attribution problem: a leftover reader, a flush that still upserts, or an FK
+that loses its referent all look the same in a red suite. One model per commit, verified on its own,
+keeps the cause inside the change that introduced it.
+
+The §2a coupling is the exception that refines the rule rather than breaking it: a model whose
+referrer still belongs to the flush is not an independent unit, so the pair converts together — which
+is still one *commit*, just not one *model*.
 
 ## 4. Order, and why this order
 
@@ -64,7 +100,7 @@ Most independent first, most entangled last, so a failure is attributable:
 
 1. `FaqItem` — no user relationship, two readers, admin-authored. Lowest blast radius.
 2. `ReplyPreset` — same shape.
-3. `FeedbackCategory` — same shape.
+3. `FeedbackCategory` — converted to DB read/write, **registration deferred** (§2a: its pair `FeedbackTicket` still belongs to the flush).
 4. `MediaAsset` — referenced by `Mood.attachmentIds` and `FeedbackTicket.screenshots`; the FK work
    starts here, but only inward (upload/read), not from the parents.
 5. `FeedbackTicket` — depends on 4.

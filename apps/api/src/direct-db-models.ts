@@ -28,6 +28,11 @@ export const DIRECT_DB_MODELS = {
   // Batch 4's second conversion: the console's preset routes read and write through
   // feedback-persistence.service.ts, so the flush no longer hydrates, upserts or sweeps them.
   ReplyPreset: 'replyPresets',
+  // FeedbackCategory is NOT registered yet. Its console routes already read and write through
+  // feedback-persistence.service.ts, but FeedbackTicket - which the flush still owns - carries a
+  // categoryId FK and its tickets are hydrated from the same legacy snapshot. Registering the category
+  // alone strands every stored ticket on a category row the flush no longer writes.
+  // The two convert together; see BATCH4_LEGACY_FLUSH_RETIREMENT.md 'Discovered coupling'.
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;
