@@ -498,6 +498,10 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
       await request(server).get('/api/admin/v1/support/plans').expect(401);
       await request(server).get('/api/admin/v1/support/plans/dummy').expect(401);
       await request(server).get('/api/admin/v1/memory').expect(401);
+      // The audited single-record read was the one matrix route with no negative test at all: the
+      // list route above was covered and this one was not, so the route that actually returns
+      // memory content was the untested one. `scripts/audit-identity-gate-coverage.mjs` found it.
+      await request(server).get('/api/admin/v1/memory/dummy').expect(401);
 
       // Caller sending user header without admin token
       await request(server)
@@ -512,6 +516,11 @@ describe('Batch 3: Self Route Identity & Fallback Matrix (R-06)', () => {
 
       await request(server)
         .get('/api/admin/v1/memory')
+        .set('x-goodnight-user-id', await identityFor(userA))
+        .expect(401);
+
+      await request(server)
+        .get('/api/admin/v1/memory/dummy')
         .set('x-goodnight-user-id', await identityFor(userA))
         .expect(401);
 
