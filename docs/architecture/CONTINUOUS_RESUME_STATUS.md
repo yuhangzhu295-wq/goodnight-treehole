@@ -3,7 +3,7 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-**HEAD at this writing:** `af390d2` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
+**HEAD at this writing:** `0a442fd` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
 **Last verified evidence (2026-10-15, second pass):**
@@ -53,7 +53,7 @@ failure is now a new regression.
 | 11a | **C-end write paths filed everything under `user_demo` (P0)** | fixed `57b6714`, mutation-proven, device-verified | `createMood` resolved its owner with the fixed demo id and never read the request identity, so a mood created by an anonymous session was stored under `user_demo` and was **absent from its author's own diary list** while the demo account held it. Also made "not interested" global and `favoritedByCurrentUser` identical for every viewer. Fixed with `viewerUserId()` (reads) and `requireViewerId()` (writes, 401 without). `tests/business/cend-write-ownership.spec.ts` 7/7; three mutations each fail the named assertion |
 | 11b | **`GET /api/v1/tonight` served the demo account's private dashboard (P0)** | fixed `c8d48e8`, reverse-proved | The identity matrix listed this as a public "Tonight summary"; it returns the caller's journey, actions, check-ins, follow-ups, peer matches and latest letter. Measured: no credential and an unrelated credential both received `user_demo`'s PRIVATE journey. Now 401 without an identity |
 | 12 | Batch 3 final gate | **2 of 8 established, 2 more partly** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. **`SELF_ROUTE_IDENTITY_PASS=true` ESTABLISHED** (2026-10-15) for its identity and ownership axes — 87/87 C-end and 4/4 admin routes have a 401 negative test, 43/43 parameterised routes have foreign-id evidence, mutation M-F fails 8/16; `BATCH3_ROUTE_IDENTITY_GATE.md`. **`PRIVACY_PASS` and `MULTI_INSTANCE_SELECTED_FLOWS_PASS` PARTLY established** (2026-10-15) — see the design's §4 rows for exactly what each now holds and what neither claims (consent is enforced centrally by `privacyAllows`; one Self flow races, not all; no Self flush/reload race). `PERSISTENCE_BATCH3_STABLE` stays **false** |
-| 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **designed, 0 of 16 converted** | `BATCH4_LEGACY_FLUSH_RETIREMENT.md` is the plan and the per-model contract. A measurement in it changes the shape of the work: **14 of the 16 already have a mapper read, a legacy upsert and a sweep**, so for them Batch 4 is registration + three exits + verification; only `AIProvider` and `AIStyleRoute` need their mapper paths written. Contract: registered, every reader converted, every writer converted, a statement-level gate, a reverse proof, and a read-back of a row written directly to PostgreSQL. One model per commit, independence first, `Mood` last |
+| 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **4 of 16 converted** | `BATCH4_LEGACY_FLUSH_RETIREMENT.md` is the plan and the per-model contract, and its §6 records the live position. A measurement in it changes the shape of the work: **14 of the 16 already have a mapper read, a legacy upsert and a sweep**, so for them Batch 4 is registration + three exits + verification; only `AIProvider` and `AIStyleRoute` need their mapper paths written. Contract: registered, every reader converted, every writer converted, a statement-level gate, a reverse proof, and a read-back of a row written directly to PostgreSQL. One model per commit, independence first, `Mood` last |
 | 14 | Test database isolation | partial | the runner leases a database per file; the design's seed/fixture rules are not done |
 | 15 | CI | **green** | see above; the tolerated-failure baseline was **cleared**, so any failure is now a new regression |
 | 16 | C-end UI V2 (39 pages) | Rounds 1–2 rendered; Round 3 implemented (1 page partial); **Round 4 not started** | `docs/design-v2/UI_V2_MASTER_QUEUE.json`; see below |
@@ -230,12 +230,23 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
 
 ## Next entry point
 
-The identity/data-safety thread is at a clean stopping point: both P0s found in this pass are fixed,
-reverse-proved, device-verified and pushed. The largest remaining user-facing item is **UI V2
-Round 4 (14 pages)**, then Round 3's six missing renders. **Batch 4** (task 13) is the higher-risk
-data-safety one — it removes the dual writer for the 16 models in
-`LEGACY_SWEEP_DATA_LOSS_AUDIT.md` §3.1 — and Batch 3's remaining seven gates (task 12) sit next to it.
+**Batch 4, model 5.** The converted four are `FaqItem`, `ReplyPreset`, and the pair
+`FeedbackCategory` + `FeedbackTicket` (registered jointly — see the plan's §2a). The next candidate by
+the plan's order is `AdminUserNote` (3 store methods, admin-only, `onDelete: Cascade` from its admin),
+then `PeerReputation`, `AgentDecisionLog`, `Letter`, `Favorite`, `Reply`, `Diary`, `Post`, `Mood`.
+`MediaAsset` is **not** next: it has 8 write sites and its readers are `Mood.attachmentIds`,
+`FeedbackTicket.screenshots` and `deleteMediaAsset`'s attachment check against the legacy mood/post
+arrays, so it converts with its publishers near the end.
+
+Where the work actually is, in the order that pays off first:
+
+| # | Item | Note |
+| --- | --- | --- |
+| 1 | Batch 4, the remaining 12 models | `BATCH4_LEGACY_FLUSH_RETIREMENT.md` §6 is the live position and §4 the order; the gate file is already shared by four tables |
+| 2 | UI V2 Round 4 (13 pages) | user-visible; `Square` data fix is in, its restyle is not |
+| 3 | Batch 3's remaining four gates | `SELF_DUAL_WRITER`, `MEMORY_STATE_PASS`, `DECISION_STATE_PASS`, `FUTURE_SELF_QUEUE_PASS` — the design's §4 rows name what each lacks |
+| 4 | Round 3's six missing renders | `scripts/ui2-capture.mjs`; the emulator is shared, see §0 |
 
 Two things to re-check before starting either: the API on port 3000 must be restarted after any
 `apps/api/src` edit (it is not in watch mode), and `adb reverse tcp:3000 tcp:3000` must be re-applied
-after an emulator or adb-server restart.
+after an emulator or adb-server restart. Run the suite with the API **stopped** (§0b).
