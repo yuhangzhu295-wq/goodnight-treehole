@@ -150,6 +150,37 @@ database up. `typecheck` clean. Two fixtures that relied on the fallback
 (`front-publish-private.spec.ts`, `api.spec.ts`) now send the demo identity explicitly, which is what
 a real client does.
 
+## Device-level verification
+
+The unit and business suites exercise the route; this checks the identity a real client actually
+holds. `scripts/verify-device-credential-ownership.mjs` takes the credential from the emulator app's
+own private storage (`run-as ... shared_prefs/CapacitorStorage.xml`) and drives the API with it:
+
+```
+device identity: user_anon_88fe17d8
+create with the device credential -> 201
+  row in postgres owner: ["user_anon_88fe17d8"]
+  VERDICT: owned by the device user
+device GET /diaries -> 200 sees its own record: true
+demo   GET /diaries -> 200 sees it: false
+device GET /tonight -> 200 journey owner: (none)
+```
+
+Before the fix the same probe reported `userId: "user_demo"` and `sees the record: false` for its own
+author. The home screen was checked visually as well: after clearing the app's stored demo identity,
+a fresh anonymous session renders "暂无进行中的旅程记录" where it previously rendered the demo
+account's private journey.
+
+**What this does not cover, and why.** The mood was created over HTTP with the device's credential
+rather than by tapping the composer. The emulator is shared: `com.yuhangzhu295.cozyfocus` claims the
+foreground repeatedly - on one attempt within a second of a `dumpsys` check that reported our
+activity on top - so a tap can land in the other app. That happened once and looked like "submit did
+nothing"; the screenshot showed the other project's screen. `scripts/device-mood-e2e.sh` guards every
+tap with a foreground assertion and aborts rather than tapping blind, but it cannot close the gap
+between the check and the tap. Stopping the other project's app is not this task's to do. So the
+write path is verified through the client's real identity, and the tap path remains unverified on
+this emulator.
+
 ## Still open after this pass
 
 - **`queueAI`'s `input.userId ?? this.getDemoUserId()`** is unreachable today - all ten call sites
