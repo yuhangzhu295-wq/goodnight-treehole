@@ -37,7 +37,7 @@ failure is now a new regression.
 | 11 | **Legacy sweep data loss (P0)** | fixed, reproduced, mutation-proven | reproduced on the real DB (`moodCount 13 → 0`); ownership rule in `relational-runtime.mapper.ts`; `tests/business/legacy-sweep-ownership.spec.ts` 4/4; **M50** proven. `docs/architecture/LEGACY_SWEEP_DATA_LOSS_AUDIT.md` |
 | 11a | **C-end write paths filed everything under `user_demo` (P0)** | fixed `57b6714`, mutation-proven, device-verified | `createMood` resolved its owner with the fixed demo id and never read the request identity, so a mood created by an anonymous session was stored under `user_demo` and was **absent from its author's own diary list** while the demo account held it. Also made "not interested" global and `favoritedByCurrentUser` identical for every viewer. Fixed with `viewerUserId()` (reads) and `requireViewerId()` (writes, 401 without). `tests/business/cend-write-ownership.spec.ts` 7/7; three mutations each fail the named assertion |
 | 11b | **`GET /api/v1/tonight` served the demo account's private dashboard (P0)** | fixed `c8d48e8`, reverse-proved | The identity matrix listed this as a public "Tonight summary"; it returns the caller's journey, actions, check-ins, follow-ups, peer matches and latest letter. Measured: no credential and an unrelated credential both received `user_demo`'s PRIVATE journey. Now 401 without an identity |
-| 12 | Batch 3 final gate | **1 of 8 gates established** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. The other seven are not established; `PERSISTENCE_BATCH3_STABLE` stays **false** |
+| 12 | Batch 3 final gate | **2 of 8 gates established** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. **`SELF_ROUTE_IDENTITY_PASS=true` ESTABLISHED** (2026-10-15) for its identity and ownership axes — 87/87 C-end and 4/4 admin routes have a 401 negative test, 43/43 parameterised routes have foreign-id evidence, mutation M-F fails 8/16; `BATCH3_ROUTE_IDENTITY_GATE.md`. Its consent axis is enforced centrally by `privacyAllows` and is **not** claimed per route. The other six gates are not established; `PERSISTENCE_BATCH3_STABLE` stays **false** |
 | 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **not started** | the audit's §3.1 lists them with writer counts; the ownership rule closed the exposure, this removes the dual writer |
 | 14 | Test database isolation | partial | the runner leases a database per file; the design's seed/fixture rules are not done |
 | 15 | CI | **green** | see above; the tolerated-failure baseline was **cleared**, so any failure is now a new regression |
@@ -152,6 +152,14 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
 10. **Open (P2)** — mutation coverage is missing for the memory exits, the eligibility predicates,
     deletion terminality and the audited read.
 11. **M51** (over-correction mutation) is proven by direct observation per the audit's §4.
+12. **Open (documentation, P2)** — `SELF_ROUTE_IDENTITY_MATRIX.md` §2's "Negative Test" column names
+    tests such as *"Peer: User C is refused on match between A and B"* and attributes them to
+    `batch3-identity-matrix.spec.ts`. Those names occur **nowhere in the repository**; the peer
+    coverage that exists is in `batch2-peer-verification.spec.ts` test 3.3 and works at the
+    persistence layer. The column therefore reads as evidence while pointing at nothing, and reading
+    the document cannot reveal it. Recorded in `BATCH3_ROUTE_IDENTITY_GATE.md` §4/§5; the column
+    itself has not been rewritten, because doing so would erase the evidence of how the gate was
+    mis-read.
 
 ## External blockers
 
