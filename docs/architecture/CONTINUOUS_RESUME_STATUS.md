@@ -3,7 +3,7 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-**HEAD at this writing:** `a3a106e` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
+**HEAD at this writing:** `718f59d` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
 **Last verified evidence (2026-10-15, second pass):**
@@ -47,7 +47,7 @@ failure is now a new regression.
 | 11a | **C-end write paths filed everything under `user_demo` (P0)** | fixed `57b6714`, mutation-proven, device-verified | `createMood` resolved its owner with the fixed demo id and never read the request identity, so a mood created by an anonymous session was stored under `user_demo` and was **absent from its author's own diary list** while the demo account held it. Also made "not interested" global and `favoritedByCurrentUser` identical for every viewer. Fixed with `viewerUserId()` (reads) and `requireViewerId()` (writes, 401 without). `tests/business/cend-write-ownership.spec.ts` 7/7; three mutations each fail the named assertion |
 | 11b | **`GET /api/v1/tonight` served the demo account's private dashboard (P0)** | fixed `c8d48e8`, reverse-proved | The identity matrix listed this as a public "Tonight summary"; it returns the caller's journey, actions, check-ins, follow-ups, peer matches and latest letter. Measured: no credential and an unrelated credential both received `user_demo`'s PRIVATE journey. Now 401 without an identity |
 | 12 | Batch 3 final gate | **2 of 8 established, 2 more partly** | `SELF_FULL_FLUSH=false` ESTABLISHED — `BATCH3_SELF_FULL_FLUSH_GATE.md`, 4/4 tests plus a discriminating mutation. **`SELF_ROUTE_IDENTITY_PASS=true` ESTABLISHED** (2026-10-15) for its identity and ownership axes — 87/87 C-end and 4/4 admin routes have a 401 negative test, 43/43 parameterised routes have foreign-id evidence, mutation M-F fails 8/16; `BATCH3_ROUTE_IDENTITY_GATE.md`. **`PRIVACY_PASS` and `MULTI_INSTANCE_SELECTED_FLOWS_PASS` PARTLY established** (2026-10-15) — see the design's §4 rows for exactly what each now holds and what neither claims (consent is enforced centrally by `privacyAllows`; one Self flow races, not all; no Self flush/reload race). `PERSISTENCE_BATCH3_STABLE` stays **false** |
-| 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **not started** | the audit's §3.1 lists them with writer counts; the ownership rule closed the exposure, this removes the dual writer |
+| 13 | Batch 4 — retire the legacy flush for the 16 models that still carry an active sweep | **designed, 0 of 16 converted** | `BATCH4_LEGACY_FLUSH_RETIREMENT.md` is the plan and the per-model contract. A measurement in it changes the shape of the work: **14 of the 16 already have a mapper read, a legacy upsert and a sweep**, so for them Batch 4 is registration + three exits + verification; only `AIProvider` and `AIStyleRoute` need their mapper paths written. Contract: registered, every reader converted, every writer converted, a statement-level gate, a reverse proof, and a read-back of a row written directly to PostgreSQL. One model per commit, independence first, `Mood` last |
 | 14 | Test database isolation | partial | the runner leases a database per file; the design's seed/fixture rules are not done |
 | 15 | CI | **green** | see above; the tolerated-failure baseline was **cleared**, so any failure is now a new regression |
 | 16 | C-end UI V2 (39 pages) | Rounds 1–2 rendered; Round 3 implemented (1 page partial); **Round 4 not started** | `docs/design-v2/UI_V2_MASTER_QUEUE.json`; see below |
@@ -181,6 +181,16 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
   `WAITING_REVIEW` rather than self-approved.
 
 ## Environment facts that cost time (read before the next session)
+
+0b. **Run the suite from a clean environment, or a single file will fail for environmental reasons.**
+   Two separate noises produced exactly this on 2026-10-15, and they hit a **different file each
+   time**, which is what makes them look like regressions:
+   1. **the local API still listening on :3000** holds connections to the same PostgreSQL the runner
+      leases a per-file database from, so `drop database` fails and the next spec runs on the previous
+      file's data. The tell is that the failing spec never prints its own lease name.
+   2. **WSL suspending mid-suite** — `Can't reach database server at <wsl-ip>:5432` (item 0 below).
+   Kill the API first (`taskkill /PID <pid on :3000> /F`), and re-run any single failing file alone
+   before treating it as a regression.
 
 0. **WSL2 suspends and the forwarded ports die with it.** Hold it awake for the whole run from the
    Windows side - `(wsl.exe -e sleep 21600 &)` in a Git Bash session works and survives tool calls;
