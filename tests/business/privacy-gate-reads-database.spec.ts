@@ -49,20 +49,36 @@ describe('the human-reply gate reads the committed privacy row', () => {
   });
 
   afterAll(async () => {
-    // Walk the foreign keys in the direction they point: the post references the mood, so the mood
-    // cannot be deleted first.
-    const moods = await prisma.mood.findMany({ where: { content: { startsWith: marker } }, select: { id: true } });
-    const posts = await prisma.post.findMany({
-      where: { moodId: { in: moods.map((mood) => mood.id) } },
-      select: { id: true },
-    });
-    const postIds = posts.map((post) => post.id);
-    await prisma.reply.deleteMany({ where: { postId: { in: postIds } } });
-    await prisma.hugAction.deleteMany({ where: { postId: { in: postIds } } });
-    await prisma.hiddenPost.deleteMany({ where: { postId: { in: postIds } } });
-    await prisma.post.deleteMany({ where: { id: { in: postIds } } });
+    /**
+     * Walk the foreign keys in the direction they point, and retry the mood delete.
+     *
+     * The retry is not padding. The reply to the post is produced by an **asynchronous** AI job, so
+     * a reply row can appear *after* the reference pass deletes replies and posts. Under a long suite
+     * run that lands between the two statements and the mood delete then violates `Post_moodId_fkey`.
+     * Measured: this file passes alone and in pairs, and fails only when run with several others -
+     * the tell is the FK error naming a mood whose post was already gone.
+     */
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const moods = await prisma.mood.findMany({ where: { content: { startsWith: marker } }, select: { id: true } });
+      if (moods.length === 0) break;
+      const moodIds = moods.map((mood) => mood.id);
+      const posts = await prisma.post.findMany({ where: { moodId: { in: moodIds } }, select: { id: true } });
+      const postIds = posts.map((post) => post.id);
+
+      await prisma.reply.deleteMany({ where: { postId: { in: postIds } } });
+      await prisma.hugAction.deleteMany({ where: { postId: { in: postIds } } });
+      await prisma.hiddenPost.deleteMany({ where: { postId: { in: postIds } } });
+      await prisma.post.deleteMany({ where: { id: { in: postIds } } });
+      // Give an in-flight reply a chance to commit, so the next pass sees it and its own post is
+      // deleted before the mood is. Bounded, and the loop ends when nothing is left.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        await prisma.mood.deleteMany({ where: { id: { in: moodIds } } });
+      } catch (error) {
+        if (attempt === 4) throw error;
+      }
+    }
     await prisma.diary.deleteMany({ where: { content: { startsWith: marker } } });
-    await prisma.mood.deleteMany({ where: { id: { in: moods.map((mood) => mood.id) } } });
     await prisma?.$disconnect();
     await app.close();
   });
