@@ -2174,26 +2174,27 @@ export class PublicController {
   @Post('feedback')
   async feedback(
     @Body() body: { categoryId?: string; content: string; sourcePage?: string; assetIds?: string[]; images?: string[] },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
   ) {
-    const ticket = await this.store.createFeedbackTicket({
+    const userId = requireRuntimeUserId(requestedUserId);
+    // The screenshot check still runs in the store, because MediaAsset is not converted yet and its
+    // checks include a filesystem existence probe. The ids it returns are handed to the ticket writer,
+    // which owns the row - the two models convert together with FeedbackCategory.
+    const screenshots = this.store.resolveFeedbackScreenshotIds(userId, body.assetIds ?? body.images);
+    const ticket = await this.feedbackPersistence.createTicket({
+      userId,
       categoryId: body.categoryId,
       content: body.content,
       sourcePage: body.sourcePage,
-      // Legacy callers can still submit asset IDs through images, but raw URLs
-      // are rejected by StoreService instead of being treated as screenshots.
-      assetIds: body.assetIds ?? body.images,
+      screenshots,
     });
-    return { item: this.store.decorateFeedbackTicket(ticket) };
+    return { item: ticket };
   }
 
   @Get('feedback')
-  feedbackTickets(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+  async feedbackTickets(@Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    return {
-      items: this.store.feedbackTickets
-        .filter((item) => item.userId === userId)
-        .map((item) => this.store.decorateFeedbackTicket(item)),
-    };
+    return { items: await this.feedbackPersistence.listTicketsForUser(userId) };
   }
 
   @Post('media/upload')
@@ -3714,13 +3715,12 @@ export class AdminController {
   @Delete('feedback-categories/:id')
   async deleteCategory(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const item = this.store.feedbackCategories.find((category) => category.id === id);
+    const item = await this.feedbackPersistence.findCategory(id).catch(() => null);
     if (!item) throw new NotFoundException('反馈分类不存在');
-    if (this.store.feedbackTickets.some((ticket) => ticket.categoryId === id))
+    if (await this.feedbackPersistence.categoryHasTickets(id))
       throw new BadRequestException('该分类仍有关联工单，请先停用或迁移工单');
-    this.store.feedbackCategories = this.store.feedbackCategories.filter((c) => c.id !== id);
+    await this.feedbackPersistence.deleteCategory(id);
     this.store.audit(admin.id, 'FEEDBACK_CATEGORY_DELETE', 'FeedbackCategory', id, item, null);
-    await this.store.flush();
     return { ok: true };
   }
 

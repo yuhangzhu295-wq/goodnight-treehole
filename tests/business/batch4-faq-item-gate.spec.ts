@@ -20,7 +20,7 @@ import { createApiTestApp, loginAdmin, auth, identityFor, DEMO_USER_ID } from '.
  * The probe is statement-level and self-tests first, for the same reason as the Batch 3 gate: a
  * row-level trigger sees nothing in a zero-row `DELETE`, which is precisely the old sweep's shape.
  */
-const TARGET_TABLES = ['FaqItem', 'ReplyPreset'];
+const TARGET_TABLES = ['FaqItem', 'ReplyPreset', 'FeedbackCategory', 'FeedbackTicket'];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
   let app: INestApplication;
@@ -72,8 +72,12 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await clearProbe();
     await prisma.$executeRawUnsafe('UPDATE "FaqItem" SET "sortOrder" = "sortOrder" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "ReplyPreset" SET "sortOrder" = "sortOrder" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "FeedbackCategory" SET "sortOrder" = "sortOrder" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "FeedbackTicket" SET "content" = "content" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
+      { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
+      { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
       { table: 'ReplyPreset', op: 'UPDATE', n: 1 },
     ]);
   });
@@ -82,8 +86,12 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await clearProbe();
     await prisma.$executeRawUnsafe('DELETE FROM "FaqItem" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "ReplyPreset" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "FeedbackCategory" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "FeedbackTicket" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'FaqItem', op: 'DELETE', n: 1 },
+      { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
+      { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
       { table: 'ReplyPreset', op: 'DELETE', n: 1 },
     ]);
   });
@@ -200,18 +208,14 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
   }, 120_000);
 
   /**
-   * FeedbackCategory is in the **dual-write** state on purpose: its routes read and write the table,
-   * but the model is not registered, because `FeedbackTicket` - still flush-owned - carries a
-   * `categoryId` FK whose rows are hydrated from the same legacy snapshot. Registering the category
-   * alone strands every stored ticket on a category the flush no longer writes. The pair converts
-   * together.
+   * FeedbackCategory and FeedbackTicket are registered **together** - §2a of the plan records why:
+   * the ticket's `categoryId` FK and both rows' hydration come from the same legacy snapshot, so
+   * registering the category alone strands every stored ticket on a row the flush no longer writes.
    *
-   * What this test therefore pins is the state that holds *until then*: a directly written category
-   * is served by the read path, and the console tally counts from the table rather than from the
-   * legacy array. It deliberately does **not** assert the category survives a flush, because right now
-   * the flush still owns it and it would not.
+   * So this case asserts both: the directly written category is served, its tally is counted from the
+   * table, and it now survives a flush.
    */
-  it('a category written straight to PostgreSQL is served, with a tally counted from the table', async () => {
+  it('a category written straight to PostgreSQL is served, counted, and survives a flush', async () => {
     const name = `batch4 probe category ${Date.now()}`;
     const direct = await prisma.feedbackCategory.create({
       data: { name, sortOrder: 998, enabled: true },
@@ -246,6 +250,48 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       .set('Authorization', auth(adminToken))
       .expect(200);
     expect((adminAfter.body.items ?? []).find((item: any) => item.id === direct.id)?.ticketCount).toBe(0);
+
+    // A flush must leave the directly written category alone.
+    await request(server)
+      .post('/api/v1/moods')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(await prisma.feedbackCategory.findUnique({ where: { id: direct.id } })).not.toBeNull();
+  }, 120_000);
+
+  it('a ticket written through the API is filed against the named category and read back only by its author', async () => {
+    // A category has to exist for a ticket to be filed. The API resolves a default when none is named,
+    // so an explicit id is what makes this test's claim specific.
+    const category = await prisma.feedbackCategory.create({
+      data: { name: `batch4 probe category ${Date.now()}`, sortOrder: 997, enabled: true },
+    });
+
+    const created = await request(server)
+      .post('/api/v1/feedback')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ categoryId: category.id, content: 'batch4 probe ticket', sourcePage: '/pages/help/feedback' })
+      .expect(201);
+
+    const ticketId = created.body.item.id as string;
+    expect(ticketId).toBeTruthy();
+    expect(created.body.item.categoryId).toBe(category.id);
+
+    const mine = await request(server)
+      .get('/api/v1/feedback')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .expect(200);
+    expect((mine.body.items ?? []).some((item: any) => item.id === ticketId)).toBe(true);
+
+    // Another user must not see it.
+    const other = await request(server)
+      .get('/api/v1/feedback')
+      .set('x-goodnight-user-id', await identityFor('user_guest'))
+      .expect(200);
+    expect((other.body.items ?? []).some((item: any) => item.id === ticketId)).toBe(false);
+
+    await prisma.feedbackTicket.deleteMany({ where: { id: ticketId } });
   }, 120_000);
 
   it('the console can create, disable a category, and the form stops offering it', async () => {

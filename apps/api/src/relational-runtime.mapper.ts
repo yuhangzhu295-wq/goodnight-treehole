@@ -85,7 +85,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.FeedbackCategory ? Promise.resolve([]) : db.feedbackCategory.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.FaqItem ? Promise.resolve([]) : db.faqItem.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.ReplyPreset ? Promise.resolve([]) : db.replyPreset.findMany({ orderBy: { sortOrder: 'asc' } }),
-    db.feedbackTicket.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.FeedbackTicket ? Promise.resolve([]) : db.feedbackTicket.findMany({ orderBy: { createdAt: 'desc' } }),
     db.systemSetting.findMany({ orderBy: { key: 'asc' } }),
     db.aIProvider.findMany({ orderBy: { priority: 'asc' } }),
     db.aIStyleRoute.findMany({ orderBy: { style: 'asc' } }),
@@ -2362,6 +2362,7 @@ export async function saveRelationalRuntimeState(
           },
         });
       for (const item of asArray(state.feedbackTickets))
+        if (!DIRECT_DB_MODELS.FeedbackTicket)
         await tx.feedbackTicket.upsert({
           where: { id: item.id },
           create: {
@@ -2656,6 +2657,7 @@ export async function saveRelationalRuntimeState(
       } else {
         await deleteAbsent('aIProvider', tx.aIProvider, [...providerMap.keys()]);
       }
+      if (!DIRECT_DB_MODELS.FeedbackTicket)
       await deleteAbsent('feedbackTicket', tx.feedbackTicket,
         asArray(state.feedbackTickets).map((item: any) => item.id),
       );

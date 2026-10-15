@@ -195,4 +195,79 @@ export class FeedbackPersistenceService {
     if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
     return this.prisma.feedbackCategory.update({ where: { id }, data });
   }
+
+  /** True when any ticket still points at this category, so the console refuses to remove it. */
+  async categoryHasTickets(categoryId: string) {
+    const count = await this.prisma.feedbackTicket.count({ where: { categoryId } });
+    return count > 0;
+  }
+
+  async findCategory(id: string) {
+    const existing = await this.prisma.feedbackCategory.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('反馈分类不存在');
+    return existing;
+  }
+
+  async deleteCategory(id: string) {
+    const existing = await this.findCategory(id);
+    await this.prisma.feedbackCategory.delete({ where: { id } });
+    return { ok: true, deleted: existing };
+  }
+
+  // ------------------------------------------------------------------
+  // FeedbackTicket
+  // ------------------------------------------------------------------
+
+  /**
+   * Creates a ticket for `userId`.
+   *
+   * The category is resolved here rather than in the route: a missing or disabled category is a 400,
+   * and the category row is read in the same statement set as the insert, so the pair converts
+   * together with `FeedbackCategory` (see the design's §2a). A ticket can never be filed against a
+   * category that is not in the table at insert time.
+   */
+  async createTicket(input: {
+    userId: string;
+    content: string;
+    categoryId?: string;
+    sourcePage?: string;
+    screenshots?: string[];
+  }) {
+    const content = typeof input.content === 'string' ? input.content.trim() : '';
+    if (!content) throw new BadRequestException('反馈内容不能为空');
+    if (content.length > 500) throw new BadRequestException('反馈内容不能超过 500 字');
+
+    const requestedId = typeof input.categoryId === 'string' ? input.categoryId.trim() : '';
+    const category = requestedId
+      ? await this.prisma.feedbackCategory.findUnique({ where: { id: requestedId } })
+      : await this.prisma.feedbackCategory.findFirst({ where: { enabled: true }, orderBy: { sortOrder: 'asc' } });
+    if (!category || !category.enabled) throw new BadRequestException('请选择可用的反馈分类');
+
+    const sourcePage =
+      typeof input.sourcePage === 'string' && input.sourcePage.trim() ? input.sourcePage.trim() : '/pages/help/feedback';
+    if (!sourcePage.startsWith('/pages/') || sourcePage.length > 160) {
+      throw new BadRequestException('反馈来源页面不合法');
+    }
+
+    return this.prisma.feedbackTicket.create({
+      data: {
+        userId: input.userId,
+        categoryId: category.id,
+        sourcePage,
+        content,
+        status: 'open',
+        priority: 'medium',
+        screenshots: input.screenshots ?? [],
+      },
+    });
+  }
+
+  /** The caller's own tickets, newest first. */
+  async listTicketsForUser(userId: string) {
+    return this.prisma.feedbackTicket.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      include: { category: true },
+    });
+  }
 }
