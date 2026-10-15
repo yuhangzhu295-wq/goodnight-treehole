@@ -81,4 +81,58 @@ export class FeedbackPersistenceService {
     await this.prisma.faqItem.delete({ where: { id } });
     return { ok: true, deleted: existing };
   }
+
+  // ------------------------------------------------------------------
+  // ReplyPreset
+  // ------------------------------------------------------------------
+
+  /**
+   * Enabled presets in display order.
+   *
+   * The five `first5_preset_*` chips the C-end shows are **hardcoded in the route**, not stored, and
+   * stay there: they are the product's minimum guaranteed reply choices for an empty install. Only the
+   * stored presets are read from here. That split is deliberate and is why the route merges the two
+   * and de-duplicates by text.
+   */
+  async listPublicPresets() {
+    return this.prisma.replyPreset.findMany({
+      where: { enabled: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async listPresetsForAdmin() {
+    return this.prisma.replyPreset.findMany({ orderBy: { sortOrder: 'asc' } });
+  }
+
+  async createPreset(input: { text: string; scene?: string; sortOrder?: number }) {
+    const text = input.text?.trim();
+    if (!text) throw new BadRequestException('回复预设内容不能为空');
+    const sortOrder = input.sortOrder ?? (await this.prisma.replyPreset.count());
+    return this.prisma.replyPreset.create({
+      data: { text, scene: input.scene ?? 'comfort', sortOrder, enabled: true },
+    });
+  }
+
+  async updatePreset(id: string, patch: { text?: string; scene?: string; enabled?: boolean; sortOrder?: number }) {
+    const existing = await this.prisma.replyPreset.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('回复预设不存在');
+    const data: Record<string, unknown> = {};
+    if (patch.text !== undefined) {
+      const text = patch.text.trim();
+      if (!text) throw new BadRequestException('回复预设内容不能为空');
+      data.text = text;
+    }
+    if (patch.scene !== undefined) data.scene = patch.scene;
+    if (patch.enabled !== undefined) data.enabled = patch.enabled;
+    if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
+    return this.prisma.replyPreset.update({ where: { id }, data });
+  }
+
+  async deletePreset(id: string) {
+    const existing = await this.prisma.replyPreset.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('回复预设不存在');
+    await this.prisma.replyPreset.delete({ where: { id } });
+    return { ok: true, deleted: existing };
+  }
 }

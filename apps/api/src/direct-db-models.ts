@@ -25,6 +25,9 @@ export const DIRECT_DB_MODELS = {
   // Batch 4's first conversion. The console's FAQ routes now read and write FaqItem through
   // feedback-persistence.service.ts, so the flush no longer needs to hydrate, upsert or sweep it.
   FaqItem: 'faqs',
+  // Batch 4's second conversion: the console's preset routes read and write through
+  // feedback-persistence.service.ts, so the flush no longer hydrates, upserts or sweeps them.
+  ReplyPreset: 'replyPresets',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

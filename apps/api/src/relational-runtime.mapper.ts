@@ -84,7 +84,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.favorite.findMany({ orderBy: { createdAt: 'desc' } }),
     db.feedbackCategory.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.FaqItem ? Promise.resolve([]) : db.faqItem.findMany({ orderBy: { sortOrder: 'asc' } }),
-    db.replyPreset.findMany({ orderBy: { sortOrder: 'asc' } }),
+    DIRECT_DB_MODELS.ReplyPreset ? Promise.resolve([]) : db.replyPreset.findMany({ orderBy: { sortOrder: 'asc' } }),
     db.feedbackTicket.findMany({ orderBy: { createdAt: 'desc' } }),
     db.systemSetting.findMany({ orderBy: { key: 'asc' } }),
     db.aIProvider.findMany({ orderBy: { priority: 'asc' } }),
@@ -2342,6 +2342,7 @@ export async function saveRelationalRuntimeState(
           },
         });
       for (const item of asArray(state.replyPresets))
+        if (!DIRECT_DB_MODELS.ReplyPreset)
         await tx.replyPreset.upsert({
           where: { id: item.id },
           create: {
@@ -2664,6 +2665,7 @@ export async function saveRelationalRuntimeState(
       await deleteAbsent('faqItem', tx.faqItem,
         asArray(state.faqs).map((item: any) => item.id),
       );
+      if (!DIRECT_DB_MODELS.ReplyPreset)
       await deleteAbsent('replyPreset', tx.replyPreset,
         asArray(state.replyPresets).map((item: any) => item.id),
       );

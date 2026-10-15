@@ -1369,7 +1369,7 @@ export class PublicController {
   }
 
   @Get('reply-presets')
-  presets() {
+  async presets() {
     const now = new Date().toISOString();
     const required = ['抱抱你', '我懂你的感受', '会好起来的', '今晚早点休息', '你已经很棒了'].map((text, index) => ({
       id: `first5_preset_${index + 1}`,
@@ -1379,9 +1379,9 @@ export class PublicController {
       enabled: true,
       createdAt: now,
     }));
-    const enabled = this.store.replyPresets.filter((item) => item.enabled).sort((a, b) => a.sortOrder - b.sortOrder);
-    const items = [...required, ...enabled].reduce<typeof enabled>((acc, item) => {
-      if (!acc.some((seen) => seen.text === item.text)) acc.push(item);
+    const enabled = await this.feedbackPersistence.listPublicPresets();
+    const items = [...required, ...enabled].reduce<Array<Record<string, unknown>>>((acc, item) => {
+      if (!acc.some((seen) => seen.text === item.text)) acc.push(item as unknown as Record<string, unknown>);
       return acc;
     }, []);
     return { items };
@@ -3643,26 +3643,14 @@ export class AdminController {
   }
 
   @Get('reply-presets')
-  adminPresets(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.list(this.store.replyPresets, page, pageSize);
+  async adminPresets(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.list(await this.feedbackPersistence.listPresetsForAdmin(), page, pageSize);
   }
   @Post('reply-presets')
-  async createPreset(@Headers('authorization') auth: string, @Body() body: { text: string; scene?: string }) {
+  async createPreset(@Headers('authorization') auth: string, @Body() body: { text: string; scene?: string; sortOrder?: number }) {
     const admin = this.admin(auth);
-    const text = body.text?.trim();
-    if (!text) throw new BadRequestException('回复预设内容不能为空');
-    const item = {
-      id: `preset_${Date.now()}`,
-      text,
-      scene: body.scene ?? 'comfort',
-      sortOrder: this.store.replyPresets.length + 1,
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
-    this.store.replyPresets.unshift(item);
+    const item = await this.feedbackPersistence.createPreset({ text: body.text, scene: body.scene, sortOrder: body.sortOrder });
     this.store.audit(admin.id, 'REPLY_PRESET_CREATE', 'ReplyPreset', item.id, null, item);
-    this.store.persist();
-    await this.store.flush();
     return { item };
   }
   @Put('reply-presets/:id')
@@ -3672,16 +3660,8 @@ export class AdminController {
     @Body() body: Partial<{ text: string; scene: string; enabled: boolean; sortOrder: number }>,
   ) {
     const admin = this.admin(auth);
-    const item = this.store.replyPresets.find((p) => p.id === id);
-    if (!item) throw new NotFoundException('回复预设不存在');
-    const before = { ...item };
-    const update = { ...body };
-    if (update.text !== undefined) update.text = update.text.trim();
-    if (update.text !== undefined && !update.text) throw new BadRequestException('回复预设内容不能为空');
-    Object.assign(item, update);
-    this.store.audit(admin.id, 'REPLY_PRESET_UPDATE', 'ReplyPreset', id, before, item);
-    this.store.persist();
-    await this.store.flush();
+    const item = await this.feedbackPersistence.updatePreset(id, body);
+    this.store.audit(admin.id, 'REPLY_PRESET_UPDATE', 'ReplyPreset', id, null, item);
     return { item };
   }
 
@@ -3696,11 +3676,8 @@ export class AdminController {
   @Delete('reply-presets/:id')
   async deletePreset(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const item = this.store.replyPresets.find((preset) => preset.id === id);
-    if (!item) throw new NotFoundException('回复预设不存在');
-    this.store.replyPresets = this.store.replyPresets.filter((p) => p.id !== id);
-    this.store.audit(admin.id, 'REPLY_PRESET_DELETE', 'ReplyPreset', id, item, null);
-    await this.store.flush();
+    const { deleted } = await this.feedbackPersistence.deletePreset(id);
+    this.store.audit(admin.id, 'REPLY_PRESET_DELETE', 'ReplyPreset', id, deleted, null);
     return { ok: true };
   }
 
