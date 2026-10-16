@@ -1241,7 +1241,8 @@ export class PublicController {
     const post = this.store.getPost(id, true);
     this.store.addFavorite(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    return { item: this.store.decoratePost(post) };
+    // Decorated again with a fresh context so the response reflects the favourite just added.
+    return { item: this.store.decoratePost(post, this.store.buildPostDecorationContext([post])) };
   }
 
   @Delete('posts/:id/favorite')
@@ -1249,7 +1250,7 @@ export class PublicController {
     const post = this.store.getPost(id, true);
     this.store.removeFavoriteByTarget(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    return { item: this.store.decoratePost(post) };
+    return { item: this.store.decoratePost(post, this.store.buildPostDecorationContext([post])) };
   }
 
   @Post('posts/:id/report')
@@ -3059,7 +3060,9 @@ export class AdminController {
       const matchesVisibility = !visibility || visibility === 'all' || post.visibility === visibility;
       return matchesQuery && matchesEmotion && matchesReview && matchesVisibility;
     });
-    items.forEach((post) => this.store.decoratePost(post));
+    // One context for the whole page rather than a lookup per row.
+    const adminContext = this.store.buildPostDecorationContext(items);
+    items.forEach((post) => this.store.decoratePost(post, adminContext));
     return this.list(items, page, pageSize);
   }
   @Get('posts/:id')

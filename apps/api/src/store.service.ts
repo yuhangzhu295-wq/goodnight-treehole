@@ -1245,6 +1245,17 @@ function seedData(): StoreData {
   };
 }
 
+/**
+ * The per-request inputs `decoratePost` needs from outside the post row.
+ *
+ * See `StoreService.buildPostDecorationContext` for why it is built once per request and why it is a
+ * required argument rather than an optional one.
+ */
+export type PostDecorationContext = {
+  favoritedPostIds: Set<string>;
+  assetsById: Map<string, MediaAsset>;
+};
+
 @Injectable()
 export class StoreService implements OnModuleInit {
   private data: StoreData;
@@ -2478,9 +2489,43 @@ export class StoreService implements OnModuleInit {
       .filter((asset): asset is MediaAsset => Boolean(asset));
   }
 
-  decoratePost(post: PostItem) {
+  /**
+   * Everything `decoratePost` needs that does not come from the post row itself.
+   *
+   * Built **once per request**, not per post. `decoratePost` runs inside loops - the public feed and
+   * the admin list both call it for every row - and both lookups are the same for every row in that
+   * loop, so reading them per row would be the N+1 that converting `Favorite` and `MediaAsset` to
+   * database authority would otherwise introduce.
+   *
+   * It is a required parameter on `decoratePost` rather than an optional one on purpose: a caller that
+   * omits it would get `favoritedByCurrentUser === false` and no attachments with no error anywhere,
+   * which is the silent-constant failure this seam exists to prevent.
+   */
+  buildPostDecorationContext(posts: Array<Pick<PostItem, 'id' | 'attachmentIds'>>): PostDecorationContext {
+    const viewer = this.viewerUserId();
+    const favoritedPostIds = new Set(
+      this.favorites
+        .filter((item) => item.userId === viewer && item.targetType === 'post')
+        .map((item) => item.targetId),
+    );
+
+    const assetsById = new Map<string, MediaAsset>();
+    for (const post of posts) {
+      for (const assetId of post.attachmentIds ?? []) {
+        if (assetsById.has(assetId)) continue;
+        const asset = this.assets.find((item) => item.id === assetId && item.status === 'ready');
+        if (asset) assetsById.set(assetId, asset);
+      }
+    }
+
+    return { favoritedPostIds, assetsById };
+  }
+
+  decoratePost(post: PostItem, context: PostDecorationContext) {
     const attachmentIds = post.attachmentIds ?? [];
-    post.attachments = this.mediaByIds(attachmentIds);
+    post.attachments = attachmentIds
+      .map((assetId) => context.assetsById.get(assetId))
+      .filter((asset): asset is MediaAsset => Boolean(asset));
     const ownerPrivacy = DIRECT_DB_MODELS.PrivacySetting
       ? this.selfPersistence.getCachedPrivacySettings(post.userId)
       : this.privacySettings[post.userId];
@@ -2490,10 +2535,8 @@ export class StoreService implements OnModuleInit {
       post.reviewStatus === 'published' &&
       ownerPrivacy?.allowHumanReplies !== false &&
       systemAllowsHumanReplies;
-    const viewer = this.viewerUserId();
-    (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser = this.favorites.some(
-      (item) => item.userId === viewer && item.targetType === 'post' && item.targetId === post.id,
-    );
+    (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser =
+      context.favoritedPostIds.has(post.id);
     return post;
   }
 
@@ -2881,7 +2924,7 @@ export class StoreService implements OnModuleInit {
     post.hugCount = baseline + count;
     this.persist();
     await this.flush();
-    return { item: this.decoratePost(post), alreadyHugged: Boolean(existing) };
+    return { item: this.decoratePost(post, this.buildPostDecorationContext([post])), alreadyHugged: Boolean(existing) };
   }
 
   /** Removes this user's hug and re-derives the counter. */
@@ -2895,7 +2938,7 @@ export class StoreService implements OnModuleInit {
     post.hugCount = baseline + count;
     this.persist();
     await this.flush();
-    return { item: this.decoratePost(post) };
+    return { item: this.decoratePost(post, this.buildPostDecorationContext([post])) };
   }
 
   /** `manualReviewThreshold` (admin 系统设置), clamped to a usable probability range. */
@@ -6607,7 +6650,10 @@ export class StoreService implements OnModuleInit {
           ).map((item) => item.postId)
         : [],
     );
-    this.posts.forEach((post) => this.decoratePost(post));
+    // One context for the whole feed: the viewer's favourites and the page's assets are the same
+    // lookup for every row, and reading them per row is what this seam exists to avoid.
+    const feedContext = this.buildPostDecorationContext(this.posts);
+    this.posts.forEach((post) => this.decoratePost(post, feedContext));
     return this.posts.filter(
       (post) =>
         !hiddenPostIds.has(post.id) &&
@@ -6646,7 +6692,7 @@ export class StoreService implements OnModuleInit {
         item.id === idValue && item.status === 'active' && (includeUnpublished || item.reviewStatus !== 'hidden'),
     );
     if (!post) throw new NotFoundException('树洞不存在');
-    return this.decoratePost(post);
+    return this.decoratePost(post, this.buildPostDecorationContext([post]));
   }
 
   async createMood(input: {
