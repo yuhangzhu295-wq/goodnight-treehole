@@ -230,8 +230,9 @@ that an unregistered model loses rows here. Two general rules fall out:
 | `FeedbackTicket` | **DONE** | `bd4b726`, write path in `feedback-persistence.service.ts` |
 | `AdminUserNote` | **DONE** | `admin-notes-persistence.service.ts`, gate case plus a boot-and-flush discriminator, mutation M-N |
 | `PeerReputation` | **DONE** | registered; **inert model** (§5b: no writer anywhere), gate case with a boot-and-flush discriminator, mutation M-O |
+| `AgentDecisionLog` | **DONE** | writer + both readers in `Batch1PersistenceService`; the archive path deletes and the export path detaches, and that difference is preserved deliberately; mutation M-P |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 9 | not started | see §4's order |
+| the other 8 | not started | see §4's order |
 
 The gate file is now shared by four models, with a statement-level probe on each table and a
 self-test per table. Adding a model means adding its name to `TARGET_TABLES`, its two self-test

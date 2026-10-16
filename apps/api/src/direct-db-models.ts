@@ -44,6 +44,11 @@ export const DIRECT_DB_MODELS = {
   // finding is recorded in BATCH4_LEGACY_FLUSH_RETIREMENT.md §5b and is deliberately not "fixed" here,
   // because whether peer reputation should exist is a product decision.
   PeerReputation: 'peerReputations',
+  // Batch 4 model 7 of 16. The writer and both readers moved to Batch1PersistenceService: recording
+  // an AI decision now writes the row directly, the archive-cleanup path deletes the logs for its
+  // journeys, and the export path detaches them. Its ids also fed two FK allowlists in the mapper, and
+  // those contributions are dropped the same way every other registered model's are.
+  AgentDecisionLog: 'agentDecisionLogs',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

@@ -132,7 +132,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       ? Promise.resolve([])
       : db.recoverySnapshot.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.SafetyEvent ? Promise.resolve([]) : db.safetyEvent.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.AgentDecisionLog ? Promise.resolve([]) : db.agentDecisionLog.findMany({ orderBy: { createdAt: 'desc' } }),
     db.followUpJob.findMany({ orderBy: { dueAt: 'asc' } }),
     DIRECT_DB_MODELS.UserNotification
       ? Promise.resolve([])
@@ -995,7 +995,7 @@ export async function saveRelationalRuntimeState(
               item.aiJobId ??
               (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null),
           ),
-          ...asArray(state.agentDecisionLogs).map((item: any) => item.aiJobId),
+          ...(DIRECT_DB_MODELS.AgentDecisionLog ? [] : asArray(state.agentDecisionLogs).map((item: any) => item.aiJobId)),
         ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
         const existingDbJobs = candidateJobIds.length
           ? await tx.aIJob.findMany({
@@ -1023,7 +1023,7 @@ export async function saveRelationalRuntimeState(
           ...(DIRECT_DB_MODELS.PersonalSupportPlan ? [] : asArray(state.personalSupportPlans).map((item: any) => item.journeyId)),
           ...asArray(state.memoryItems).map((item: any) => item.journeyId),
           ...(DIRECT_DB_MODELS.RecoverySnapshot ? [] : asArray(state.recoverySnapshots).map((item: any) => item.journeyId)),
-          ...asArray(state.agentDecisionLogs).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.AgentDecisionLog ? [] : asArray(state.agentDecisionLogs).map((item: any) => item.journeyId)),
           ...asArray(state.followUpJobs).map((item: any) => item.journeyId),
         ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
         const existingDbJourneys = candidateJourneyIds.length
@@ -2094,6 +2094,8 @@ export async function saveRelationalRuntimeState(
             },
           });
       }
+      // Block-bodied loop, so the guard wraps the `for` (a single statement) rather than the body.
+      if (!DIRECT_DB_MODELS.AgentDecisionLog)
       for (const item of asArray(state.agentDecisionLogs)) {
         const initialAiJobId = await resolveAiJobForCreate(item.aiJobId, jobIds, tx);
         const aiJobFkUpdate = await resolveAiJobForUpdate(item.aiJobId, jobIds, tx);
@@ -2609,6 +2611,7 @@ export async function saveRelationalRuntimeState(
         await deleteAbsent('safetyEvent', tx.safetyEvent,
           asArray(state.safetyEvents).map((item: any) => item.id),
         );
+      if (!DIRECT_DB_MODELS.AgentDecisionLog)
       await deleteAbsent('agentDecisionLog', tx.agentDecisionLog,
         asArray(state.agentDecisionLogs).map((item: any) => item.id),
       );

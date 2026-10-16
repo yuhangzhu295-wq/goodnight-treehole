@@ -3325,14 +3325,12 @@ export class StoreService implements OnModuleInit {
       completed.structuredResult && typeof completed.structuredResult === 'object' ? completed.structuredResult : {}
     ) as Record<string, any>;
 
-    this.agentDecisionLogs.unshift({
-      id: id('agent_decision'),
+    await this.batch1Persistence.createDecisionLog({
       userId,
       journeyId,
       aiJobId: completed.id,
       taskType: 'situation_analysis',
       decision: structured,
-      createdAt: now(),
     });
 
     await this.persistAndFlush();
@@ -3580,7 +3578,9 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.RecoverySnapshot) {
       this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
     }
-    this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
+    // Batch 4: AgentDecisionLog is database-authoritative. The legacy filter removed these rows from
+    // the in-memory array; the table delete is what carries that intent now.
+    await this.batch1Persistence.deleteDecisionLogsForJourneys(Array.from(journeyIds));
     this.data.followUpJobs = this.data.followUpJobs.filter(
       (item) =>
         !hasJourney(item.journeyId) &&
@@ -3874,7 +3874,9 @@ export class StoreService implements OnModuleInit {
     if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
     if (!DIRECT_DB_MODELS.MemoryItem) this.data.memoryItems = detachJourney(this.data.memoryItems);
     if (!DIRECT_DB_MODELS.RecoverySnapshot) this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
-    this.data.agentDecisionLogs = detachJourney(this.data.agentDecisionLogs);
+    // Batch 4: the same model, the opposite intent - the export path keeps these rows and only
+    // removes the link, which is why it is a detach here and a delete in the archive-cleanup path.
+    await this.batch1Persistence.detachDecisionLogsForJourneys([journeyId]);
     this.data.followUpJobs = detachJourney(this.data.followUpJobs);
 
     await this.persistAndFlush();

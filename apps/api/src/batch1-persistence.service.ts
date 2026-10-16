@@ -3167,4 +3167,56 @@ export class Batch1PersistenceService {
       actionJourneyIds: Array.from(actionJourneyIds),
     };
   }
+
+  // ------------------------------------------------------------------
+  // AgentDecisionLog (Batch 4, model 7)
+  // ------------------------------------------------------------------
+
+  /**
+   * Records what the AI decided for one job.
+   *
+   * The legacy path unshifted onto an in-memory array and flushed. This writes the row directly, so
+   * the record exists as soon as the call returns rather than after a flush, and it can no longer be
+   * overwritten by a stale snapshot.
+   */
+  async createDecisionLog(input: {
+    userId: string;
+    journeyId?: string | null;
+    aiJobId?: string | null;
+    taskType: string;
+    decision: unknown;
+  }) {
+    return this.prisma.agentDecisionLog.create({
+      data: {
+        userId: input.userId,
+        journeyId: input.journeyId ?? null,
+        aiJobId: input.aiJobId ?? null,
+        taskType: input.taskType,
+        decision: (input.decision ?? {}) as any,
+      },
+    });
+  }
+
+  /**
+   * Removes the logs attached to the given journeys.
+   *
+   * This is what the archive-delete path does, and it is deliberately a **delete**, not a detach,
+   * even though the column is `onDelete: SetNull`. The legacy code filtered these rows out of the
+   * array, so the record of an archived-then-deleted journey went away with it; turning it into a
+   * detach here would keep rows the product has always removed. The distinction is preserved rather
+   * than "corrected", because which of the two is wanted is a product question.
+   */
+  async deleteDecisionLogsForJourneys(journeyIds: string[]) {
+    if (journeyIds.length === 0) return { count: 0 };
+    return this.prisma.agentDecisionLog.deleteMany({ where: { journeyId: { in: journeyIds } } });
+  }
+
+  /** Detaches the logs from their journeys without removing them - what the export path does. */
+  async detachDecisionLogsForJourneys(journeyIds: string[]) {
+    if (journeyIds.length === 0) return { count: 0 };
+    return this.prisma.agentDecisionLog.updateMany({
+      where: { journeyId: { in: journeyIds } },
+      data: { journeyId: null },
+    });
+  }
 }

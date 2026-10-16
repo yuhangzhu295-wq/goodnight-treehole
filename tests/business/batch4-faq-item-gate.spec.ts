@@ -20,7 +20,15 @@ import { createApiTestApp, loginAdmin, auth, identityFor, DEMO_USER_ID } from '.
  * The probe is statement-level and self-tests first, for the same reason as the Batch 3 gate: a
  * row-level trigger sees nothing in a zero-row `DELETE`, which is precisely the old sweep's shape.
  */
-const TARGET_TABLES = ['FaqItem', 'ReplyPreset', 'FeedbackCategory', 'FeedbackTicket', 'AdminUserNote', 'PeerReputation'];
+const TARGET_TABLES = [
+  'FaqItem',
+  'ReplyPreset',
+  'FeedbackCategory',
+  'FeedbackTicket',
+  'AdminUserNote',
+  'PeerReputation',
+  'AgentDecisionLog',
+];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
   let app: INestApplication;
@@ -76,8 +84,10 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('UPDATE "FeedbackTicket" SET "content" = "content" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "AdminUserNote" SET "content" = "content" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "PeerReputation" SET "helpfulCount" = "helpfulCount" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "AgentDecisionLog" SET "taskType" = "taskType" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
+      { table: 'AgentDecisionLog', op: 'UPDATE', n: 1 },
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
@@ -94,8 +104,10 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('DELETE FROM "FeedbackTicket" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "AdminUserNote" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "PeerReputation" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "AgentDecisionLog" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
+      { table: 'AgentDecisionLog', op: 'DELETE', n: 1 },
       { table: 'FaqItem', op: 'DELETE', n: 1 },
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
@@ -556,5 +568,39 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.peerReputation.deleteMany({ where: { userId } });
     await prisma.peerMatch.deleteMany({ where: { journeyId: journey.body.journey.id } });
     await prisma.lifeJourney.deleteMany({ where: { id: journey.body.journey.id } });
+  }, 120_000);
+
+  /**
+   * `AgentDecisionLog` has a real writer (recording what the AI decided for a situation analysis), so
+   * unlike `PeerReputation` this model is live. The row is written **directly** here rather than by
+   * driving a whole AI flow: the subject is the flush's behaviour toward the table, not the flow.
+   *
+   * Same discriminating shape as the cases above (§5a): a fresh instance hydrates the row, so its
+   * snapshot is non-empty and its flush would rewrite the row if the model were not registered. The
+   * row-survival assertion comes first, because a statement-level probe cannot tell a one-row DELETE
+   * from a zero-row one (§5c).
+   */
+  it('a decision log written straight to PostgreSQL survives a flush', async () => {
+    const userId = 'user_demo';
+    const direct = await prisma.agentDecisionLog.create({
+      data: { userId, taskType: 'batch4_probe', decision: { probe: true } },
+    });
+
+    const secondApp = await createApiTestApp();
+    try {
+      await clearProbe();
+      await request(secondApp.getHttpServer())
+        .post('/api/v1/moods')
+        .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+        .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+        .expect(201);
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      expect(await prisma.agentDecisionLog.findUnique({ where: { id: direct.id } })).not.toBeNull();
+      expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+    } finally {
+      await prisma.agentDecisionLog.deleteMany({ where: { id: direct.id } });
+      await secondApp.close();
+    }
   }, 120_000);
 });
