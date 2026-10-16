@@ -220,6 +220,40 @@ that an unregistered model loses rows here. Two general rules fall out:
 - A single mutation run is not a stable observation when the number of statements varies between
   runs. Re-run before drawing a conclusion from a statement count.
 
+## 5d. The remaining nine models are one cluster, not nine conversions
+
+The first seven models could be converted one per commit because each was independent of the others.
+Re-measuring the remaining nine on `61dd20e` says that is no longer true, and the reason is **Post**:
+
+| Model | Coupling that blocks a solo conversion |
+| --- | --- |
+| `Favorite` | `addFavorite` increments `post.favoriteCount`; `applyFavoriteRemoval` decrements it. It also sets `letter.favorite`. |
+| `Reply` | `post.replyCount` is recomputed from `this.replies` on publish and on moderation (`store.service.ts:8225,8253`). |
+| `Post` | Holds both counters above, so it is the hub rather than a leaf. |
+| `Diary` | Derived from `Mood` (`moodId`), and `Letter` is referenced by it. |
+| `Mood` | Upstream of `Post` and `Diary`; both derive from it. |
+| `Letter` | `sourceMoodId` FK into `Mood`; read by several views and the home dashboard. |
+| `MediaAsset` | Referenced by `Mood.attachmentIds`, `FeedbackTicket.screenshots` and `decoratePost`'s `mediaByIds`. |
+| `AIProvider` | Pairs with `AIStyleRoute` (three FKs), and `enforceRemoteAiProviderPolicy` bulk-rewrites **both** tables - it is also called from `reloadRuntimeState`, so it re-runs on every worker-triggered reload. |
+| `AIStyleRoute` | Same pair; three FKs to `AIProvider`. |
+
+Two consequences, and they change the plan rather than merely annotating it:
+
+1. **"One model per commit" cannot be applied to these nine.** Registering `Favorite` alone empties the
+   array `post.favoriteCount` is maintained from, so the counter stops moving; registering `Post` alone
+   would strand the two models that write into it. The cluster has to move as a unit, or `Post` has to
+   move first and absorb the counter maintenance into database statements.
+2. **`decoratePost` is the read-side of the same knot.** It reads `this.favorites` (for
+   `favoritedByCurrentUser`) and `this.assets` (via `mediaByIds`, for attachments) from two call sites
+   that are **inside loops** - the public feed at `store.service.ts:6610` and the admin list at
+   `controllers.ts:3062`. Converting either model without this makes the field silently constant:
+   every post would report "not favourited" and "no attachments", with no error anywhere.
+
+So the next Batch 4 step is not "convert `Favorite`". It is a design step: decide the cluster's unit,
+and give `decoratePost` a per-request pre-fetch (one query for the viewer's favourites, one for the
+page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-READ-PATH` and
+`B4-FAVORITE-COUNTER-COUPLING` in `docs/automation/MASTER_TASK_QUEUE.json`.
+
 ## 6. Position at the last update
 
 | Model | Status | Evidence |

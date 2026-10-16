@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "61dd20e1182b37304a8070645252b5d188817ce4",
-  "updatedAt": "2026-10-16T17:18:54.498Z",
+  "updatedAt": "2026-10-16T17:22:57.402Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -154,9 +154,10 @@
       "title": "Legacy store retirement (Batch 4)",
       "implemented": "partial",
       "tested": "partial",
-      "evidence": "Batch 4 at 7 of 16. Done: FaqItem, ReplyPreset, FeedbackCategory + FeedbackTicket (registered as one unit), AdminUserNote, PeerReputation (inert - no writer anywhere, recorded in the plan §5b), AgentDecisionLog. Each has a statement-level gate in batch4-faq-item-gate.spec.ts (14/14) and a reverse proof (M-K, M-L, M-M, M-N, M-O, M-P). BATCH4_LEGACY_FLUSH_RETIREMENT.md is the plan.",
+      "evidence": "Batch 4 at 7 of 16. Done: FaqItem, ReplyPreset, FeedbackCategory + FeedbackTicket (registered as one unit), AdminUserNote, PeerReputation (inert - no writer anywhere, recorded in the plan §5b), AgentDecisionLog. Each has a statement-level gate in batch4-faq-item-gate.spec.ts (14/14) and a reverse proof (M-K, M-L, M-M, M-N, M-O, M-P). BATCH4_LEGACY_FLUSH_RETIREMENT.md is the plan. Re-measured on 61dd20e: Reply also maintains post.replyCount (store.service.ts:8225,8253), so Favorite and Reply both write into Post counters - the cluster cannot be split.",
       "blocker": "Two couplings constrain the order and were found while converting: FeedbackCategory pairs with FeedbackTicket (§2a); Favorite maintains post.favoriteCount and letter.favorite, so it pairs with Post and Letter; AIProvider and AIStyleRoute pair (three FKs from the route to the provider).",
-      "nextAction": "Convert the AIProvider + AIStyleRoute pair, then the counter-coupled group, then Mood last."
+      "nextAction": "The remaining nine are ONE cluster around Post, not nine conversions (plan §5d). Next step is a design step: decide the cluster unit, and give decoratePost a per-request pre-fetch (viewer favourites + page assets) instead of per-row lookups from inside its two looping call sites. Then convert the cluster.",
+      "updatedAt": "2026-10-16T17:22:57.401Z"
     },
     {
       "id": "P4",
