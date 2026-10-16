@@ -98,15 +98,33 @@ describe('feedback media and lifecycle', () => {
     expect(resolved.status).toBe('resolved');
   });
 
-  it('returns only persisted enabled FAQ records to the frontend', () => {
+  /**
+   * The FAQ route stopped reading the in-memory `store.faqs` array when `FaqItem` became
+   * database-authoritative (Batch 4), so the old form of this test - mutate the array, call the
+   * route, expect the array's filtering - no longer describes the contract. It also constructed the
+   * controller with two arguments while the class now takes six, which is what broke CI.
+   *
+   * What the route owes the C-end is narrower and still worth pinning at unit level: it serves exactly
+   * the persisted rows the service returns, and an empty table yields an empty list rather than
+   * display-only fallback questions. (That the table itself filters by `enabled`, and that a disabled
+   * FAQ disappears, is asserted against a real database in `batch4-faq-item-gate.spec.ts`.)
+   */
+  it('serves exactly the persisted FAQ rows, with no display-only fallback when there are none', async () => {
     const store = createStore();
-    const controller = new PublicController(store, {} as any);
-    const original = store.faqs[0];
+    const rows = [{ id: 'faq_1', question: '怎么联系客服？', answer: '在帮助中心提交反馈。', sortOrder: 1, enabled: true }];
+    const feedbackPersistence = { listPublicFaqs: async () => rows };
+    const controller = new PublicController(
+      store,
+      {} as any,
+      {} as any,
+      {} as any,
+      feedbackPersistence as any,
+      {} as any,
+    );
 
-    store.faqs = store.faqs.map((item) => item.id === original.id ? { ...item, enabled: false } : item);
-    expect(controller.faqs().items.some((item) => item.id === original.id)).toBe(false);
+    expect((await controller.faqs()).items).toEqual(rows);
 
-    store.faqs = store.faqs.map((item) => ({ ...item, enabled: false }));
-    expect(controller.faqs().items).toEqual([]);
+    feedbackPersistence.listPublicFaqs = async () => [];
+    expect((await controller.faqs()).items).toEqual([]);
   });
 });
