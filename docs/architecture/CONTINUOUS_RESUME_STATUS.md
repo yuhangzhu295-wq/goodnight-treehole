@@ -3,8 +3,15 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-**HEAD at this writing:** `828047b` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
+**HEAD at this writing:** `61dd20e` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
+
+**CI: GREEN on `61dd20e`** — run [38936524649](https://github.com/yuhangzhu295-wq/goodnight-treehole/actions/runs/38936524649).
+Unit tests, the full business suite and the baseline-diff gate all succeeded. This is the first run on
+this branch in which the full business suite actually executed: on the preceding commits the unit step
+failed first, which **skipped** the suite, and the "report honestly" step then exited 1 because a
+required execution step was omitted. The queue entry `CI-GREEN` had been marked DONE through that
+period; it now points at this run.
 
 **Last verified evidence (2026-10-15, second pass):**
 - **The 9 specs this session added or changed, run together: 9/9 files, 79/79 tests, 0 failed.**
