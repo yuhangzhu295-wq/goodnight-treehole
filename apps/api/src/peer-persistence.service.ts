@@ -448,6 +448,29 @@ export class PeerPersistenceService {
     return await this.prisma.peerReport.count({ where: { experienceId } });
   }
 
+  /**
+   * Reputation rows for the given users, keyed by userId, in one query.
+   *
+   * Batch 4 moved `PeerReputation` to database authority, so the matching score can no longer read the
+   * in-memory array. Scoring runs per candidate, so this is deliberately batched: asking per candidate
+   * would add one query per row to a loop that already scores every published experience.
+   *
+   * Note on what this returns today: **nothing in the product ever creates a reputation row** (see
+   * `BATCH4_LEGACY_FLUSH_RETIREMENT.md` §5b), so in practice the map is empty and the caller's
+   * fallback applies to every candidate. The query is written correctly for the model that exists; the
+   * absence of a writer is a separate, recorded finding rather than something to paper over here.
+   */
+  async getReputationsForUsers(userIds: string[]): Promise<Map<string, { helpfulCount: number; reportCount: number }>> {
+    const byUser = new Map<string, { helpfulCount: number; reportCount: number }>();
+    if (!userIds.length) return byUser;
+    const rows = await this.prisma.peerReputation.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, helpfulCount: true, reportCount: true },
+    });
+    for (const row of rows) byUser.set(row.userId, row);
+    return byUser;
+  }
+
   async getExperiencesByIds(ids: string[]): Promise<PeerExperienceRecord[]> {
     if (!ids.length) return [];
     const rows = await this.prisma.peerExperience.findMany({

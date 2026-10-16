@@ -20,7 +20,7 @@ import { createApiTestApp, loginAdmin, auth, identityFor, DEMO_USER_ID } from '.
  * The probe is statement-level and self-tests first, for the same reason as the Batch 3 gate: a
  * row-level trigger sees nothing in a zero-row `DELETE`, which is precisely the old sweep's shape.
  */
-const TARGET_TABLES = ['FaqItem', 'ReplyPreset', 'FeedbackCategory', 'FeedbackTicket', 'AdminUserNote'];
+const TARGET_TABLES = ['FaqItem', 'ReplyPreset', 'FeedbackCategory', 'FeedbackTicket', 'AdminUserNote', 'PeerReputation'];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
   let app: INestApplication;
@@ -75,11 +75,13 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('UPDATE "FeedbackCategory" SET "sortOrder" = "sortOrder" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "FeedbackTicket" SET "content" = "content" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "AdminUserNote" SET "content" = "content" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "PeerReputation" SET "helpfulCount" = "helpfulCount" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
+      { table: 'PeerReputation', op: 'UPDATE', n: 1 },
       { table: 'ReplyPreset', op: 'UPDATE', n: 1 },
     ]);
   });
@@ -91,11 +93,13 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('DELETE FROM "FeedbackCategory" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "FeedbackTicket" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "AdminUserNote" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "PeerReputation" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'FaqItem', op: 'DELETE', n: 1 },
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
+      { table: 'PeerReputation', op: 'DELETE', n: 1 },
       { table: 'ReplyPreset', op: 'DELETE', n: 1 },
     ]);
   });
@@ -480,5 +484,77 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       await prisma.adminUserNote.deleteMany({ where: { id: noteId } });
       await secondApp.close();
     }
+  }, 120_000);
+
+  /**
+   * `PeerReputation` is inert today: nothing in the product creates a row (§5b of the plan), so this
+   * case writes one **directly** to prove the two things the conversion must not break - the row
+   * survives a flush, and the matcher that reads the trust term still answers. It does not assert a
+   * scoring effect, because with no writer there is no effect to observe; asserting one would be
+   * asserting a capability the product does not have.
+   */
+  it('a reputation row written straight to PostgreSQL survives a flush and the matcher still runs', async () => {
+    const userId = 'user_guest';
+    await prisma.user.upsert({
+      where: { id: userId },
+      create: { id: userId, openid: `openid_${userId}`, anonymousCode: `anon_${userId}`, nickname: '测试用户' },
+      update: {},
+    });
+    const direct = await prisma.peerReputation.create({
+      data: { userId, helpfulCount: 7, reportCount: 1 },
+    });
+
+    // The matcher is gated on peer matching, which defaults to off. The subject here is the
+    // reputation read, not the consent gate, so the consent is opened for the probe.
+    await prisma.privacySetting.upsert({
+      where: { userId: DEMO_USER_ID },
+      create: { userId: DEMO_USER_ID, allowPeerMatching: true },
+      update: { allowPeerMatching: true },
+    });
+
+    // A flush must not sweep it. A Mood forces the flush because Mood is still legacy-owned.
+    await request(server)
+      .post('/api/v1/moods')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(await prisma.peerReputation.findUnique({ where: { id: direct.id } })).not.toBeNull();
+
+    // The matcher reads the trust term from the table now. The assertion is that the route answers
+    // rather than throwing on the converted read.
+    const journey = await request(server)
+      .post('/api/v1/journeys')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ title: `batch4 probe journey ${Date.now()}`, domain: '生活', content: '同路人匹配探针' })
+      .expect(201);
+    await request(server)
+      .post(`/api/v1/journeys/${journey.body.journey.id}/peer-matches`)
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .expect(201);
+
+    // The discriminating half (§5a): a fresh instance hydrates the reputation row, so its snapshot is
+    // non-empty and its flush would rewrite the row if the model were not registered.
+    const secondApp = await createApiTestApp();
+    try {
+      await clearProbe();
+      await request(secondApp.getHttpServer())
+        .post('/api/v1/moods')
+        .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+        .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+        .expect(201);
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Row survival is asserted before the probe: it is the claim that matters, and a statement-level
+      // probe cannot tell a one-row DELETE from a zero-row one, so the probe alone cannot say whether
+      // anything was lost.
+      expect(await prisma.peerReputation.findUnique({ where: { id: direct.id } })).not.toBeNull();
+      expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+    } finally {
+      await secondApp.close();
+    }
+
+    await prisma.peerReputation.deleteMany({ where: { userId } });
+    await prisma.peerMatch.deleteMany({ where: { journeyId: journey.body.journey.id } });
+    await prisma.lifeJourney.deleteMany({ where: { id: journey.body.journey.id } });
   }, 120_000);
 });

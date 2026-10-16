@@ -153,6 +153,73 @@ Two consequences for the remaining models:
 - The "boot a second instance and flush" shape is the general form. `createApiTestApp()` already
   hydrates from the database, so the second app is cheap; the gate file's boot case is reusable.
 
+## 5b. Finding on model 6: `PeerReputation` is declared but never written
+
+Converting `PeerReputation` is mechanical, and doing it silently would have been the wrong call,
+because the model turns out to be **inert**: nothing in the product ever creates or updates one.
+
+Measured across the repository, not inferred:
+
+| Check | Result |
+| --- | --- |
+| any `peerReputations.push` / `.unshift` / indexed write | none |
+| any setter for the array (a getter exists at `store.service.ts:1774`) | none |
+| any assignment to `helpfulCount` / `reportCount` / `restrictedUntil` | none — the single hit is `experience.reportCount`, a `PeerExperience` field |
+| any `.create` / `.upsert` / `.update` on the Prisma delegate outside the mapper | none; the mapper's flush upsert is the only writer, and it only writes what hydration put in the snapshot |
+| rows in the development database | 0 |
+
+Two consequences, both of which read as working features today:
+
+1. **The peer-matching trust term is a constant.** `store.service.ts:4796` looks up the candidate's
+   reputation row and, finding none, falls back to `0.5`; that value is weighted `* 0.1` into the
+   match score. Because no row ever exists, the term is identical for every candidate - it is 10% of
+   the score that cannot distinguish anything.
+2. **`restrictedUntil` is dead.** It is written by the mapper's serialization and declared in the
+   store's type, and **no business logic reads it**. A restriction, if one were ever set, would have no
+   effect.
+
+This is not recorded anywhere else. `BATCH2_PEER_DESIGN.md:188` treats the model as a live scoring
+input whose only defect is process-local staleness, and `:224` treats its in-memory read as a legacy
+dependency to be tolerated - both assume something writes it.
+
+**What this change does and does not do.** It registers the model, which removes the sweep and is
+otherwise a no-op given the table is empty. It does **not** implement the capability, change the
+matching weight, or drop the column: whether peer reputation should exist, and what should feed it, is
+a product decision, and the design documents record such questions rather than deciding them. The
+finding is recorded here so the next reader does not convert this model believing it works.
+
+## 5c. A statement-level probe cannot tell you that data was lost
+
+While building the reverse proof for `PeerReputation`, the mutation run reported:
+
+```
+expected [ 'PeerReputation:DELETEx1', 'PeerReputation:INSERTx4', 'PeerReputation:UPDATEx4' ]
+```
+
+The first reading of `DELETEx1` was "the sweep deleted a row", which would be the P0 data-loss shape
+and would matter for the **11 models that still carry an active sweep**. That reading was wrong, and
+the way it was caught is the point of this section.
+
+The probe is **statement-level on purpose** - it fires for a zero-row `DELETE`, which is exactly the
+signature of the old `deleteMany({})` defect that a row-level trigger cannot see. The same property
+means it **cannot distinguish a one-row DELETE from a zero-row one**. So the probe can prove "the
+flush issued a statement"; it can never prove "a row was lost".
+
+The row check is what distinguishes, and it belongs **first**: the case now asserts the directly
+written row still exists *before* it asserts the probe is empty. With that order the mutation run
+fails on the probe assertion while the survival assertion **passes** - and re-running the same
+mutation produced a different composition (`['PeerReputation:INSERTx4', ...]`, no DELETE at all),
+which says the statement set depends on flush interleaving.
+
+So the reverse proof for this model rests on "the flush wrote to the table when the model was
+unregistered and did not when it was registered". It does **not** claim, and has no evidence for,
+that an unregistered model loses rows here. Two general rules fall out:
+
+- When a statement-level probe is the instrument, pair it with a row-level assertion and put the row
+  assertion first, so a failure says which of the two actually broke.
+- A single mutation run is not a stable observation when the number of statements varies between
+  runs. Re-run before drawing a conclusion from a statement count.
+
 ## 6. Position at the last update
 
 | Model | Status | Evidence |
@@ -162,8 +229,9 @@ Two consequences for the remaining models:
 | `FeedbackCategory` | **DONE** | `bd4b726`, registered jointly with its pair, mutation M-M |
 | `FeedbackTicket` | **DONE** | `bd4b726`, write path in `feedback-persistence.service.ts` |
 | `AdminUserNote` | **DONE** | `admin-notes-persistence.service.ts`, gate case plus a boot-and-flush discriminator, mutation M-N |
+| `PeerReputation` | **DONE** | registered; **inert model** (§5b: no writer anywhere), gate case with a boot-and-flush discriminator, mutation M-O |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 10 | not started | see §4's order |
+| the other 9 | not started | see §4's order |
 
 The gate file is now shared by four models, with a statement-level probe on each table and a
 self-test per table. Adding a model means adding its name to `TARGET_TABLES`, its two self-test

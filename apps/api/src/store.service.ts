@@ -4778,6 +4778,12 @@ export class StoreService implements OnModuleInit {
       );
     }
 
+    // Batch 4: PeerReputation is database-authoritative now, so the trust term is read from the table
+    // in one query for the whole candidate set rather than from the (no longer hydrated) array.
+    const reputations = DIRECT_DB_MODELS.PeerReputation
+      ? await this.peerPersistence.getReputationsForUsers([...new Set(candidates.map((exp) => exp.userId))])
+      : new Map(this.peerReputations.map((item) => [item.userId, item]));
+
     const matchesToCreate: Array<Omit<PeerMatchRecord, 'id' | 'createdAt' | 'updatedAt'>> = [];
     for (const experience of candidates) {
       const peerSnapshot = experience.fingerprintJson ?? {};
@@ -4793,7 +4799,7 @@ export class StoreService implements OnModuleInit {
       const peerStage = stageRank[experience.stage] ?? stageRank[String(peerSnapshot.stage)] ?? 0;
       const recoveryLead = Math.max(0, peerStage - currentStage);
       const stageSimilarity = peerStage >= currentStage ? Math.min(1, 0.6 + recoveryLead * 0.2) : 0.35;
-      const peerOwner = this.peerReputations.find((item) => item.userId === experience.userId);
+      const peerOwner = reputations.get(experience.userId);
       const trustScore = peerOwner
         ? Math.min(1, peerOwner.helpfulCount / Math.max(1, peerOwner.helpfulCount + peerOwner.reportCount))
         : 0.5;

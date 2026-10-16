@@ -39,6 +39,11 @@ export const DIRECT_DB_MODELS = {
   // rather than one per row. Its sweep was previously unguarded, so this registration is also what
   // stops the absence sweep from removing a directly written note.
   AdminUserNote: 'adminUserNotes',
+  // Batch 4 model 6 of 16. Registering it removes the sweep; note that the model is currently inert -
+  // nothing in the product writes a reputation row, so the matching trust term is a constant. The
+  // finding is recorded in BATCH4_LEGACY_FLUSH_RETIREMENT.md §5b and is deliberately not "fixed" here,
+  // because whether peer reputation should exist is a product decision.
+  PeerReputation: 'peerReputations',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

@@ -109,7 +109,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       ? Promise.resolve([])
       : db.peerExperience.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.PeerMatch ? Promise.resolve([]) : db.peerMatch.findMany({ orderBy: { updatedAt: 'desc' } }),
-    db.peerReputation.findMany({ orderBy: { updatedAt: 'desc' } }),
+    DIRECT_DB_MODELS.PeerReputation ? Promise.resolve([]) : db.peerReputation.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.DecisionRecord
       ? Promise.resolve([])
       : db.decisionRecord.findMany({ orderBy: { updatedAt: 'desc' } }),
@@ -1510,6 +1510,7 @@ export async function saveRelationalRuntimeState(
           });
       }
       for (const item of asArray(state.peerReputations))
+        if (!DIRECT_DB_MODELS.PeerReputation)
         await tx.peerReputation.upsert({
           where: { userId: item.userId },
           create: {
@@ -2611,6 +2612,7 @@ export async function saveRelationalRuntimeState(
       await deleteAbsent('agentDecisionLog', tx.agentDecisionLog,
         asArray(state.agentDecisionLogs).map((item: any) => item.id),
       );
+      if (!DIRECT_DB_MODELS.PeerReputation)
       await deleteAbsent('peerReputation', tx.peerReputation,
         asArray(state.peerReputations).map((item: any) => item.id),
       );
