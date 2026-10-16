@@ -5588,46 +5588,12 @@ export class StoreService implements OnModuleInit {
     return { item: report };
   }
 
-  /**
-   * Operator notes about a user. Append-only: a save adds a row, so an earlier note is never
-   * overwritten, and the "current" note is the newest one that has not been retracted. The
-   * previous implementation wrote only an AuditLog row, so the note was not business data and
-   * disappeared on the next load (ISSUE-027).
+  /*
+   * Operator notes moved to AdminNotesPersistenceService (Batch 4, model 5). The three methods that
+   * read and wrote `this.adminUserNotes` are deleted rather than left in place: `DIRECT_DB_MODELS`
+   * stops the flush hydrating that array, so anything still calling them would read a permanently
+   * empty list and a write would never reach the table.
    */
-  adminUserNoteList(userId: string) {
-    return this.adminUserNotes
-      .filter((note) => note.userId === userId && !note.deletedAt)
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  }
-
-  currentAdminUserNote(userId: string) {
-    return this.adminUserNoteList(userId)[0];
-  }
-
-  createAdminUserNote(userId: string, authorAdminId: string, content: unknown) {
-    if (!this.users.some((user) => user.id === userId)) throw new NotFoundException('用户不存在');
-    const noteContent = this.text(content, '备注内容', 500);
-    const timestamp = now();
-    const note: AdminUserNoteRecord = {
-      id: id('user_note'),
-      userId,
-      authorAdminId,
-      content: noteContent,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    this.adminUserNotes.unshift(note);
-    return note;
-  }
-
-  /** Soft delete, so the note leaves the operator view without destroying the record. */
-  deleteAdminUserNote(userId: string, noteId: string) {
-    const note = this.adminUserNotes.find((item) => item.id === noteId && item.userId === userId);
-    if (!note) throw new NotFoundException('备注不存在');
-    note.deletedAt = now();
-    note.updatedAt = now();
-    return note;
-  }
 
   async blockPeerConversation(matchId: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);

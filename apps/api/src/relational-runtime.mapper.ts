@@ -142,7 +142,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
       : db.peerConversation.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.PeerMessage ? Promise.resolve([]) : db.peerMessage.findMany({ orderBy: { createdAt: 'asc' } }),
     DIRECT_DB_MODELS.PeerReport ? Promise.resolve([]) : db.peerReport.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.adminUserNote.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.AdminUserNote ? Promise.resolve([]) : db.adminUserNote.findMany({ orderBy: { createdAt: 'desc' } }),
   ]);
   if (!users.length) return undefined;
 
@@ -2524,6 +2524,7 @@ export async function saveRelationalRuntimeState(
       for (const item of asArray(state.adminUserNotes).filter(
         (item: any) => userIds.has(item.userId) && adminUserIds.has(item.authorAdminId),
       ))
+        if (!DIRECT_DB_MODELS.AdminUserNote)
         await tx.adminUserNote.upsert({
           where: { id: item.id },
           create: {
@@ -2543,6 +2544,7 @@ export async function saveRelationalRuntimeState(
             deletedAt: item.deletedAt ? date(item.deletedAt) : null,
           },
         });
+      if (!DIRECT_DB_MODELS.AdminUserNote)
       await deleteAbsent('adminUserNote', tx.adminUserNote,
         asArray(state.adminUserNotes).map((item: any) => item.id),
       );

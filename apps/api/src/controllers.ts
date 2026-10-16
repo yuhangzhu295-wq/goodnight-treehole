@@ -41,6 +41,7 @@ import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService } from './self-persistence.service.js';
 import { FeedbackPersistenceService } from './feedback-persistence.service.js';
+import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import { demoIdentityAllowed } from './identity-credential.js';
 import { AnonymousSessionService, currentIdentity, SESSION_TTL_MS } from './anonymous-session.service.js';
@@ -2250,6 +2251,7 @@ export class AdminController {
     @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
     @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
     @Inject(FeedbackPersistenceService) private readonly feedbackPersistence: FeedbackPersistenceService,
+    @Inject(AdminNotesPersistenceService) private readonly adminNotes: AdminNotesPersistenceService,
   ) {}
 
   private admin(auth?: string, allowedRoles?: string[]) {
@@ -2896,7 +2898,7 @@ export class AdminController {
   }
 
   @Get('users')
-  users(
+  async users(
     @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
@@ -2912,9 +2914,10 @@ export class AdminController {
     });
     // The operator list carries each user's current note. The admin view read `user.note`
     // before, which this payload never contained, so the saved note vanished on the next load
-    // (ISSUE-027).
+    // (ISSUE-027). One query for the whole page rather than one per row.
+    const notes = await this.adminNotes.currentNotesForUsers(items.map((user) => user.id));
     const withNotes = items.map((user) => {
-      const note = this.store.currentAdminUserNote(user.id);
+      const note = notes.get(user.id);
       return { ...user, note: note?.content, noteUpdatedAt: note?.updatedAt };
     });
     return this.list(withNotes, page, pageSize);
@@ -2975,16 +2978,15 @@ export class AdminController {
     @Body() body: { note?: string; tags?: string[] },
   ) {
     const admin = this.admin(auth);
-    const note = this.store.createAdminUserNote(id, admin.id, body?.note);
+    const note = await this.adminNotes.createNote({ userId: id, authorAdminId: admin.id, content: body?.note });
     this.store.audit(admin.id, 'USER_NOTE', 'User', id, null, { noteId: note.id, content: note.content });
-    await this.store.persistAndFlush();
     return { item: { id, note: note.content, noteId: note.id, tags: body?.tags ?? [], updatedAt: note.updatedAt } };
   }
 
   @Get('users/:id/notes')
-  userNotes(@Headers('authorization') auth: string, @Param('id') id: string) {
+  async userNotes(@Headers('authorization') auth: string, @Param('id') id: string) {
     this.admin(auth);
-    const items = this.store.adminUserNoteList(id);
+    const items = await this.adminNotes.listNotes(id);
     return { items, current: items[0] ?? null, total: items.length };
   }
 
@@ -2995,9 +2997,8 @@ export class AdminController {
     @Body() body: { content?: string },
   ) {
     const admin = this.admin(auth);
-    const note = this.store.createAdminUserNote(id, admin.id, body?.content);
+    const note = await this.adminNotes.createNote({ userId: id, authorAdminId: admin.id, content: body?.content });
     this.store.audit(admin.id, 'USER_NOTE_CREATE', 'AdminUserNote', note.id, null, note);
-    await this.store.persistAndFlush();
     return { item: note };
   }
 
@@ -3008,11 +3009,10 @@ export class AdminController {
     @Param('noteId') noteId: string,
   ) {
     const admin = this.admin(auth);
-    const before = { ...(this.store.adminUserNotes.find((note) => note.id === noteId) ?? {}) };
-    const note = this.store.deleteAdminUserNote(id, noteId);
-    this.store.audit(admin.id, 'USER_NOTE_DELETE', 'AdminUserNote', noteId, before, note);
-    await this.store.persistAndFlush();
-    return { item: note };
+    // The retraction hands the removed row back so the audit entry names it rather than only its id.
+    const { deleted } = await this.adminNotes.deleteNote(id, noteId);
+    this.store.audit(admin.id, 'USER_NOTE_DELETE', 'AdminUserNote', noteId, deleted, null);
+    return { item: deleted };
   }
 
   @Patch('users/:id/tags')

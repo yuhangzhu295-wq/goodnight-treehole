@@ -20,7 +20,7 @@ import { createApiTestApp, loginAdmin, auth, identityFor, DEMO_USER_ID } from '.
  * The probe is statement-level and self-tests first, for the same reason as the Batch 3 gate: a
  * row-level trigger sees nothing in a zero-row `DELETE`, which is precisely the old sweep's shape.
  */
-const TARGET_TABLES = ['FaqItem', 'ReplyPreset', 'FeedbackCategory', 'FeedbackTicket'];
+const TARGET_TABLES = ['FaqItem', 'ReplyPreset', 'FeedbackCategory', 'FeedbackTicket', 'AdminUserNote'];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
   let app: INestApplication;
@@ -74,7 +74,9 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('UPDATE "ReplyPreset" SET "sortOrder" = "sortOrder" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "FeedbackCategory" SET "sortOrder" = "sortOrder" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "FeedbackTicket" SET "content" = "content" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "AdminUserNote" SET "content" = "content" WHERE false');
     expect(await probeRows()).toEqual([
+      { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
@@ -88,7 +90,9 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('DELETE FROM "ReplyPreset" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "FeedbackCategory" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "FeedbackTicket" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "AdminUserNote" WHERE false');
     expect(await probeRows()).toEqual([
+      { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'FaqItem', op: 'DELETE', n: 1 },
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
@@ -350,5 +354,131 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       .expect(200);
     const gone = await prisma.faqItem.findUnique({ where: { id } });
     expect(gone).toBeNull();
+  }, 120_000);
+
+  /**
+   * `AdminUserNote` is append-only operator data: a save adds a row and the "current" note is the
+   * newest that has not been retracted. Two things this case has to show, because the conversion
+   * changed both:
+   *
+   *  - a note written through the console is read back from the table, not from a boot-time snapshot;
+   *  - the users list carries each row's current note from **one** query for the page. The legacy
+   *    code called a per-user lookup inside the map, which the database version would have turned into
+   *    an N+1; `currentNotesForUsers` exists to avoid that, and this asserts the projection still
+   *    works rather than asserting the query count (which the response cannot show).
+   */
+  it('an operator note is written to the table, read back as the current note, and retracted softly', async () => {
+    const userId = 'user_demo';
+    await prisma.user.upsert({
+      where: { id: userId },
+      create: { id: userId, openid: `openid_${userId}`, anonymousCode: `anon_${userId}`, nickname: '测试用户' },
+      update: {},
+    });
+
+    const content = `batch4 probe note ${Date.now()}`;
+    const created = await request(server)
+      .post(`/api/admin/v1/users/${userId}/notes`)
+      .set('Authorization', auth(adminToken))
+      .send({ content })
+      .expect(201);
+    const noteId = created.body.item.id as string;
+    expect(noteId).toBeTruthy();
+
+    // Read back from the table.
+    const listed = await request(server)
+      .get(`/api/admin/v1/users/${userId}/notes`)
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+    expect((listed.body.items ?? []).some((item: any) => item.id === noteId)).toBe(true);
+    expect(listed.body.current?.id).toBe(noteId);
+
+    // The users list carries it as the row's current note.
+    const users = await request(server)
+      .get('/api/admin/v1/users')
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+    const row = (users.body.items ?? []).find((item: any) => item.id === userId);
+    expect(row?.note).toBe(content);
+
+    // Survives a flush: the sweep must no longer treat it as absent.
+    await request(server)
+      .post('/api/v1/moods')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(await prisma.adminUserNote.findUnique({ where: { id: noteId } })).not.toBeNull();
+
+    // Retraction is soft: the row stays, marked, and leaves the operator view.
+    await request(server)
+      .delete(`/api/admin/v1/users/${userId}/notes/${noteId}`)
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+
+    const afterDelete = await prisma.adminUserNote.findUnique({ where: { id: noteId } });
+    expect(afterDelete).not.toBeNull();
+    expect(afterDelete?.deletedAt).not.toBeNull();
+
+    const listedAfter = await request(server)
+      .get(`/api/admin/v1/users/${userId}/notes`)
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+    expect((listedAfter.body.items ?? []).some((item: any) => item.id === noteId)).toBe(false);
+
+    await prisma.adminUserNote.deleteMany({ where: { id: noteId } });
+  }, 120_000);
+
+  /**
+   * The discriminating case for `AdminUserNote`, and the reason the two cases above are not enough.
+   *
+   * Removing the registration (mutation M-N) left them green. That is not a hole in the product: the
+   * ownership rule (`deleteAbsent` may only remove ids this process previously wrote through the
+   * flush) already stops the sweep deleting a note written straight to the table, and a fresh test
+   * database has an empty note snapshot at boot, so the flush's upsert loop has nothing to iterate.
+   * Both halves of the registration are therefore inert until the snapshot is **non-empty**.
+   *
+   * This case makes it non-empty: it boots a second app, which hydrates the note from the database,
+   * and then flushes that instance. With the model registered the flush issues no statement against
+   * `AdminUserNote`; unregistered it writes the note it just hydrated (mutation M-N reports
+   * `['AdminUserNote:INSERTx4', ...]`). The probe is what makes the difference visible, so this is the
+   * reverse proof the gate needs.
+   *
+   * The statement recorded is an INSERT, not the UPDATE a stale-snapshot overwrite would suggest, and
+   * the exact number (4) was not traced further: what the gate needs is that the statement exists when
+   * the model is unregistered and does not when it is, and that is what is asserted.
+   */
+  it('a note present at boot is not rewritten by that instance\'s flush', async () => {
+    const userId = 'user_demo';
+    const content = `batch4 probe boot note ${Date.now()}`;
+    const created = await request(server)
+      .post(`/api/admin/v1/users/${userId}/notes`)
+      .set('Authorization', auth(adminToken))
+      .send({ content })
+      .expect(201);
+    const noteId = created.body.item.id as string;
+
+    // A second instance hydrates the note into its in-memory snapshot at boot.
+    const secondApp = await createApiTestApp();
+    const secondServer = secondApp.getHttpServer();
+    try {
+      await clearProbe();
+      await request(secondServer)
+        .post('/api/v1/moods')
+        .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+        .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+        .expect(201);
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      const rows = await probeRows();
+      expect(rows.map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+
+      // And the note is still there, untouched.
+      const after = await prisma.adminUserNote.findUnique({ where: { id: noteId } });
+      expect(after?.content).toBe(content);
+      expect(after?.deletedAt).toBeNull();
+    } finally {
+      await prisma.adminUserNote.deleteMany({ where: { id: noteId } });
+      await secondApp.close();
+    }
   }, 120_000);
 });

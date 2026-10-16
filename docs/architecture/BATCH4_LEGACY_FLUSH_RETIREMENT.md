@@ -129,6 +129,30 @@ Most independent first, most entangled last, so a failure is attributable:
 - **It must not be run against production data to "see what happens".** Conversions are verified on
   the leased test database, and the read-back check in §2.6 is what stands in for that.
 
+## 5a. How to build a reverse proof that actually discriminates
+
+Model 5 (`AdminUserNote`) produced the first gate whose obvious reverse proof did **not** work, and the
+reason generalises to every model that is written directly and only read afterwards.
+
+Removing the registration (M-N) left the first two cases green. That is not a hole in the product - it
+is the **ownership rule** from the P0 fix doing its job: `deleteAbsent` may only remove ids this process
+previously wrote through the flush, so a row written straight to the table is never swept. And a fresh
+test database has an **empty snapshot** at boot, so the flush's upsert loop has nothing to iterate. Both
+halves of the registration are therefore inert until the snapshot is non-empty.
+
+The discriminating case is therefore: **boot a second app so it hydrates the row, then flush that
+instance.** With the model registered the flush issues no statement against the table; unregistered it
+writes the row it just hydrated (`['AdminUserNote:INSERTx4', ...]`). The probe is what makes the
+difference visible, which is why a statement-level probe and not a row check is the right instrument.
+
+Two consequences for the remaining models:
+
+- A model whose reverse proof passes on the first try deserves the same suspicion as a test that
+  cannot fail. For an append-only or directly-written model, check whether the ownership rule is what
+  is passing it.
+- The "boot a second instance and flush" shape is the general form. `createApiTestApp()` already
+  hydrates from the database, so the second app is cheap; the gate file's boot case is reusable.
+
 ## 6. Position at the last update
 
 | Model | Status | Evidence |
@@ -137,8 +161,9 @@ Most independent first, most entangled last, so a failure is attributable:
 | `ReplyPreset` | **DONE** | `3f2409d`, same gate widened, mutation M-L |
 | `FeedbackCategory` | **DONE** | `bd4b726`, registered jointly with its pair, mutation M-M |
 | `FeedbackTicket` | **DONE** | `bd4b726`, write path in `feedback-persistence.service.ts` |
+| `AdminUserNote` | **DONE** | `admin-notes-persistence.service.ts`, gate case plus a boot-and-flush discriminator, mutation M-N |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 11 | not started | see §4's order |
+| the other 10 | not started | see §4's order |
 
 The gate file is now shared by four models, with a statement-level probe on each table and a
 self-test per table. Adding a model means adding its name to `TARGET_TABLES`, its two self-test

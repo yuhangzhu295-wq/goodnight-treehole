@@ -34,6 +34,11 @@ export const DIRECT_DB_MODELS = {
   // BATCH4_LEGACY_FLUSH_RETIREMENT.md §2a.
   FeedbackCategory: 'feedbackCategories',
   FeedbackTicket: 'feedbackTickets',
+  // Batch 4 model 5 of 16. The console's note routes read and write through
+  // admin-notes-persistence.service.ts; the users list fetches the page's current notes in one query
+  // rather than one per row. Its sweep was previously unguarded, so this registration is also what
+  // stops the absence sweep from removing a directly written note.
+  AdminUserNote: 'adminUserNotes',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

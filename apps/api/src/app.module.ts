@@ -9,6 +9,7 @@ import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService } from './self-persistence.service.js';
 import { FeedbackPersistenceService } from './feedback-persistence.service.js';
+import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
 import { AnonymousSessionService } from './anonymous-session.service.js';
 import { IdentityMiddleware } from './identity.middleware.js';
 
@@ -21,6 +22,7 @@ import { IdentityMiddleware } from './identity.middleware.js';
     PeerPersistenceService,
     SelfPersistenceService,
     FeedbackPersistenceService,
+    AdminNotesPersistenceService,
     StoreService,
     MonthlyReportService,
     FollowUpWorkerService,
