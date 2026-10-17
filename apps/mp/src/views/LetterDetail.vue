@@ -34,7 +34,8 @@ onMounted(load);
     <article class="letter-card">
       <h2>{{ letter.title || '给今晚的你' }}</h2>
       <div class="letter-line"></div>
-      <p class="letter-content">{{ letter.content }}</p>
+      <p v-if="letter.content" class="letter-content">{{ letter.content }}</p>
+      <p v-else class="letter-content is-empty">这封回信还没有生成出来。可以回到今日回信，换一种风格再试一次。</p>
       <p class="signature">晚安树洞</p>
     </article>
     <div class="report-actions">

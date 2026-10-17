@@ -70,7 +70,7 @@ const recovery = computed(() => report.value?.recovery ?? {
   lifeFunctions: [],
 });
 
-const hardestMoment = computed(() => recovery.value.mostStuckAction || (report.value?.topEmotion === '暂无' ? '还在慢慢记录' : `${report.value.topEmotion}出现得更多`));
+const hardestMoment = computed(() => recovery.value.mostStuckAction || (report.value?.topEmotion === '暂无' ? '还在慢慢记录' : `${report.value.topEmotion}最多`));
 const helpfulAction = computed(() => recovery.value.mostHelpfulAction || '本月还没有标记完成的行动');
 const lifeStateLabel: Record<string, string> = {
   unrecorded: '还没有记录',
@@ -214,7 +214,7 @@ onMounted(async () => {
     <section class="monthly-brief" aria-label="本月旅程小结">
       <h2>✦ 本月旅程小结</h2>
       <div class="monthly-brief-grid">
-        <article><span>本月最容易卡住的</span><strong>{{ hardestMoment }}</strong></article>
+        <article><span>本月最容易卡住的</span><strong class="is-text">{{ hardestMoment }}</strong></article>
         <article><span>你反复回来过</span><strong>{{ recovery.recoveryCheckinCount }}<em>次</em></strong></article>
         <article><span>你尝试过现实行动</span><strong>{{ recovery.actionCount }}<em>个</em></strong></article>
       </div>
@@ -358,7 +358,9 @@ onMounted(async () => {
 .monthly-month { position: relative; z-index: 1; }
 .monthly-logo { margin: -25px 0 10px 30px; color: rgba(255,253,247,.87); font-size: 11px; font-weight: 700; }
 .monthly-hero h1 { margin: 0; font-family: var(--gn-font-display); font-size: 26px; font-weight: 700; letter-spacing: .04em; line-height: 1.22; }
-.monthly-month { display: inline-flex; min-height: 24px; margin-top: 8px; padding: 2px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: rgba(255,253,247,.85); font-size: 11px; }
+/* The hero that used white text was replaced by the light `.report-lead`; the selector kept its
+   near-white colour and became invisible on cream. This is the only way to switch months. */
+.monthly-month { display: inline-flex; min-height: 24px; margin-top: 8px; padding: 2px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--gn-muted); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
 
 .monthly-brief,
 .monthly-story-card,
@@ -382,6 +384,9 @@ onMounted(async () => {
 .monthly-brief-grid article:last-child { padding-right: 0; border-right: 0; }
 .monthly-brief-grid span { display: block; overflow: hidden; color: #747a6d; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .monthly-brief-grid strong { display: block; overflow: hidden; margin-top: 7px; color: #526d38; text-overflow: ellipsis; white-space: nowrap; font-family: var(--gn-font-body); font-size: 16px; line-height: 1.1; }
+/* The first column carries a phrase, not a number. One nowrap line ellipsized it to
+   "焦虑出现得…", which drops the word that makes the sentence mean anything; allow two lines. */
+.monthly-brief-grid strong.is-text { display: -webkit-box; white-space: normal; line-height: 1.15; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .monthly-brief-grid strong em { margin-left: 2px; font-size: 10px; font-style: normal; }
 
 .monthly-story-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }

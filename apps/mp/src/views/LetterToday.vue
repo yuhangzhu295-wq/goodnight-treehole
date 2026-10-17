@@ -203,7 +203,8 @@ onMounted(load);
       <span class="botanical right" aria-hidden="true">♧</span>
       <h2>{{ letterTitle }} <span>♧</span></h2>
       <p class="letter-line" />
-      <p class="letter-content">{{ letter.content }}</p>
+      <p v-if="letter.content" class="letter-content">{{ letter.content }}</p>
+      <p v-else class="letter-content is-empty">这封回信还没有生成出来。换一种风格，或稍后再回来看看。</p>
       <p class="signature">{{ signatureText }} ♧</p>
     </article>
 

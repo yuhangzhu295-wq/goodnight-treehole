@@ -1,9 +1,10 @@
 # 全自动业务验收报告
 
 - 运行 ID：`run-acceptance-20261018-035601`
-- 代码版本：`95a0671d824985f36802ce595453651693c8870c`
-- 结论：**INCOMPLETE** — 16/17 个流程已执行且全部 PASS，F16（Android 全页面走查）未执行。
+- 代码版本（业务验收部分）：`95a0671d824985f36802ce595453651693c8870c`
+- 结论：**PASS** — 17/17 个流程全部通过，共 158 步证据。
 - 证据目录：`artifacts/acceptance/run-acceptance-20261018-035601/`（每个流程一个 `evidence.json`，汇总在 `summary.json`）
+- 设备说明：F16 在 Android 模拟器（`GoodnightPixel7Api34`，`com.goodnight.treehole`）上执行。**`PHYSICAL_ANDROID_VERIFIED=false`**，模拟器不得当作真机。
 
 ## 判定方式
 
@@ -38,8 +39,19 @@
 | F13 | 安全支持可达性 | 7 | PASS |
 | F14 | 管理台：审核、最小披露、审计 | 6 | PASS |
 | F15 | 两个 API 实例通过数据库一致 | 5 | PASS |
-| F16 | Android 上每个 C 端页面可打开、可响应、可持久化 | — | **NOT_RUN** |
+| F16 | Android 上 39 个 C 端页面打开、响应、落库 | 41 | PASS（模拟器） |
 | F17 | 重启与恢复 | 5 | PASS |
+
+### F16 是怎么跑的
+
+`scripts/acceptance/android-page-pass.mjs` 通过 WebView 的 DevTools 协议逐页导航：
+
+- 从 `apps/mp/src/router.ts` 解析出每个组件的首个路径，共 39 个页面；
+- 每次导航前检查前台包名，被别的应用抢走前台时该页记为 FAIL，而不是拍一张别人的画面；
+- 判定：路由确实到达、正文非空、没有错误横幅、没有把 `undefined` 漏到界面、该页的 API 调用没有 5xx；
+- 每页截图保存到 `F16/screens/`；
+- 数据库步骤读取应用自己持久化的身份（Capacitor Preferences），再查 `User` 与相关表，确认写入是真实行；
+- 本次 APK SHA-256：`f936891aba108613acc6d8222ab5af32cba13ddf1a576fa2c86c461f215d2fa5`。
 
 ## 本轮验收中发现并修复的缺陷
 
@@ -50,22 +62,21 @@
 3. **`DELETE /posts/:id` 任何人可删**（F12）。没有作者校验。现在只有作者可删，管理员走审核路由。
 4. **审计列表看不到审计行**（F14）。单条敏感记录读取把 `AuditLog` 直接写进 PostgreSQL，而 `GET /admin/v1/audit-logs` 读的是内存副本，所以"谁看过这条私密记录"要等下一次重启才可见。现在路由以表为准，并合并尚未落盘的内存行。
 5. **验收证据门禁自身太宽松**（F05）。第一次运行出现过 9 步里 2 步 `FAIL`、而测试全绿的情况：`actual` 里多了一个诊断字段导致比较不等。`flush()` 现在先写文件再抛错，并有一个单元自测证明抛出与不抛出两条路径。
+6. **生成失败的回信渲染成空白卡片**（F16 看截图发现）。回信详情只有标题和署名，正文为空；数据库里 `content` 为空、`generationStatus=failed`。现在显示"这封回信还没有生成出来"并指向换风格重试。`LetterToday` 同样补了空状态。
+7. **月报第一栏被截断**（F16 看截图发现）。"焦虑出现得更多"在 1/3 宽的一行里被省略成"焦虑出现得…"，丢掉关键信息；现在文案改为"焦虑最多"，并允许用户行动标题折两行。
+8. **月报的月份选择器不可见**（F16 看截图发现）。按钮还保留着旧深色 hero 的白字颜色，在浅色页面上几乎看不见，而它是切换月份的唯一入口。现在改为可读的灰色并加下划线。
 
 ## 观测到但未在本轮修复的问题
 
-- **`WORKER-RELOAD-FLUSH-LOCK`**：投递后的 `reloadRuntimeState()` 会执行一次全库 legacy flush。用 `pg_stat_activity` 抓到的锁链是：一个事务持有 `LifeJourney ... FOR UPDATE` 并处于 idle in transaction，worker 的 `UserNotification` 插入等待该事务，另一个 `INSERT INTO "User"` 又在等 worker，5 秒事务预算到期后 job 被记为失败并重试（投递本身已提交）。这属于 Batch 4 要退役的那层 flush，已记入 `MASTER_TASK_QUEUE.json`，不作为本流程的通过依据。
+- **`WORKER-RELOAD-FLUSH-LOCK`**：投递后的 `reloadRuntimeState()` 会执行一次全库 legacy flush。用 `pg_stat_activity` 抓到的锁链是：一个事务持有 `LifeJourney ... FOR UPDATE` 并处于 idle in transaction，worker 的 `UserNotification` 插入等待该事务，另一个 `INSERT INTO "User"` 又在等 worker，5 秒事务预算到期后 job 被记为失败并重试（投递本身已提交）。这属于 Batch 4 要退役的那层 flush，已记入 `MASTER_TASK_QUEUE.json`。
 - **`/api/health` 是静态存活探针**，不检查数据库。环境自检由 `scripts/dev/stack-probe.mjs` 做真实查询承担；产品健康检查是否要改成就绪探针，需要单独决定。
-
-## 未执行项
-
-**F16 — Android 全页面走查**：需要专用 AVD、真实 APK 安装、前台校验与逐页截图，本轮没有执行。在它完成之前，`summary.json` 的总体结论保持 `INCOMPLETE`，不得写成 PASS。
 
 ## 复现
 
 ```bash
 RUN=run-acceptance-$(date +%Y%m%d-%H%M%S)
 ACCEPTANCE_RUN_ID=$RUN npx tsx scripts/test-runner.ts tests/acceptance
-node scripts/acceptance/build-summary.mjs --run $RUN
-# 全流程（含 F16）都必须在场时才加 --require-all
+MSYS_NO_PATHCONV=1 APK_SHA256=$(sha256sum apps/mp/android/app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1) \
+  node scripts/acceptance/android-page-pass.mjs --run $RUN
 node scripts/acceptance/build-summary.mjs --run $RUN --require-all
 ```

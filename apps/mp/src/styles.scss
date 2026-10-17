@@ -596,6 +596,12 @@ select {
   word-break: break-word;
 }
 
+/* A failed generation used to render an empty letter card: title and signature around a blank
+   body. Say what happened and point at the action that fixes it. */
+.letter-content.is-empty {
+  color: var(--gn-muted);
+}
+
 .wish-tag {
   display: inline-block;
   padding: 4px 12px;
