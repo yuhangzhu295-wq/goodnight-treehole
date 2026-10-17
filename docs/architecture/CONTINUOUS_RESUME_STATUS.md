@@ -3,6 +3,44 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
+> **Current state: 2026-10-18.** The section immediately below is the live record. Everything after
+> it is the 2026-10-15 record, kept for history; its HEAD, CI run ids and suite counts are stale.
+
+## Current state (2026-10-18)
+
+- **HEAD `18b4a6ed003e231860a0a5bcce37486fd8539d7e`**, branch `codex/ui-v2-native-redesign`,
+  pushed, local == remote, working tree clean.
+- **CI GREEN on `18b4a6e`** — run [39072781399](https://github.com/yuhangzhu295-wq/goodnight-treehole/actions/runs/39072781399).
+  Two earlier commits failed CI for reasons that are now fixed: `3506cea`/`2b51214` on a
+  `no-dupe-keys` lint error in `android-page-pass.mjs` (two `detail` keys, the first silently
+  dropped), and `f566155`/`4bdc306` on `tests/unit/domain.spec.ts`, which still asserted against the
+  in-memory replies array after `Reply` became database-authoritative.
+- **Acceptance: 17/17 flows PASS** — `run-acceptance-20261018-035601`, 158 evidence steps, report
+  `docs/qa/FULL_ACCEPTANCE_REPORT.md`, gate `scripts/acceptance/build-summary.mjs --require-all`.
+  F16 ran on the emulator `GoodnightPixel7Api34` with APK SHA-256
+  `f936891aba108613acc6d8222ab5af32cba13ddf1a576fa2c86c461f215d2fa5`; **`PHYSICAL_ANDROID_VERIFIED=false`**.
+- **Batch 4: 9 of 16 models converted.** `FaqItem`, `ReplyPreset`, `FeedbackCategory`,
+  `FeedbackTicket`, `AdminUserNote`, `PeerReputation`, `AgentDecisionLog`, `Favorite`, `Reply`.
+  `BATCH4_LEGACY_FLUSH_RETIREMENT.md` §6 is the live position; the gate file is shared by nine tables.
+- **Security fixes this round** (all with acceptance evidence): six letter/diary routes that looked
+  records up by id without the caller; `DELETE /posts/:id` with no author check; the admin audit list
+  reading only the in-memory copy so audited private-record reads were invisible.
+- **Suite**: `tests/business + tests/api + tests/e2e + tests/acceptance` **78/78 files**;
+  `tests/unit` **40/40**; `pnpm lint` **0 errors** (9 pre-existing warnings).
+
+### Next entry point
+
+**Batch 4, `Post`** (the hub; 31 `this.posts` / `store.posts` sites). Two lessons from `Reply`:
+1. Converting a model the flush still sweeps around requires the sweep to respect the new FK. The
+   post sweep now keeps any post that has replies and the mood sweep keeps the moods of surviving
+   posts (`relational-runtime.mapper.ts`), because `Reply` is no longer swept.
+2. Any caller-supplied row id used by a writer must be an **upsert**, not a create: two instances
+   booting against one database write the same seed row (`batch1-multi-instance` proved this).
+
+Then: `Mood`, `Diary`, `Letter`, `MediaAsset`, and the `AIProvider` + `AIStyleRoute` pair.
+
+---
+
 **HEAD at this writing:** `77c7d04` on `codex/ui-v2-native-redesign`, **pushed, local == remote.**
 Working tree clean.
 
