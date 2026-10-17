@@ -2968,6 +2968,35 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
+   * Makes a verified session's user visible to this process.
+   *
+   * `resolveRuntimeUserId` validates the caller against `this.users`, which is hydrated at boot. A
+   * user who signed up on **another instance** (or on this one after the snapshot was taken) is
+   * therefore unknown here, and every request from them is refused with 404 "current anonymous
+   * session user does not exist" even though their session is valid. Measured: an instance booted
+   * before a signup could not serve that user at all.
+   *
+   * Called only after a credential has been verified, so it cannot be used to admit an arbitrary id:
+   * a caller that merely sends someone's user id never reaches this, and keeps getting 401.
+   */
+  async ensureUserKnown(userId: string) {
+    if (this.users.some((item) => item.id === userId)) return;
+    const row = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!row) return;
+    // Re-check after the await: a concurrent request may have added it already.
+    if (this.users.some((item) => item.id === userId)) return;
+    this.users.push({
+      id: row.id,
+      openid: row.openid,
+      nickname: row.nickname,
+      anonymousCode: row.anonymousCode,
+      avatarUrl: row.avatarUrl ?? '',
+      status: row.status as 'normal' | 'limited' | 'banned',
+      createdAt: row.createdAt.toISOString(),
+    });
+  }
+
+  /**
    * Resolve an anonymous user id for user-scoped endpoints.
    * R-06: Production requests MUST supply an identity header; requests with no
    * identity are refused with 401 rather than falling back to demo user.

@@ -100,7 +100,23 @@ describe('third-stage privacy and anonymous-user isolation', () => {
       .set('x-goodnight-user-id', await identityFor(userB))
       .expect(200);
 
-    await request(server).post('/api/v1/memory').set('x-goodnight-user-id', await identityFor('unknown-user')).send({ title: '越权', content: '不能创建' }).expect(404);
-    await request(server).post('/api/v1/me/recovery').set('x-goodnight-user-id', await identityFor('unknown-user')).send({ signals: {} }).expect(404);
+    // `identityFor` upserts a real user row, so `unknown-user` is a real account with a valid
+    // session - it is not a forged identity. The refusal it must get is therefore the consent gate
+    // (this test's own subject: "minimum defaults"), not "current anonymous session user does not
+    // exist". That 404 used to pass only because the process had booted before the fixture created
+    // the row, so `resolveRuntimeUserId` did not know the user; the identity middleware now makes a
+    // verified session's user visible, which is what a second API instance needs to serve a user who
+    // signed up elsewhere. A bare user id with no credential is still refused with 401, and that case
+    // lives in `batch3-identity-matrix.spec.ts`.
+    await request(server)
+      .post('/api/v1/memory')
+      .set('x-goodnight-user-id', await identityFor('unknown-user'))
+      .send({ title: '越权', content: '不能创建' })
+      .expect(403);
+    await request(server)
+      .post('/api/v1/me/recovery')
+      .set('x-goodnight-user-id', await identityFor('unknown-user'))
+      .send({ signals: {} })
+      .expect(403);
   });
 });
