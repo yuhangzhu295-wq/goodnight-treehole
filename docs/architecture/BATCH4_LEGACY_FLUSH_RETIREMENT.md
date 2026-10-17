@@ -266,15 +266,28 @@ page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-REA
 | `PeerReputation` | **DONE** | registered; **inert model** (§5b: no writer anywhere), gate case with a boot-and-flush discriminator, mutation M-O |
 | `AgentDecisionLog` | **DONE** | writer + both readers in `Batch1PersistenceService`; the archive path deletes and the export path detaches, and that difference is preserved deliberately; mutation M-P |
 | `Favorite` | **DONE** | `favorite-persistence.service.ts`; gate case covers the table read, the feed flag, the `Post.favoriteCount` projection, the flush, and the write path; mutation M-Q (unregistering it makes a directly written favourite invisible to the feed) |
+| `Reply` | **DONE** | `reply-persistence.service.ts`; writers are the human reply route, the three AI-reply completions and the seed coverage (idempotent on `id`); `Post.replyCount` is derived from the table; mutation M-R (unregistering it hides a directly written reply from the public list) |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 7 | not started | see §4's order; `Reply` is now the next member of the Post cluster |
+| the other 6 | not started | see §4's order; `Post` is next, and it is the hub |
 
 **What converting `Favorite` changed beyond the model.** `buildPostDecorationContext` is async and
 reads the viewer's post ids from the table once per request; `getPost`, `moderatePost` and five
 controllers became async because they build that context; `Letter.favorite` and
 `Post.favoriteCount` are kept as denormalised columns by `FavoritePersistenceService.afterWrite`, and
-boot reconciliation recomputes both from the table. The 78-file suite passes, including the three
-zero-legacy-write probes that read `store.data` directly.
+boot reconciliation recomputes both from the table.
+
+**What converting `Reply` changed beyond the model.** The flush still sweeps `Post` and `Mood`, but
+`Reply` is no longer swept, so a post that still has replies would have been deleted and the sweep
+would fail on `Reply_postId_fkey`. The post sweep now keeps every post id that appears in the reply
+table (read from the whole table, because the post may already be gone from the snapshot), and the
+mood sweep keeps every mood still referenced by a surviving post. The reply counter is recomputed
+from the table after every write; that also fixed the old `createMood` completion, which overwrote
+`replyCount` with the number of completed AI jobs and dropped any human reply published first.
+
+The 78-file suite passes, including the three zero-legacy-write probes that read `store.data`
+directly and the multi-instance spec, which now inserts the same seed reply from two instances (the
+insert is an upsert on the supplied id for exactly that reason).
+
 
 
 The gate file is now shared by four models, with a statement-level probe on each table and a

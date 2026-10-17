@@ -328,9 +328,14 @@ export class MonthlyReportService {
     const relatedPostIds = this.store.posts
       .filter((post) => post.userId === userId && linkedMoodIds.has(post.moodId))
       .map((post) => post.id);
-    const replyCount = this.store.replies.filter(
-      (reply) => relatedPostIds.includes(reply.postId) && reply.status === 'published',
-    ).length;
+    const replyCount = DIRECT_DB_MODELS.Reply
+      ? [...(await this.store.repliesDb.countsForPosts(relatedPostIds)).values()].reduce(
+          (sum, count) => sum + count,
+          0,
+        )
+      : this.store.replies.filter(
+          (reply) => relatedPostIds.includes(reply.postId) && reply.status === 'published',
+        ).length;
     const joinedContent = records.map((item) => item.content).join('\n');
     const keywordCounts = keywordCandidates
       .map((keyword) => ({ keyword, count: joinedContent.split(keyword).length - 1 }))

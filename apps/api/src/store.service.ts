@@ -34,6 +34,7 @@ import {
 import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService, type PrivacySettingRecord } from './self-persistence.service.js';
 import { FavoritePersistenceService } from './favorite-persistence.service.js';
+import { ReplyPersistenceService } from './reply-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1285,6 +1286,8 @@ export class StoreService implements OnModuleInit {
     public readonly selfPersistence: SelfPersistenceService = new SelfPersistenceService(prisma as any),
     @Inject(FavoritePersistenceService)
     public readonly favoritesDb: FavoritePersistenceService = new FavoritePersistenceService(prisma as any),
+    @Inject(ReplyPersistenceService)
+    public readonly repliesDb: ReplyPersistenceService = new ReplyPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1606,6 +1609,19 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.Reply) {
+      delete data.replies;
+      Object.defineProperty(data, 'replies', {
+        get() {
+          throw new Error('StoreData.replies is disabled: Reply is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.replies is disabled: Reply is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
@@ -1619,10 +1635,11 @@ export class StoreService implements OnModuleInit {
     await this.recoverInterruptedAiJobs();
     await this.reconcileFavoriteCounts();
     await this.reconcileLetterFavorites();
+    await this.reconcileReplyCounts();
     this.pruneAuditLogsByRetention();
     this.ensureGoodnightTwoCoverage();
     this.ensurePhaseTwoCoverage();
-    this.ensureSeedCoverage();
+    await this.ensureSeedCoverage();
     if (!visualFixtureMode) this.enforceRemoteAiProviderPolicy();
     await this.flush();
   }
@@ -2767,6 +2784,34 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
+  private async reconcileReplyCounts() {
+    if (DIRECT_DB_MODELS.Reply) {
+      await this.repliesDb.reconcileCounts();
+      const counts = await this.repliesDb.countsForPosts(this.posts.map((post) => post.id));
+      let changed = false;
+      for (const post of this.posts) {
+        const expected = counts.get(post.id) ?? 0;
+        if (post.replyCount !== expected) {
+          post.replyCount = expected;
+          changed = true;
+        }
+      }
+      if (changed) this.persist();
+      return;
+    }
+    let changed = false;
+    for (const post of this.posts) {
+      const expected = this.replies.filter(
+        (item) => item.postId === post.id && item.status === 'published',
+      ).length;
+      if (post.replyCount !== expected) {
+        post.replyCount = expected;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
   private applyFavoriteRemoval(favorites: StoreData['favorites']) {
     for (const favorite of favorites) {
       if (favorite.targetType === 'post') {
@@ -3208,7 +3253,7 @@ export class StoreService implements OnModuleInit {
     });
   }
 
-  private ensureSeedCoverage() {
+  private async ensureSeedCoverage() {
     const seeds = [
       {
         key: 'jiaolv',
@@ -3280,11 +3325,11 @@ export class StoreService implements OnModuleInit {
         reportCount: 0,
         createdAt: now(),
       });
-      this.data.replies.unshift({
+      const seedReply = {
         id: `reply_seed_${seed.key}`,
         postId,
-        type: 'AI',
-        style: 'warm',
+        type: 'AI' as const,
+        style: 'warm' as const,
         content: this.composeDynamicText({
           taskType: 'post_reply',
           content: seed.content,
@@ -3292,10 +3337,20 @@ export class StoreService implements OnModuleInit {
           style: 'warm',
           routeLabel: '暖心陪伴',
         }).result,
-        status: 'published',
-        riskLevel: 'low',
+        status: 'published' as const,
+        riskLevel: 'low' as const,
         createdAt: now(),
-      });
+      };
+      if (DIRECT_DB_MODELS.Reply) {
+        // The reply's FK needs the post row to exist first. The post was only pushed to memory
+        // above, so queue a snapshot that includes it and drain it before inserting the reply; this
+        // path runs only when a seed is missing, which is a fresh install.
+        this.persist();
+        await this.flush();
+        await this.repliesDb.create({ ...seedReply, createdAt: new Date(seedReply.createdAt) });
+      } else {
+        this.data.replies.unshift(seedReply);
+      }
       changed = true;
     }
     if (changed) this.persist();
@@ -6826,6 +6881,7 @@ export class StoreService implements OnModuleInit {
   }
 
   async likeReply(replyId: string) {
+    if (DIRECT_DB_MODELS.Reply) return await this.repliesDb.like(replyId);
     const reply = this.replies.find((item) => item.id === replyId && item.status === 'published');
     if (!reply) throw new NotFoundException('回应不存在');
     reply.likeCount = (reply.likeCount ?? 0) + 1;
@@ -6932,6 +6988,24 @@ export class StoreService implements OnModuleInit {
       const queuedJobs = jobs;
       void Promise.all(queuedJobs.map((job) => this.waitForAiJob(job.id)))
         .then(async (completedJobs) => {
+          if (DIRECT_DB_MODELS.Reply) {
+            for (const job of completedJobs) {
+              await this.repliesDb.create({
+                id: `reply_${job.id}`,
+                postId: post.id,
+                type: 'AI',
+                style: job.style,
+                content: job.result,
+                status: 'published',
+                riskLevel: 'low',
+                createdAt: new Date(job.createdAt),
+              });
+            }
+            // Counted from the table, not from the batch: a human reply published while the AI jobs
+            // were running must not be dropped from the counter (the old code did exactly that).
+            await this.syncReplyCount(post);
+            return;
+          }
           for (const job of completedJobs) {
             this.replies.unshift({
               id: `reply_${job.id}`,
@@ -8402,6 +8476,19 @@ export class StoreService implements OnModuleInit {
     const viewerId = this.requireViewerId();
     this.assertCanWrite(viewerId);
     const risk = this.detectRisk(input.content);
+    if (DIRECT_DB_MODELS.Reply) {
+      const created = await this.repliesDb.create({
+        postId,
+        userId: input.anonymous ? null : viewerId,
+        type: 'USER',
+        style: 'human',
+        content: input.content.trim(),
+        status: 'pending_review',
+        riskLevel: risk.level,
+      });
+      await this.syncReplyCount(post);
+      return created as unknown as ReplyItem;
+    }
     const reply: ReplyItem = {
       id: id('reply'),
       postId,
@@ -8420,6 +8507,18 @@ export class StoreService implements OnModuleInit {
     return reply;
   }
 
+  /** Keeps the in-memory `Post.replyCount` equal to the table's count for that post. */
+  private async syncReplyCount(post: PostItem) {
+    const counts = await this.repliesDb.countsForPosts([post.id]);
+    post.replyCount = counts.get(post.id) ?? 0;
+  }
+
+  /** Public form for the AI-reply writers in the controller. */
+  async syncReplyCountForPost(postId: string) {
+    const post = this.posts.find((item) => item.id === postId);
+    if (post) await this.syncReplyCount(post);
+  }
+
   async moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
     const post = await this.getPost(postId, true);
     const before = { ...post };
@@ -8435,7 +8534,18 @@ export class StoreService implements OnModuleInit {
     return post;
   }
 
-  moderateReply(adminId: string, replyId: string, action: 'approve' | 'block', content?: string) {
+  async moderateReply(adminId: string, replyId: string, action: 'approve' | 'block', content?: string) {
+    if (DIRECT_DB_MODELS.Reply) {
+      const existing = await this.repliesDb.get(replyId);
+      if (!existing) throw new NotFoundException('回应不存在');
+      const before = { ...existing };
+      const updated = await this.repliesDb.moderate(replyId, action, content);
+      const post = this.posts.find((item) => item.id === existing.postId);
+      if (post) await this.syncReplyCount(post);
+      this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, updated);
+      this.persist();
+      return updated;
+    }
     const reply = this.replies.find((item) => item.id === replyId);
     if (!reply) throw new NotFoundException('回应不存在');
     const before = { ...reply };

@@ -29,6 +29,7 @@ const TARGET_TABLES = [
   'PeerReputation',
   'AgentDecisionLog',
   'Favorite',
+  'Reply',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -87,6 +88,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('UPDATE "PeerReputation" SET "helpfulCount" = "helpfulCount" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "AgentDecisionLog" SET "taskType" = "taskType" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "Favorite" SET "targetType" = "targetType" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "Reply" SET "style" = "style" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'AgentDecisionLog', op: 'UPDATE', n: 1 },
@@ -95,6 +97,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
       { table: 'PeerReputation', op: 'UPDATE', n: 1 },
+      { table: 'Reply', op: 'UPDATE', n: 1 },
       { table: 'ReplyPreset', op: 'UPDATE', n: 1 },
     ]);
   });
@@ -109,6 +112,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('DELETE FROM "PeerReputation" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "AgentDecisionLog" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "Favorite" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "Reply" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'AgentDecisionLog', op: 'DELETE', n: 1 },
@@ -117,6 +121,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
       { table: 'PeerReputation', op: 'DELETE', n: 1 },
+      { table: 'Reply', op: 'DELETE', n: 1 },
       { table: 'ReplyPreset', op: 'DELETE', n: 1 },
     ]);
   });
@@ -622,6 +627,9 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       .send({ content: `batch4 probe favourite ${Date.now()}`, emotion: 'calm', visibility: 'PUBLIC' })
       .expect(201);
     const postId = post.body.post.id as string;
+    // Creating a public post queues AI replies; let those settle before the probe window, or their
+    // INSERT would be attributed to the flush.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const direct = await prisma.favorite.create({
       data: { userId: DEMO_USER_ID, targetType: 'post', targetId: postId },
@@ -660,5 +668,82 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     expect(reAdded).not.toBeNull();
     const postRow = await prisma.post.findUnique({ where: { id: postId } });
     expect(postRow?.favoriteCount).toBe(1);
+  }, 120_000);
+
+  /**
+   * `Reply` owns `Post.replyCount`. The counter is compared against the table at the moment of the
+   * assertion rather than against a fixed number, because creating a public post also queues AI
+   * replies; the property under test is "the counter equals the published rows", not "there are N".
+   */
+  it('a reply written straight to PostgreSQL is served, moderated, and counted from the table', async () => {
+    const headers = { 'x-goodnight-user-id': await identityFor(DEMO_USER_ID) };
+    const post = await request(server)
+      .post('/api/v1/posts')
+      .set(headers)
+      .send({ content: `batch4 probe reply ${Date.now()}`, emotion: 'calm', visibility: 'PUBLIC' })
+      .expect(201);
+    const postId = post.body.post.id as string;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Human replies are gated on `reviewStatus === 'published'`; the operator publishes it here.
+    await request(server)
+      .patch(`/api/admin/v1/posts/${postId}/review`)
+      .set('Authorization', auth(adminToken))
+      .send({ status: 'published' })
+      .expect(200);
+
+    const direct = await prisma.reply.create({
+      data: {
+        postId,
+        type: 'AI',
+        style: 'warm',
+        content: 'batch4 probe direct reply',
+        status: 'published',
+        riskLevel: 'low',
+      },
+    });
+
+    // The public list reads the table.
+    const publicList = await request(server).get(`/api/v1/posts/${postId}/replies`).expect(200);
+    expect((publicList.body.items ?? []).some((item: any) => item.id === direct.id)).toBe(true);
+
+    // The admin detail reads it too.
+    const adminDetail = await request(server)
+      .get(`/api/admin/v1/posts/${postId}`)
+      .set('Authorization', auth(adminToken))
+      .expect(200);
+    expect((adminDetail.body.replies ?? []).some((item: any) => item.id === direct.id)).toBe(true);
+
+    // A flush must neither rewrite nor sweep the row.
+    await clearProbe();
+    await request(server)
+      .post('/api/v1/moods')
+      .set(headers)
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(await prisma.reply.findUnique({ where: { id: direct.id } })).not.toBeNull();
+    expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+
+    // A human reply is written pending, then approving it moves the counter to the table's count.
+    const human = await request(server)
+      .post(`/api/v1/posts/${postId}/replies`)
+      .set(headers)
+      .send({ content: `batch4 probe human reply ${Date.now()}`, anonymous: false })
+      .expect(201);
+    const humanId = human.body.item.id as string;
+    const pendingRow = await prisma.reply.findUnique({ where: { id: humanId } });
+    expect(pendingRow?.status).toBe('pending_review');
+
+    await request(server)
+      .patch(`/api/admin/v1/replies/${humanId}/review`)
+      .set('Authorization', auth(adminToken))
+      .send({ status: 'published' })
+      .expect(200);
+
+    const published = await prisma.reply.count({ where: { postId, status: 'published' } });
+    const postRow = await prisma.post.findUnique({ where: { id: postId } });
+    expect(postRow?.replyCount).toBe(published);
+    const afterApprove = await request(server).get(`/api/v1/posts/${postId}/replies`).expect(200);
+    expect((afterApprove.body.items ?? []).some((item: any) => item.id === humanId)).toBe(true);
   }, 120_000);
 });

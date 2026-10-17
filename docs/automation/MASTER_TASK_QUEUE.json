@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "0a519e9ddeb76cc1d24bc2942baa6b2a3676e48a",
-  "updatedAt": "2026-10-17T20:56:29.337Z",
+  "updatedAt": "2026-10-17T21:48:29.658Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -736,6 +736,19 @@
       "evidence": ".monthly-month kept rgba(255,253,247,.85) from the removed dark hero and was nearly invisible on the light report-lead, although it is the only way to change months. Now var(--gn-muted) with an underline.",
       "blocker": "",
       "nextAction": "None."
+    },
+    {
+      "id": "B4-REPLY-COUNTER-COUPLING",
+      "phase": "Batch 4",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Reply converted with its Post.replyCount coupling",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "Reply registered (Batch 4 model 9/16). reply-persistence.service.ts owns all writers (human reply, three AI completions, seed) and reads (public list, admin list/detail, like, moderation, dashboard counts, monthly report). Post.replyCount is derived from the table; this also fixed createMood overwriting it with the AI job count. The post sweep now keeps posts that still have replies and the mood sweep keeps their moods, because Reply is no longer swept. Seed inserts are upserts so two booting instances cannot collide (batch1-multi-instance). Gate case plus mutation M-R. Full suite 78/78.",
+      "blocker": "",
+      "nextAction": "Next: Post (the hub), then Mood/Diary/Letter/MediaAsset/AIProvider+AIStyleRoute."
     }
   ]
 }

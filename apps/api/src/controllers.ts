@@ -1346,8 +1346,25 @@ export class PublicController {
       }),
     );
     if (post) {
-      void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then((completed) => {
-        for (const job of completed.filter((item) => ['succeeded', 'fallback'].includes(item.status))) {
+      void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then(async (completed) => {
+        const usable = completed.filter((item) => ['succeeded', 'fallback'].includes(item.status));
+        if (DIRECT_DB_MODELS.Reply) {
+          for (const job of usable) {
+            await this.store.repliesDb.create({
+              id: `reply_${job.id}`,
+              postId: post.id,
+              type: 'AI',
+              style: job.style,
+              content: job.result,
+              status: 'published',
+              riskLevel: 'low',
+              createdAt: new Date(job.createdAt),
+            });
+          }
+          await this.store.syncReplyCountForPost(post.id);
+          return;
+        }
+        for (const job of usable) {
           this.store.replies.unshift({
             id: `reply_${job.id}`,
             postId: post.id,
@@ -1370,7 +1387,8 @@ export class PublicController {
   }
 
   @Get('posts/:id/replies')
-  replies(@Param('id') id: string) {
+  async replies(@Param('id') id: string) {
+    if (DIRECT_DB_MODELS.Reply) return { items: await this.store.repliesDb.listPublishedForPost(id) };
     return { items: this.store.replies.filter((item) => item.postId === id && item.status === 'published') };
   }
 
@@ -2378,11 +2396,16 @@ export class AdminController {
       };
     }
 
+    const replyCountsByDay = DIRECT_DB_MODELS.Reply
+      ? await this.store.repliesDb.countsByDay(new Date(`${dayKeys[0]}T00:00:00.000Z`))
+      : null;
     const activeTrend = dayKeys.map((day) => ({
       date: day,
       users: this.store.users.filter((item) => item.createdAt?.startsWith(day)).length,
       posts: this.store.posts.filter((item) => item.createdAt?.startsWith(day)).length,
-      replies: this.store.replies.filter((item) => item.createdAt?.startsWith(day)).length,
+      replies: replyCountsByDay
+        ? (replyCountsByDay[day] ?? 0)
+        : this.store.replies.filter((item) => item.createdAt?.startsWith(day)).length,
       aiJobs: aiMetrics.trendByDay[day] ?? 0,
     }));
     const emotionDistribution = this.store.posts.reduce<Record<string, number>>((acc, post) => {
@@ -2395,7 +2418,9 @@ export class AdminController {
       todayPosts: this.store.posts.filter((p) => p.createdAt?.startsWith(today)).length,
       pendingReviews:
         this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length +
-        this.store.replies.filter((r) => r.status === 'pending_review').length,
+        (DIRECT_DB_MODELS.Reply
+          ? await this.store.repliesDb.countPending()
+          : this.store.replies.filter((r) => r.status === 'pending_review').length),
       journeySummary: {
         total: await this.batch1Persistence.countTotalJourneys(),
         active: await this.batch1Persistence.countActiveJourneys(),
@@ -3099,7 +3124,12 @@ export class AdminController {
   }
   @Get('posts/:id')
   async adminPost(@Param('id') id: string) {
-    return { item: await this.store.getPost(id, true), replies: this.store.replies.filter((r) => r.postId === id) };
+    return {
+      item: await this.store.getPost(id, true),
+      replies: DIRECT_DB_MODELS.Reply
+        ? await this.store.repliesDb.listForPost(id)
+        : this.store.replies.filter((r) => r.postId === id),
+    };
   }
   @Patch('posts/:id/moderation')
   async postModeration(
@@ -3175,8 +3205,25 @@ export class AdminController {
         content: post.content,
       }),
     );
-    void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then((completed) => {
-      for (const job of completed.filter((item) => ['succeeded', 'fallback'].includes(item.status))) {
+    void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then(async (completed) => {
+      const usable = completed.filter((item) => ['succeeded', 'fallback'].includes(item.status));
+      if (DIRECT_DB_MODELS.Reply) {
+        for (const job of usable) {
+          await this.store.repliesDb.create({
+            id: `reply_${job.id}`,
+            postId: post.id,
+            type: 'AI',
+            style: job.style,
+            content: job.result,
+            status: 'published',
+            riskLevel: 'low',
+            createdAt: new Date(job.createdAt),
+          });
+        }
+        await this.store.syncReplyCountForPost(post.id);
+        return;
+      }
+      for (const job of usable) {
         this.store.replies.unshift({
           id: `reply_${job.id}`,
           postId: post.id,
@@ -3204,13 +3251,16 @@ export class AdminController {
   }
 
   @Get('replies')
-  adminReplies(
+  async adminReplies(
     @Query('type') type?: string,
     @Query('status') status?: string,
     @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    if (DIRECT_DB_MODELS.Reply) {
+      return this.list(await this.store.repliesDb.listForAdmin({ type, status, q }), page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.replies.filter((reply) => {
       const matchesType = !type || type === 'all' || reply.type === type;
@@ -3225,8 +3275,12 @@ export class AdminController {
     return this.list(items, page, pageSize);
   }
   @Get('replies/:id')
-  adminReply(@Param('id') id: string) {
-    return { item: this.store.replies.find((r) => r.id === id) };
+  async adminReply(@Param('id') id: string) {
+    return {
+      item: DIRECT_DB_MODELS.Reply
+        ? await this.store.repliesDb.get(id)
+        : this.store.replies.find((r) => r.id === id),
+    };
   }
   @Patch('replies/:id/moderation')
   async replyModeration(
@@ -3234,7 +3288,7 @@ export class AdminController {
     @Param('id') id: string,
     @Body() body: { action: 'approve' | 'block'; content?: string },
   ) {
-    const item = this.store.moderateReply(this.admin(auth).id, id, body.action, body.content);
+    const item = await this.store.moderateReply(this.admin(auth).id, id, body.action, body.content);
     await this.store.flush();
     return { item };
   }

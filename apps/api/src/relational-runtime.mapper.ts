@@ -78,7 +78,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
     db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     db.post.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.reply.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.Reply ? Promise.resolve([]) : db.reply.findMany({ orderBy: { createdAt: 'desc' } }),
     db.letter.findMany({ orderBy: { createdAt: 'desc' } }),
     db.diary.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Favorite ? Promise.resolve([]) : db.favorite.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -851,8 +851,11 @@ const flushedIdsByModel = new Map<string, Set<string>>();
  */
 const pendingFlushedIds = new Map<string, Set<string>>();
 
-async function deleteAbsent(modelKey: string, model: any, ids: string[]) {
-  const current = new Set(ids);
+async function deleteAbsent(modelKey: string, model: any, ids: string[], keep: Set<string> = new Set()) {
+  // `keep` are ids this sweep must not delete even though the snapshot no longer lists them. They are
+  // still referenced by a table the product now owns (for example a post that has replies), and
+  // deleting them would fail the FK or take owned rows with it.
+  const current = new Set([...ids, ...keep]);
   const previouslyOwned = flushedIdsByModel.get(modelKey);
   if (previouslyOwned) {
     const removable = [...previouslyOwned].filter((id) => !current.has(id));
@@ -990,11 +993,13 @@ export async function saveRelationalRuntimeState(
       if (DIRECT_DB_MODELS.AIJob) {
         const candidateJobIds = [
           ...asArray(state.letters).map((item: any) => item.aiJobId),
-          ...asArray(state.replies).map(
-            (item: any) =>
-              item.aiJobId ??
-              (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null),
-          ),
+          ...(DIRECT_DB_MODELS.Reply
+            ? []
+            : asArray(state.replies).map(
+                (item: any) =>
+                  item.aiJobId ??
+                  (String(item.id).startsWith('reply_job_') ? String(item.id).slice('reply_'.length) : null),
+              )),
           ...(DIRECT_DB_MODELS.AgentDecisionLog ? [] : asArray(state.agentDecisionLogs).map((item: any) => item.aiJobId)),
         ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
         const existingDbJobs = candidateJobIds.length
@@ -1797,7 +1802,7 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
-      for (const item of asArray(state.replies)) {
+      for (const item of DIRECT_DB_MODELS.Reply ? [] : asArray(state.replies)) {
         const candidateJobId =
           item.aiJobId !== undefined
             ? item.aiJobId
@@ -2627,9 +2632,10 @@ export async function saveRelationalRuntimeState(
         await deleteAbsent('lifeJourney', tx.lifeJourney,
           asArray(state.lifeJourneys).map((item: any) => item.id),
         );
-      await deleteAbsent('reply', tx.reply,
-        asArray(state.replies).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.Reply)
+        await deleteAbsent('reply', tx.reply,
+          asArray(state.replies).map((item: any) => item.id),
+        );
       await deleteAbsent('diary', tx.diary,
         asArray(state.diaries).map((item: any) => item.id),
       );
@@ -2640,11 +2646,29 @@ export async function saveRelationalRuntimeState(
       await deleteAbsent('letter', tx.letter,
         asArray(state.letters).map((item: any) => item.id),
       );
+      // `Post` is still swept by the flush, but `Reply` is not: a post that still has replies must
+      // not be deleted, or the sweep fails on `Reply_postId_fkey` (and would take DB-authoritative
+      // replies with it). The set is read from the whole table, not just the posts in the snapshot:
+      // the post a reply belongs to may already be gone from the snapshot, which is exactly when the
+      // sweep would try to delete it.
+      const replyPostIds = DIRECT_DB_MODELS.Reply
+        ? new Set<string>(
+            (
+              await tx.reply.findMany({ select: { postId: true }, distinct: ['postId'] })
+            ).map((row: { postId: string }) => row.postId),
+          )
+        : new Set<string>();
       await deleteAbsent('post', tx.post,
         asArray(state.posts).map((item: any) => item.id),
+        replyPostIds,
+      );
+      // A surviving post's mood must survive too (`Post.moodId` is a Restrict FK).
+      const survivingMoodIds = new Set<string>(
+        (await tx.post.findMany({ select: { moodId: true } })).map((row: { moodId: string }) => row.moodId),
       );
       await deleteAbsent('mood', tx.mood,
         asArray(state.moods).map((item: any) => item.id),
+        survivingMoodIds,
       );
       if (!DIRECT_DB_MODELS.AIJob)
         await deleteAbsent('aIJob', tx.aIJob,
