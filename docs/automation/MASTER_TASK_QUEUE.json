@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "0a519e9ddeb76cc1d24bc2942baa6b2a3676e48a",
-  "updatedAt": "2026-10-17T18:42:50.625Z",
+  "updatedAt": "2026-10-17T19:31:37.405Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -606,6 +606,19 @@
       "evidence": "66 spec files, 598.64 s. 64 passed first time. The two failures (batch4-faq-item-gate, third-stage-archive) both raised PrismaClientKnownRequestError \"Can not reach database server at 172.31.189.221:5432\" during boot hydration - a WSL keep-alive lapse, not a business regression. Both files re-ran alone immediately afterwards: 2/2 passed, including the FAQ gate 14/14.",
       "blocker": "",
       "nextAction": "None. Keep-alive task verified registered and running."
+    },
+    {
+      "id": "WORKER-RELOAD-FLUSH-LOCK",
+      "phase": "Batch 4",
+      "priority": "P1",
+      "status": "READY",
+      "title": "The worker post-delivery reload flush contends with a boot flush on User rows",
+      "implemented": "no",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "Measured with pg_stat_activity during F10. One transaction held SELECT id FROM \"LifeJourney\" WHERE id = $1 FOR UPDATE and was idle in transaction; the worker INSERT INTO \"UserNotification\" waited on that transaction id; a concurrent INSERT INTO \"User\" (the legacy flush) waited on the worker. The 5000 ms interactive-transaction budget expired and the queue job was logged as failed after the delivery had already committed, so BullMQ retried. A second shape: repairPrivacyDefaults waiting on User FOR UPDATE while the worker held the user row for its notification FK. Both come from reloadRuntimeState() calling the full legacy flush (mood.upsert, aIStyleRoute.upsert, user upsert) after a delivery.",
+      "blocker": "",
+      "nextAction": "Retired by converting the remaining Post-cluster models so reloadRuntimeState stops writing. Until then the acceptance fixture boots the second instance before making the job runnable, so the two flushes do not overlap; that is a test-ordering mitigation, not a fix."
     }
   ]
 }
