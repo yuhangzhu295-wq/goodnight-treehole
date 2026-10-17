@@ -81,7 +81,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.reply.findMany({ orderBy: { createdAt: 'desc' } }),
     db.letter.findMany({ orderBy: { createdAt: 'desc' } }),
     db.diary.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
-    db.favorite.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.Favorite ? Promise.resolve([]) : db.favorite.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.FeedbackCategory ? Promise.resolve([]) : db.feedbackCategory.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.FaqItem ? Promise.resolve([]) : db.faqItem.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.ReplyPreset ? Promise.resolve([]) : db.replyPreset.findMany({ orderBy: { sortOrder: 'asc' } }),
@@ -2296,24 +2296,28 @@ export async function saveRelationalRuntimeState(
             },
           });
       }
-      for (const item of asArray(state.favorites))
-        await tx.favorite.upsert({
-          where: {
-            userId_targetType_targetId: {
+      // The guard wraps the loop, not just the statement: `state.favorites` is a throwing accessor
+      // once the model is registered, so even reading it here would fail a zero-write probe.
+      if (!DIRECT_DB_MODELS.Favorite) {
+        for (const item of asArray(state.favorites))
+          await tx.favorite.upsert({
+            where: {
+              userId_targetType_targetId: {
+                userId: item.userId,
+                targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'),
+                targetId: item.targetId,
+              },
+            },
+            create: {
+              id: item.id,
               userId: item.userId,
               targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'),
               targetId: item.targetId,
+              createdAt: date(item.createdAt),
             },
-          },
-          create: {
-            id: item.id,
-            userId: item.userId,
-            targetType: valid(item.targetType, ['post', 'letter', 'diary'] as const, 'post'),
-            targetId: item.targetId,
-            createdAt: date(item.createdAt),
-          },
-          update: {},
-        });
+            update: {},
+          });
+      }
       for (const item of asArray(state.feedbackCategories))
         if (!DIRECT_DB_MODELS.FeedbackCategory)
         await tx.feedbackCategory.upsert({
@@ -2629,9 +2633,10 @@ export async function saveRelationalRuntimeState(
       await deleteAbsent('diary', tx.diary,
         asArray(state.diaries).map((item: any) => item.id),
       );
-      await deleteAbsent('favorite', tx.favorite,
-        asArray(state.favorites).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.Favorite)
+        await deleteAbsent('favorite', tx.favorite,
+          asArray(state.favorites).map((item: any) => item.id),
+        );
       await deleteAbsent('letter', tx.letter,
         asArray(state.letters).map((item: any) => item.id),
       );

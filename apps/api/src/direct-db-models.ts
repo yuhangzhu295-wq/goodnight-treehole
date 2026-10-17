@@ -49,6 +49,11 @@ export const DIRECT_DB_MODELS = {
   // journeys, and the export path detaches them. Its ids also fed two FK allowlists in the mapper, and
   // those contributions are dropped the same way every other registered model's are.
   AgentDecisionLog: 'agentDecisionLogs',
+  // Batch 4 model 8 of 16, and the first member of the Post cluster. It is not a leaf: the same
+  // rows own `Post.favoriteCount` and `Letter.favorite`, and the feed's `favoritedByCurrentUser`
+  // flag reads them through the per-request decoration context. Those three projections are kept
+  // by favorite-persistence.service.ts; see BATCH4_LEGACY_FLUSH_RETIREMENT.md §5d.
+  Favorite: 'favorites',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

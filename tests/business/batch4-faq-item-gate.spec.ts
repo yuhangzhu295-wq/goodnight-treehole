@@ -28,6 +28,7 @@ const TARGET_TABLES = [
   'AdminUserNote',
   'PeerReputation',
   'AgentDecisionLog',
+  'Favorite',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -85,10 +86,12 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('UPDATE "AdminUserNote" SET "content" = "content" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "PeerReputation" SET "helpfulCount" = "helpfulCount" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "AgentDecisionLog" SET "taskType" = "taskType" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "Favorite" SET "targetType" = "targetType" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'AgentDecisionLog', op: 'UPDATE', n: 1 },
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
+      { table: 'Favorite', op: 'UPDATE', n: 1 },
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
       { table: 'PeerReputation', op: 'UPDATE', n: 1 },
@@ -105,10 +108,12 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('DELETE FROM "AdminUserNote" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "PeerReputation" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "AgentDecisionLog" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "Favorite" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'AgentDecisionLog', op: 'DELETE', n: 1 },
       { table: 'FaqItem', op: 'DELETE', n: 1 },
+      { table: 'Favorite', op: 'DELETE', n: 1 },
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
       { table: 'PeerReputation', op: 'DELETE', n: 1 },
@@ -602,5 +607,58 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       await prisma.agentDecisionLog.deleteMany({ where: { id: direct.id } });
       await secondApp.close();
     }
+  }, 120_000);
+
+  /**
+   * `Favorite` is the first member of the Post cluster (§5d). Its read-back has to cover the two
+   * projections the same rows own, because converting it without those would leave the feed saying
+   * "not favourited" and the counter frozen at zero - both silently.
+   */
+  it('a favourite written straight to PostgreSQL is served, flags the post, and survives a flush', async () => {
+    const headers = { 'x-goodnight-user-id': await identityFor(DEMO_USER_ID) };
+    const post = await request(server)
+      .post('/api/v1/posts')
+      .set(headers)
+      .send({ content: `batch4 probe favourite ${Date.now()}`, emotion: 'calm', visibility: 'PUBLIC' })
+      .expect(201);
+    const postId = post.body.post.id as string;
+
+    const direct = await prisma.favorite.create({
+      data: { userId: DEMO_USER_ID, targetType: 'post', targetId: postId },
+    });
+
+    // The feed flag comes from the decoration context, which now reads the table.
+    const detail = await request(server).get(`/api/v1/posts/${postId}`).set(headers).expect(200);
+    expect(detail.body.item.favoritedByCurrentUser).toBe(true);
+
+    // The favourites list reads the table too.
+    const list = await request(server).get('/api/v1/favorites').set(headers).expect(200);
+    expect((list.body.items ?? []).some((item: any) => item.id === direct.id)).toBe(true);
+
+    // A flush must neither rewrite nor sweep the row.
+    await clearProbe();
+    await request(server)
+      .post('/api/v1/moods')
+      .set(headers)
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(await prisma.favorite.findUnique({ where: { id: direct.id } })).not.toBeNull();
+    expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+
+    // The write path removes the row and flips the flag back.
+    await request(server).delete(`/api/v1/posts/${postId}/favorite`).set(headers).expect(200);
+    expect(await prisma.favorite.findUnique({ where: { id: direct.id } })).toBeNull();
+    const afterRemove = await request(server).get(`/api/v1/posts/${postId}`).set(headers).expect(200);
+    expect(afterRemove.body.item.favoritedByCurrentUser).toBe(false);
+
+    // Adding it back updates both the table and the post's counter projection.
+    await request(server).post(`/api/v1/posts/${postId}/favorite`).set(headers).expect(201);
+    const reAdded = await prisma.favorite.findFirst({
+      where: { userId: DEMO_USER_ID, targetType: 'post', targetId: postId },
+    });
+    expect(reAdded).not.toBeNull();
+    const postRow = await prisma.post.findUnique({ where: { id: postId } });
+    expect(postRow?.favoriteCount).toBe(1);
   }, 120_000);
 });

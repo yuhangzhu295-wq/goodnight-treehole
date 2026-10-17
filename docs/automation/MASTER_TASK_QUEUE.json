@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "0a519e9ddeb76cc1d24bc2942baa6b2a3676e48a",
-  "updatedAt": "2026-10-17T20:21:54.626Z",
+  "updatedAt": "2026-10-17T20:56:29.337Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -481,14 +481,14 @@
       "id": "B4-FAVORITE-COUNTER-COUPLING",
       "phase": "Batch 4",
       "priority": "P1",
-      "status": "BLOCKED_DEPENDENCY",
+      "status": "DONE",
       "title": "Favorite cannot convert alone: it maintains Post.favoriteCount and Letter.favorite",
-      "implemented": "no",
-      "tested": "no",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "pending",
-      "evidence": "addFavorite increments post.favoriteCount for a post target and sets letter.favorite for a letter target; removeFavorite* reverses both (applyFavoriteRemoval). Registering Favorite would empty the array those counters are read from, so the counters and the two models must move together.",
+      "evidence": "Favorite registered (Batch 4 model 8/16). favorite-persistence.service.ts owns the rows; buildPostDecorationContext reads the viewer ids from the table once per request; Post.favoriteCount and Letter.favorite are denormalised columns recomputed by afterWrite and at boot. Gate case: direct row served by /favorites and by favoritedByCurrentUser, survives a flush, then the write path removes and re-adds it with the counter at 1. Mutation M-Q: unregistering Favorite makes the directly written favourite invisible to the feed. Full suite 78/78 files.",
       "blocker": "Post and Letter are not converted yet.",
-      "nextAction": "Convert Favorite together with Post and Letter as one unit, per BATCH4_LEGACY_FLUSH_RETIREMENT.md §2a."
+      "nextAction": "Next cluster member: Reply (post.replyCount), then Post."
     },
     {
       "id": "B4-AIPROVIDER-ROUTE-PAIR",

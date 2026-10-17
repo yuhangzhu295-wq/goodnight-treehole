@@ -1217,8 +1217,8 @@ export class PublicController {
   }
 
   @Get('posts/:id')
-  post(@Param('id') id: string) {
-    return { item: this.store.getPost(id, true) };
+  async post(@Param('id') id: string) {
+    return { item: await this.store.getPost(id, true) };
   }
 
   @Post('posts/:id/hug')
@@ -1238,24 +1238,24 @@ export class PublicController {
 
   @Post('posts/:id/favorite')
   async favorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    const post = this.store.getPost(id, true);
-    this.store.addFavorite(requireRuntimeUserId(requestedUserId), 'post', id);
+    const post = await this.store.getPost(id, true);
+    await this.store.addFavorite(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
     // Decorated again with a fresh context so the response reflects the favourite just added.
-    return { item: this.store.decoratePost(post, this.store.buildPostDecorationContext([post])) };
+    return { item: this.store.decoratePost(post, await this.store.buildPostDecorationContext([post])) };
   }
 
   @Delete('posts/:id/favorite')
   async deleteFavorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    const post = this.store.getPost(id, true);
-    this.store.removeFavoriteByTarget(requireRuntimeUserId(requestedUserId), 'post', id);
+    const post = await this.store.getPost(id, true);
+    await this.store.removeFavoriteByTarget(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    return { item: this.store.decoratePost(post, this.store.buildPostDecorationContext([post])) };
+    return { item: this.store.decoratePost(post, await this.store.buildPostDecorationContext([post])) };
   }
 
   @Post('posts/:id/report')
   async report(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
+    const post = await this.store.getPost(id, true);
     post.reportCount += 1;
     this.store.persist();
     await this.store.flush();
@@ -1273,7 +1273,7 @@ export class PublicController {
     // Only the author may delete a post. Moderation has its own admin route (hide/reject); without
     // this check any authenticated caller could take down someone else's public post by id.
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const post = this.store.getPost(id, true);
+    const post = await this.store.getPost(id, true);
     if (post.userId !== userId) throw new NotFoundException('树洞不存在');
     post.status = 'deleted';
     this.store.persist();
@@ -1511,7 +1511,9 @@ export class PublicController {
     let items = this.store.letters.filter((item) => item.userId === userId);
     if (status === 'unread') items = items.filter((item) => item.status === 'unread');
     if (status === 'favorited' || status === 'fav')
-      items = items.filter((item) => this.store.isFavorite(userId, 'letter', item.id));
+      // `Letter.favorite` is the denormalised column FavoritePersistenceService keeps in step with
+      // the favourite table; reading the table per row here would be an N+1 for no gain.
+      items = items.filter((item) => Boolean(item.favorite));
     return { items: items.map((item) => this.store.decorateLetter(item)) };
   }
 
@@ -1666,7 +1668,7 @@ export class PublicController {
     const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
-    this.store.addFavorite(userId, 'letter', id);
+    await this.store.addFavorite(userId, 'letter', id);
     await this.store.persistAndFlush();
     return { item: this.store.decorateLetter(letter) };
   }
@@ -1676,7 +1678,7 @@ export class PublicController {
     const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
-    this.store.removeFavoriteByTarget(userId, 'letter', id);
+    await this.store.removeFavoriteByTarget(userId, 'letter', id);
     await this.store.persistAndFlush();
     return { ok: true, item: this.store.decorateLetter(letter) };
   }
@@ -1817,17 +1819,18 @@ export class PublicController {
   }
 
   @Get('me/stats')
-  stats(@Headers('x-goodnight-user-id') userId?: string) {
+  async stats(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     const month = currentMonth();
     const userDiaries = this.store.diaries.filter((item) => item.userId === runtimeId);
     const userLetters = this.store.letters.filter((item) => item.userId === runtimeId);
-    const userFavorites = this.store.favorites.filter((item) => item.userId === runtimeId);
+    // Favorite is database-authoritative; counting the in-memory array would always report 0.
+    const favoriteCount = await this.store.favoritesDb.countForUser(runtimeId);
     return {
       item: {
         diaryCount: userDiaries.length,
         letterCount: userLetters.length,
-        favoriteCount: userFavorites.length,
+        favoriteCount,
         growthDays: 21,
         streakDays: Math.min(7, Math.max(1, userDiaries.length + 3)),
         replyCount: userLetters.length,
@@ -1845,7 +1848,7 @@ export class PublicController {
   @Delete('me/data')
   async clearData(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
-    this.store.clearFavoritesForUser(runtimeId);
+    await this.store.clearFavoritesForUser(runtimeId);
     this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
     this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
     await this.store.persistAndFlush();
@@ -2033,39 +2036,39 @@ export class PublicController {
   }
 
   @Get('favorites')
-  favorites(@Query('type') type?: string, requestedUserId?: string) {
+  async favorites(@Query('type') type?: string, requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    const items = this.store.favorites
-      .filter((item) => item.userId === userId && (!type || item.targetType === type))
-      .map((item) => {
-        const post =
-          item.targetType === 'post' ? this.store.posts.find((postItem) => postItem.id === item.targetId) : undefined;
-        const letter =
-          item.targetType === 'letter'
-            ? this.store.letters.find((letterItem) => letterItem.id === item.targetId)
-            : undefined;
-        const diary =
-          item.targetType === 'diary'
-            ? this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
-            : undefined;
-        return {
-          ...item,
-          title: letter?.title ?? (post ? '收藏的树洞' : diary ? '收藏的日记' : '收藏内容'),
-          preview: letter?.content ?? post?.content ?? diary?.content ?? item.targetId,
-          emotion: post?.emotion
-            ? emotionLabel(post.emotion)
-            : diary?.emotion
-              ? emotionLabel(diary.emotion)
-              : undefined,
-        };
-      });
+    // Favorite is database-authoritative; the in-memory array is empty once it is registered.
+    const rows = await this.store.favoritesDb.listForUser(userId, type);
+    const items = rows.map((item) => {
+      const post =
+        item.targetType === 'post' ? this.store.posts.find((postItem) => postItem.id === item.targetId) : undefined;
+      const letter =
+        item.targetType === 'letter'
+          ? this.store.letters.find((letterItem) => letterItem.id === item.targetId)
+          : undefined;
+      const diary =
+        item.targetType === 'diary'
+          ? this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
+          : undefined;
+      return {
+        ...item,
+        title: letter?.title ?? (post ? '收藏的树洞' : diary ? '收藏的日记' : '收藏内容'),
+        preview: letter?.content ?? post?.content ?? diary?.content ?? item.targetId,
+        emotion: post?.emotion
+          ? emotionLabel(post.emotion)
+          : diary?.emotion
+            ? emotionLabel(diary.emotion)
+            : undefined,
+      };
+    });
     return { items };
   }
 
   @Get('me/favorites')
-  meFavorites(@Query('type') type?: string, @Headers('x-goodnight-user-id') userId?: string) {
+  async meFavorites(@Query('type') type?: string, @Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
-    return this.favorites(type, runtimeId);
+    return await this.favorites(type, runtimeId);
   }
 
   @Get('me/letters')
@@ -2076,7 +2079,7 @@ export class PublicController {
 
   @Delete('favorites/:id')
   async deleteFavoriteItem(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    this.store.removeFavoriteById(requireRuntimeUserId(requestedUserId), id);
+    await this.store.removeFavoriteById(requireRuntimeUserId(requestedUserId), id);
     await this.store.persistAndFlush();
     return { ok: true };
   }
@@ -3061,7 +3064,7 @@ export class AdminController {
 
   @Delete('users/:id/data')
   async deleteUserData(@Param('id') id: string) {
-    this.store.clearFavoritesForUser(id);
+    await this.store.clearFavoritesForUser(id);
     this.store.diaries = this.store.diaries.filter((item) => item.userId !== id);
     this.store.letters = this.store.letters.filter((item) => item.userId !== id);
     await this.store.persistAndFlush();
@@ -3069,7 +3072,7 @@ export class AdminController {
   }
 
   @Get('posts')
-  adminPosts(
+  async adminPosts(
     @Query('q') q?: string,
     @Query('emotion') emotion?: string,
     @Query('reviewStatus') reviewStatus?: string,
@@ -3090,13 +3093,13 @@ export class AdminController {
       return matchesQuery && matchesEmotion && matchesReview && matchesVisibility;
     });
     // One context for the whole page rather than a lookup per row.
-    const adminContext = this.store.buildPostDecorationContext(items);
+    const adminContext = await this.store.buildPostDecorationContext(items);
     items.forEach((post) => this.store.decoratePost(post, adminContext));
     return this.list(items, page, pageSize);
   }
   @Get('posts/:id')
-  adminPost(@Param('id') id: string) {
-    return { item: this.store.getPost(id, true), replies: this.store.replies.filter((r) => r.postId === id) };
+  async adminPost(@Param('id') id: string) {
+    return { item: await this.store.getPost(id, true), replies: this.store.replies.filter((r) => r.postId === id) };
   }
   @Patch('posts/:id/moderation')
   async postModeration(
@@ -3104,7 +3107,7 @@ export class AdminController {
     @Param('id') id: string,
     @Body() body: { action: 'approve' | 'hide' | 'reject' | 'risk' },
   ) {
-    const item = this.store.moderatePost(this.admin(auth).id, id, body.action);
+    const item = await this.store.moderatePost(this.admin(auth).id, id, body.action);
     await this.store.flush();
     return { item };
   }
@@ -3138,8 +3141,8 @@ export class AdminController {
   }
 
   @Patch('posts/:id/block')
-  postBlock(@Headers('authorization') auth: string, @Param('id') id: string) {
-    return { item: this.store.moderatePost(this.admin(auth).id, id, 'hide') };
+  async postBlock(@Headers('authorization') auth: string, @Param('id') id: string) {
+    return { item: await this.store.moderatePost(this.admin(auth).id, id, 'hide') };
   }
   @Patch('posts/:id/visibility')
   postVisibility(@Headers('authorization') auth: string, @Param('id') _id: string, @Body() _body?: unknown) {
@@ -3159,8 +3162,8 @@ export class AdminController {
   }
 
   @Post('posts/:id/regenerate-replies')
-  regenerateReplies(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
+  async regenerateReplies(@Param('id') id: string) {
+    const post = await this.store.getPost(id, true);
     const styles: AIStyle[] = ['warm', 'rational'];
     const jobs = styles.map((style) =>
       this.store.queueAI({
@@ -3193,8 +3196,8 @@ export class AdminController {
     return { item: post, jobs, jobIds: jobs.map((job) => job.id), status: 'queued' };
   }
   @Delete('posts/:id')
-  adminDeletePost(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
+  async adminDeletePost(@Param('id') id: string) {
+    const post = await this.store.getPost(id, true);
     post.status = 'deleted';
     this.store.persist();
     return { ok: true };

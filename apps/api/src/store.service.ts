@@ -33,6 +33,7 @@ import {
 } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService, type PrivacySettingRecord } from './self-persistence.service.js';
+import { FavoritePersistenceService } from './favorite-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1282,6 +1283,8 @@ export class StoreService implements OnModuleInit {
     private readonly peerPersistence: PeerPersistenceService = new PeerPersistenceService(prisma as any),
     @Inject(SelfPersistenceService)
     public readonly selfPersistence: SelfPersistenceService = new SelfPersistenceService(prisma as any),
+    @Inject(FavoritePersistenceService)
+    public readonly favoritesDb: FavoritePersistenceService = new FavoritePersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1590,6 +1593,19 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.Favorite) {
+      delete data.favorites;
+      Object.defineProperty(data, 'favorites', {
+        get() {
+          throw new Error('StoreData.favorites is disabled: Favorite is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.favorites is disabled: Favorite is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   async onModuleInit() {
@@ -1601,8 +1617,8 @@ export class StoreService implements OnModuleInit {
     }
     await this.migrateAiJobs();
     await this.recoverInterruptedAiJobs();
-    this.reconcileFavoriteCounts();
-    this.reconcileLetterFavorites();
+    await this.reconcileFavoriteCounts();
+    await this.reconcileLetterFavorites();
     this.pruneAuditLogsByRetention();
     this.ensureGoodnightTwoCoverage();
     this.ensurePhaseTwoCoverage();
@@ -1959,17 +1975,36 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  isFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
+  async isFavorite(
+    userId: string,
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (DIRECT_DB_MODELS.Favorite) return await this.favoritesDb.isFavorite(userId, targetType, targetId);
     return this.data.favorites.some(
       (item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId,
     );
   }
 
+  /**
+   * `Letter.favorite` is a denormalised column. `FavoritePersistenceService` writes it in the same
+   * operation as the favourite row, and boot reconciliation recomputes it from the table, so this
+   * projection no longer needs the in-memory array (which is empty once Favorite is registered).
+   */
   decorateLetter(letter: Letter) {
-    return { ...letter, favorite: this.isFavorite(letter.userId, 'letter', letter.id) };
+    return { ...letter, favorite: Boolean(letter.favorite) };
   }
 
-  addFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
+  async addFavorite(
+    userId: string,
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const result = await this.favoritesDb.add(userId, targetType, targetId);
+      await this.syncFavoriteProjections(targetType, targetId);
+      return result;
+    }
     const existing = this.data.favorites.find(
       (item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId,
     );
@@ -1988,7 +2023,16 @@ export class StoreService implements OnModuleInit {
     return { item: favorite, created: true };
   }
 
-  removeFavoriteByTarget(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
+  async removeFavoriteByTarget(
+    userId: string,
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const removed = await this.favoritesDb.removeByTarget(userId, targetType, targetId);
+      if (removed.length) await this.syncFavoriteProjections(targetType, targetId);
+      return removed;
+    }
     const removed = this.data.favorites.filter(
       (item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId,
     );
@@ -1998,7 +2042,12 @@ export class StoreService implements OnModuleInit {
     return removed;
   }
 
-  removeFavoriteById(userId: string, favoriteId: string) {
+  async removeFavoriteById(userId: string, favoriteId: string) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const removed = await this.favoritesDb.removeById(userId, favoriteId);
+      if (removed) await this.syncFavoriteProjections(removed.targetType as any, removed.targetId);
+      return removed;
+    }
     const favorite = this.data.favorites.find((item) => item.id === favoriteId && item.userId === userId);
     if (!favorite) return undefined;
     this.data.favorites = this.data.favorites.filter((item) => item.id !== favorite.id);
@@ -2006,12 +2055,42 @@ export class StoreService implements OnModuleInit {
     return favorite;
   }
 
-  clearFavoritesForUser(userId: string) {
+  async clearFavoritesForUser(userId: string) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const removed = await this.favoritesDb.clearForUser(userId);
+      for (const item of removed) {
+        await this.syncFavoriteProjections(item.targetType as any, item.targetId);
+      }
+      return removed;
+    }
     const removed = this.data.favorites.filter((item) => item.userId === userId);
     if (!removed.length) return removed;
     this.data.favorites = this.data.favorites.filter((item) => item.userId !== userId);
     this.applyFavoriteRemoval(removed);
     return removed;
+  }
+
+  /**
+   * Keeps the still-legacy projections (`Post.favoriteCount`, `Letter.favorite`) equal to what the
+   * favourite table now says. The flush still writes those two models, so leaving the in-memory
+   * copies stale would let the next flush overwrite the database with the old number.
+   */
+  private async syncFavoriteProjections(
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (targetType === 'post') {
+      const counts = await this.favoritesDb.countsForPosts([targetId]);
+      const post = this.posts.find((item) => item.id === targetId);
+      if (post) post.favoriteCount = counts.get(targetId) ?? 0;
+      return;
+    }
+    if (targetType === 'letter') {
+      const letters = this.letters.filter((item) => item.id === targetId);
+      for (const letter of letters) {
+        letter.favorite = await this.favoritesDb.isFavorite(letter.userId, 'letter', letter.id);
+      }
+    }
   }
 
   private storedFeedbackScreenshotIds(value: unknown) {
@@ -2501,13 +2580,19 @@ export class StoreService implements OnModuleInit {
    * omits it would get `favoritedByCurrentUser === false` and no attachments with no error anywhere,
    * which is the silent-constant failure this seam exists to prevent.
    */
-  buildPostDecorationContext(posts: Array<Pick<PostItem, 'id' | 'attachmentIds'>>): PostDecorationContext {
+  async buildPostDecorationContext(
+    posts: Array<Pick<PostItem, 'id' | 'attachmentIds'>>,
+  ): Promise<PostDecorationContext> {
     const viewer = this.viewerUserId();
-    const favoritedPostIds = new Set(
-      this.favorites
-        .filter((item) => item.userId === viewer && item.targetType === 'post')
-        .map((item) => item.targetId),
-    );
+    const favoritedPostIds = viewer
+      ? DIRECT_DB_MODELS.Favorite
+        ? await this.favoritesDb.postIdsForUser(viewer)
+        : new Set(
+            this.data.favorites
+              .filter((item) => item.userId === viewer && item.targetType === 'post')
+              .map((item) => item.targetId),
+          )
+      : new Set<string>();
 
     const assetsById = new Map<string, MediaAsset>();
     for (const post of posts) {
@@ -2628,7 +2713,24 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private reconcileFavoriteCounts() {
+  private async reconcileFavoriteCounts() {
+    if (DIRECT_DB_MODELS.Favorite) {
+      // The counters are denormalised columns on models that have not moved yet, so boot has to
+      // bring the in-memory copies back in line with the favourite table - otherwise the next flush
+      // would write the stale number over the row.
+      await this.favoritesDb.reconcileCounters();
+      const counts = await this.favoritesDb.countsForPosts(this.posts.map((post) => post.id));
+      let changed = false;
+      for (const post of this.posts) {
+        const expected = counts.get(post.id) ?? 0;
+        if (post.favoriteCount !== expected) {
+          post.favoriteCount = expected;
+          changed = true;
+        }
+      }
+      if (changed) this.persist();
+      return;
+    }
     let changed = false;
     for (const post of this.posts) {
       const expected = this.favorites.filter((item) => item.targetType === 'post' && item.targetId === post.id).length;
@@ -2640,10 +2742,23 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private reconcileLetterFavorites() {
+  private async reconcileLetterFavorites() {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const keys = await this.favoritesDb.letterFavoriteKeys();
+      let changed = false;
+      for (const letter of this.letters) {
+        const expected = keys.has(`${letter.userId}:${letter.id}`);
+        if (Boolean(letter.favorite) !== expected) {
+          letter.favorite = expected;
+          changed = true;
+        }
+      }
+      if (changed) this.persist();
+      return;
+    }
     let changed = false;
     for (const letter of this.letters) {
-      const expected = this.isFavorite(letter.userId, 'letter', letter.id);
+      const expected = await this.isFavorite(letter.userId, 'letter', letter.id);
       if (Boolean(letter.favorite) !== expected) {
         letter.favorite = expected;
         changed = true;
@@ -2660,7 +2775,10 @@ export class StoreService implements OnModuleInit {
       }
       if (favorite.targetType === 'letter') {
         const letter = this.letters.find((item) => item.id === favorite.targetId && item.userId === favorite.userId);
-        if (letter) letter.favorite = this.isFavorite(favorite.userId, 'letter', favorite.targetId);
+        // The removed row was this user's only favourite for the letter (the unique constraint is
+        // per user/type/target), so the flag is false. This branch only runs when Favorite is not
+        // database-authoritative.
+        if (letter) letter.favorite = false;
       }
     }
   }
@@ -2909,7 +3027,7 @@ export class StoreService implements OnModuleInit {
    */
   async hugPost(postId: string, requestedUserId?: string) {
     const userId = requestedUserId?.trim() || this.getDemoUserId();
-    const post = this.getPost(postId, true);
+    const post = await this.getPost(postId, true);
     const existing = await this.prisma.hugAction.findFirst({ where: { userId, postId } });
     // The displayed count predates this change (seeded posts show values like 28), so the
     // difference between the stored number and the real rows is kept as a baseline and the
@@ -2924,13 +3042,13 @@ export class StoreService implements OnModuleInit {
     post.hugCount = baseline + count;
     this.persist();
     await this.flush();
-    return { item: this.decoratePost(post, this.buildPostDecorationContext([post])), alreadyHugged: Boolean(existing) };
+    return { item: this.decoratePost(post, await this.buildPostDecorationContext([post])), alreadyHugged: Boolean(existing) };
   }
 
   /** Removes this user's hug and re-derives the counter. */
   async unHugPost(postId: string, requestedUserId?: string) {
     const userId = requestedUserId?.trim() || this.getDemoUserId();
-    const post = this.getPost(postId, true);
+    const post = await this.getPost(postId, true);
     const rowsBefore = await this.prisma.hugAction.count({ where: { postId } });
     const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
     await this.prisma.hugAction.deleteMany({ where: { userId, postId } });
@@ -2938,7 +3056,7 @@ export class StoreService implements OnModuleInit {
     post.hugCount = baseline + count;
     this.persist();
     await this.flush();
-    return { item: this.decoratePost(post, this.buildPostDecorationContext([post])) };
+    return { item: this.decoratePost(post, await this.buildPostDecorationContext([post])) };
   }
 
   /** `manualReviewThreshold` (admin 系统设置), clamped to a usable probability range. */
@@ -6681,7 +6799,7 @@ export class StoreService implements OnModuleInit {
     );
     // One context for the whole feed: the viewer's favourites and the page's assets are the same
     // lookup for every row, and reading them per row is what this seam exists to avoid.
-    const feedContext = this.buildPostDecorationContext(this.posts);
+    const feedContext = await this.buildPostDecorationContext(this.posts);
     this.posts.forEach((post) => this.decoratePost(post, feedContext));
     return this.posts.filter(
       (post) =>
@@ -6693,7 +6811,7 @@ export class StoreService implements OnModuleInit {
   }
 
   async hidePostForCurrentUser(postId: string) {
-    this.getPost(postId, true);
+    await this.getPost(postId, true);
     // Hiding is per-viewer state, so it needs a viewer. Without this the write landed on the demo
     // account and the feed happened to read the same constant back, which made the feature look
     // correct while no real user's choice was ever stored.
@@ -6715,13 +6833,13 @@ export class StoreService implements OnModuleInit {
     return reply;
   }
 
-  getPost(idValue: string, includeUnpublished = false) {
+  async getPost(idValue: string, includeUnpublished = false) {
     const post = this.posts.find(
       (item) =>
         item.id === idValue && item.status === 'active' && (includeUnpublished || item.reviewStatus !== 'hidden'),
     );
     if (!post) throw new NotFoundException('树洞不存在');
-    return this.decoratePost(post, this.buildPostDecorationContext([post]));
+    return this.decoratePost(post, await this.buildPostDecorationContext([post]));
   }
 
   async createMood(input: {
@@ -8260,7 +8378,7 @@ export class StoreService implements OnModuleInit {
   }
 
   async createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
-    const post = this.getPost(postId, true);
+    const post = await this.getPost(postId, true);
     // The owner's consent is read from the DATABASE, not from the process cache: a cache is
     // per-process, so a revocation committed on another instance would otherwise still let a reply
     // through here. This is an authorization gate, and the design's rule is that authorization reads
@@ -8302,8 +8420,8 @@ export class StoreService implements OnModuleInit {
     return reply;
   }
 
-  moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
-    const post = this.getPost(postId, true);
+  async moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
+    const post = await this.getPost(postId, true);
     const before = { ...post };
     if (action === 'approve') {
       post.reviewStatus = 'published';

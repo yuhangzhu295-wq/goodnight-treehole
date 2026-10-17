@@ -265,8 +265,17 @@ page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-REA
 | `AdminUserNote` | **DONE** | `admin-notes-persistence.service.ts`, gate case plus a boot-and-flush discriminator, mutation M-N |
 | `PeerReputation` | **DONE** | registered; **inert model** (§5b: no writer anywhere), gate case with a boot-and-flush discriminator, mutation M-O |
 | `AgentDecisionLog` | **DONE** | writer + both readers in `Batch1PersistenceService`; the archive path deletes and the export path detaches, and that difference is preserved deliberately; mutation M-P |
+| `Favorite` | **DONE** | `favorite-persistence.service.ts`; gate case covers the table read, the feed flag, the `Post.favoriteCount` projection, the flush, and the write path; mutation M-Q (unregistering it makes a directly written favourite invisible to the feed) |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 8 | not started | see §4's order |
+| the other 7 | not started | see §4's order; `Reply` is now the next member of the Post cluster |
+
+**What converting `Favorite` changed beyond the model.** `buildPostDecorationContext` is async and
+reads the viewer's post ids from the table once per request; `getPost`, `moderatePost` and five
+controllers became async because they build that context; `Letter.favorite` and
+`Post.favoriteCount` are kept as denormalised columns by `FavoritePersistenceService.afterWrite`, and
+boot reconciliation recomputes both from the table. The 78-file suite passes, including the three
+zero-legacy-write probes that read `store.data` directly.
+
 
 The gate file is now shared by four models, with a statement-level probe on each table and a
 self-test per table. Adding a model means adding its name to `TARGET_TABLES`, its two self-test
