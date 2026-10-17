@@ -1269,8 +1269,12 @@ export class PublicController {
   }
 
   @Delete('posts/:id')
-  async deletePost(@Param('id') id: string) {
+  async deletePost(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // Only the author may delete a post. Moderation has its own admin route (hide/reject); without
+    // this check any authenticated caller could take down someone else's public post by id.
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
     const post = this.store.getPost(id, true);
+    if (post.userId !== userId) throw new NotFoundException('树洞不存在');
     post.status = 'deleted';
     this.store.persist();
     await this.store.flush();
