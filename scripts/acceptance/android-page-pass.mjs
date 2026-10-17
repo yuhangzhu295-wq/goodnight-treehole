@@ -322,11 +322,15 @@ async function main() {
       },
       request: { route: target, component },
       response: { href: view.href, textLength: view.textLength, preview: view.preview, apiCalls: apiForRoute.length },
-      detail: missingFixture
-        ? { missingFixture: paramKey, note: 'no record of this type existed, so the page was opened in its empty state' }
-        : undefined,
+      detail: {
+        ...(missingFixture
+          ? { missingFixture: paramKey, note: 'no record of this type existed, so the page was opened in its empty state' }
+          : {}),
+        ...(routeServerErrors.length
+          ? { serverErrors: routeServerErrors.map((item) => `${item.status} ${item.url}`) }
+          : {}),
+      },
       screenshot: path.relative(process.cwd(), shotPath).replaceAll('\\', '/'),
-      detail: routeServerErrors.length ? { serverErrors: routeServerErrors.map((item) => `${item.status} ${item.url}`) } : undefined,
       verdict: pass ? 'PASS' : 'FAIL',
     });
     console.log(`${pass ? 'PASS' : 'FAIL'} ${route}${paramValue ? ' (with fixture)' : ''} - ${view.textLength} chars`);

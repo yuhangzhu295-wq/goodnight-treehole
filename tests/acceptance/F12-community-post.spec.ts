@@ -25,7 +25,6 @@ describe('F12 community post', () => {
   let adminToken: string;
 
   let authorCredential: string;
-  let authorUserId: string;
   let readerCredential: string;
   let strangerCredential: string;
 
@@ -41,7 +40,6 @@ describe('F12 community post', () => {
     adminToken = await loginAdmin(server);
     const author = await createIdentity(server, 'F12 author');
     authorCredential = author.credential;
-    authorUserId = author.userId;
     readerCredential = (await createIdentity(server, 'F12 reader')).credential;
     strangerCredential = (await createIdentity(server, 'F12 stranger')).credential;
   });
