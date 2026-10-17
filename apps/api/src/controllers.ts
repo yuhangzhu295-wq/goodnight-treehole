@@ -3854,7 +3854,18 @@ export class AdminController {
   }
 
   @Get('audit-logs')
-  auditLogs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.list(this.store.auditLogs, page, pageSize);
+  async auditLogs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    // The table is the source of truth. Audited single-record reads write there directly, so an
+    // in-memory-only list hid them until a restart. Rows a handler has queued but not yet flushed
+    // are merged in by id, so a moderation action just performed is not missing from the list.
+    const persisted = await this.selfPersistence.listAuditLogsForAdmin();
+    const byId = new Map(persisted.map((item) => [item.id, item as any]));
+    for (const item of this.store.auditLogs) {
+      if (!byId.has(item.id)) byId.set(item.id, item);
+    }
+    const merged = [...byId.values()].sort((left, right) =>
+      String(right.createdAt).localeCompare(String(left.createdAt)),
+    );
+    return this.list(merged, page, pageSize);
   }
 }

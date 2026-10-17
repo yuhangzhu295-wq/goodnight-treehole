@@ -1332,6 +1332,43 @@ export class SelfPersistenceService {
     return { item: mapMemoryItemRow(row) };
   }
 
+  /**
+   * Audit rows as the console lists them.
+   *
+   * Read from the table, not from the process's in-memory copy. The audited single-record read
+   * above writes its row straight to PostgreSQL, so a console that listed only the in-memory array
+   * hid exactly the reads an operator most needs to see - the row existed and was invisible until
+   * the next restart hydrated it. The caller merges in any rows still queued in memory.
+   */
+  async listAuditLogsForAdmin(): Promise<
+    Array<{
+      id: string;
+      adminUserId: string;
+      action: string;
+      resourceType: string;
+      resourceId: string;
+      beforeJson: unknown;
+      afterJson: unknown;
+      ip: string;
+      userAgent: string;
+      createdAt: string;
+    }>
+  > {
+    const rows = await this.prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' } });
+    return rows.map((item: any) => ({
+      id: item.id,
+      adminUserId: item.adminUserId,
+      action: item.action,
+      resourceType: item.resourceType,
+      resourceId: item.resourceId,
+      beforeJson: item.beforeJson ?? null,
+      afterJson: item.afterJson ?? null,
+      ip: item.ip ?? '',
+      userAgent: item.userAgent ?? '',
+      createdAt: (item.createdAt instanceof Date ? item.createdAt : new Date(item.createdAt)).toISOString(),
+    }));
+  }
+
   // ==========================================
   // DecisionRecord & CooldownItem (Batch 3 B3-S3)
   // ==========================================
