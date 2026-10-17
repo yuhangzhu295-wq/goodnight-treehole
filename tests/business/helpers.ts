@@ -24,6 +24,23 @@ function identityPrisma(): PrismaClient {
   return identityClient;
 }
 
+/**
+ * A timestamp the **database** considers `msAgo` in the past.
+ *
+ * A test that means "this row has expired" must build the date from the database clock. The expiry
+ * and eligibility predicates compare against `clock_timestamp()`, and WSL2's clock drifts ahead of
+ * the Windows host after a suspend - measured at 1164 ms on this machine. With that skew,
+ * `new Date(Date.now() - 1000)` is still in the database's future, so a row meant to be expired reads
+ * as live and the test fails for a reason that has nothing to do with the product.
+ *
+ * The default margin is a minute rather than a second for the same reason: it absorbs normal drift
+ * without hiding a real off-by-a-day mistake.
+ */
+export async function expiredAt(msAgo = 60_000): Promise<Date> {
+  const rows = await identityPrisma().$queryRaw<Array<{ at: Date }>>`select clock_timestamp() as at`;
+  return new Date(new Date(rows[0].at).getTime() - msAgo);
+}
+
 export function assertTestDatabaseUrl(rawUrl = process.env.DATABASE_URL): string {
   if (!rawUrl) {
     throw new Error(

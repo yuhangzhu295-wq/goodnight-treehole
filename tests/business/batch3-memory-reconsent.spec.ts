@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { createApiTestApp, identityFor } from './helpers';
+import { createApiTestApp, identityFor } from './helpers'
+import { expiredAt } from './helpers';
 
 /**
  * Task R-08: MemoryCenter effective state branching and re-consent flow.
@@ -117,7 +118,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
   it('1.3 Stored active memory past its date refuses edit/in-place extension; re-consent restores it', async () => {
     const memoryId = `mem_act_past_${Date.now()}`;
     const pastConsent = new Date(Date.now() - 86_400_000 * 60);
-    const pastExpiry = new Date(Date.now() - 1000);
+    const pastExpiry = await expiredAt();
     await prisma.memoryItem.create({
       data: {
         id: memoryId,
@@ -242,7 +243,7 @@ describe('Batch 3 Task R-08: MemoryCenter effective state and re-consent', () =>
         scope: 'all_ai',
         status: 'expired',
         consentedAt: new Date(Date.now() - 86_400_000 * 100),
-        expiresAt: new Date(Date.now() - 10000),
+        expiresAt: await expiredAt(10_000),
       },
     });
 

@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Prisma, PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { auth, createApiTestApp, loginAdmin, identityFor } from './helpers';
+import { auth, createApiTestApp, loginAdmin, identityFor } from './helpers'
+import { expiredAt } from './helpers';
 import { createTwoInstanceHarness, type MultiInstanceContext } from './two-instance-harness';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
 import { PeerPersistenceService } from '../../apps/api/src/peer-persistence.service';
@@ -638,7 +639,7 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       // Ordering 2: sweep first on a past deadline.
       await prisma.peerConversation.update({
         where: { id: liveConv.id },
-        data: { expiresAt: new Date(Date.now() - 1000) },
+        data: { expiresAt: await expiredAt() },
       });
       const swept2 = await peer().expireDueConversations();
       const sweptRow = swept2.find((row) => row.id === liveConv.id);

@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createApiTestApp, identityFor } from './helpers';
+import { createApiTestApp, identityFor } from './helpers'
+import { expiredAt } from './helpers';
 import { StoreService } from '../../apps/api/src/store.service';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
 
@@ -71,7 +72,7 @@ describe('Batch 3: MemoryItem state machine', () => {
 
   it('1.2 An expired memory is not editable, and extending the window cannot revive it', async () => {
     const id = await createMemory('过期');
-    await prisma.memoryItem.update({ where: { id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await prisma.memoryItem.update({ where: { id }, data: { expiresAt: await expiredAt() } });
 
     await request(app.getHttpServer())
       .patch(`/api/v1/me/memories/${id}`)
@@ -129,7 +130,7 @@ describe('Batch 3: MemoryItem state machine', () => {
     const id = await createMemory('重同意');
     await prisma.memoryItem.update({
       where: { id },
-      data: { expiresAt: new Date(Date.now() - 1000), consentedAt: new Date(Date.now() - 90 * 86_400_000) },
+      data: { expiresAt: await expiredAt(), consentedAt: new Date(Date.now() - 90 * 86_400_000) },
     });
     const before = await prisma.memoryItem.findUnique({ where: { id } });
 
@@ -150,7 +151,7 @@ describe('Batch 3: MemoryItem state machine', () => {
     const id = await createMemory('停用且过期');
     await prisma.memoryItem.update({
       where: { id },
-      data: { status: 'disabled', expiresAt: new Date(Date.now() - 1000) },
+      data: { status: 'disabled', expiresAt: await expiredAt() },
     });
 
     // The user's own switch would be 'active'; the service refuses an in-place edit of an
@@ -185,7 +186,7 @@ describe('Batch 3: MemoryItem state machine', () => {
     await prisma.memoryItem.update({ where: { id }, data: { status: 'active' } });
 
     // 3. effectively expired (the stored status is still 'active')
-    await prisma.memoryItem.update({ where: { id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await prisma.memoryItem.update({ where: { id }, data: { expiresAt: await expiredAt() } });
     expect(await eligible()).not.toContain(id);
     await prisma.memoryItem.update({ where: { id }, data: { expiresAt: new Date(Date.now() + 86_400_000) } });
 
