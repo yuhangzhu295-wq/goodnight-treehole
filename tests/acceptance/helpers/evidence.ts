@@ -94,7 +94,15 @@ export class FlowEvidence {
     return this.steps.filter((step) => step.verdict === 'FAIL');
   }
 
-  /** Writes `<flow>/evidence.json` and returns the path. Safe to call once per flow. */
+  /**
+   * Writes `<flow>/evidence.json` and returns the path. Safe to call once per flow.
+   *
+   * A FAIL verdict is thrown, not merely written. The first F05 run produced nine steps where two
+   * `actual` objects carried an extra diagnostic key, so `check` correctly said FAIL while every
+   * `expect` in the spec passed: the suite was green and the evidence said the flow failed. A
+   * verdict nobody reads is not a verdict, so the file is written first (for diagnosis) and then
+   * the failure is raised. Diagnostics belong in `detail`, which is not compared.
+   */
   flush(): string {
     const dir = path.join(root, this.flowId);
     fs.mkdirSync(dir, { recursive: true });
@@ -116,6 +124,12 @@ export class FlowEvidence {
         2,
       ) + '\n',
     );
+    if (this.failures.length > 0) {
+      const summary = this.failures.map((step) => `  - ${step.step}`).join('\n');
+      throw new Error(
+        `${this.flowId}: ${this.failures.length}/${this.steps.length} evidence steps FAILED\n${summary}\nSee ${file}`,
+      );
+    }
     return file;
   }
 }
