@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "61dd20e1182b37304a8070645252b5d188817ce4",
-  "updatedAt": "2026-10-16T17:22:57.402Z",
+  "head": "0a519e9ddeb76cc1d24bc2942baa6b2a3676e48a",
+  "updatedAt": "2026-10-17T18:42:50.625Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -541,6 +541,71 @@
       "evidence": "Three separate full-suite runs failed a DIFFERENT file each time with \"Can't reach database server\" or a Prisma \"Server has closed the connection\". Re-running the file alone passes. Also: leaving the local API on :3000 holds connections to the same PostgreSQL the runner leases from, so drop database fails and the next spec reads stale rows - the tell is that the failing spec never prints its own lease name.",
       "blocker": "No admin rights for netsh portproxy; WSL idle-suspend cannot be disabled from here.",
       "nextAction": "Keep a Windows-side keep-alive running, stop the API before suite runs, and re-run any single failing file alone before calling it a regression."
+    },
+    {
+      "id": "DEV-STACK-SCRIPTS",
+      "phase": "Infrastructure",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Real stack health check and a durable WSL keep-alive",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "scripts/dev/{stack-probe.mjs,stack-health.ps1,ensure-stack.ps1,stack-watch.ps1,stop-stack.ps1}. Probe does a real Prisma query, a real Redis PING over RESP, and a DB-backed HTTP request; WSL state read without starting it. Verified both directions: healthy -> exit 0; API stopped -> \"DOWN API\", exit 1; ensure-stack restored and re-verified 200.",
+      "blocker": "",
+      "nextAction": "Independent review."
+    },
+    {
+      "id": "ACCEPTANCE-F01-F04",
+      "phase": "Acceptance",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Business flows F01-F04 with per-step evidence",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "tests/acceptance/{flow-manifest.json,helpers/evidence.ts,helpers/identity.ts,F01,F02,F03,F04}. Reuses the existing leased-database runner. F01 8 steps (session, hash-only storage, restart, forged id, cross-instance revocation, rotation); F02 6 (journey owned by caller, independent DB read, restart, stranger 404); F03 7 (transitions, terminal refusals, consent-gated archive, stranger 404, restart); F04 6 (action create/list, check-in CAS, repeat no-op, skipped state, stranger 404).",
+      "blocker": "",
+      "nextAction": "F05-F17."
+    },
+    {
+      "id": "FIX-MULTI-INSTANCE-IDENTITY",
+      "phase": "Security",
+      "priority": "P0",
+      "status": "DONE",
+      "title": "An instance could not serve a user who signed up elsewhere",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "Found by F03. resolveRuntimeUserId validated against this.users (boot snapshot); createAnonymousUser only updates the instance that served the signup, so every other instance answered 404 \"current anonymous session user does not exist\" for a valid session. Fixed in the identity middleware: ensureUserKnown() adds a VERIFIED user to the list from PostgreSQL. A bare user id never reaches it, so forgery still 401 (F01, batch3-identity-matrix).",
+      "blocker": "",
+      "nextAction": "Independent security review."
+    },
+    {
+      "id": "FIX-CLOCK-SKEW-EXPIRY",
+      "phase": "Tests",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Six expiry assertions compared the host clock against the database clock",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "Measured skew: database clock 1164 ms ahead of the Windows host after a WSL suspend. new Date(Date.now() - 1000) was still in the database future, so an \"expired\" row read as live. helpers.expiredAt() now derives the date from clock_timestamp(). batch3-memory-state, batch3-memory-reconsent and batch2-peer-verification: 44 tests pass.",
+      "blocker": "",
+      "nextAction": "None."
+    },
+    {
+      "id": "FULL-SUITE-CONFIRMATION-1",
+      "phase": "Tests",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Full business/api/e2e/acceptance suite run after the clock-skew fix",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "66 spec files, 598.64 s. 64 passed first time. The two failures (batch4-faq-item-gate, third-stage-archive) both raised PrismaClientKnownRequestError \"Can not reach database server at 172.31.189.221:5432\" during boot hydration - a WSL keep-alive lapse, not a business regression. Both files re-ran alone immediately afterwards: 2/2 passed, including the FAQ gate 14/14.",
+      "blocker": "",
+      "nextAction": "None. Keep-alive task verified registered and running."
     }
   ]
 }
