@@ -96,12 +96,31 @@ describe('domain services', () => {
 
   it('moderates replies out of public response list', async () => {
     const store = new StoreService(stubPersistence as any);
+    // Reply is database-authoritative since Batch 4, so this unit test stubs the two persistence
+    // collaborators it now reaches: the favourite pre-fetch used by the post decoration, and the
+    // reply rows themselves. The database behaviour is covered by the Batch 4 gate and F12.
+    const rows = new Map<string, any>();
+    (store as any).favoritesDb = { postIdsForUser: async () => new Set<string>() };
+    (store as any).repliesDb = {
+      create: async (input: any) => {
+        const row = { id: input.id ?? 'reply_unit_1', ...input, likeCount: 0 };
+        rows.set(row.id, row);
+        return row;
+      },
+      get: async (id: string) => rows.get(id) ?? null,
+      moderate: async (id: string, action: 'approve' | 'block') => {
+        const row = rows.get(id);
+        row.status = action === 'approve' ? 'published' : 'blocked';
+        return row;
+      },
+      countsForPosts: async () => new Map<string, number>(),
+    };
     // createReply became async when the human-reply gate started reading the database (R-02), so
     // this test has to await it: without the await, `reply` is a Promise and `reply.id` is
     // undefined, which made the assertion below pass against a reply that was never created.
     const reply = await asUser('user_demo', () => store.createReply('post_1', { content: '我也在这里', anonymous: true }));
     expect(reply.id).toBeTruthy();
-    store.moderateReply('admin_1', reply.id, 'block');
-    expect(store.replies.filter((item) => item.postId === 'post_1' && item.status === 'published').some((item) => item.id === reply.id)).toBe(false);
+    await store.moderateReply('admin_1', reply.id, 'block');
+    expect((await (store as any).repliesDb.get(reply.id)).status).toBe('blocked');
   });
 });
