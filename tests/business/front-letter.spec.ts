@@ -28,7 +28,7 @@ describe('front letter interactions', () => {
     await request(server).post(`/api/v1/letters/${letterId}/poster`).set(await demoUserHeaders()).expect((response) => {
       expect(response.body.posterUrl).toContain(letterId);
     });
-    await request(server).post('/api/v1/share-image').send({ id: letterId, type: 'letter' }).expect((response) => {
+    await request(server).post('/api/v1/share-image').set(await demoUserHeaders()).send({ id: letterId, type: 'letter' }).expect((response) => {
       expect(response.body.posterUrl).toContain('letter');
     });
   });

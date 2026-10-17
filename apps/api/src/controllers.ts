@@ -1523,18 +1523,20 @@ export class PublicController {
   }
 
   @Patch('letters/:id/read')
-  readLetter(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    if (!letter) return { item: null };
+  readLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     letter.status = 'read';
     this.store.persist();
     return { item: letter };
   }
 
   @Post('letters/:id/like')
-  likeLetter(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    if (!letter) return { item: null };
+  likeLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     letter.likeCount = (letter.likeCount ?? 0) + 1;
     this.store.persist();
     return { item: letter };
@@ -1544,8 +1546,14 @@ export class PublicController {
   regenerate(
     @Param('id') id: string,
     @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
   ) {
-    const letter = this.store.letters.find((item) => item.id === id) ?? this.store.letters[0];
+    // The letter must belong to the caller. The old fallback to `letters[0]` meant an unknown id
+    // silently regenerated whichever letter happened to be first in the store - possibly another
+    // user's, using their private content as the AI source.
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     const source =
       this.store.resolveSourceContent(letter.sourceMoodId) ||
       this.store.diaries.find((item) => item.userId === letter.userId)?.content ||
@@ -1592,7 +1600,7 @@ export class PublicController {
   ) {
     const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.userId === userId);
-    if (letter) return this.regenerate(letter.id, body);
+    if (letter) return this.regenerate(letter.id, body, userId);
     const queued = this.store.queueLetterGeneration({
       userId,
       sourceMoodId: 'mood_1',
@@ -1603,18 +1611,25 @@ export class PublicController {
   }
 
   @Post('letters/:id/poster')
-  async poster(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    if (!letter) throw new BadRequestException('回信不存在');
+  async poster(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     const asset = await this.store.createLetterPoster(letter);
     return { posterUrl: asset.url, asset, permission: 'album-required' };
   }
 
   @Post('share-image')
-  async shareImage(@Body() body: { id?: string; type?: string; month?: string }) {
-    const letter = body.id ? this.store.letters.find((item) => item.id === body.id) : undefined;
-    if (body.type === 'letter' || letter) {
-      if (!letter) throw new BadRequestException('回信不存在');
+  async shareImage(
+    @Body() body: { id?: string; type?: string; month?: string },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = body.id
+      ? this.store.letters.find((item) => item.id === body.id && item.userId === userId)
+      : undefined;
+    if (body.type === 'letter' || body.id) {
+      if (!letter) throw new NotFoundException('回信不存在');
       const asset = await this.store.createLetterPoster(letter);
       return { posterUrl: asset.url, asset, permission: 'album-required' };
     }
@@ -1623,8 +1638,10 @@ export class PublicController {
   }
 
   @Post('letters/:id/save-to-diary')
-  async saveToDiary(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id)!;
+  async saveToDiary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     letter.savedToDiary = true;
     this.store.diaries.unshift({
       id: `diary_${Date.now()}`,
@@ -1998,8 +2015,16 @@ export class PublicController {
   }
 
   @Delete('diaries/:id')
-  deleteDiary(@Param('id') id: string) {
+  async deleteDiary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // A diary id is not a capability. Without the owner scope any authenticated caller could delete
+    // someone else's entry by guessing an id, and the ids are timestamp-derived.
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const existing = this.store.diaries.find((item) => item.id === id && item.userId === userId);
+    if (!existing) throw new NotFoundException('日记不存在');
     this.store.diaries = this.store.diaries.filter((item) => item.id !== id);
+    // The delete has to reach the table before the response: a 200 followed by a restart used to
+    // bring the entry back, because this handler mutated memory and never flushed.
+    await this.store.persistAndFlush();
     return { ok: true };
   }
 
