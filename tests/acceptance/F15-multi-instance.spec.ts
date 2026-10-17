@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F15 - two API instances agreeing through the database.
@@ -40,8 +41,8 @@ describe('F15 two instances through the database', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await appB?.close();
-    await appA?.close();
+    await closeAppBounded(appB, 'appB');
+    await closeAppBounded(appA, 'appA');
   });
 
   it('writes on one instance are read, enforced and raced correctly on the other', async () => {

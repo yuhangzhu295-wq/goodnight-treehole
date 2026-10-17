@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F08 - the memory lifecycle, where each state has exactly one legal way out.
@@ -42,8 +43,8 @@ describe('F08 memory lifecycle', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await secondApp?.close();
-    await app?.close();
+    await closeAppBounded(secondApp, 'secondApp');
+    await closeAppBounded(app, 'app');
   });
 
   const row = () => (memoryId ? prisma.memoryItem.findUnique({ where: { id: memoryId } }) : Promise.resolve(null));
@@ -97,6 +98,27 @@ describe('F08 memory lifecycle', () => {
     expect(saved.status).toBe(201);
     expect(savedRow?.status).toBe('active');
     expect(savedRow?.expiresAt.getTime()).toBeGreaterThan(Date.now());
+
+    // 2b. The same record is served back through the list the app reads.
+    const listed = await request(server)
+      .get('/api/v1/me/memories')
+      .set('x-goodnight-user-id', credential);
+    const listedItem = (listed.body?.items ?? []).find((item: any) => item.id === memoryId);
+    evidence.check({
+      step: 'the saved memory is listed through the API',
+      layer: 'API_EVIDENCE',
+      expected: { status: 200, listed: true, title: 'F08：我希望你记住', status_in_view: 'active' },
+      actual: {
+        status: listed.status,
+        listed: Boolean(listedItem),
+        title: listedItem?.title,
+        status_in_view: listedItem?.status,
+      },
+      request: { method: 'GET', path: '/api/v1/me/memories' },
+      response: { status: listed.status },
+    });
+    expect(listed.status).toBe(200);
+    expect(listedItem?.title).toBe('F08：我希望你记住');
 
     // 3. Editing is a plain update and does not touch the consent.
     const edited = await request(server)

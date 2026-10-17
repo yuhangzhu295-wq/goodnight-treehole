@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F03 - the journey state machine, including the transitions it refuses.
@@ -40,8 +41,8 @@ describe('F03 journey state machine', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await secondApp?.close();
-    await app?.close();
+    await closeAppBounded(secondApp, 'secondApp');
+    await closeAppBounded(app, 'app');
   });
 
   const statusOf = async (id: string) => (await prisma.lifeJourney.findUnique({ where: { id } }))?.status;

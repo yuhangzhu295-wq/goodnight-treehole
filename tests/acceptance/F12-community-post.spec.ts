@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F12 - a community post through moderation, a human reply through moderation, and the counters.
@@ -48,7 +49,7 @@ describe('F12 community post', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await app?.close();
+    await closeAppBounded(app, 'app');
   });
 
   it('publishes only after moderation and keeps replies and counters attached', async () => {
@@ -167,6 +168,34 @@ describe('F12 community post', () => {
     });
     expect(replyApproved.status).toBe(200);
     expect(replyRowAfter?.status).toBe('published');
+    expect((visibleAfter.body?.items ?? []).some((item: any) => item.id === replyId)).toBe(true);
+
+    // 4b. The feed and the reply list serve the published content, not just the table.
+    const feedRead = await request(server).get('/api/v1/posts');
+    const feedItem = (feedRead.body?.items ?? []).find((item: any) => item.id === postId);
+    evidence.check({
+      step: 'the feed and reply list serve the published content',
+      layer: 'API_EVIDENCE',
+      expected: {
+        feedStatus: 200,
+        postListed: true,
+        contentMatches: true,
+        replyListed: true,
+        replyContentMatches: true,
+      },
+      actual: {
+        feedStatus: feedRead.status,
+        postListed: Boolean(feedItem),
+        contentMatches: feedItem?.content === `${marker} 今天想说的是，慢一点也没关系。`,
+        replyListed: (visibleAfter.body?.items ?? []).some((item: any) => item.id === replyId),
+        replyContentMatches: (visibleAfter.body?.items ?? []).some(
+          (item: any) => item.id === replyId && item.content === `${marker} 读到这里，我也松了一口气。`,
+        ),
+      },
+      request: { method: 'GET', path: '/api/v1/posts' },
+      response: { feedStatus: feedRead.status, replyStatus: visibleAfter.status },
+    });
+    expect(feedItem?.content).toBe(`${marker} 今天想说的是，慢一点也没关系。`);
     expect((visibleAfter.body?.items ?? []).some((item: any) => item.id === replyId)).toBe(true);
 
     // 5. A hug is idempotent per user.

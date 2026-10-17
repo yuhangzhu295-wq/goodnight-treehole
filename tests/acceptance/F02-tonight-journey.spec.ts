@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F02 - what the user writes on the Tonight page becomes a journey that is really theirs.
@@ -48,8 +49,8 @@ describe('F02 tonight entry creates a journey owned by the caller', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await secondApp?.close();
-    await app?.close();
+    await closeAppBounded(secondApp, 'secondApp');
+    await closeAppBounded(app, 'app');
   });
 
   it('writes a journey for its author, reads it back after a restart, and hides it from another user', async () => {

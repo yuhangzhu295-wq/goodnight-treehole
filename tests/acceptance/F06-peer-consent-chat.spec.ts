@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F06 - the two-sided consent gate and the 72-hour anonymous conversation.
@@ -117,8 +118,8 @@ describe('F06 peer consent and conversation', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await secondApp?.close();
-    await app?.close();
+    await closeAppBounded(secondApp, 'secondApp');
+    await closeAppBounded(app, 'app');
   });
 
   it('activates only after both consents, carries both sides of the conversation, and closes once', async () => {
@@ -231,6 +232,30 @@ describe('F06 peer consent and conversation', () => {
     expect(fromOwner.status).toBe(201);
     expect(fromRequester.status).toBe(201);
     expect(messageRows.map((row) => row.senderUserId)).toEqual([ownerUserId, requesterUserId]);
+
+    // 3b. The same two messages are served back through the API, not only readable in the table.
+    const served = await request(server)
+      .get('/api/v1/peer-conversations')
+      .set('x-goodnight-user-id', ownerCredential);
+    const servedConversation = (served.body?.items ?? []).find((item: any) => item.matchId === matchId);
+    evidence.check({
+      step: 'the API serves the conversation with both messages',
+      layer: 'API_EVIDENCE',
+      expected: { status: 200, found: true, messageCount: 2, contentsPresent: true },
+      actual: {
+        status: served.status,
+        found: Boolean(servedConversation),
+        messageCount: (servedConversation?.messages ?? []).length,
+        contentsPresent: ['F06：我那时候是先把作息调回来。', 'F06：谢谢，我也想从作息开始。'].every((text) =>
+          (servedConversation?.messages ?? []).some((message: any) => message.content === text),
+        ),
+      },
+      request: { method: 'GET', path: '/api/v1/peer-conversations', identity: 'owner' },
+      response: { status: served.status, conversationId: servedConversation?.id },
+    });
+    expect(served.status).toBe(200);
+    expect(servedConversation).toBeTruthy();
+    expect((servedConversation?.messages ?? []).length).toBe(2);
 
     // 4. A non-participant can neither speak nor close.
     const strangerSend = await request(server)

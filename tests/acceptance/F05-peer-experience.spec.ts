@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F05 - one user shares an anonymised experience, another user is matched to it.
@@ -71,7 +72,7 @@ describe('F05 peer experience sharing between two users', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await app?.close();
+    await closeAppBounded(app, 'app');
   });
 
   it('publishes a consented experience, matches a second user, and keeps the draft private', async () => {

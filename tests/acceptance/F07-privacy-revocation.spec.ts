@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F07 - withdrawing a privacy consent removes what that consent controlled, and nothing else.
@@ -49,8 +50,8 @@ describe('F07 privacy revocation', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await secondApp?.close();
-    await app?.close();
+    await closeAppBounded(secondApp, 'secondApp');
+    await closeAppBounded(app, 'app');
   });
 
   const privacyRow = () => prisma.privacySetting.findUnique({ where: { userId } });

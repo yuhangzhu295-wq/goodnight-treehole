@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F11 - diary, letter and favourite ownership.
@@ -46,7 +47,7 @@ describe('F11 diary, letter and favourite ownership', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await app?.close();
+    await closeAppBounded(app, 'app');
   });
 
   it('keeps every id-taking diary and letter route inside its owner', async () => {

@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F17 - restart and recovery.
@@ -47,8 +48,8 @@ describe('F17 restart and recovery', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await appB?.close();
-    if (!appAClosed) await appA?.close();
+    await closeAppBounded(appB, 'appB');
+    if (!appAClosed) await closeAppBounded(appA, 'appA');
   });
 
   it('survives a restart, recovers a stale job, and finishes waiting work', async () => {
@@ -123,7 +124,7 @@ describe('F17 restart and recovery', () => {
     expect(staleBefore?.status).toBe('running');
 
     // 3. Kill the instance that wrote everything, then start a fresh one.
-    await appA.close();
+    await closeAppBounded(appA, 'appA');
     appAClosed = true;
     appB = await createApiTestApp();
     serverB = appB.getHttpServer();

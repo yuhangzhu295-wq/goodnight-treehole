@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F09 - the decision vault's cooldown gate.
@@ -38,7 +39,7 @@ describe('F09 decision vault and cooldown', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await app?.close();
+    await closeAppBounded(app, 'app');
   });
 
   it('holds the decision through the cooldown, then lets the user decide and archive', async () => {

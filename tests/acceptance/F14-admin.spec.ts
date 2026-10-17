@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F14 - the admin console: minimal disclosure, audited reads, moderation, and the audit trail.
@@ -45,7 +46,7 @@ describe('F14 admin console', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await app?.close();
+    await closeAppBounded(app, 'app');
   });
 
   it('keeps lists metadata-only, audits full reads, and records moderation', async () => {

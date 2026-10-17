@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "0a519e9ddeb76cc1d24bc2942baa6b2a3676e48a",
-  "updatedAt": "2026-10-17T19:31:37.405Z",
+  "updatedAt": "2026-10-17T19:58:14.347Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -619,6 +619,71 @@
       "evidence": "Measured with pg_stat_activity during F10. One transaction held SELECT id FROM \"LifeJourney\" WHERE id = $1 FOR UPDATE and was idle in transaction; the worker INSERT INTO \"UserNotification\" waited on that transaction id; a concurrent INSERT INTO \"User\" (the legacy flush) waited on the worker. The 5000 ms interactive-transaction budget expired and the queue job was logged as failed after the delivery had already committed, so BullMQ retried. A second shape: repairPrivacyDefaults waiting on User FOR UPDATE while the worker held the user row for its notification FK. Both come from reloadRuntimeState() calling the full legacy flush (mood.upsert, aIStyleRoute.upsert, user upsert) after a delivery.",
       "blocker": "",
       "nextAction": "Retired by converting the remaining Post-cluster models so reloadRuntimeState stops writing. Until then the acceptance fixture boots the second instance before making the job runnable, so the two flushes do not overlap; that is a test-ordering mitigation, not a fix."
+    },
+    {
+      "id": "ACCEPTANCE-F05-F17",
+      "phase": "Acceptance",
+      "priority": "P0",
+      "status": "DONE",
+      "title": "F01-F15 and F17 execute against real sessions and a leased database",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "Run run-acceptance-20261018-035601: 16 of 17 flows PASS, F16 NOT_RUN, overall INCOMPLETE. 117 evidence steps across API/DATABASE/SECURITY/PERSISTENCE layers. Report: docs/qa/FULL_ACCEPTANCE_REPORT.md. Gate: scripts/acceptance/build-summary.mjs (non-zero on a missing flow, a failed step, or a missing required layer).",
+      "blocker": "",
+      "nextAction": "F16 needs a dedicated AVD and a real APK; until it runs the summary stays INCOMPLETE."
+    },
+    {
+      "id": "FIX-CEND-IDOR",
+      "phase": "Security",
+      "priority": "P0",
+      "status": "DONE",
+      "title": "Six letter and diary routes looked records up by id without the caller",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "read/like/regenerate/poster/share-image/save-to-diary/delete-diary now resolve the caller and return 404 for a stranger. regenerate no longer falls back to letters[0]. DELETE diaries now flushes before responding. F11 asserts both the refusals and the owner path; front-letter, front-tools, front-publish-private, cend-write-ownership, third-stage-privacy-2 and batch3-identity-matrix pass.",
+      "blocker": "",
+      "nextAction": "None."
+    },
+    {
+      "id": "FIX-POST-DELETE-IDOR",
+      "phase": "Security",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Any authenticated user could delete any public post",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "DELETE /posts/:id now requires post.userId === caller and returns 404 otherwise; admin moderation keeps PATCH /admin/v1/posts/:id/review. F12 asserts the stranger is refused and the author can delete.",
+      "blocker": "",
+      "nextAction": "None."
+    },
+    {
+      "id": "FIX-ADMIN-AUDIT-LIST",
+      "phase": "Security",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "The audit list hid the audited private-record reads it exists to show",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "getAuditedMemoryForAdmin writes AuditLog straight to PostgreSQL; GET /admin/v1/audit-logs served store.auditLogs, so the row appeared only after a restart. The route now reads the table (SelfPersistenceService.listAuditLogsForAdmin) and merges queued in-memory rows by id. F14 asserts the read row and the moderation row are both listed; batch3-admin-disclosure, admin-sync and deprecated-endpoints pass.",
+      "blocker": "",
+      "nextAction": "None."
+    },
+    {
+      "id": "ACCEPTANCE-SUMMARY-GATE",
+      "phase": "Acceptance",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "The acceptance summary fails the run, it does not just describe it",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "scripts/acceptance/build-summary.mjs exits non-zero when a flow is missing, a step is not PASS, or a manifest-required evidence layer is absent. Its first use caught five flows with missing layers (F06/F08/F10/F12/F13); the fix added real assertions rather than weakening the manifest.",
+      "blocker": "",
+      "nextAction": "None."
     }
   ]
 }

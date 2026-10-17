@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { auth, createApiTestApp, loginAdmin } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F13 - safety support reachability.
@@ -42,7 +43,7 @@ describe('F13 safety support', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await app?.close();
+    await closeAppBounded(app, 'app');
   });
 
   it('raises a safety event, offers the support path, and records the operator action', async () => {
@@ -157,6 +158,25 @@ describe('F13 safety support', () => {
     expect(ack.status).toBe(201);
     expect(journeyAfterAck?.stage).toBe('stabilizing');
     expect(ackUpdate?.kind).toBe('safety_acknowledged');
+
+    // 4b. The app sees the same stage through its own read.
+    const journeyRead = await request(server)
+      .get(`/api/v1/journeys/${safetyJourneyId}`)
+      .set('x-goodnight-user-id', credential);
+    evidence.check({
+      step: 'the journey read reflects the acknowledged safety state',
+      layer: 'API_EVIDENCE',
+      expected: { status: 200, stage: 'stabilizing', intent: 'JUST_LISTEN' },
+      actual: {
+        status: journeyRead.status,
+        stage: journeyRead.body?.item?.journey?.stage,
+        intent: journeyRead.body?.item?.journey?.currentIntent,
+      },
+      request: { method: 'GET', path: `/api/v1/journeys/${safetyJourneyId}`, identity: 'owner' },
+      response: { status: journeyRead.status },
+    });
+    expect(journeyRead.status).toBe(200);
+    expect(journeyRead.body?.item?.journey?.stage).toBe('stabilizing');
 
     // 5. The operator sees the event, its trigger excerpt, and can handle it with a note.
     const adminList = await request(server)

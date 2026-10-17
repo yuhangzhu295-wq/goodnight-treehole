@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import type { INestApplication } from '@nestjs/common';
 import { createApiTestApp } from '../business/helpers';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F01 - anonymous identity and session lifecycle.
@@ -36,8 +37,8 @@ describe('F01 anonymous identity and session lifecycle', () => {
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await secondApp?.close();
-    await app?.close();
+    await closeAppBounded(secondApp, 'secondApp');
+    await closeAppBounded(app, 'app');
   });
 
   it('issues an identity, keeps it across a restart, revokes it across instances, and refuses a forged id', async () => {

@@ -6,6 +6,7 @@ import { Queue } from '../../apps/api/node_modules/bullmq';
 import { createApiTestApp, followUpTestConnection } from '../business/helpers';
 import { createIdentity } from './helpers/identity';
 import { FlowEvidence } from './helpers/evidence';
+import { closeAppBounded } from './helpers/teardown';
 
 /**
  * F10 - a message to the future: scheduled, restarted, delivered exactly once.
@@ -31,6 +32,7 @@ describe('F10 message to future self', () => {
 
   let credential: string;
   let userId: string;
+  let strangerCredential: string;
   let messageId: string;
   let followUpId: string;
   let journeyId: string;
@@ -43,13 +45,14 @@ describe('F10 message to future self', () => {
     const identity = await createIdentity(server, 'F10 owner');
     credential = identity.credential;
     userId = identity.userId;
+    strangerCredential = (await createIdentity(server, 'F10 stranger')).credential;
   });
 
   afterAll(async () => {
     evidence.flush();
     await prisma?.$disconnect();
-    await deliveryApp?.close();
-    if (!appClosed) await app?.close();
+    await closeAppBounded(deliveryApp, 'deliveryApp');
+    if (!appClosed) await closeAppBounded(app, 'app');
   });
 
   it('schedules, survives a restart, delivers once, and skips the duplicate', async () => {
@@ -128,7 +131,48 @@ describe('F10 message to future self', () => {
     expect(seen).toBeTruthy();
     expect(seen?.deliveredAt ?? null).toBeNull();
 
-    await app.close();
+    // 3b. The list the app reads carries the letter with its chosen context.
+    evidence.check({
+      step: 'the API serves the letter with its context and content',
+      layer: 'API_EVIDENCE',
+      expected: {
+        status: 200,
+        contextType: 'journey',
+        contextRefIdMatches: true,
+        contentMatches: true,
+        contextLabelPresent: true,
+      },
+      actual: {
+        status: beforeRestart.status,
+        contextType: seen?.contextType,
+        contextRefIdMatches: seen?.contextRefId === journeyId,
+        contentMatches: seen?.content === 'F10：请记得，你已经先停下来了一次。',
+        contextLabelPresent: Boolean(seen?.contextLabel),
+      },
+      request: { method: 'GET', path: '/api/v1/future-messages', identity: 'owner' },
+      response: { status: beforeRestart.status, item: seen },
+    });
+    expect(seen?.contextType).toBe('journey');
+    expect(seen?.content).toBe('F10：请记得，你已经先停下来了一次。');
+
+    // 3c. Another user's list does not contain the letter.
+    const strangerList = await request(server)
+      .get('/api/v1/future-messages')
+      .set('x-goodnight-user-id', strangerCredential);
+    evidence.check({
+      step: 'another user cannot see the future letter',
+      layer: 'SECURITY_EVIDENCE',
+      expected: { status: 200, listedForStranger: false },
+      actual: {
+        status: strangerList.status,
+        listedForStranger: (strangerList.body?.items ?? []).some((item: any) => item.id === messageId),
+      },
+      request: { method: 'GET', path: '/api/v1/future-messages', identity: 'unrelated user' },
+      response: { status: strangerList.status },
+    });
+    expect((strangerList.body?.items ?? []).some((item: any) => item.id === messageId)).toBe(false);
+
+    await closeAppBounded(app, 'app');
     appClosed = true;
 
     // 4. Move the deadline into the past with the database clock, and move the *already scheduled*
