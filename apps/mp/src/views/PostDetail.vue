@@ -320,6 +320,24 @@ onMounted(async () => {
       </div>
     </div>
   </section>
+
+  <!-- Opened without a resolvable id the page rendered nothing: no header, no back button, no way
+       out. Offer the route back the way LetterDetail does. -->
+  <section v-else class="page goodnight-page detail-page">
+    <header class="detail-top">
+      <div class="status-row"><span>{{ timeLabel }}</span><span aria-hidden="true"></span></div>
+      <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
+      <h1>树洞详情</h1>
+      <div class="tree-scene detail-tree" aria-hidden="true"><span class="tree-heart">♡</span></div>
+    </header>
+    <article class="detail-card">
+      <h2>没有找到这条树洞</h2>
+      <p class="detail-content is-empty">它可能已经被删除或屏蔽。可以从广场重新打开一条。</p>
+      <div class="detail-actions">
+        <button class="primary" data-testid="detail-goto-square" @click="router.push('/pages/square/index')">回到树洞广场</button>
+      </div>
+    </article>
+  </section>
 </template>
 
 <style scoped>
