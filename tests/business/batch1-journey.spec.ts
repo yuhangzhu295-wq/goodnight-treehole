@@ -863,6 +863,43 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         },
       });
 
+      // Mood and Post are both flush-owned models whose journey FK the flush must not null, so both
+      // rows are written directly here (like DecisionRecord and SafetyEvent above) and the flush must
+      // leave them alone. `Post.moodId` is unique and Restrict, which is why the mood comes first.
+      await freshPrisma.mood.create({
+        data: {
+          id: moodId,
+          userId,
+          emotion: '焦虑',
+          content: '关联到旅程的心情内容',
+          visibility: 'PRIVATE',
+          riskLevel: 'low',
+          riskScore: 0,
+          status: 'active',
+          journeyId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      await freshPrisma.post.create({
+        data: {
+          id: postId,
+          moodId,
+          userId,
+          emotion: '焦虑',
+          content: '关联到旅程的帖子内容',
+          visibility: 'PUBLIC',
+          status: 'active',
+          reviewStatus: 'published',
+          hugCount: 0,
+          replyCount: 0,
+          favoriteCount: 0,
+          reportCount: 0,
+          journeyId,
+          createdAt: new Date(),
+        },
+      });
+
       // 2. Trigger a legacy flush simulating another API instance running saveRelationalRuntimeState
       // with in-memory records pointing to journeyId, while lifeJourneys is NOT loaded in that instance
       const testState = {

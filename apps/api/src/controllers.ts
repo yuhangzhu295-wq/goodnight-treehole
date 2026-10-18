@@ -1241,25 +1241,21 @@ export class PublicController {
     const post = await this.store.getPost(id, true);
     await this.store.addFavorite(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    // Decorated again with a fresh context so the response reflects the favourite just added.
-    return { item: this.store.decoratePost(post, await this.store.buildPostDecorationContext([post])) };
+    // Read again so the response reflects the favourite just added.
+    return { item: await this.store.getPost(id, true) };
   }
 
   @Delete('posts/:id/favorite')
   async deleteFavorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    const post = await this.store.getPost(id, true);
     await this.store.removeFavoriteByTarget(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    return { item: this.store.decoratePost(post, await this.store.buildPostDecorationContext([post])) };
+    return { item: await this.store.getPost(id, true) };
   }
 
   @Post('posts/:id/report')
   async report(@Param('id') id: string) {
-    const post = await this.store.getPost(id, true);
-    post.reportCount += 1;
-    this.store.persist();
-    await this.store.flush();
-    return { item: post };
+    const item = await this.store.reportPost(id);
+    return { item };
   }
 
   @Post('posts/:id/hide')
@@ -1275,9 +1271,7 @@ export class PublicController {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
     const post = await this.store.getPost(id, true);
     if (post.userId !== userId) throw new NotFoundException('树洞不存在');
-    post.status = 'deleted';
-    this.store.persist();
-    await this.store.flush();
+    await this.store.deletePostAsAuthor(id);
     return { ok: true };
   }
 
@@ -1331,10 +1325,12 @@ export class PublicController {
   }
 
   @Post('moods/:id/queue-ai-replies')
-  queueReplies(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+  async queueReplies(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
     const mood = this.store.moods.find((item) => item.id === id);
-    const post = this.store.posts.find((item) => item.moodId === id);
+    const postId = DIRECT_DB_MODELS.Post
+      ? await this.store.postsDb.idByMoodId(id)
+      : (this.store.posts.find((item) => item.moodId === id)?.id ?? null);
     const styles: AIStyle[] = ['warm', 'rational', 'light', 'clear', 'poetic'];
     const jobs = styles.map((style) =>
       this.store.queueAI({
@@ -1345,14 +1341,14 @@ export class PublicController {
         content: mood?.content ?? '',
       }),
     );
-    if (post) {
+    if (postId) {
       void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then(async (completed) => {
         const usable = completed.filter((item) => ['succeeded', 'fallback'].includes(item.status));
         if (DIRECT_DB_MODELS.Reply) {
           for (const job of usable) {
             await this.store.repliesDb.create({
               id: `reply_${job.id}`,
-              postId: post.id,
+              postId,
               type: 'AI',
               style: job.style,
               content: job.result,
@@ -1361,13 +1357,13 @@ export class PublicController {
               createdAt: new Date(job.createdAt),
             });
           }
-          await this.store.syncReplyCountForPost(post.id);
+          await this.store.syncReplyCount(postId);
           return;
         }
         for (const job of usable) {
           this.store.replies.unshift({
             id: `reply_${job.id}`,
-            postId: post.id,
+            postId,
             type: 'AI',
             style: job.style,
             content: job.result,
@@ -1377,9 +1373,7 @@ export class PublicController {
             createdAt: job.createdAt,
           });
         }
-        post.replyCount = this.store.replies.filter(
-          (item) => item.postId === post.id && item.status === 'published',
-        ).length;
+        await this.store.syncReplyCount(postId);
         this.store.persist();
       });
     }
@@ -2058,9 +2052,14 @@ export class PublicController {
     const userId = requireRuntimeUserId(requestedUserId);
     // Favorite is database-authoritative; the in-memory array is empty once it is registered.
     const rows = await this.store.favoritesDb.listForUser(userId, type);
+    // The preview comes from the favourite's target. Post is database-authoritative too, so its rows
+    // are read from the table; Letter and Diary still come from the store's arrays.
+    const favouritePosts = DIRECT_DB_MODELS.Post
+      ? await this.store.postsDb.findByIds(rows.filter((item) => item.targetType === 'post').map((item) => item.targetId))
+      : [];
     const items = rows.map((item) => {
       const post =
-        item.targetType === 'post' ? this.store.posts.find((postItem) => postItem.id === item.targetId) : undefined;
+        item.targetType === 'post' ? favouritePosts.find((postItem) => postItem.id === item.targetId) : undefined;
       const letter =
         item.targetType === 'letter'
           ? this.store.letters.find((letterItem) => letterItem.id === item.targetId)
@@ -2399,25 +2398,46 @@ export class AdminController {
     const replyCountsByDay = DIRECT_DB_MODELS.Reply
       ? await this.store.repliesDb.countsByDay(new Date(`${dayKeys[0]}T00:00:00.000Z`))
       : null;
-    const activeTrend = dayKeys.map((day) => ({
+    // Post is database-authoritative; its three dashboard figures come from the table.
+    const postsCreatedByDay = DIRECT_DB_MODELS.Post
+      ? await Promise.all(
+          dayKeys.map(async (day) => [
+            day,
+            await this.store.postsDb.countCreatedSince(new Date(`${day}T00:00:00.000Z`)),
+          ] as const),
+        )
+      : null;
+    const todayPostCount =
+      (postsCreatedByDay?.at(-1)?.[1] ??
+        this.store.posts.filter((p) => p.createdAt?.startsWith(today)).length) as number;
+    const activeTrend = dayKeys.map(([day], index) => ({
       date: day,
       users: this.store.users.filter((item) => item.createdAt?.startsWith(day)).length,
-      posts: this.store.posts.filter((item) => item.createdAt?.startsWith(day)).length,
+      posts: postsCreatedByDay
+        ? postsCreatedByDay[index][1]
+        : this.store.posts.filter((item) => item.createdAt?.startsWith(day)).length,
       replies: replyCountsByDay
         ? (replyCountsByDay[day] ?? 0)
         : this.store.replies.filter((item) => item.createdAt?.startsWith(day)).length,
       aiJobs: aiMetrics.trendByDay[day] ?? 0,
     }));
-    const emotionDistribution = this.store.posts.reduce<Record<string, number>>((acc, post) => {
-      acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
-      return acc;
-    }, {});
+    const emotionDistribution = DIRECT_DB_MODELS.Post
+      ? (await this.store.postsDb.listRecent(500)).reduce<Record<string, number>>((acc, post) => {
+          acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
+          return acc;
+        }, {})
+      : this.store.posts.reduce<Record<string, number>>((acc, post) => {
+          acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
+          return acc;
+        }, {});
     const ollama = this.store.ollamaStatus();
     return {
       todayUsers: this.store.users.filter((u) => u.createdAt?.startsWith(today)).length,
-      todayPosts: this.store.posts.filter((p) => p.createdAt?.startsWith(today)).length,
+      todayPosts: todayPostCount,
       pendingReviews:
-        this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length +
+        (DIRECT_DB_MODELS.Post
+          ? (await this.store.postsDb.listPendingReview()).length
+          : this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length) +
         (DIRECT_DB_MODELS.Reply
           ? await this.store.repliesDb.countPending()
           : this.store.replies.filter((r) => r.status === 'pending_review').length),
@@ -2451,7 +2471,7 @@ export class AdminController {
       aiSuccessRate: aiMetrics.aiSuccessRate,
       activeTrend,
       emotionDistribution,
-      latestPosts: this.store.posts.slice(0, 8),
+      latestPosts: DIRECT_DB_MODELS.Post ? await this.store.postsDb.listRecent(8) : this.store.posts.slice(0, 8),
       aiJobs: aiMetrics.latestJobs,
       aiSummary: aiMetrics.summary,
       aiMonitor: {
@@ -3106,6 +3126,10 @@ export class AdminController {
     @Query('pageSize') pageSize?: string,
   ) {
     const needle = q?.trim().toLowerCase();
+    if (DIRECT_DB_MODELS.Post) {
+      const rows = await this.store.postsDb.idsForAdmin({ status: reviewStatus });
+      return this.list(rows, page, pageSize);
+    }
     const items = this.store.posts.filter((post) => {
       const matchesQuery =
         !needle ||
@@ -3220,7 +3244,7 @@ export class AdminController {
             createdAt: new Date(job.createdAt),
           });
         }
-        await this.store.syncReplyCountForPost(post.id);
+        await this.store.syncReplyCount(post.id);
         return;
       }
       for (const job of usable) {

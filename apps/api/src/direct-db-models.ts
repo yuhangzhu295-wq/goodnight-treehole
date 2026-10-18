@@ -57,6 +57,10 @@ export const DIRECT_DB_MODELS = {
   // Batch 4 model 9 of 16, second member of the Post cluster. Its coupling is Post.replyCount;
   // reply-persistence.service.ts derives that counter from the table after every publish and at boot.
   Reply: 'replies',
+  // Batch 4 model 10 of 16, the hub of the cluster. With it registered the flush no longer
+  // hydrates, upserts or sweeps Post; post-persistence.service.ts owns the row, the two
+  // denormalised counters and the reads, and the reply/favourite paths write those counters.
+  Post: 'posts',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

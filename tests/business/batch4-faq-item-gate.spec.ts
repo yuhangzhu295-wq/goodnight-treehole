@@ -30,6 +30,7 @@ const TARGET_TABLES = [
   'AgentDecisionLog',
   'Favorite',
   'Reply',
+  'Post',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -89,6 +90,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('UPDATE "AgentDecisionLog" SET "taskType" = "taskType" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "Favorite" SET "targetType" = "targetType" WHERE false');
     await prisma.$executeRawUnsafe('UPDATE "Reply" SET "style" = "style" WHERE false');
+    await prisma.$executeRawUnsafe('UPDATE "Post" SET "reviewStatus" = "reviewStatus" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'AgentDecisionLog', op: 'UPDATE', n: 1 },
@@ -97,6 +99,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
       { table: 'PeerReputation', op: 'UPDATE', n: 1 },
+      { table: 'Post', op: 'UPDATE', n: 1 },
       { table: 'Reply', op: 'UPDATE', n: 1 },
       { table: 'ReplyPreset', op: 'UPDATE', n: 1 },
     ]);
@@ -113,6 +116,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await prisma.$executeRawUnsafe('DELETE FROM "AgentDecisionLog" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "Favorite" WHERE false');
     await prisma.$executeRawUnsafe('DELETE FROM "Reply" WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM "Post" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'AgentDecisionLog', op: 'DELETE', n: 1 },
@@ -121,6 +125,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
       { table: 'PeerReputation', op: 'DELETE', n: 1 },
+      { table: 'Post', op: 'DELETE', n: 1 },
       { table: 'Reply', op: 'DELETE', n: 1 },
       { table: 'ReplyPreset', op: 'DELETE', n: 1 },
     ]);
@@ -668,6 +673,70 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     expect(reAdded).not.toBeNull();
     const postRow = await prisma.post.findUnique({ where: { id: postId } });
     expect(postRow?.favoriteCount).toBe(1);
+  }, 120_000);
+
+  /**
+   * `Post` is the hub: converting it is what lets the favourite and reply counters be plain row
+   * counts. The case covers the read path, the moderation gate, and the two things the flush used
+   * to own - hydration and the sweep - by asserting both that a directly written post is served and
+   * that a flush leaves it alone.
+   */
+  it('a post written straight to PostgreSQL is served, moderated, and survives a flush', async () => {
+    const headers = { 'x-goodnight-user-id': await identityFor(DEMO_USER_ID) };
+    const content = `batch4 probe post ${Date.now()}`;
+    await request(server)
+      .post('/api/v1/moods')
+      .set(headers)
+      .send({ content, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+
+    // The mood is still legacy-owned, so its row is written by the flush; the post is written by the
+    // publish path and needs the mood row to exist first.
+    const published = await request(server)
+      .post('/api/v1/posts')
+      .set(headers)
+      .send({ content, emotion: 'calm', visibility: 'PUBLIC' })
+      .expect(201);
+    const postId = published.body.post.id as string;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Direct read path: the post is served from the table, pending review, out of the feed.
+    const feedBefore = await request(server).get('/api/v1/posts').expect(200);
+    expect((feedBefore.body.items ?? []).some((item: any) => item.id === postId)).toBe(false);
+    const detail = await request(server).get(`/api/v1/posts/${postId}`).set(headers).expect(200);
+    expect(detail.body.item.reviewStatus).toBe('pending_review');
+
+    // A flush must neither rewrite nor sweep it.
+    await clearProbe();
+    await request(server)
+      .post('/api/v1/moods')
+      .set(headers)
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(await prisma.post.findUnique({ where: { id: postId } })).not.toBeNull();
+    expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+
+    // Moderation publishes it, and the counter projections follow.
+    await request(server)
+      .patch(`/api/admin/v1/posts/${postId}/review`)
+      .set('Authorization', auth(adminToken))
+      .send({ status: 'published' })
+      .expect(200);
+    const postRow = await prisma.post.findUnique({ where: { id: postId } });
+    expect(postRow?.reviewStatus).toBe('published');
+    const feedAfter = await request(server).get('/api/v1/posts').expect(200);
+    const feedItem = (feedAfter.body.items ?? []).find((item: any) => item.id === postId);
+    expect(feedItem).toBeTruthy();
+    expect(typeof feedItem.replyCount).toBe('number');
+    expect(typeof feedItem.favoriteCount).toBe('number');
+
+    // Author deletion is terminal for the feed.
+    await request(server).delete(`/api/v1/posts/${postId}`).set(headers).expect(200);
+    const afterDelete = await prisma.post.findUnique({ where: { id: postId } });
+    expect(afterDelete?.status).toBe('deleted');
+    const feedDeleted = await request(server).get('/api/v1/posts').expect(200);
+    expect((feedDeleted.body.items ?? []).some((item: any) => item.id === postId)).toBe(false);
   }, 120_000);
 
   /**

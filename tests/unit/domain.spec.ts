@@ -101,6 +101,25 @@ describe('domain services', () => {
     // reply rows themselves. The database behaviour is covered by the Batch 4 gate and F12.
     const rows = new Map<string, any>();
     (store as any).favoritesDb = { postIdsForUser: async () => new Set<string>() };
+    // Post is database-authoritative too, so `createReply`'s counter projection writes through this
+    // stub instead of the in-memory copy the flush no longer hydrates.
+    (store as any).postsDb = {
+      setReplyCount: async () => undefined,
+      // `post_1` is the legacy seed this spec has always used.
+      get: async (id: string) =>
+        id === 'post_1'
+          ? {
+              id,
+              userId: 'user_demo',
+              visibility: 'PUBLIC',
+              reviewStatus: 'published',
+              status: 'active',
+              publishedAt: null,
+              createdAt: new Date(),
+            }
+          : null,
+      replyCountsForPosts: async () => new Map<string, number>(),
+    };
     (store as any).repliesDb = {
       create: async (input: any) => {
         const row = { id: input.id ?? 'reply_unit_1', ...input, likeCount: 0 };

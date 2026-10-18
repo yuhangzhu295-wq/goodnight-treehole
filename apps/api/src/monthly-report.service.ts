@@ -325,9 +325,11 @@ export class MonthlyReportService {
       return dailyTrend.slice(start - 1, end).reduce((sum, point) => sum + point.count, 0);
     });
     const linkedMoodIds = new Set(records.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
-    const relatedPostIds = this.store.posts
-      .filter((post) => post.userId === userId && linkedMoodIds.has(post.moodId))
-      .map((post) => post.id);
+    const relatedPostIds = DIRECT_DB_MODELS.Post
+      ? (await this.store.postsDb.listAll()).filter((post) => post.userId === userId && linkedMoodIds.has(post.moodId)).map((post) => post.id)
+      : this.store.posts
+          .filter((post) => post.userId === userId && linkedMoodIds.has(post.moodId))
+          .map((post) => post.id);
     const replyCount = DIRECT_DB_MODELS.Reply
       ? [...(await this.store.repliesDb.countsForPosts(relatedPostIds)).values()].reduce(
           (sum, count) => sum + count,

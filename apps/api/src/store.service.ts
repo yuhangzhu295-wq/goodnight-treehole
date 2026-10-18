@@ -35,6 +35,7 @@ import { PeerPersistenceService } from './peer-persistence.service.js';
 import { SelfPersistenceService, type PrivacySettingRecord } from './self-persistence.service.js';
 import { FavoritePersistenceService } from './favorite-persistence.service.js';
 import { ReplyPersistenceService } from './reply-persistence.service.js';
+import { PostPersistenceService } from './post-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1288,6 +1289,8 @@ export class StoreService implements OnModuleInit {
     public readonly favoritesDb: FavoritePersistenceService = new FavoritePersistenceService(prisma as any),
     @Inject(ReplyPersistenceService)
     public readonly repliesDb: ReplyPersistenceService = new ReplyPersistenceService(prisma as any),
+    @Inject(PostPersistenceService)
+    public readonly postsDb: PostPersistenceService = new PostPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1609,6 +1612,19 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.Post) {
+      delete data.posts;
+      Object.defineProperty(data, 'posts', {
+        get() {
+          throw new Error('StoreData.posts is disabled: Post is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.posts is disabled: Post is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
     if (DIRECT_DB_MODELS.Reply) {
       delete data.replies;
       Object.defineProperty(data, 'replies', {
@@ -1627,6 +1643,30 @@ export class StoreService implements OnModuleInit {
   async onModuleInit() {
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     this.data = persisted ?? this.loadLegacyStore();
+    // The flush no longer writes the posts table once Post is registered, so any post this snapshot
+    // holds - the legacy demo seeds, including `post_1` that the e2e flows target - has to be written
+    // here or it would never reach the database. This runs while `data.posts` is still readable.
+    if (DIRECT_DB_MODELS.Post) {
+      const posts = Array.isArray(this.data.posts) ? this.data.posts : [];
+      // Mood is still flush-owned and `Post.moodId` is a Restrict FK, so the moods this snapshot
+      // holds are written first. One flush is enough even when every mood is already in the
+      // database: the statement is a no-op, so this is not a per-reload cost.
+      this.persist();
+      await this.flush();
+      for (const post of posts) {
+        await this.postsDb.create({
+          id: post.id,
+          moodId: post.moodId,
+          userId: post.userId,
+          emotion: post.emotion,
+          content: post.content,
+          visibility: post.visibility,
+          reviewStatus: post.reviewStatus as 'pending_review' | 'published' | 'hidden' | 'rejected',
+          journeyId: post.journeyId ?? null,
+          createdAt: new Date(post.createdAt),
+        });
+      }
+    }
     this.isolateDirectDbModels(this.data);
     if (DIRECT_DB_MODELS.PrivacySetting) {
       await this.selfPersistence.repairPrivacyDefaults();
@@ -2030,8 +2070,15 @@ export class StoreService implements OnModuleInit {
     const favorite = { id: id('fav'), userId, targetType, targetId, createdAt: now() };
     this.data.favorites.unshift(favorite);
     if (targetType === 'post') {
-      const post = this.posts.find((item) => item.id === targetId);
-      if (post) post.favoriteCount += 1;
+      if (DIRECT_DB_MODELS.Post) {
+        // Post is database-authoritative; its counter is a row count over the favourite table, so it
+        // is recomputed rather than incremented.
+        const counts = await this.favoritesDb.countsForPosts([targetId]);
+        await this.postsDb.setFavoriteCount(targetId, counts.get(targetId) ?? 0);
+      } else {
+        const post = this.posts.find((item) => item.id === targetId);
+        if (post) post.favoriteCount += 1;
+      }
     }
     if (targetType === 'letter') {
       const letter = this.letters.find((item) => item.id === targetId && item.userId === userId);
@@ -2098,8 +2145,14 @@ export class StoreService implements OnModuleInit {
   ) {
     if (targetType === 'post') {
       const counts = await this.favoritesDb.countsForPosts([targetId]);
-      const post = this.posts.find((item) => item.id === targetId);
-      if (post) post.favoriteCount = counts.get(targetId) ?? 0;
+      const favouriteCount = counts.get(targetId) ?? 0;
+      // The table is the record. The in-memory copy only has to agree while Post is still
+      // flush-owned; once it is registered there is no copy to keep.
+      await this.postsDb.setFavoriteCount(targetId, favouriteCount);
+      if (!DIRECT_DB_MODELS.Post) {
+        const post = this.posts.find((item) => item.id === targetId);
+        if (post) post.favoriteCount = favouriteCount;
+      }
       return;
     }
     if (targetType === 'letter') {
@@ -2569,8 +2622,14 @@ export class StoreService implements OnModuleInit {
       (item) => item.id === assetId && item.userId === this.getDemoUserId() && item.status === 'ready',
     );
     if (!asset) throw new NotFoundException('图片不存在');
+    // Post attachments live on the mood (`Post.moodId` is unique), which is why the legacy check
+    // scanned the posts array as well. With Post registered that array is gone, so the mood rows
+    // carry the same information on their own.
     const attached =
-      [...this.moods, ...this.posts].some((item: any) => item.attachmentIds?.includes(assetId)) ||
+      this.moods.some((item) => (item.attachmentIds ?? []).includes(assetId)) ||
+      // Post attachments are the mood's attachments, so the mood check above covers them. The extra
+      // database read would only tell us a post exists for the mood, not that it holds the asset.
+      (DIRECT_DB_MODELS.Post ? false : this.data.posts.some((item: any) => item.attachmentIds?.includes(assetId))) ||
       this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId));
     if (attached) throw new ForbiddenException('已发布内容的图片不能在草稿删除接口中移除');
     const target = path.join(uploadsDirectory, asset.storageKey);
@@ -2730,33 +2789,14 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
+  /**
+   * Both denormalised post counters (`favoriteCount`, `replyCount`) are now written where the
+   * favourite and the reply are written, so boot has nothing to recompute. These two methods stay as
+   * seams rather than being deleted: if a future change restores a flush-owned copy of either column,
+   * a recount belonging here is better than one appearing in the next boot path.
+   */
   private async reconcileFavoriteCounts() {
-    if (DIRECT_DB_MODELS.Favorite) {
-      // The counters are denormalised columns on models that have not moved yet, so boot has to
-      // bring the in-memory copies back in line with the favourite table - otherwise the next flush
-      // would write the stale number over the row.
-      await this.favoritesDb.reconcileCounters();
-      const counts = await this.favoritesDb.countsForPosts(this.posts.map((post) => post.id));
-      let changed = false;
-      for (const post of this.posts) {
-        const expected = counts.get(post.id) ?? 0;
-        if (post.favoriteCount !== expected) {
-          post.favoriteCount = expected;
-          changed = true;
-        }
-      }
-      if (changed) this.persist();
-      return;
-    }
-    let changed = false;
-    for (const post of this.posts) {
-      const expected = this.favorites.filter((item) => item.targetType === 'post' && item.targetId === post.id).length;
-      if (post.favoriteCount !== expected) {
-        post.favoriteCount = expected;
-        changed = true;
-      }
-    }
-    if (changed) this.persist();
+    return;
   }
 
   private async reconcileLetterFavorites() {
@@ -2785,36 +2825,12 @@ export class StoreService implements OnModuleInit {
   }
 
   private async reconcileReplyCounts() {
-    if (DIRECT_DB_MODELS.Reply) {
-      await this.repliesDb.reconcileCounts();
-      const counts = await this.repliesDb.countsForPosts(this.posts.map((post) => post.id));
-      let changed = false;
-      for (const post of this.posts) {
-        const expected = counts.get(post.id) ?? 0;
-        if (post.replyCount !== expected) {
-          post.replyCount = expected;
-          changed = true;
-        }
-      }
-      if (changed) this.persist();
-      return;
-    }
-    let changed = false;
-    for (const post of this.posts) {
-      const expected = this.replies.filter(
-        (item) => item.postId === post.id && item.status === 'published',
-      ).length;
-      if (post.replyCount !== expected) {
-        post.replyCount = expected;
-        changed = true;
-      }
-    }
-    if (changed) this.persist();
+    return;
   }
 
   private applyFavoriteRemoval(favorites: StoreData['favorites']) {
     for (const favorite of favorites) {
-      if (favorite.targetType === 'post') {
+      if (favorite.targetType === 'post' && !DIRECT_DB_MODELS.Post) {
         const post = this.posts.find((item) => item.id === favorite.targetId);
         if (post) post.favoriteCount = Math.max(0, post.favoriteCount - 1);
       }
@@ -3084,10 +3100,15 @@ export class StoreService implements OnModuleInit {
       await this.prisma.hugAction.create({ data: { userId, postId, presetCode: 'default' } });
     }
     const count = await this.prisma.hugAction.count({ where: { postId } });
-    post.hugCount = baseline + count;
+    const hugCount = baseline + count;
+    if (DIRECT_DB_MODELS.Post) {
+      await this.postsDb.setHugCount(postId, hugCount);
+    } else {
+      post.hugCount = hugCount;
+    }
     this.persist();
     await this.flush();
-    return { item: this.decoratePost(post, await this.buildPostDecorationContext([post])), alreadyHugged: Boolean(existing) };
+    return { item: await this.getPost(postId, true), alreadyHugged: Boolean(existing) };
   }
 
   /** Removes this user's hug and re-derives the counter. */
@@ -3098,10 +3119,15 @@ export class StoreService implements OnModuleInit {
     const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
     await this.prisma.hugAction.deleteMany({ where: { userId, postId } });
     const count = await this.prisma.hugAction.count({ where: { postId } });
-    post.hugCount = baseline + count;
+    const hugCount = baseline + count;
+    if (DIRECT_DB_MODELS.Post) {
+      await this.postsDb.setHugCount(postId, hugCount);
+    } else {
+      post.hugCount = hugCount;
+    }
     this.persist();
     await this.flush();
-    return { item: this.decoratePost(post, await this.buildPostDecorationContext([post])) };
+    return { item: await this.getPost(postId, true) };
   }
 
   /** `manualReviewThreshold` (admin 系统设置), clamped to a usable probability range. */
@@ -3251,6 +3277,24 @@ export class StoreService implements OnModuleInit {
       userAgent: 'local-dev',
       createdAt: now(),
     });
+    // The audit row is the evidence, so it is written to the table where it can be read
+    // independently of this process. The in-memory copy still feeds the console list.
+    void this.prisma.auditLog
+      .create({
+        data: {
+          adminUserId,
+          action,
+          resourceType,
+          resourceId,
+          beforeJson: snapshot(beforeJson) === undefined ? undefined : (snapshot(beforeJson) as object),
+          afterJson: snapshot(afterJson) === undefined ? undefined : (snapshot(afterJson) as object),
+          ip: '127.0.0.1',
+          userAgent: 'local-dev',
+        },
+      })
+      .catch((error: unknown) => {
+        console.error(`[audit] could not persist the AuditLog row: ${error instanceof Error ? error.message : String(error)}`);
+      });
   }
 
   private async ensureSeedCoverage() {
@@ -3293,10 +3337,12 @@ export class StoreService implements OnModuleInit {
     ];
     let changed = false;
     for (const seed of seeds) {
-      const hasPublishedSeed = this.data.posts.some(
-        (post) => post.status === 'active' && post.reviewStatus === 'published' && post.emotion === seed.emotion,
-      );
-      if (hasPublishedSeed) continue;
+      const published = DIRECT_DB_MODELS.Post
+        ? await this.postsDb.listPublished({ emotion: seed.emotion })
+        : this.data.posts.filter(
+            (post) => post.status === 'active' && post.reviewStatus === 'published' && post.emotion === seed.emotion,
+          );
+      if (published.length) continue;
       const moodId = `mood_seed_${seed.key}`;
       const postId = `post_seed_${seed.key}`;
       this.data.moods.unshift({
@@ -3310,21 +3356,30 @@ export class StoreService implements OnModuleInit {
         status: 'active',
         createdAt: now(),
       });
-      this.data.posts.unshift({
+      const seedPost = {
         id: postId,
         moodId,
         userId: seed.userId,
         emotion: seed.emotion as Emotion,
         content: seed.content,
-        visibility: 'PUBLIC',
-        status: 'active',
-        reviewStatus: 'published',
+        visibility: 'PUBLIC' as const,
+        status: 'active' as const,
+        reviewStatus: 'published' as const,
         hugCount: seed.hugCount,
         replyCount: 1,
         favoriteCount: 0,
         reportCount: 0,
         createdAt: now(),
-      });
+      };
+      if (DIRECT_DB_MODELS.Post) {
+        // The reply's FK needs the post row to exist first. Mood is still flush-owned, so one flush
+        // writes the mood; the post is written here, in the same order the legacy array had them.
+        this.persist();
+        await this.flush();
+        await this.postsDb.create({ ...seedPost, visibility: 'PUBLIC', createdAt: new Date(seedPost.createdAt) });
+      } else {
+        this.data.posts.unshift(seedPost);
+      }
       const seedReply = {
         id: `reply_seed_${seed.key}`,
         postId,
@@ -4110,7 +4165,16 @@ export class StoreService implements OnModuleInit {
       items.map((item) => (item.journeyId === journeyId ? { ...item, journeyId: undefined } : item));
     this.data.diaries = detachJourney(this.data.diaries as Array<any>);
     this.data.moods = detachJourney(this.data.moods as Array<any>);
-    this.data.posts = detachJourney(this.data.posts as Array<any>);
+    // Post is database-authoritative: the link is removed by a statement, not by rewriting a row in
+    // the snapshot the flush writes.
+    if (DIRECT_DB_MODELS.Post) {
+      await this.prisma.post.updateMany({
+        where: { journeyId: journeyId ?? undefined },
+        data: { journeyId: null },
+      });
+    } else {
+      this.data.posts = detachJourney(this.data.posts as Array<any>);
+    }
     if (!DIRECT_DB_MODELS.PeerExperience) this.data.peerExperiences = detachJourney(this.data.peerExperiences);
     if (!DIRECT_DB_MODELS.PeerMatch) this.data.peerMatches = detachJourney(this.data.peerMatches);
     if (!DIRECT_DB_MODELS.DecisionRecord) this.data.decisionRecords = detachJourney(this.data.decisionRecords);
@@ -6852,6 +6916,21 @@ export class StoreService implements OnModuleInit {
           ).map((item) => item.postId)
         : [],
     );
+    if (DIRECT_DB_MODELS.Post) {
+      // '全部' is the "no filter" token the UI sends, not an emotion; filtering by it would return
+      // the empty feed the client showed before this branch read the table.
+      const wantsEmotion = Boolean(emotion) && normalizedValue !== '全部';
+      const published = await this.postsDb.listPublished(wantsEmotion ? { emotion: normalized } : undefined);
+      const favouriteIds = viewer ? await this.favoritesDb.postIdsForUser(viewer) : new Set<string>();
+      return published
+        .filter((post) => !hiddenPostIds.has(post.id))
+        .map((post) => ({
+          ...post,
+          publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+          allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+          favoritedByCurrentUser: favouriteIds.has(post.id),
+        }));
+    }
     // One context for the whole feed: the viewer's favourites and the page's assets are the same
     // lookup for every row, and reading them per row is what this seam exists to avoid.
     const feedContext = await this.buildPostDecorationContext(this.posts);
@@ -6890,6 +6969,21 @@ export class StoreService implements OnModuleInit {
   }
 
   async getPost(idValue: string, includeUnpublished = false) {
+    if (DIRECT_DB_MODELS.Post) {
+      const post = await this.postsDb.get(idValue);
+      const hidden = !includeUnpublished && post?.reviewStatus === 'hidden';
+      if (!post || post.status !== 'active' || hidden) throw new NotFoundException('树洞不存在');
+      const viewer = this.viewerUserId();
+      const favouriteIds = viewer ? await this.favoritesDb.postIdsForUser(viewer) : new Set<string>();
+      const replyCounts = await this.postsDb.replyCountsForPosts([post.id]);
+      return {
+        ...post,
+        publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+        allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+        favoritedByCurrentUser: favouriteIds.has(post.id),
+        replyCount: replyCounts.get(post.id) ?? post.replyCount,
+      };
+    }
     const post = this.posts.find(
       (item) =>
         item.id === idValue && item.status === 'active' && (includeUnpublished || item.reviewStatus !== 'hidden'),
@@ -6960,7 +7054,24 @@ export class StoreService implements OnModuleInit {
         attachments: media,
         createdAt: now(),
       };
-      this.posts.unshift(post);
+      if (DIRECT_DB_MODELS.Post) {
+        // Post is database-authoritative now: the row is written here and the in-memory copy is not
+        // kept. The mood is still flush-owned, so one flush carries the mood before the post's FK.
+        this.persist();
+        await this.flush();
+        await this.postsDb.create({
+          id: post.id,
+          moodId: mood.id,
+          userId,
+          emotion,
+          content: mood.content,
+          visibility: 'PUBLIC',
+          journeyId: journey?.id ?? null,
+          createdAt: new Date(post.createdAt),
+        });
+      } else {
+        this.posts.unshift(post);
+      }
       const requestedStyles = Array.isArray(input.replyStyles) ? input.replyStyles.filter(isSupportedAiReplyStyle) : [];
       // Prefer the plural public contract when it has usable values, otherwise
       // honour a valid single selected style before falling back safely.
@@ -7003,7 +7114,7 @@ export class StoreService implements OnModuleInit {
             }
             // Counted from the table, not from the batch: a human reply published while the AI jobs
             // were running must not be dropped from the counter (the old code did exactly that).
-            await this.syncReplyCount(post);
+            await this.syncReplyCount(post.id);
             return;
           }
           for (const job of completedJobs) {
@@ -8486,7 +8597,7 @@ export class StoreService implements OnModuleInit {
         status: 'pending_review',
         riskLevel: risk.level,
       });
-      await this.syncReplyCount(post);
+      await this.syncReplyCount(post.id);
       return created as unknown as ReplyItem;
     }
     const reply: ReplyItem = {
@@ -8507,19 +8618,52 @@ export class StoreService implements OnModuleInit {
     return reply;
   }
 
-  /** Keeps the in-memory `Post.replyCount` equal to the table's count for that post. */
-  private async syncReplyCount(post: PostItem) {
-    const counts = await this.repliesDb.countsForPosts([post.id]);
-    post.replyCount = counts.get(post.id) ?? 0;
+  /**
+   * Keeps `Post.replyCount` equal to the published-reply count. The table is the record and the
+   * in-memory copy has to agree, because the flush still writes Post until the model is registered.
+   */
+  /** Public form for the AI-reply writers in the controller. */
+  async syncReplyCount(postId: string) {
+    const counts = await this.repliesDb.countsForPosts([postId]);
+    const published = counts.get(postId) ?? 0;
+    if (DIRECT_DB_MODELS.Post) {
+      await this.postsDb.setReplyCount(postId, published);
+      return;
+    }
+    const post = this.posts.find((item) => item.id === postId);
+    if (post) post.replyCount = published;
   }
 
-  /** Public form for the AI-reply writers in the controller. */
-  async syncReplyCountForPost(postId: string) {
-    const post = this.posts.find((item) => item.id === postId);
-    if (post) await this.syncReplyCount(post);
+  /** Author-initiated deletion. Moderation keeps its own admin route (hide/reject). */
+  async deletePostAsAuthor(postId: string) {
+    if (DIRECT_DB_MODELS.Post) return await this.postsDb.markDeleted(postId);
+    const post = await this.getPost(postId, true);
+    post.status = 'deleted';
+    this.persist();
+    await this.flush();
+    return post;
+  }
+
+  /** One reader's report against a post. The post row is database-authoritative now. */
+  async reportPost(postId: string) {
+    if (DIRECT_DB_MODELS.Post) return await this.postsDb.incrementReport(postId);
+    const post = await this.getPost(postId, true);
+    post.reportCount += 1;
+    this.persist();
+    await this.flush();
+    return post;
   }
 
   async moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
+    if (DIRECT_DB_MODELS.Post) {
+      // The moderation action is a single conditional update; the audit row records the same
+      // before/after pair the legacy path recorded.
+      const before = await this.postsDb.get(postId);
+      if (!before) throw new NotFoundException('树洞不存在');
+      const updated = await this.postsDb.moderate(postId, action);
+      this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, updated);
+      return updated;
+    }
     const post = await this.getPost(postId, true);
     const before = { ...post };
     if (action === 'approve') {
@@ -8540,8 +8684,7 @@ export class StoreService implements OnModuleInit {
       if (!existing) throw new NotFoundException('回应不存在');
       const before = { ...existing };
       const updated = await this.repliesDb.moderate(replyId, action, content);
-      const post = this.posts.find((item) => item.id === existing.postId);
-      if (post) await this.syncReplyCount(post);
+      await this.syncReplyCount(existing.postId);
       this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, updated);
       this.persist();
       return updated;

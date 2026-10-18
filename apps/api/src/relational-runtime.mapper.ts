@@ -77,7 +77,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     db.user.findMany({ include: { privacySetting: !DIRECT_DB_MODELS.PrivacySetting }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
     db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
-    db.post.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.Post ? Promise.resolve([]) : db.post.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Reply ? Promise.resolve([]) : db.reply.findMany({ orderBy: { createdAt: 'desc' } }),
     db.letter.findMany({ orderBy: { createdAt: 'desc' } }),
     db.diary.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
@@ -1020,7 +1020,7 @@ export async function saveRelationalRuntimeState(
           ...(DIRECT_DB_MODELS.PeerExperience ? [] : asArray(state.peerExperiences).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.PeerMatch ? [] : asArray(state.peerMatches).map((item: any) => item.journeyId)),
           ...asArray(state.moods).map((item: any) => item.journeyId),
-          ...asArray(state.posts).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.Post ? [] : asArray(state.posts).map((item: any) => item.journeyId)),
           ...asArray(state.diaries).map((item: any) => item.journeyId),
           ...(DIRECT_DB_MODELS.DecisionRecord ? [] : asArray(state.decisionRecords).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.RealityHandoff ? [] : asArray(state.realityHandoffs).map((item: any) => item.journeyId)),
@@ -1558,6 +1558,7 @@ export async function saveRelationalRuntimeState(
             ...fkUpdate('journeyId', item.journeyId, journeyIds),
           },
         });
+      if (!DIRECT_DB_MODELS.Post) {
       for (const item of asArray(state.posts))
         await tx.post.upsert({
           where: { id: item.id },
@@ -1602,6 +1603,7 @@ export async function saveRelationalRuntimeState(
             publishedAt: item.publishedAt ? date(item.publishedAt) : null,
           },
         });
+      }
       for (const item of providerMap.values())
         await tx.aIProvider.upsert({
           where: { id: item.id },
@@ -2658,10 +2660,12 @@ export async function saveRelationalRuntimeState(
             ).map((row: { postId: string }) => row.postId),
           )
         : new Set<string>();
-      await deleteAbsent('post', tx.post,
-        asArray(state.posts).map((item: any) => item.id),
-        replyPostIds,
-      );
+      if (!DIRECT_DB_MODELS.Post) {
+        await deleteAbsent('post', tx.post,
+          asArray(state.posts).map((item: any) => item.id),
+          replyPostIds,
+        );
+      }
       // A surviving post's mood must survive too (`Post.moodId` is a Restrict FK).
       const survivingMoodIds = new Set<string>(
         (await tx.post.findMany({ select: { moodId: true } })).map((row: { moodId: string }) => row.moodId),
