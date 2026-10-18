@@ -8,7 +8,7 @@ the columns are separate on purpose.
 
 ## Current state (2026-10-18)
 
-- **HEAD `18b4a6ed003e231860a0a5bcce37486fd8539d7e`**, branch `codex/ui-v2-native-redesign`,
+- **HEAD `80d74ae45490dcf8907f69a275d53f7eb4064580`**, branch `codex/ui-v2-native-redesign`,
   pushed, local == remote, working tree clean.
 - **CI GREEN on `18b4a6e`** — run [39072781399](https://github.com/yuhangzhu295-wq/goodnight-treehole/actions/runs/39072781399).
   Two earlier commits failed CI for reasons that are now fixed: `3506cea`/`2b51214` on a
@@ -19,7 +19,7 @@ the columns are separate on purpose.
   `docs/qa/FULL_ACCEPTANCE_REPORT.md`, gate `scripts/acceptance/build-summary.mjs --require-all`.
   F16 ran on the emulator `GoodnightPixel7Api34` with APK SHA-256
   `f936891aba108613acc6d8222ab5af32cba13ddf1a576fa2c86c461f215d2fa5`; **`PHYSICAL_ANDROID_VERIFIED=false`**.
-- **Batch 4: 9 of 16 models converted.** `FaqItem`, `ReplyPreset`, `FeedbackCategory`,
+- **Batch 4: 10 of 16 models converted.** `FaqItem`, `ReplyPreset`, `FeedbackCategory`,
   `FeedbackTicket`, `AdminUserNote`, `PeerReputation`, `AgentDecisionLog`, `Favorite`, `Reply`.
   `BATCH4_LEGACY_FLUSH_RETIREMENT.md` §6 is the live position; the gate file is shared by nine tables.
 - **Security fixes this round** (all with acceptance evidence): six letter/diary routes that looked
@@ -30,14 +30,16 @@ the columns are separate on purpose.
 
 ### Next entry point
 
-**Batch 4, `Post`** (the hub; 31 `this.posts` / `store.posts` sites). Two lessons from `Reply`:
-1. Converting a model the flush still sweeps around requires the sweep to respect the new FK. The
-   post sweep now keeps any post that has replies and the mood sweep keeps the moods of surviving
-   posts (`relational-runtime.mapper.ts`), because `Reply` is no longer swept.
-2. Any caller-supplied row id used by a writer must be an **upsert**, not a create: two instances
-   booting against one database write the same seed row (`batch1-multi-instance` proved this).
+**Batch 4, `Mood`** (upstream of Post and Diary; `Post.moodId` is a Restrict FK on it). Lessons from
+`Post` and `Reply`:
+1. Once a model is registered the flush stops writing its table, so anything the legacy snapshot
+   holds has to be written elsewhere. Post boot writes the snapshot's posts for exactly this reason —
+   and `post_1`, which every e2e flow targets, exists in the database **only** because of that.
+2. The sweep must keep rows the still-swept models reference by FK.
+3. Any caller-supplied row id must be an **upsert**, not a create: two instances booting against one
+   database write the same seed row.
 
-Then: `Mood`, `Diary`, `Letter`, `MediaAsset`, and the `AIProvider` + `AIStyleRoute` pair.
+Then: `Diary`, `Letter`, `MediaAsset`, and the `AIProvider` + `AIStyleRoute` pair.
 
 ---
 
