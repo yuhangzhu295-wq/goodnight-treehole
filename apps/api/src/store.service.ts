@@ -1171,7 +1171,7 @@ function seedData(): StoreData {
         label: '暖心陪伴',
         primaryProviderId: DAPI_PROVIDER_ID,
         backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
-        fallbackTemplateId: 'provider_template',
+        fallbackTemplateId: 'provider_safe_template',
         promptVersion: 'dapi-warm-v1',
         promptTemplate: '温柔但不诊断地回应用户情绪。',
         enabled: true,
@@ -1182,7 +1182,7 @@ function seedData(): StoreData {
         label: '理性分析',
         primaryProviderId: DAPI_PROVIDER_ID,
         backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
-        fallbackTemplateId: 'provider_template',
+        fallbackTemplateId: 'provider_safe_template',
         promptVersion: 'dapi-rational-v1',
         promptTemplate: '拆解事实、情绪和下一步。',
         enabled: true,
@@ -1193,7 +1193,7 @@ function seedData(): StoreData {
         label: '轻松一点',
         primaryProviderId: DAPI_PROVIDER_ID,
         backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
-        fallbackTemplateId: 'provider_template',
+        fallbackTemplateId: 'provider_safe_template',
         promptVersion: 'dapi-light-v1',
         promptTemplate: '轻松一点但不轻浮。',
         enabled: true,
@@ -1204,7 +1204,7 @@ function seedData(): StoreData {
         label: '清醒提醒',
         primaryProviderId: DAPI_PROVIDER_ID,
         backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
-        fallbackTemplateId: 'provider_template',
+        fallbackTemplateId: 'provider_safe_template',
         promptVersion: 'dapi-clear-v1',
         promptTemplate: '清晰提醒边界和可控行动。',
         enabled: true,
@@ -1215,7 +1215,7 @@ function seedData(): StoreData {
         label: '诗意疗愈',
         primaryProviderId: DAPI_PROVIDER_ID,
         backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
-        fallbackTemplateId: 'provider_template',
+        fallbackTemplateId: 'provider_safe_template',
         promptVersion: 'dapi-poetic-v1',
         promptTemplate: '像夜灯一样温柔地书写。',
         enabled: true,
@@ -1807,6 +1807,10 @@ export class StoreService implements OnModuleInit {
     this.ensurePhaseTwoCoverage();
     await this.ensureSeedCoverage();
     if (!visualFixtureMode) await this.enforceRemoteAiProviderPolicy();
+    // After the policy, not before: the policy writes the three managed providers the routes point
+    // at, and a route seeded before them would fail on `AIStyleRoute.primaryProvider` being a
+    // required foreign key to a provider that does not exist yet.
+    await this.ensureAiRouteSeedCoverage();
     await this.flush();
   }
 
@@ -3699,6 +3703,43 @@ export class StoreService implements OnModuleInit {
       });
     } catch (error) {
       console.error(`[audit] could not persist the AuditLog row: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Writes the AI routing rows the legacy seed data carries, when the model is registered.
+   *
+   * `AIStyleRoute` and `AIProvider` are database-authoritative since Batch 4, so the flush no longer
+   * hydrates or upserts them and the snapshot's routes never reach the table. On a fresh database
+   * that left `resolveAiRouteRecord` returning null, and every AI job failed with "no AI route" —
+   * which is how `batch1-aijob` found it. The five styles are the store's minimum set for an empty
+   * install, written here the same way `ensureSeedCoverage` writes the seed posts.
+   */
+  private async ensureAiRouteSeedCoverage() {
+    if (!DIRECT_DB_MODELS.AIStyleRoute) return;
+    const routes = seedData().aiRoutes;
+    const existing = await this.aiRoutingDb.listRoutes();
+    const known = new Set<string>([
+      ...(await this.aiRoutingDb.listProviders()).map((row: any) => row.id),
+    ]);
+    for (const route of routes) {
+      if (existing.some((row: any) => row.style === route.style)) continue;
+      // The three provider ids the route points at must exist, because `AIStyleRoute`'s provider
+      // relations are required foreign keys. The policy has written the managed three by the time
+      // this runs; a seed naming any other provider id is skipped rather than seeded into a broken
+      // route, and a missing route is a visible failure while a dangling one is not.
+      const ids = [route.primaryProviderId, route.backupProviderId, route.fallbackTemplateId];
+      if (ids.some((id) => !known.has(id))) continue;
+      await this.aiRoutingDb.saveRoute({
+        style: route.style,
+        label: route.label,
+        promptTemplate: route.promptTemplate,
+        primaryProviderId: route.primaryProviderId,
+        backupProviderId: route.backupProviderId,
+        fallbackTemplateId: route.fallbackTemplateId,
+        promptVersion: route.promptVersion,
+        enabled: route.enabled,
+      } as never);
     }
   }
 
@@ -7793,13 +7834,19 @@ export class StoreService implements OnModuleInit {
     retryCount?: number;
   }) {
     const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
+    // Both models are registered, so the route and provider come from the table. The legacy array
+    // reads here threw once they were.
     const route =
-      this.aiRoutes.find((item) => item.style === input.style && item.enabled) ??
-      this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType)) ??
-      this.aiRoutes[0];
+      (DIRECT_DB_MODELS.AIStyleRoute ? undefined : this.aiRoutes.find((item) => item.style === input.style && item.enabled)) ??
+      (DIRECT_DB_MODELS.AIStyleRoute ? undefined : this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))) ??
+      (DIRECT_DB_MODELS.AIStyleRoute ? undefined : this.aiRoutes[0]);
     const isPeerResponseAssist = taskType === 'peer_response_assist';
-    const peerDraftProvider = isPeerResponseAssist
-      ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
+    // `peerDraftProvider` is only a draft-name lookup for the peer-assist route, and the peer-assist
+    // path reads the real row again inside `runAiJob`. Leaving it undefined when the model is
+    // registered keeps this method synchronous - the callers rely on that - and costs nothing,
+    // because `runAiJob` resolves the provider from the table before it uses it.
+    const peerDraftProvider = isPeerResponseAssist && !DIRECT_DB_MODELS.AIProvider
+      ? this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition()
       : undefined;
     const queuedPrimaryProviderId = peerDraftProvider?.id ?? (route?.primaryProviderId || 'provider_template');
     const job: AIJob = {
