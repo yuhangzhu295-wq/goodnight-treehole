@@ -19,6 +19,8 @@ function createStore() {
   return new StoreService(
     {
       saveRuntimeState: async () => undefined,
+      // The operator routes write an AuditLog row to the table as well as to memory.
+      auditLog: { create: async () => undefined },
     } as any,
   );
 }

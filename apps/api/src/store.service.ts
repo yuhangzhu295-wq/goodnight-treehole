@@ -2276,7 +2276,7 @@ export class StoreService implements OnModuleInit {
     ticket.repliedAt = now();
     // A reply is work in progress, not proof that the issue has been solved.
     if (ticket.status === 'open') ticket.status = 'processing';
-    this.audit(adminId, 'FEEDBACK_REPLY', 'FeedbackTicket', ticket.id, before, ticket);
+    await this.audit(adminId, 'FEEDBACK_REPLY', 'FeedbackTicket', ticket.id, before, ticket);
     await this.persistAndFlush();
     return ticket;
   }
@@ -2304,7 +2304,7 @@ export class StoreService implements OnModuleInit {
 
     const before = { ...ticket };
     ticket.status = nextStatus;
-    this.audit(adminId, 'FEEDBACK_STATUS', 'FeedbackTicket', ticket.id, before, ticket);
+    await this.audit(adminId, 'FEEDBACK_STATUS', 'FeedbackTicket', ticket.id, before, ticket);
     await this.persistAndFlush();
     return ticket;
   }
@@ -2721,6 +2721,18 @@ export class StoreService implements OnModuleInit {
   async flush() {
     await this.persistQueue;
     if (this.persistenceError) throw new Error(this.persistenceError);
+  }
+
+  /**
+   * Waits for the writes already queued to reach the database.
+   *
+   * `persist()` only enqueues a snapshot; the flush runs the mapper. A caller that writes two rows
+   * across that boundary (a flush-owned row and a directly written one that references it) has to be
+   * able to wait for the first without pretending the second happened. Tests use it to keep the
+   * queue draining while asserting on the paths they are about.
+   */
+  async drainWrites(): Promise<void> {
+    await this.persistQueue;
   }
 
   private pendingAiCompletions: Set<Promise<any>> = new Set();
@@ -3263,7 +3275,7 @@ export class StoreService implements OnModuleInit {
     resourceId: string,
     beforeJson: unknown,
     afterJson: unknown,
-  ) {
+  ): Promise<void> | void {
     const snapshot = <T>(value: T): T => (value == null ? value : (JSON.parse(JSON.stringify(value)) as T));
     this.auditLogs.unshift({
       id: id('audit'),
@@ -3277,24 +3289,48 @@ export class StoreService implements OnModuleInit {
       userAgent: 'local-dev',
       createdAt: now(),
     });
-    // The audit row is the evidence, so it is written to the table where it can be read
-    // independently of this process. The in-memory copy still feeds the console list.
-    void this.prisma.auditLog
-      .create({
+    // The audit row is the evidence, so it also goes to the table where it can be read independently
+    // of this process. The in-memory copy still feeds the console list. The write is returned, not
+    // fired off: a route that responds immediately after auditing has a right to expect the row to
+    // be there when the response lands.
+    return this.persistAuditRow(adminUserId, action, resourceType, resourceId, snapshot(beforeJson), snapshot(afterJson));
+  }
+
+  /**
+   * Writes one AuditLog row directly to the table.
+   *
+   * The console used to list only the in-memory copy, so an operator action was invisible until a
+   * restart hydrated it — which is exactly the read an auditor wants to make (F14). The write is
+   * fire-and-forget on purpose: the audited action has already been taken by the caller, so failing
+   * to record it must not turn a completed moderation into a 500. A failure is reported, not
+   * swallowed.
+   */
+  private async persistAuditRow(
+    adminUserId: string,
+    action: string,
+    resourceType: string,
+    resourceId: string,
+    beforeJson: unknown,
+    afterJson: unknown,
+  ) {
+    const asJson = (value: unknown) =>
+      value === undefined || value === null ? undefined : (JSON.parse(JSON.stringify(value)) as object);
+    try {
+      await this.prisma.auditLog.create({
         data: {
           adminUserId,
           action,
           resourceType,
           resourceId,
-          beforeJson: snapshot(beforeJson) === undefined ? undefined : (snapshot(beforeJson) as object),
-          afterJson: snapshot(afterJson) === undefined ? undefined : (snapshot(afterJson) as object),
+          beforeJson: asJson(beforeJson),
+          afterJson: asJson(afterJson),
           ip: '127.0.0.1',
           userAgent: 'local-dev',
         },
-      })
-      .catch((error: unknown) => {
-        console.error(`[audit] could not persist the AuditLog row: ${error instanceof Error ? error.message : String(error)}`);
       });
+    } catch (error) {
+      console.error(`[audit] could not persist the AuditLog row: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async ensureSeedCoverage() {
@@ -8661,7 +8697,7 @@ export class StoreService implements OnModuleInit {
       const before = await this.postsDb.get(postId);
       if (!before) throw new NotFoundException('树洞不存在');
       const updated = await this.postsDb.moderate(postId, action);
-      this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, updated);
+      await this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, updated);
       return updated;
     }
     const post = await this.getPost(postId, true);
@@ -8673,7 +8709,7 @@ export class StoreService implements OnModuleInit {
     if (action === 'hide') post.reviewStatus = 'hidden';
     if (action === 'reject') post.reviewStatus = 'rejected';
     if (action === 'risk') post.reportCount += 1;
-    this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, post);
+    await this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, post);
     this.persist();
     return post;
   }
@@ -8685,7 +8721,7 @@ export class StoreService implements OnModuleInit {
       const before = { ...existing };
       const updated = await this.repliesDb.moderate(replyId, action, content);
       await this.syncReplyCount(existing.postId);
-      this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, updated);
+      await this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, updated);
       this.persist();
       return updated;
     }
@@ -8697,7 +8733,7 @@ export class StoreService implements OnModuleInit {
     const post = this.posts.find((item) => item.id === reply.postId);
     if (post)
       post.replyCount = this.replies.filter((item) => item.postId === post.id && item.status === 'published').length;
-    this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, reply);
+    await this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, reply);
     this.persist();
     return reply;
   }

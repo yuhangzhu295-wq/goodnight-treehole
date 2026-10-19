@@ -56,8 +56,12 @@ describe('front private publish business flow', () => {
     const store = app.get(StoreService);
     const queued = new Map<string, AIJob>();
     let sequence = 0;
-    const persist = vi.spyOn(store, 'persist').mockImplementation(() => undefined);
-    const flush = vi.spyOn(store, 'flush').mockResolvedValue();
+    // Post is database-authoritative since Batch 4 and `Post.moodId` is a Restrict FK, so publishing
+    // writes the mood through the legacy flush before inserting the post. Stubbing `persist` would
+    // leave the queue empty and the flush no-op, so both run for real here; only the AI paths this
+    // test is actually about are stubbed below.
+    const persist = vi.spyOn(store, 'persist');
+    const flush = vi.spyOn(store, 'flush');
     const queueAiJob = vi.spyOn(store, 'queueAiJob').mockImplementation((input) => {
       const job = {
         id: `style-test-job-${++sequence}`,

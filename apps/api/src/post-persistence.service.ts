@@ -87,20 +87,23 @@ export class PostPersistenceService {
   }) {
     // `Post` has no attachment column: the feed reads them off the mood (`moodId` is `@unique` on
     // this model), and the legacy mapper did the same. Taking them here would invent a column.
-    return this.prisma.post.create({
-      data: {
-        ...(input.id ? { id: input.id } : {}),
-        moodId: input.moodId,
-        userId: input.userId,
-        emotion: input.emotion,
-        content: input.content,
-        visibility: input.visibility as 'PRIVATE' | 'PUBLIC',
-        status: 'active',
-        reviewStatus: input.reviewStatus ?? 'pending_review',
-        journeyId: input.journeyId ?? null,
-        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
-      },
-    });
+    const data = {
+      moodId: input.moodId,
+      userId: input.userId,
+      emotion: input.emotion,
+      content: input.content,
+      visibility: input.visibility as 'PRIVATE' | 'PUBLIC',
+      status: 'active',
+      reviewStatus: input.reviewStatus ?? 'pending_review',
+      journeyId: input.journeyId ?? null,
+      ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+    };
+    // A caller-supplied id makes this an upsert. Two instances booting against one database both
+    // write the seed posts, and a plain create fails the second one on the primary key
+    // (`batch1-multi-instance` proved that; `ReplyPersistenceService.create` carries the same rule).
+    return input.id
+      ? this.prisma.post.upsert({ where: { id: input.id }, create: { id: input.id, ...data }, update: {} })
+      : this.prisma.post.create({ data });
   }
 
   async moderate(id: string, action: 'approve' | 'hide' | 'reject' | 'risk') {

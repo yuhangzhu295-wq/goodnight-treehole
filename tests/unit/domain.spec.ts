@@ -21,6 +21,8 @@ const stubPersistence = {
   saveRuntimeState: async () => undefined,
   privacySetting: { findUnique: async () => null },
   $queryRaw: async () => [],
+  // An audit row is also written to the table so an operator action is readable without a restart.
+  auditLog: { create: async () => undefined },
 };
 
 

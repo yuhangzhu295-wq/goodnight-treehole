@@ -1061,11 +1061,18 @@ export async function saveRelationalRuntimeState(
       const roles = [...new Set(adminUsers.map((item: any) => String(item.role || 'super_admin')))];
       for (const role of roles) {
         const roleId = `role_${role}`;
-        await tx.adminRole.upsert({
-          where: { id: roleId },
-          create: { id: roleId, code: role, name: role, permissions: [] },
-          update: { code: role, name: role },
-        });
+        // Two instances booting against one database write the same seed rows concurrently
+        // (batch1-multi-instance). Both unique keys (`id` and `code`) are derived from the same
+        // snapshot, so whichever one the lookup uses, the other can already be taken by the twin
+        // flush. Match on either and fill in what is missing, which is idempotent under the race.
+        const existingRole =
+          (await tx.adminRole.findUnique({ where: { id: roleId }, select: { id: true } })) ??
+          (await tx.adminRole.findUnique({ where: { code: role }, select: { id: true } }));
+        if (existingRole) {
+          await tx.adminRole.updateMany({ where: { id: existingRole.id }, data: { code: role, name: role } });
+        } else {
+          await tx.adminRole.createMany({ data: [{ id: roleId, code: role, name: role, permissions: [] }], skipDuplicates: true });
+        }
       }
       for (const item of adminUsers) {
         const role = String(item.role || 'super_admin');

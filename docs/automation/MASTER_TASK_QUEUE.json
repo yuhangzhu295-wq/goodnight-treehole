@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "80d74ae45490dcf8907f69a275d53f7eb4064580",
-  "updatedAt": "2026-10-18T07:30:00.000Z",
+  "updatedAt": "2026-10-19T03:20:00.000Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -793,14 +793,14 @@
       "id": "CI-WSL-SHUTDOWN-MIDSUITE",
       "phase": "CI",
       "priority": "P1",
-      "status": "READY",
-      "title": "WSL shuts down mid-suite, so a green run cannot be distinguished from a truncated one",
+      "status": "BLOCKED_ENVIRONMENT",
+      "title": "PostgreSQL container stops mid-suite, so a green full run cannot be claimed",
       "implemented": "no",
       "tested": "no",
       "independentReview": "pending",
-      "evidence": "Four consecutive full-suite attempts stopped at different points with FATAL 'the database system is shutting down' or 'terminating connection due to administrator command' (109, 111, 25 occurrences). The keep-alive scheduled task is registered and running, so the cause is outside the task. Every failure counted by the suite after that point is environmental, not a regression; the two that were not (F14's audit row, F06/F10) pass in isolation after a restart.",
-      "blocker": "The cause of the shutdown is not identified; a machine-level cause is plausible but unproven.",
-      "nextAction": "Find why WSL terminates mid-run before claiming a full-suite green again."
+      "evidence": "Measured 2026-10-19: `docker logs goodnight-treehole-postgres-1` shows \"database system was shut down at 03:11:31 UTC\" while the suite was running. Separately, WSL2 localhost forwarding breaks independently of the distro (distro Running, containers listening, reachable over the distro address, 127.0.0.1:15432 refused from Windows). Both recur; a `wsl --shutdown` repairs the second. Each affected file fails with \"Server has closed the connection\" at its own first query, so it is not a business regression.",
+      "blocker": "Machine-level: the cause of the container stop is not observable from inside the project. This is the same workstation whose AskLink virtual display driver and UMDF host are already known unreliable.",
+      "nextAction": "Report as EXTERNAL BLOCKER. Do not claim a full-suite green on this machine until a run completes with no connection error."
     }
   ]
 }
