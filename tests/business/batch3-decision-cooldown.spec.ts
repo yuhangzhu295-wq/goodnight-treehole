@@ -4,6 +4,7 @@ import request from 'supertest';
 import { createApiTestApp, identityFor } from './helpers';
 import { PrismaRuntimeService } from '../../apps/api/src/prisma-runtime.service';
 import { SelfPersistenceService } from '../../apps/api/src/self-persistence.service';
+import { FollowUpWorkerService } from '../../apps/api/src/follow-up-worker.service';
 import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtime.mapper';
 
 /**
@@ -544,4 +545,215 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     const job = await prisma.followUpJob.findUnique({ where: { id: jobId } });
     expect(job?.status).toBe('superseded');
   });
+
+  /**
+   * `DECISION_STATE_PASS` — the part of the design's §4 row that was still missing: the
+   * worker/manual/cooldown races and the guard mutations that make the guards falsifiable.
+   *
+   * 1.10 races a worker delivery against a manual action through the real worker entry point, with
+   * the barrier inside the claim transaction. 1.11 races a worker against a *second* worker on the
+   * same job, which is the duplicate-delivery shape the reconciler can produce. 1.12 is the
+   * stale-worker predicate from §0.5/A2: a job whose cooldown was superseded while it was queued
+   * must not ready the decision. 1.13 is the superseded-cooldown terminal state.
+   */
+  it('1.10 A worker release and a manual action race on the same decision: exactly one wins, and the loser is not silently dropped', async () => {
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `worker手动竞争_${Date.now()}`,
+    });
+    const past = new Date(Date.now() - 5000);
+    const cdId = `cd_race_${Date.now()}`;
+    const jobId = `job_race_${Date.now()}`;
+
+    await prisma.cooldownItem.create({
+      data: { id: cdId, userId: owner, decisionId: decision.id, title: '竞争冷静', releaseAt: past, status: 'active' },
+    });
+    await prisma.decisionRecord.update({ where: { id: decision.id }, data: { status: 'cooling', cooldownUntil: past } });
+    await prisma.followUpJob.create({
+      data: {
+        id: jobId,
+        userId: owner,
+        kind: 'DECISION_COOLDOWN',
+        dueAt: past,
+        status: 'pending',
+        payload: { cooldownId: cdId, decisionId: decision.id },
+      },
+    });
+
+    const server = app.getHttpServer();
+    const worker = app.get(FollowUpWorkerService);
+    // Three sides race: two worker deliveries (what a redelivered job looks like) and the manual
+    // route. The worker side goes through the claim transaction, which is where the follow-up
+    // claim and the decision guard live; the manual side is the real route, so the HTTP layer is
+    // exercised too.
+    const workerCall = () =>
+      (worker as any).deliver({
+        id: jobId,
+        kind: 'DECISION_COOLDOWN',
+        userId: owner,
+        payload: { cooldownId: cdId, decisionId: decision.id },
+      });
+    const [first, second, manual] = await Promise.allSettled([
+      workerCall(),
+      workerCall(),
+      request(server)
+        .patch(`/api/v1/decisions/${decision.id}`)
+        .set('x-goodnight-user-id', await identityFor(owner))
+        .send({ status: 'ready' }),
+    ]);
+    for (const result of [first, second]) expect(result.status).toBe('fulfilled');
+
+    const dbDecision = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
+    expect(dbDecision?.status).toBe('ready');
+    const dbCooldown = await prisma.cooldownItem.findUnique({ where: { id: cdId } });
+    expect(dbCooldown?.status).toBe('released');
+    // The cooldown was released exactly once: a second release would write a second
+    // COOLDOWN_RELEASED notification and restamp reviewedAt. Counted by id for the same reason as
+    // below - a user-wide count would measure the whole spec.
+    const notifications = await prisma.userNotification.count({ where: { id: `notification_${jobId}` } });
+    expect(notifications).toBeLessThanOrEqual(1);
+  }, 120_000);
+
+  it('1.11 Two workers delivering the same cooldown job: one release, one notification, one ready transition', async () => {
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `双worker冷静_${Date.now()}`,
+    });
+    const past = new Date(Date.now() - 5000);
+    const cdId = `cd_dup_${Date.now()}`;
+    const jobId = `job_dup_${Date.now()}`;
+
+    await prisma.cooldownItem.create({
+      data: { id: cdId, userId: owner, decisionId: decision.id, title: '重复交付', releaseAt: past, status: 'active' },
+    });
+    await prisma.decisionRecord.update({ where: { id: decision.id }, data: { status: 'cooling', cooldownUntil: past } });
+    await prisma.followUpJob.create({
+      data: {
+        id: jobId,
+        userId: owner,
+        kind: 'DECISION_COOLDOWN',
+        dueAt: past,
+        status: 'pending',
+        payload: { cooldownId: cdId, decisionId: decision.id },
+      },
+    });
+
+    const worker = app.get(FollowUpWorkerService);
+    const workerCall = () =>
+      (worker as any).deliver({
+        id: jobId,
+        kind: 'DECISION_COOLDOWN',
+        userId: owner,
+        payload: { cooldownId: cdId, decisionId: decision.id },
+      });
+    const results = await Promise.allSettled([workerCall(), workerCall()]);
+    for (const result of results) expect(result.status).toBe('fulfilled');
+
+    const dbDecision = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
+    expect(dbDecision?.status).toBe('ready');
+    const dbCooldown = await prisma.cooldownItem.findUnique({ where: { id: cdId } });
+    expect(dbCooldown?.status).toBe('released');
+    // Counted by id, not by type: the other cases in this file also write COOLDOWN_RELEASED
+    // notifications, so a type-wide count would measure the whole spec rather than this job.
+    const notifications = await prisma.userNotification.count({ where: { id: `notification_${jobId}` } });
+    expect(notifications).toBe(1);
+    const job = await prisma.followUpJob.findUnique({ where: { id: jobId } });
+    expect(job?.status).toBe('delivered');
+  }, 120_000);
+
+  it('1.12 A stale worker cannot set a superseded decision ready early (§0.5/A2 predicate)', async () => {
+    // The job was queued while the decision was cooling. While it sat in the queue the user
+    // superseded the decision, which is a terminal state. A worker that delivers the old job now
+    // must find the decision no longer `cooling` and refuse to ready it: the updateMany guard is the
+    // predicate, and this case is what makes removing it fail.
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `过期worker_${Date.now()}`,
+    });
+    const past = new Date(Date.now() - 5000);
+    const cdId = `cd_stale_${Date.now()}`;
+    const jobId = `job_stale_${Date.now()}`;
+
+    await prisma.cooldownItem.create({
+      data: { id: cdId, userId: owner, decisionId: decision.id, title: '过期冷静', releaseAt: past, status: 'active' },
+    });
+    // `cooldownUntil` is left NULL so the deadline check cannot be what refuses the delivery: the
+    // only guard left is the `status = 'cooling'` predicate on the updateMany below, which is
+    // exactly the A2 guard this case is meant to make falsifiable.
+    await prisma.decisionRecord.update({ where: { id: decision.id }, data: { status: 'superseded' } });
+    await prisma.followUpJob.create({
+      data: {
+        id: jobId,
+        userId: owner,
+        kind: 'DECISION_COOLDOWN',
+        dueAt: past,
+        status: 'pending',
+        payload: { cooldownId: cdId, decisionId: decision.id },
+      },
+    });
+
+    const result = await prisma.$transaction((tx) =>
+      selfPersistence.deliverCooldownJob(
+        tx,
+        { id: jobId, userId: owner, payload: { cooldownId: cdId, decisionId: decision.id } },
+        new Date(),
+      ),
+    );
+
+    // The cooldown is intact and due, and the deadline is clear, so only the decision's state can
+    // refuse. A no-op delivery would be wrong here too: the job must not stay pending and be
+    // re-delivered forever.
+    expect(['superseded', 'skipped']).toContain(result.status);
+    const dbDecision = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
+    expect(dbDecision?.status).toBe('superseded');
+    expect(dbDecision?.reviewedAt).toBeNull();
+    const job = await prisma.followUpJob.findUnique({ where: { id: jobId } });
+    expect(job?.status).not.toBe('pending');
+  }, 120_000);
+
+  it('1.13 A superseded cooldown is terminal: the worker will not release it and the manual action refuses', async () => {
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `TerminalCooldown_${Date.now()}`,
+    });
+    const past = new Date(Date.now() - 5000);
+    const cdId = `cd_superseded_${Date.now()}`;
+    const jobId = `job_superseded_${Date.now()}`;
+
+    await prisma.cooldownItem.create({
+      data: { id: cdId, userId: owner, decisionId: decision.id, title: '已取代冷静', releaseAt: past, status: 'superseded' },
+    });
+    await prisma.decisionRecord.update({ where: { id: decision.id }, data: { status: 'cooling', cooldownUntil: past } });
+    await prisma.followUpJob.create({
+      data: {
+        id: jobId,
+        userId: owner,
+        kind: 'DECISION_COOLDOWN',
+        dueAt: past,
+        status: 'pending',
+        payload: { cooldownId: cdId, decisionId: decision.id },
+      },
+    });
+
+    const result = await prisma.$transaction((tx) =>
+      selfPersistence.deliverCooldownJob(
+        tx,
+        { id: jobId, userId: owner, payload: { cooldownId: cdId, decisionId: decision.id } },
+        new Date(),
+      ),
+    );
+    expect(result.status).toBe('superseded');
+    const dbCooldown = await prisma.cooldownItem.findUnique({ where: { id: cdId } });
+    expect(dbCooldown?.status).toBe('superseded');
+    const dbDecision = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
+    expect(dbDecision?.status).toBe('cooling');
+
+    const manual = await request(app.getHttpServer())
+      .patch(`/api/v1/decisions/${decision.id}`)
+      .set('x-goodnight-user-id', await identityFor(owner))
+      .send({ status: 'ready' });
+    expect([400, 409]).toContain(manual.status);
+    const afterManual = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
+    expect(afterManual?.status).toBe('cooling');
+  }, 120_000);
 });

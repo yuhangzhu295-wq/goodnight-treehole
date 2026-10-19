@@ -1594,6 +1594,19 @@ export class SelfPersistenceService {
           if (!check?.passed) {
             throw new BadRequestException('冷静时间还没有结束');
           }
+          // An expired deadline is not enough on its own. The cooldown it came from may have been
+          // superseded, which is terminal for the whole cycle, and `deliverCooldownJob` refuses to
+          // release one - so this route has to refuse it as well, or the same decision reaches
+          // `ready` through one path and stays `cooling` through the other.
+          const [latestCooldown] = await tx.$queryRaw<Array<{ status: string }>>`
+            SELECT "status" FROM "CooldownItem"
+            WHERE "userId" = ${userId} AND "decisionId" = ${id}
+            ORDER BY "createdAt" DESC
+            LIMIT 1
+          `;
+          if (latestCooldown?.status === 'superseded') {
+            throw new BadRequestException('这个冷静期已经被取代，请重新开始一个冷静期');
+          }
           updateData.status = 'ready';
           updateData.reviewedAt = new Date();
         } else if (requested === 'decided' && existing.status === 'ready') {
@@ -1826,8 +1839,26 @@ export class SelfPersistenceService {
     });
   }
 
+  /**
+   * Whether the most recent cooldown on this decision was superseded.
+   *
+   * A superseded cooldown is terminal for the whole cycle: the worker refuses to release one, so the
+   * manual `ready` route has to refuse it as well, or the same decision reaches `ready` through one
+   * path and stays `cooling` through the other. Read without a transaction - the answer is about a
+   * row that only the superseding write changes, and a transaction would add a second failure mode
+   * without changing the answer.
+   */
+  async latestCooldownForDecisionIsSuperseded(userId: string, decisionId: string): Promise<boolean> {
+    const row = await this.prisma.$queryRaw<Array<{ status: string }>>`
+      SELECT "status" FROM "CooldownItem"
+      WHERE "userId" = ${userId} AND "decisionId" = ${decisionId}
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `;
+    return row[0]?.status === 'superseded';
+  }
+
   async listCooldowns(userId: string): Promise<CooldownItemRecord[]> {
-    // One statement, deliberately NOT wrapped in an interactive transaction.
     //
     // The previous version opened a transaction to read `clock_timestamp()` and then the rows, so the
     // clock and the rows shared a snapshot. Computing the released flag in the same statement as the
@@ -1934,14 +1965,30 @@ export class SelfPersistenceService {
         return { status: 'superseded' };
       }
 
-      // Release cooldown and mark decision ready
+      // Release cooldown and mark decision ready.
+      //
+      // The `status = 'cooling'` predicate is the §0.5/A2 guard: a job queued while the decision was
+      // cooling may be delivered after the decision was superseded, archived or already readied, and
+      // a cooldown must not resurrect it. `updateMany` is what makes that enforceable, but only if its
+      // return count is checked - ignoring it would release the cooldown and report delivered while
+      // leaving the decision where it was, which is a notification telling the user a superseded
+      // decision is ready again.
+      const readied = await tx.decisionRecord.updateMany({
+        where: { id: decisionId, userId: input.userId, status: 'cooling' },
+        data: { status: 'ready', reviewedAt: completedAt },
+      });
+      if (readied.count === 0) {
+        // The decision is no longer in the state this job was made for. Close the job rather than
+        // leaving it pending to be redelivered forever, and leave the cooldown recorded as it was.
+        await tx.followUpJob.update({
+          where: { id: input.id },
+          data: { status: 'superseded', completedAt: null },
+        });
+        return { status: 'superseded' };
+      }
       await tx.cooldownItem.update({
         where: { id: cooldownId },
         data: { status: 'released' },
-      });
-      await tx.decisionRecord.updateMany({
-        where: { id: decisionId, userId: input.userId, status: 'cooling' },
-        data: { status: 'ready', reviewedAt: completedAt },
       });
       return { status: 'delivered' };
     } else {
