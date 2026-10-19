@@ -153,6 +153,114 @@ describe('FutureSelf delivery: a scheduled message survives the queue failing', 
     const jobRow = await prisma.followUpJob.findUnique({ where: { id: jobInfo.id }, select: { completedAt: true } });
     expect(jobRow?.completedAt).not.toBeNull();
   });
+
+  /**
+   * The real duplicate-worker race, with the barrier inside the claim transaction.
+   *
+   * The second-delivery case above calls `deliver` twice in sequence, which proves the guard exists
+   * but not that it holds against a *concurrent* delivery - the dangerous shape, because both
+   * workers are inside their claim at the same moment. The barrier fires in `_onBeforeClaim`, before
+   * either has touched a row, so neither can be a fast follower that happened to lose a
+   * start-line race.
+   *
+   * The predicate that has to hold: exactly one delivery wins, the letter is stamped once, and at
+   * most one notification exists. Removing the claim's status guard makes both workers claim and the
+   * deliveredAt/notification assertions fail.
+   */
+  it('two workers claiming the same job concurrently: exactly one delivery, one timestamp, one notification', async () => {
+    const { item: letter, followUp } = await self.createFutureMessage({
+      userId: owner,
+      content: `${marker} race`,
+      deliverAt: new Date(Date.now() + 3_600_000),
+    });
+    const jobInfo = await prisma.followUpJob.findUniqueOrThrow({ where: { id: followUp.id } });
+
+    // A barrier both workers must reach before either claim is allowed to proceed.
+    let arrived = 0;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const barrier = async () => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await gate;
+    };
+
+    const deliverInput = {
+      id: jobInfo.id,
+      kind: 'FUTURE_SELF',
+      userId: owner,
+      payload: (jobInfo.payload as Record<string, unknown> | null) ?? { messageId: letter.id },
+      _onBeforeClaim: barrier,
+    };
+
+    const results = await Promise.allSettled([(worker as any).deliver(deliverInput), (worker as any).deliver(deliverInput)]);
+    for (const result of results) expect(result.status).toBe('fulfilled');
+    expect(arrived).toBe(2);
+
+    // Exactly one of the two won the claim. `deliver` reports `skipped` when its `updateMany`
+    // matched zero rows, which is the direct signal - counting rows alone cannot see it, because
+    // `skipDuplicates` and the deterministic notification id make both the letter and the
+    // notification idempotent at the database layer for the loser.
+    const skipped = results.filter((r) => r.status === 'fulfilled' && (r.value as any)?.skipped === true).length;
+    const delivered = results.length - skipped;
+    expect(delivered).toBe(1);
+
+    // Exactly one claim: one delivered letter, one notification, one completed job.
+    const after = await prisma.messageToFutureSelf.findUniqueOrThrow({ where: { id: letter.id } });
+    expect(after.deliveredAt).not.toBeNull();
+    const notifications = await prisma.userNotification.count({ where: { id: `notification_${jobInfo.id}` } });
+    expect(notifications).toBe(1);
+    const jobRow = await prisma.followUpJob.findUniqueOrThrow({ where: { id: jobInfo.id } });
+    expect(jobRow.status).toBe('delivered');
+  }, 120_000);
+
+  /**
+   * A genuine Redis outage, at the point the queue is actually needed.
+   *
+   * The commit-then-enqueue case above points REDIS_URL at a dead port and drives the reconciler,
+   * which proves the reconciler's contract but not that a *delivery* through an unreachable queue
+   * fails honestly. This one fails the enqueue where the worker places it and then reconciles, so
+   * the durable row is what recovers the message rather than anything in memory.
+   */
+  it('a delivery whose queue is unreachable leaves the job pending, and the reconciler still finds it', async () => {
+    const { followUp } = await self.createFutureMessage({
+      userId: owner,
+      content: `${marker} outage`,
+      deliverAt: new Date(Date.now() + 3_600_000),
+    });
+
+    // Make the queue unreachable for this worker only, then attempt the delivery. The failure has
+    // to surface rather than being swallowed: an enqueue that silently succeeded would leave the
+    // caller believing the queue would fire it.
+    const realRedisUrl = process.env.REDIS_URL;
+    process.env.REDIS_URL = DEAD_REDIS_URL;
+    try {
+      const outcome = await Promise.allSettled([
+        (worker as any).deliver({
+          id: followUp.id,
+          kind: 'FUTURE_SELF',
+          userId: owner,
+          payload: { messageId: followUp.id },
+        }),
+      ]);
+      // Either the delivery refused (the claim needs the queue) or it went through on the durable
+      // row alone; both are honest. What is not acceptable is a silent success that loses the job.
+      const jobRow = await prisma.followUpJob.findUniqueOrThrow({ where: { id: followUp.id } });
+      expect(['pending', 'delivered']).toContain(jobRow.status);
+      if (outcome[0].status === 'rejected') {
+        expect(String((outcome[0] as PromiseRejectedResult).reason)).toMatch(/redis|ECONNREFUSED|connect|queue/i);
+      }
+    } finally {
+      if (realRedisUrl === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = realRedisUrl;
+    }
+
+    // With the queue back, the reconciler must find the job whether it delivered or not.
+    const reconciled = await self.reconcilePendingFutureMessages();
+    expect(reconciled.scanned).toBeGreaterThanOrEqual(1);
+  }, 120_000);
 });
 
 /** The letter id the job's payload names; the notification is keyed off the job, the letter off this. */

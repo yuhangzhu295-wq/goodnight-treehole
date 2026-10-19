@@ -137,7 +137,7 @@ export class FollowUpWorkerService implements OnModuleInit, OnModuleDestroy {
       }
 
       const claim = await tx.followUpJob.updateMany({
-        where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
+          where: { id: input.id, status: { in: ['pending', 'scheduled'] } },
         data: { status: 'delivered', completedAt },
       });
 
