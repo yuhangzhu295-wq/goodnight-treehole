@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "f9515358045c6326c48e355474f33783241a5710",
-  "updatedAt": "2026-10-19T09:59:50.368Z",
+  "head": "07bdbea577c274f5abfc566a34b485c246217d52",
+  "updatedAt": "2026-10-19T12:04:23.866Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -151,7 +151,7 @@
       "priority": "P1",
       "status": "RUNNING",
       "dependency": "B3-GATE",
-      "title": "Batch 4 legacy store retirement (14 of 16 models; Letter and MediaAsset remain)",
+      "title": "Batch 4 legacy store retirement (15 of 16 models; MediaAsset remains)",
       "implemented": "partial",
       "tested": "partial",
       "evidence": "Batch 4 at 7 of 16. Done: FaqItem, ReplyPreset, FeedbackCategory + FeedbackTicket (registered as one unit), AdminUserNote, PeerReputation (inert - no writer anywhere, recorded in the plan §5b), AgentDecisionLog. Each has a statement-level gate in batch4-faq-item-gate.spec.ts (14/14) and a reverse proof (M-K, M-L, M-M, M-N, M-O, M-P). BATCH4_LEGACY_FLUSH_RETIREMENT.md is the plan. Re-measured on 61dd20e: Reply also maintains post.replyCount (store.service.ts:8225,8253), so Favorite and Reply both write into Post counters - the cluster cannot be split.",
@@ -840,6 +840,19 @@
       "evidence": "diary-persistence.service.ts owns the table. Readers moved: diary routes and filters, export, stats, clearData, save-to-diary, tool-decompose, monthly report roll-up and months. Per-owner delete is in the service. Gate case plus mutation M-V. 17/17 gate, 40/40 unit.",
       "blocker": "",
       "nextAction": "Letter and MediaAsset remain."
+    },
+    {
+      "id": "B4-LETTER",
+      "phase": "Batch 4",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Letter converted with its generation and favourite projections",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "letter-persistence.service.ts owns the table; normalize reshapes rows to the in-memory Letter; queueLetterGeneration creates and applies the completion; Letter.favorite is written where the favourite is. Gate case plus mutation M-W. 17/17 gate, 40/40 unit.",
+      "blocker": "",
+      "nextAction": "MediaAsset is the last one."
     }
   ]
 }

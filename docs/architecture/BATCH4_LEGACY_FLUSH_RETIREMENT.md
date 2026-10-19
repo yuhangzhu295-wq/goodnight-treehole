@@ -271,8 +271,9 @@ page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-REA
 | `AIStyleRoute` | **DONE** | Same pair; `resolveAiRouteRecord` is the read seam `runAiJob` uses. Mutation M-T covers both |
 | `Mood` | **DONE** | `mood-persistence.service.ts`; all eleven read sites moved; boot/reload write the snapshot's moods and posts (`Post.moodId` is a Restrict FK). Gate case plus mutation M-U |
 | `Diary` | **DONE** | `diary-persistence.service.ts`; per-owner delete in the service, `DiaryAttachment` join writes, the private-mood projection exclusion. Gate case plus mutation M-V |
+| `Letter` | **DONE** | `letter-persistence.service.ts`; `normalize` reshapes rows to the in-memory `Letter`; the completion path leaves the previous content when a job failed. Gate case plus mutation M-W |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 2 | not starting | `Letter`, `MediaAsset`
+| `MediaAsset` | not starting | last of the 16; readers are `Mood.attachmentIds`, the diary projection and the feedback screenshots |
 
 **What converting `Favorite` changed beyond the model.** `buildPostDecorationContext` is async and
 reads the viewer's post ids from the table once per request; `getPost`, `moderatePost` and five
