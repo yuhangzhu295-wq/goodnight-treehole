@@ -681,7 +681,12 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
     it('8. Distinguishes snapshot omission (survives) from explicit detach (null) for unmigrated legacy relations', async () => {
       const journeyId = `journey_fk_test_${Date.now()}`;
       const journey2Id = `journey_fk_test2_${Date.now()}`;
-      const moodId = `mood_fk_test_${Date.now()}`;
+      // `Mood` was the model here until Batch 4 registered it. A registration is exactly what makes
+      // this case untestable on it - the flush no longer writes the table, so there is no snapshot
+      // to be stale. `FollowUpJob` is the remaining model with a `journeyId` that the flush still
+      // owns, so it carries the case now: the flush writes it when it creates the row and leaves the
+      // committed value alone when the snapshot is merely older.
+      const jobId = `followup_fk_test_${Date.now()}`;
 
       // 1. Seed valid LifeJourneys in DB
       await harness.db.lifeJourney.createMany({
@@ -707,59 +712,49 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         ],
       });
 
-      // 2. Seed an unmigrated legacy model row (Mood) in DB with journeyId = null
-      await harness.db.mood.create({
+      // 2. Seed the unmigrated row with journeyId = null
+      await harness.db.followUpJob.create({
         data: {
-          id: moodId,
+          id: jobId,
           userId: testUserId,
-          emotion: '低落',
-          content: '初始无旅程关联的心情记录',
-          visibility: 'PRIVATE',
-          riskLevel: 'low',
-          riskScore: 0,
           journeyId: null,
+          kind: 'action_checkin',
+          dueAt: new Date(Date.now() + 3_600_000),
+          status: 'pending',
         },
       });
 
-      // 3. Instance B loads runtime state: at this point, Instance B sees mood.journeyId = undefined
+      // 3. Instance B reloads and reads the row's journeyId from its own snapshot.
       await harness.storeB.reloadRuntimeState();
-      const inMemoryMoodB = harness.storeB.data.moods.find((m) => m.id === moodId);
-      expect(inMemoryMoodB).toBeDefined();
-      expect(inMemoryMoodB?.journeyId).toBeUndefined();
+      const inMemoryJobB = harness.storeB.data.followUpJobs.find((j) => j.id === jobId);
+      expect(inMemoryJobB).toBeDefined();
+      expect(inMemoryJobB?.journeyId).toBeUndefined();
 
-      // 4. Instance A (or direct write) associates this Mood with journeyId in PostgreSQL
-      await harness.db.mood.update({
-        where: { id: moodId },
-        data: { journeyId },
-      });
+      // 4. A direct write associates the row with the journey.
+      await harness.db.followUpJob.update({ where: { id: jobId }, data: { journeyId } });
 
-      // Verify from independent client: database now holds the valid foreign key
-      const dbMoodBeforeFlush = await harness.db.mood.findUnique({ where: { id: moodId } });
-      expect(dbMoodBeforeFlush?.journeyId).toBe(journeyId);
+      const dbBeforeFlush = await harness.db.followUpJob.findUnique({ where: { id: jobId } });
+      expect(dbBeforeFlush?.journeyId).toBe(journeyId);
 
-      // 5. Stale snapshot case (undefined): Instance B flushes with mood.journeyId = undefined.
-      // The committed foreign key in PostgreSQL MUST SURVIVE.
+      // 5. Stale snapshot: the flush must not overwrite the committed value with its older one.
       await harness.storeB.persistAndFlush();
+      const dbAfterFlush = await harness.db.followUpJob.findUnique({ where: { id: jobId } });
+      expect(dbAfterFlush).not.toBeNull();
+      expect(dbAfterFlush?.journeyId).toBe(journeyId);
 
-      const dbMoodAfterFlush = await harness.db.mood.findUnique({ where: { id: moodId } });
-      expect(dbMoodAfterFlush).not.toBeNull();
-      expect(dbMoodAfterFlush?.journeyId).toBe(journeyId);
-
-      // 6. Explicit detach case (null): Instance B explicitly detaches by setting journeyId = null.
-      // The update must write NULL to PostgreSQL.
-      inMemoryMoodB!.journeyId = null as any;
+      // 6. Explicit detach: an intentional null must be written.
+      inMemoryJobB!.journeyId = null as any;
       await harness.storeB.persistAndFlush();
+      const dbAfterDetach = await harness.db.followUpJob.findUnique({ where: { id: jobId } });
+      expect(dbAfterDetach?.journeyId).toBeNull();
 
-      const dbMoodAfterDetach = await harness.db.mood.findUnique({ where: { id: moodId } });
-      expect(dbMoodAfterDetach?.journeyId).toBeNull();
-
-      // 7. Explicit update case (string): Instance B sets a valid journeyId.
-      // The update must write the referenced journeyId.
-      inMemoryMoodB!.journeyId = journey2Id;
+      // 7. Explicit update: a new valid journeyId must be written.
+      inMemoryJobB!.journeyId = journey2Id;
       await harness.storeB.persistAndFlush();
+      const dbAfterUpdate = await harness.db.followUpJob.findUnique({ where: { id: jobId } });
+      expect(dbAfterUpdate?.journeyId).toBe(journey2Id);
 
-      const dbMoodAfterUpdate = await harness.db.mood.findUnique({ where: { id: moodId } });
-      expect(dbMoodAfterUpdate?.journeyId).toBe(journey2Id);
+      await harness.db.followUpJob.delete({ where: { id: jobId } }).catch(() => undefined);
     });
   });
 });

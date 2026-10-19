@@ -40,6 +40,14 @@ export class MoodPersistenceService {
     return this.prisma.mood.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' } });
   }
 
+  /**
+   * Upsert on the caller's id, when there is one.
+   *
+   * `writeSnapshotPostsAndMoods` writes the snapshot's moods at boot and after every state reload,
+   * and the snapshot's ids are stable, so a second instance - or the same instance after a reload
+   * that re-read the snapshot - would hit a unique-constraint failure on `create`. The boot path is
+   * therefore idempotent on id, which is the same reason the reply seed upserts.
+   */
   async create(input: {
     id?: string;
     userId: string;
@@ -52,23 +60,57 @@ export class MoodPersistenceService {
     journeyId?: string | null;
     createdAt?: Date;
   }) {
-    return this.prisma.mood.create({
-      data: {
-        ...(input.id ? { id: input.id } : {}),
-        userId: input.userId,
-        emotion: input.emotion,
-        content: input.content,
-        visibility: input.visibility as 'PRIVATE' | 'PUBLIC',
-        riskLevel: input.riskLevel,
-        riskScore: input.riskScore,
-        status: 'active',
-        attachments: {
-          create: (input.attachmentIds ?? []).map((assetId) => ({ mediaAssetId: assetId })),
+    if (!input.id) {
+      return this.prisma.mood.create({
+        data: {
+          userId: input.userId,
+          emotion: input.emotion,
+          content: input.content,
+          visibility: input.visibility as 'PRIVATE' | 'PUBLIC',
+          riskLevel: input.riskLevel,
+          riskScore: input.riskScore,
+          status: 'active',
+          attachments: {
+            create: (input.attachmentIds ?? []).map((assetId) => ({ mediaAssetId: assetId })),
+          },
+          journeyId: input.journeyId ?? null,
+          ...(input.createdAt ? { createdAt: input.createdAt } : {}),
         },
-        journeyId: input.journeyId ?? null,
-        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
-      },
-    });
+      });
+    }
+    // Read-then-create rather than upsert: an `upsert` is not the concurrency-safe operation it
+    // looks like, because Postgres raises a unique violation when two instances insert the same
+    // primary key at the same moment, even as the `update` branch of an ON CONFLICT. Two instances
+    // booting against one database do exactly that with the deterministic seed ids
+    // (`ensureSeedCoverage`), and the crash took the whole boot with it.
+    const existing = await this.prisma.mood.findUnique({ where: { id: input.id } });
+    if (existing) return existing;
+    try {
+      return await this.prisma.mood.create({
+        data: {
+          id: input.id,
+          userId: input.userId,
+          emotion: input.emotion,
+          content: input.content,
+          visibility: input.visibility as 'PRIVATE' | 'PUBLIC',
+          riskLevel: input.riskLevel,
+          riskScore: input.riskScore,
+          status: 'active',
+          attachments: {
+            create: (input.attachmentIds ?? []).map((assetId) => ({ mediaAssetId: assetId })),
+          },
+          journeyId: input.journeyId ?? null,
+          ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+        },
+      });
+    } catch (error) {
+      // The race the read above cannot close: the other instance committed between the read and
+      // this insert. Its row is the same one this caller wanted, so returning it is correct rather
+      // than a failure - the seed is identical on every instance by construction.
+      const raced = await this.prisma.mood.findUnique({ where: { id: input.id } });
+      if (raced) return raced;
+      throw error;
+    }
   }
 
   /**

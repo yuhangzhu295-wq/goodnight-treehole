@@ -923,7 +923,11 @@ export async function saveRelationalRuntimeState(
   const users = asArray(state.users);
   if (!users.length) throw new Error('Relational persistence requires at least one user');
   const providerMap = new Map(
-    asArray(state.aiProviders)
+    // AIProvider is registered, so the snapshot no longer carries providers and reading the array
+    // would hit its disabled getter. The routes that still name one are re-pointed at the safe
+    // template by `applyPolicyToRoutes`, which runs after this; this map only has to answer lookups
+    // for ids the *flush* still owns, and with the model registered there are none.
+    (DIRECT_DB_MODELS.AIProvider ? [] : asArray(state.aiProviders))
       .filter((item: any) => item?.id)
       .map((item: any) => [item.id, { ...item }]),
   );
@@ -1027,12 +1031,12 @@ export async function saveRelationalRuntimeState(
           ...(DIRECT_DB_MODELS.PeerMatch ? [] : asArray(state.peerMatches).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.Post ? [] : asArray(state.posts).map((item: any) => item.journeyId)),
-          ...asArray(state.diaries).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.Diary ? [] : asArray(state.diaries).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.DecisionRecord ? [] : asArray(state.decisionRecords).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.RealityHandoff ? [] : asArray(state.realityHandoffs).map((item: any) => item.journeyId)),
-          ...asArray(state.messagesToFutureSelf).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.MessageToFutureSelf ? [] : asArray(state.messagesToFutureSelf).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.PersonalSupportPlan ? [] : asArray(state.personalSupportPlans).map((item: any) => item.journeyId)),
-          ...asArray(state.memoryItems).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.MemoryItem ? [] : asArray(state.memoryItems).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.RecoverySnapshot ? [] : asArray(state.recoverySnapshots).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.AgentDecisionLog ? [] : asArray(state.agentDecisionLogs).map((item: any) => item.journeyId)),
           ...asArray(state.followUpJobs).map((item: any) => item.journeyId),

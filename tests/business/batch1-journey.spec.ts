@@ -900,6 +900,20 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
         },
       });
 
+      // Diary is database-authoritative since Batch 4, so like Mood and Post its row is written
+      // directly and the flush must leave the journey link alone.
+      await freshPrisma.diary.create({
+        data: {
+          id: diaryId,
+          userId,
+          moodId,
+          journeyId,
+          emotion: '焦虑',
+          content: '关联到旅程的日记内容',
+          createdAt: new Date(),
+        },
+      });
+
       // 2. Trigger a legacy flush simulating another API instance running saveRelationalRuntimeState
       // with in-memory records pointing to journeyId, while lifeJourneys is NOT loaded in that instance
       const testState = {
@@ -946,18 +960,9 @@ describe('Batch 1 Sub-batch D: LifeJourney, SituationSnapshot, JourneyUpdate dat
             createdAt: new Date().toISOString(),
           },
         ],
-        diaries: [
-          {
-            id: diaryId,
-            userId,
-            moodId,
-            journeyId,
-            emotion: '焦虑',
-            content: '关联到旅程的日记内容',
-            hasLetter: false,
-            createdAt: new Date().toISOString(),
-          },
-        ],
+        // Diary is database-authoritative since Batch 4, so it is written directly below like Mood
+        // and Post, and it must not be carried in the legacy array the flush hydrates from.
+        diaries: [],
         peerExperiences: [
           {
             id: peerExpId,

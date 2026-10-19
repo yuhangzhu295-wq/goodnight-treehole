@@ -3223,7 +3223,10 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  ollamaStatus() {
+  async ollamaStatus() {
+    // AIProvider is database-authoritative, so the provider list comes from the table. Local models
+    // are disabled outright here, which is why `online` and `modelCount` stay constant.
+    const providers = DIRECT_DB_MODELS.AIProvider ? await this.aiRoutingDb.listProviders() : this.aiProviders;
     return {
       baseUrl: 'disabled://local-model',
       online: false,
@@ -3231,13 +3234,15 @@ export class StoreService implements OnModuleInit {
       modelCount: 0,
       lastCheckedAt: this.ollamaLastCheckedAt,
       error: this.ollamaLastError,
-      models: this.aiProviders
+      models: providers
         .filter((provider) => provider.providerKind === 'ollama')
         .map((provider) => ({
           providerId: provider.id,
           name: provider.modelName,
           enabled: provider.enabled,
-          ...provider.modelMeta,
+          // The table column is JSON, so the spread needs a guard: spreading a non-object would
+          // throw at runtime, and TypeScript refuses `unknown` here.
+          ...(provider.modelMeta && typeof provider.modelMeta === 'object' ? provider.modelMeta : {}),
         })),
     };
   }
@@ -4578,8 +4583,10 @@ export class StoreService implements OnModuleInit {
     // person's separately created materials, but remove the deleted Journey link.
     const detachJourney = <T extends { journeyId?: string }>(items: T[]) =>
       items.map((item) => (item.journeyId === journeyId ? { ...item, journeyId: undefined } : item));
-    this.data.diaries = detachJourney(this.data.diaries as Array<any>);
-    this.data.moods = detachJourney(this.data.moods as Array<any>);
+    // Diary and Mood are database-authoritative: the archive transaction already removed the link
+    // with its own statements, so the snapshot array must not be touched here.
+    if (!DIRECT_DB_MODELS.Diary) this.data.diaries = detachJourney(this.data.diaries as Array<any>);
+    if (!DIRECT_DB_MODELS.Mood) this.data.moods = detachJourney(this.data.moods as Array<any>);
     // Post is database-authoritative: the link is removed by a statement, not by rewriting a row in
     // the snapshot the flush writes.
     if (DIRECT_DB_MODELS.Post) {
@@ -4601,6 +4608,7 @@ export class StoreService implements OnModuleInit {
     // Batch 4: the same model, the opposite intent - the export path keeps these rows and only
     // removes the link, which is why it is a detach here and a delete in the archive-cleanup path.
     await this.batch1Persistence.detachDecisionLogsForJourneys([journeyId]);
+    // FollowUpJob is not a direct-DB model, so the snapshot array is still its record.
     this.data.followUpJobs = detachJourney(this.data.followUpJobs);
 
     await this.persistAndFlush();
@@ -8835,10 +8843,8 @@ export class StoreService implements OnModuleInit {
   }
 
   private latestUserContent(userId: string) {
-    const diary = this.diaries.find((item) => item.userId === userId);
-    if (diary?.content) return diary.content;
-    // Mood and Diary are database-authoritative; `queueAI` is on a hot synchronous path, so the
-    // caller passes the already-loaded content instead of this reaching for the table.
+    // Diary is database-authoritative; `queueAI` is on a hot synchronous path, so the caller passes
+    // the already-loaded content instead of this reaching for the table.
     return this.pendingDiaryContent ?? this.pendingMoodContent ?? '';
   }
 
@@ -8855,7 +8861,9 @@ export class StoreService implements OnModuleInit {
     if (!sourceId) return '';
     return (
       (this.pendingSourceContent ?? {})[sourceId] ??
-      this.diaries.find((item) => item.id === sourceId)?.content ??
+      // Diary is registered, so the row is read rather than scanned; the array's getter throws.
+      (DIRECT_DB_MODELS.Diary ? await this.diariesDb.get(sourceId) : this.diaries.find((item) => item.id === sourceId))
+        ?.content ??
       (DIRECT_DB_MODELS.Letter
         ? ((await this.lettersDb.get(sourceId)) as { content?: string } | null)?.content
         : this.letters.find((item) => item.id === sourceId)?.content) ??

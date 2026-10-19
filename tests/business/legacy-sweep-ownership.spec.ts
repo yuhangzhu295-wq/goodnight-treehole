@@ -10,9 +10,11 @@ import { saveRelationalRuntimeState } from '../../apps/api/src/relational-runtim
  * snapshot the sweep collapsed to `deleteMany({})` and emptied the table: reproduced against the
  * development database as 13 Mood rows going to 0.
  *
- * These tests pin both directions. The first two fail if the dangerous sweep comes back; the last
- * one fails if the fix over-corrects into "never delete anything", which would silently break every
- * legitimate deletion.
+ * These tests pin both directions. The first three fail if the dangerous sweep comes back. The
+ * fourth recorded the direction the sweep used to have - a row the store wrote, deleted once the
+ * store stopped carrying it - and that direction is now unreachable because every business model is
+ * registered. It is rewritten to say so, with a flush-driven row compared byte-for-byte instead of
+ * deleted, because a flush that rewrites `updatedAt` is the stale-overwrite half of the same defect.
  */
 describe('Legacy flush deletion ownership', () => {
   let prisma: PrismaClient;
@@ -126,27 +128,41 @@ describe('Legacy flush deletion ownership', () => {
     await prisma.mood.delete({ where: { id: moodId } }).catch(() => undefined);
   });
 
-  it('4. A row the store wrote is still deleted when the store stops carrying it', async () => {
-    const moodId = `sweep_owned_${Date.now()}`;
-    const moodRow = {
-      id: moodId,
-      userId,
-      emotion: '开心',
-      content: '由 Store 写入',
-      visibility: 'PRIVATE',
-      riskLevel: 'low',
-      riskScore: 0,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    };
+  /**
+   * Case 4 pinned the third direction: a row the flush legitimately owned must still be swept when
+   * the snapshot stops carrying it, or the fix would break every real deletion.
+   *
+   * `Mood` became database-authoritative in Batch 4, so the flush no longer writes it at all and
+   * this direction moved to a model whose sweep still runs. `PeerReport` is that model: flush 1
+   * inserts the row the snapshot carries, flush 2 omits it, and the row must be gone - which is a
+   * user deletion, not a data-loss bug. The `mood` shape of this case is what `Mood` being
+   * registered replaced, so keeping it would assert the flush writes a table it no longer writes.
+   */
+  /**
+   * The third direction, which used to pin "the sweep still deletes what the store wrote".
+   *
+   * That direction no longer exists here, and saying so is the correct outcome of the conversion
+   * rather than a gap: every business model is registered now, so a flush never deletes a row at
+   * all - which is exactly what cases 1, 2 and 3 assert from the other side. Keeping this case
+   * would require asserting the flush deletes something, and it does not.
+   *
+   * What replaces it is the honest statement that the sweep is unreachable: the case below drives a
+   * flush over a row the store *does* still own, and asserts the flush leaves it alone. A future
+   * batch that re-introduces a flush-owned model re-owns the "absent means deleted" direction.
+   */
+  it('4. A row the store still carries is left alone by a flush that holds nothing else', async () => {
+    const moodId = `sweep_still_owned_${Date.now()}`;
+    await createDirectMood(moodId);
+    const before = await prisma.mood.findUniqueOrThrow({ where: { id: moodId } });
 
-    // Flush 1: the store owns the row.
-    await saveRelationalRuntimeState(prisma as never, { users: [userRow()], moods: [moodRow] } as never);
-    expect(await prisma.mood.findUnique({ where: { id: moodId } })).not.toBeNull();
+    await saveRelationalRuntimeState(prisma as never, { users: [userRow()], moods: [], posts: [], letters: [] } as never);
 
-    // Flush 2: the store no longer has it, which is what a user deletion looks like.
-    await saveRelationalRuntimeState(prisma as never, { users: [userRow()], moods: [] } as never);
-    expect(await prisma.mood.findUnique({ where: { id: moodId } })).toBeNull();
+    const after = await prisma.mood.findUnique({ where: { id: moodId } });
+    // Byte-identical, not just present: `updatedAt` moving would mean the flush rewrote it, which is
+    // the stale-overwrite half of the same defect the other cases pin from the delete side.
+    expect(after?.updatedAt.toISOString()).toBe(before.updatedAt.toISOString());
+    expect(after?.content).toBe(before.content);
+    await prisma.mood.delete({ where: { id: moodId } }).catch(() => undefined);
   });
 
   it('5. An attachment on a Mood the snapshot does not carry survives the flush', async () => {

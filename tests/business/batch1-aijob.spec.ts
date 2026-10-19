@@ -21,6 +21,25 @@ async function setPrivacy(url: string, userId: string, patch: Record<string, unk
   }
 }
 
+/**
+ * AIProvider is database-authoritative from Batch 4, so the provider's `enabled` flag is read and
+ * written through the table rather than the in-memory array. Returns the previous value so the
+ * caller can restore it, and reads through a fresh client so it never depends on app state.
+ */
+async function setDapiProviderEnabled(url: string, enabled: boolean): Promise<boolean | undefined> {
+  const client = new PrismaClient({ datasources: { db: { url } } });
+  try {
+    const existing = await client.aIProvider.findUnique({ where: { id: DAPI_PROVIDER_ID } });
+    if (!existing) return undefined;
+    if (existing.enabled !== enabled) {
+      await client.aIProvider.update({ where: { id: DAPI_PROVIDER_ID }, data: { enabled } });
+    }
+    return existing.enabled;
+  } finally {
+    await client.$disconnect();
+  }
+}
+
 import { StoreService } from '../../apps/api/src/store.service';
 import { Batch1PersistenceService } from '../../apps/api/src/batch1-persistence.service';
 import { MonthlyReportService } from '../../apps/api/src/monthly-report.service';
@@ -234,9 +253,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const testUserId = store.getDemoUserId();
 
     // Enable primary provider for the duration of this lifecycle test
-    const primaryProv = store.aiProviders.find((p) => p.id === DAPI_PROVIDER_ID);
-    const prevEnabled = primaryProv?.enabled;
-    if (primaryProv) primaryProv.enabled = true;
+    const prevEnabled = await setDapiProviderEnabled(dbUrl, true);
 
     let committedRunningObservedDuringExternalCall = false;
 
@@ -304,7 +321,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       }
     } finally {
       generateSpy.mockRestore();
-      if (primaryProv && prevEnabled !== undefined) primaryProv.enabled = prevEnabled;
+      if (prevEnabled !== undefined) await setDapiProviderEnabled(dbUrl, prevEnabled);
     }
   });
 
@@ -373,9 +390,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
     const testUserId = store.getDemoUserId();
 
     // Enable primary provider so candidate is not skipped as provider-unavailable
-    const primaryProv = store.aiProviders.find((p) => p.id === DAPI_PROVIDER_ID);
-    const prevEnabled = primaryProv?.enabled;
-    if (primaryProv) primaryProv.enabled = true;
+    const prevEnabled = await setDapiProviderEnabled(dbUrl, true);
 
     // Inject remote provider error returning fixed HTTP 402 (Payment Required, non-failover)
     const fixed402Error = new RemoteProviderError(
@@ -485,7 +500,7 @@ describe('Batch 1 Sub-batch C: AIJob database authority and lifecycle', () => {
       await expect(store.waitForAiJob(brokenJobId, 300)).rejects.toThrow(/did not finish/);
     } finally {
       generateSpy.mockRestore();
-      if (primaryProv && prevEnabled !== undefined) primaryProv.enabled = prevEnabled;
+      if (prevEnabled !== undefined) await setDapiProviderEnabled(dbUrl, prevEnabled);
     }
   });
 

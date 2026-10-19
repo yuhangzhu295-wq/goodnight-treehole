@@ -2518,7 +2518,7 @@ export class AdminController {
           acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
           return acc;
         }, {});
-    const ollama = this.store.ollamaStatus();
+    const ollama = await this.store.ollamaStatus();
     return {
       todayUsers: this.store.users.filter((u) => u.createdAt?.startsWith(today)).length,
       todayPosts: todayPostCount,
@@ -3532,8 +3532,8 @@ export class AdminController {
   }
 
   @Get('ai/ollama/status')
-  ollamaStatus() {
-    return { item: this.store.ollamaStatus() };
+  async ollamaStatus() {
+    return { item: await this.store.ollamaStatus() };
   }
 
   @Post('ai/ollama/sync-models')

@@ -98,12 +98,24 @@ export class PostPersistenceService {
       journeyId: input.journeyId ?? null,
       ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     };
-    // A caller-supplied id makes this an upsert. Two instances booting against one database both
-    // write the seed posts, and a plain create fails the second one on the primary key
-    // (`batch1-multi-instance` proved that; `ReplyPersistenceService.create` carries the same rule).
-    return input.id
-      ? this.prisma.post.upsert({ where: { id: input.id }, create: { id: input.id, ...data }, update: {} })
-      : this.prisma.post.create({ data });
+    // A caller-supplied id makes this idempotent, because two instances booting against one database
+    // both write the seed posts. Read-then-create rather than upsert: Postgres raises a unique
+    // violation when two instances insert the same primary key at the same moment even as the update
+    // branch of an ON CONFLICT, and `batch1-multi-instance` proved that takes the boot with it.
+    if (input.id) {
+      const existing = await this.prisma.post.findUnique({ where: { id: input.id } });
+      if (existing) return existing;
+      try {
+        return await this.prisma.post.create({ data: { id: input.id, ...data } });
+      } catch (error) {
+        // The race the read cannot close. The other instance's row is the same seed row, so
+        // returning it is correct rather than a failure.
+        const raced = await this.prisma.post.findUnique({ where: { id: input.id } });
+        if (raced) return raced;
+        throw error;
+      }
+    }
+    return this.prisma.post.create({ data });
   }
 
   async moderate(id: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
