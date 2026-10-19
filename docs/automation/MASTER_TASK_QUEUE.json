@@ -801,6 +801,19 @@
       "evidence": "Measured 2026-10-19: `docker logs goodnight-treehole-postgres-1` shows \"database system was shut down at 03:11:31 UTC\" while the suite was running. Separately, WSL2 localhost forwarding breaks independently of the distro (distro Running, containers listening, reachable over the distro address, 127.0.0.1:15432 refused from Windows). Both recur; a `wsl --shutdown` repairs the second. Each affected file fails with \"Server has closed the connection\" at its own first query, so it is not a business regression.",
       "blocker": "Machine-level: the cause of the container stop is not observable from inside the project. This is the same workstation whose AskLink virtual display driver and UMDF host are already known unreliable.",
       "nextAction": "Report as EXTERNAL BLOCKER. Do not claim a full-suite green on this machine until a run completes with no connection error."
+    },
+    {
+      "id": "ENV-WSL-PERIODIC-RESTART",
+      "phase": "Environment",
+      "priority": "P0",
+      "status": "BLOCKED_ENVIRONMENT",
+      "title": "WSL restarts every 40-60 seconds, so no multi-file suite can finish",
+      "implemented": "no",
+      "tested": "no",
+      "independentReview": "pending",
+      "evidence": "See docs/architecture/ENVIRONMENT_WSL_PERIODIC_RESTART.md. All five docker containers restart together with ExitCode=0, so the WSL VM itself restarts. Single-file runs and vitest-without-lease runs are stable (40/40 unit); anything that leases a database per file fails at that file first query. CI on GitHub Actions is unaffected and is the authoritative path.",
+      "blocker": "Machine-level. Not fixed from inside the project.",
+      "nextAction": "Treat as an external blocker; verify against CI."
     }
   ]
 }
