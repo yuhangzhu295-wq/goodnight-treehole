@@ -16,6 +16,7 @@ import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js
 import { MoodPersistenceService } from './mood-persistence.service.js';
 import { DiaryPersistenceService } from './diary-persistence.service.js';
 import { LetterPersistenceService } from './letter-persistence.service.js';
+import { MediaAssetPersistenceService } from './media-asset-persistence.service.js';
 import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
 import { AnonymousSessionService } from './anonymous-session.service.js';
 import { IdentityMiddleware } from './identity.middleware.js';
@@ -36,6 +37,7 @@ import { IdentityMiddleware } from './identity.middleware.js';
     MoodPersistenceService,
     DiaryPersistenceService,
     LetterPersistenceService,
+    MediaAssetPersistenceService,
     AdminNotesPersistenceService,
     StoreService,
     MonthlyReportService,

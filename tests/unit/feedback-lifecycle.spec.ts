@@ -15,7 +15,44 @@ function asUser<T>(userId: string, fn: () => T): T {
 
 const temporaryFiles: string[] = [];
 
-function createStore() {
+/**
+ * MediaAsset is database-authoritative, so a caller can no longer seed the legacy array; the stub
+ * below is the table. `get` answers the feedback screenshot validation, `findOwnedReady` the
+ * draft-delete guard, `readyByIds` the ticket decoration, and the rest are the calls the store
+ * makes on its way there.
+ */
+function stubMediaAssetTable(rows: Map<string, any>) {
+  return {
+    findMany: async ({ where, select }: any = {}) => {
+      const ids: string[] = where?.id?.in ?? [...rows.keys()];
+      const picked = ids.map((id) => rows.get(id)).filter((row) => {
+        if (!row) return false;
+        if (where?.userId && row.userId !== where.userId) return false;
+        if (where?.status && row.status !== where.status) return false;
+        return true;
+      });
+      return select?.id ? picked.map((row) => ({ id: row.id })) : picked;
+    },
+    findUnique: async ({ where }: any) => rows.get(where?.id) ?? null,
+    findFirst: async ({ where }: any) => (where?.userId ? (rows.get(where.id)?.userId === where.userId ? rows.get(where.id) : null) : rows.get(where.id) ?? null),
+    create: async ({ data }: any) => {
+      rows.set(data.id, { ...data, size: Number(data.size ?? 0) });
+      return rows.get(data.id);
+    },
+    update: async ({ where, data }: any) => Object.assign(rows.get(where.id), data),
+    count: async () => rows.size,
+    get: async (id: string) => rows.get(id) ?? null,
+    findOwnedReady: async (id: string, userId: string) => {
+      const row = rows.get(id);
+      return row?.userId === userId && row?.status === 'ready' ? row : null;
+    },
+    markDeleted: async (id: string) => Object.assign(rows.get(id), { status: 'deleted' }),
+    readyByIds: async (ids: string[]) => ids.map((id) => rows.get(id)).filter((row) => row?.status === 'ready'),
+  };
+}
+
+function createStore(assetRows?: Map<string, any>) {
+  const rows = assetRows ?? new Map<string, any>();
   return new StoreService(
     {
       saveRuntimeState: async () => undefined,
@@ -24,12 +61,14 @@ function createStore() {
       moodAttachment: { findMany: async () => [] },
       post: { count: async () => 0 },
       diary: { count: async () => 0 },
+      // MediaAsset is database-authoritative; the draft-delete guard reads attachments through it.
+      mediaAsset: stubMediaAssetTable(rows),
       letter: { count: async () => 0 },
     } as any,
   );
 }
 
-function addFeedbackAsset(store: StoreService) {
+function addFeedbackAsset(store: StoreService, rows: Map<string, any>) {
   const storageKey = `feedback-lifecycle-${Date.now()}-${Math.random().toString(16).slice(2)}.png`;
   const file = path.resolve(process.cwd(), 'data/uploads', storageKey);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -49,7 +88,7 @@ function addFeedbackAsset(store: StoreService) {
     status: 'ready' as const,
     createdAt: new Date().toISOString(),
   };
-  store.assets.unshift(asset);
+  rows.set(asset.id, asset);
   return asset;
 }
 
@@ -61,8 +100,9 @@ afterEach(() => {
 
 describe('feedback media and lifecycle', () => {
   it('persists MediaAsset ids, decorates them as real URLs, and protects attached files', async () => {
-    const store = createStore();
-    const asset = addFeedbackAsset(store);
+    const assetRows = new Map<string, any>();
+    const store = createStore(assetRows);
+    const asset = addFeedbackAsset(store, assetRows);
     const ticket = await asUser('user_demo', () =>
       store.createFeedbackTicket({
         categoryId: 'cat_1',
@@ -73,10 +113,13 @@ describe('feedback media and lifecycle', () => {
     );
 
     expect(ticket.screenshots).toEqual([asset.id]);
-    expect(store.decorateFeedbackTicket(ticket).screenshots).toEqual([
+    expect((await store.decorateFeedbackTicket(ticket)).screenshots).toEqual([
       expect.objectContaining({ id: asset.id, url: asset.url, mimeType: 'image/png' }),
     ]);
+    // The 403 is the draft delete refusing an attached file, not the 404 a foreign id would give:
+    // the ticket above is what makes it attached, so the order of these two lines is the point.
     await expect(store.deleteMediaAsset(asset.id)).rejects.toMatchObject({ status: 403 });
+    await expect(store.deleteMediaAsset('media_not_uploaded')).rejects.toMatchObject({ status: 404 });
     // The identity is supplied here too: a request with none is refused with 401 before any body
     // validation, so without it this would assert the wrong rejection.
     await expect(

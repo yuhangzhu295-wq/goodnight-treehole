@@ -79,8 +79,29 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Seconds 3
 }
 if (-not $servicesUp) {
+  # A second, measured cause: WSL2's localhost forwarding breaks independently of the distro itself.
+  # Measured on 2026-10-19 - the containers were listening inside the distro and reachable over the
+  # distro's own address, yet 127.0.0.1:15432 was refused from Windows. A `wsl --shutdown` restored
+  # it. It recurs intermittently (roughly one full test suite in three), so once a wait times out the
+  # forwarding is restarted once and the wait restarts. This is a *bounded, targeted* restart: it
+  # stops the distro, not the containers' data, and other projects' containers come back with it.
   Write-Host $lastReport
-  Fail "WSL/PostgreSQL/Redis did not come up within ${TimeoutSeconds}s (see the report above)"
+  Say "[ensure] restacking WSL to repair localhost forwarding (one attempt)"
+  & wsl.exe --shutdown 2>$null | Out-Null
+  Start-Sleep -Seconds 10
+  & wsl.exe -e bash -lc 'echo warmed' 2>$null | Out-Null
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $servicesUp = $false
+  while ((Get-Date) -lt $deadline) {
+    $lastReport = & node $probe --skip-api 2>$null | Out-String
+    if ($LASTEXITCODE -eq 0) { $servicesUp = $true; break }
+    Start-Sleep -Seconds 3
+  }
+  if (-not $servicesUp) {
+    Write-Host $lastReport
+    Fail "WSL/PostgreSQL/Redis did not come up even after restarting localhost forwarding"
+  }
+  Say "[ensure] localhost forwarding repaired"
 }
 Say "[ensure] WSL, PostgreSQL and Redis are answering real operations"
 

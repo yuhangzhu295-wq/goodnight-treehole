@@ -272,8 +272,9 @@ page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-REA
 | `Mood` | **DONE** | `mood-persistence.service.ts`; all eleven read sites moved; boot/reload write the snapshot's moods and posts (`Post.moodId` is a Restrict FK). Gate case plus mutation M-U |
 | `Diary` | **DONE** | `diary-persistence.service.ts`; per-owner delete in the service, `DiaryAttachment` join writes, the private-mood projection exclusion. Gate case plus mutation M-V |
 | `Letter` | **DONE** | `letter-persistence.service.ts`; `normalize` reshapes rows to the in-memory `Letter`; the completion path leaves the previous content when a job failed. Gate case plus mutation M-W |
-| `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| `MediaAsset` | not starting | last of the 16; readers are `Mood.attachmentIds`, the diary projection and the feedback screenshots |
+| `MediaAsset` | **DONE** | `media-asset-persistence.service.ts`; all 8 upload sites, the three export downloads, the feedback screenshots and the journey-archive cleanup read the table. Gate case plus mutation M-X (unregistering it makes the flush re-insert and re-sweep the asset rows, which brings a file the user just deleted back to `ready`) |
+
+That closes the 16. Batch 4 is complete.
 
 **What converting `Favorite` changed beyond the model.** `buildPostDecorationContext` is async and
 reads the viewer's post ids from the table once per request; `getPost`, `moderatePost` and five
@@ -298,3 +299,25 @@ insert is an upsert on the supplied id for exactly that reason).
 The gate file is now shared by four models, with a statement-level probe on each table and a
 self-test per table. Adding a model means adding its name to `TARGET_TABLES`, its two self-test
 statements, and its read-back case — not writing a new file.
+
+## `MediaAsset` (M-X): the reverse proof found a guard that was not there
+
+The first version of the gate case passed *with the registration commented out*, which is the one
+result a reverse proof must never produce. Instrumenting the upsert loop showed why: `state.assets`
+was empty at every flush, so the unregistered flush had nothing to upsert and nothing to sweep —
+`this.data.assets` is only ever written by the legacy upload path, which the registration had
+already replaced with a direct table write.
+
+The case was therefore testing the wrong direction. A directly written row could never be threatened
+by a flush whose snapshot did not mention it, and `deleteAbsent` only deletes ids the flush
+previously owned. What the flush *does* threaten is the row the user just deleted: without the
+registration the upsert re-inserts the snapshot's asset rows, so a file removed through
+`DELETE /api/v1/media/:id` comes back `ready`. The rewritten case uploads through the route, deletes
+it, flushes, and asserts the row is still `deleted` and the probe is empty. Unregistering now fails
+it with `MediaAsset:INSERTx2` / `MediaAsset:UPDATEx2` — the flush writing the table, which is what
+the probe is for.
+
+Two exits were also missing and are now guarded: the three export paths (`createDiaryExport`,
+`createJourneyArchiveExport`, `createUserExport`) still wrote `this.data.assets` in their
+flush-failure rollback, which is the disabled array, so a failed flush left an asset row pointing at
+a file the next line deleted. The rollback now marks the row deleted through the service.

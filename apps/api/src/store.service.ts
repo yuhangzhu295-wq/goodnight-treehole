@@ -40,6 +40,7 @@ import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js
 import { MoodPersistenceService } from './mood-persistence.service.js';
 import { DiaryPersistenceService } from './diary-persistence.service.js';
 import { LetterPersistenceService } from './letter-persistence.service.js';
+import { MediaAssetPersistenceService } from './media-asset-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1303,6 +1304,8 @@ export class StoreService implements OnModuleInit {
     public readonly diariesDb: DiaryPersistenceService = new DiaryPersistenceService(prisma as any),
     @Inject(LetterPersistenceService)
     public readonly lettersDb: LetterPersistenceService = new LetterPersistenceService(prisma as any),
+    @Inject(MediaAssetPersistenceService)
+    public readonly mediaAssetsDb: MediaAssetPersistenceService = new MediaAssetPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1645,6 +1648,19 @@ export class StoreService implements OnModuleInit {
         },
         set(_val) {
           throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      delete data.assets;
+      Object.defineProperty(data, 'assets', {
+        get() {
+          throw new Error('StoreData.assets is disabled: MediaAsset is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.assets is disabled: MediaAsset is database-authoritative (Batch 4)');
         },
         enumerable: false,
         configurable: true,
@@ -2300,7 +2316,7 @@ export class StoreService implements OnModuleInit {
     return [...new Set(ids)];
   }
 
-  resolveFeedbackScreenshotIds(userId: string, value: unknown) {
+  async resolveFeedbackScreenshotIds(userId: string, value: unknown) {
     if (value === undefined) return [] as string[];
     if (!Array.isArray(value)) throw new BadRequestException('反馈截图必须是图片资源列表');
     if (value.length > 2) throw new BadRequestException('反馈最多只能附带两张截图');
@@ -2312,7 +2328,9 @@ export class StoreService implements OnModuleInit {
     if (new Set(ids).size !== ids.length) throw new BadRequestException('请不要重复选择同一张反馈截图');
 
     for (const assetId of ids) {
-      const asset = this.assets.find((item) => item.id === assetId);
+      const asset = DIRECT_DB_MODELS.MediaAsset
+        ? await this.mediaAssetsDb.get(assetId)
+        : this.assets.find((item) => item.id === assetId);
       if (!asset || asset.status !== 'ready') throw new NotFoundException('反馈截图不存在或已被删除');
       if (asset.userId !== userId) throw new ForbiddenException('不能使用其他用户上传的截图');
       if (asset.usageType !== 'feedback') throw new BadRequestException('反馈只能使用通过反馈入口上传的截图');
@@ -2323,20 +2341,41 @@ export class StoreService implements OnModuleInit {
     return ids;
   }
 
-  decorateFeedbackTicket(ticket: FeedbackTicket) {
-    const screenshots = this.storedFeedbackScreenshotIds(ticket.screenshots)
-      .map((assetId) =>
-        this.assets.find((asset) => asset.id === assetId && asset.userId === ticket.userId && asset.status === 'ready'),
-      )
-      .filter((asset): asset is MediaAsset => Boolean(asset))
-      .map((asset) => ({
-        id: asset.id,
-        url: asset.url,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        width: asset.width,
-        height: asset.height,
-      }));
+  /**
+   * Turns a ticket's stored screenshot ids into the URLs the reply pages render.
+   *
+   * A ticket is stored with the ids it was created with, so a file deleted afterwards has to stop
+   * being decorated: the legacy array scan simply stopped finding it, and the registered path
+   * reproduces that by reading only ready rows owned by the ticket's author.
+   */
+  async decorateFeedbackTicket(ticket: FeedbackTicket) {
+    const ids = this.storedFeedbackScreenshotIds(ticket.screenshots);
+    const screenshots = DIRECT_DB_MODELS.MediaAsset
+      ? (await this.mediaAssetsDb.readyByIds(ids))
+          .filter((asset) => asset.userId === ticket.userId)
+          .map((asset) => ({
+            id: asset.id,
+            url: asset.url,
+            mimeType: asset.mimeType,
+            size: asset.size,
+            width: asset.width,
+            height: asset.height,
+          }))
+      : ids
+          .map((assetId) =>
+            this.assets.find(
+              (asset) => asset.id === assetId && asset.userId === ticket.userId && asset.status === 'ready',
+            ),
+          )
+          .filter((asset): asset is MediaAsset => Boolean(asset))
+          .map((asset) => ({
+            id: asset.id,
+            url: asset.url,
+            mimeType: asset.mimeType,
+            size: asset.size,
+            width: asset.width,
+            height: asset.height,
+          }));
     return { ...ticket, screenshots };
   }
 
@@ -2365,7 +2404,7 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('反馈来源页面不合法');
     }
 
-    const screenshots = this.resolveFeedbackScreenshotIds(userId, input.assetIds);
+    const screenshots = await this.resolveFeedbackScreenshotIds(userId, input.assetIds);
     const ticket: FeedbackTicket = {
       id: id('ticket'),
       userId,
@@ -2462,7 +2501,8 @@ export class StoreService implements OnModuleInit {
       status: 'ready',
       createdAt: now(),
     };
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     await this.flush();
     return asset;
@@ -2474,18 +2514,18 @@ export class StoreService implements OnModuleInit {
     const diaryRows = DIRECT_DB_MODELS.Diary ? await this.diariesDb.listForUser(userId) : this.diaries;
     const diaries = (
       await Promise.all(
-        diaryRows.map(async (item: any) => {
-          const attachmentIds =
+        diaryRows.map(async (item: any) => ({
+          ...item,
+          attachmentIds:
             item.attachmentIds ??
             (item.moodId && DIRECT_DB_MODELS.Mood
               ? await this.moodsDb.attachmentIdsFor(item.moodId)
-              : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? []));
-          return { ...item, attachmentIds };
-        }),
+              : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [])),
+        })),
       )
     ).map((item: any) => ({
           ...item,
-          attachments: this.mediaByIds(item.attachmentIds).map((asset) => ({
+          attachments: item.attachmentIds.map((asset: MediaAsset) => ({
             id: asset.id,
             url: asset.url,
             mimeType: asset.mimeType,
@@ -2522,12 +2562,19 @@ export class StoreService implements OnModuleInit {
 
     fs.mkdirSync(uploadsDirectory, { recursive: true });
     fs.writeFileSync(target, contents);
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     try {
       await this.flush();
     } catch (error) {
-      this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      // The row was written before the flush failed, so undoing the export means removing it from the
+      // table as well: leaving it would keep a URL that points at a file the next line deletes.
+      if (DIRECT_DB_MODELS.MediaAsset) {
+        await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+      } else {
+        this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      }
       if (fs.existsSync(target)) fs.unlinkSync(target);
       throw error;
     }
@@ -2570,12 +2617,19 @@ export class StoreService implements OnModuleInit {
     asset.size = contents.length;
     fs.mkdirSync(uploadsDirectory, { recursive: true });
     fs.writeFileSync(target, contents);
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     try {
       await this.flush();
     } catch (error) {
-      this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      // The row was written before the flush failed, so undoing the export means removing it from the
+      // table as well: leaving it would keep a URL that points at a file the next line deletes.
+      if (DIRECT_DB_MODELS.MediaAsset) {
+        await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+      } else {
+        this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      }
       if (fs.existsSync(target)) fs.unlinkSync(target);
       throw error;
     }
@@ -2587,18 +2641,37 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  getDiaryExportDownload(assetId: string, userId: string) {
+  async getDiaryExportDownload(assetId: string, userId: string) {
     return this.getExportDownload(assetId, userId);
   }
 
-  getExportDownload(assetId: string, userId: string) {
-    const asset = this.assets.find(
+  /**
+   * Owner scoping for the export download.
+   *
+   * MediaAsset stays table-bound, so the row is read first and the owner compared afterwards.
+   * `usageType` is filtered here rather than in the `where` because the diary and journey paths
+   * share this method: a ticket id or a poster id must not resolve as an export.
+   */
+  private async findExportDownload(assetId: string, userId: string): Promise<MediaAsset | null> {
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const row = await this.mediaAssetsDb.get(assetId);
+      const usageTypes = ['diary-export', 'journey-archive-export', 'user-export'];
+      return row && row.userId === userId && usageTypes.includes(row.usageType) && row.status === 'ready'
+        ? row
+        : null;
+    }
+    const item = this.assets.find(
       (item) =>
         item.id === assetId &&
         item.userId === userId &&
         ['diary-export', 'journey-archive-export', 'user-export'].includes(item.usageType) &&
         item.status === 'ready',
     );
+    return item ?? null;
+  }
+
+  async getExportDownload(assetId: string, userId: string) {
+    const asset = await this.findExportDownload(assetId, userId);
     if (!asset) throw new NotFoundException('导出文件不存在或无权访问');
     const target = path.resolve(uploadsDirectory, asset.storageKey);
     if (!target.startsWith(`${uploadsDirectory}${path.sep}`) || !fs.existsSync(target)) {
@@ -2667,12 +2740,19 @@ export class StoreService implements OnModuleInit {
     asset.size = contents.length;
     fs.mkdirSync(uploadsDirectory, { recursive: true });
     fs.writeFileSync(target, contents);
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     try {
       await this.flush();
     } catch (error) {
-      this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      // The row was written before the flush failed, so undoing the export means removing it from the
+      // table as well: leaving it would keep a URL that points at a file the next line deletes.
+      if (DIRECT_DB_MODELS.MediaAsset) {
+        await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+      } else {
+        this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      }
       if (fs.existsSync(target)) fs.unlinkSync(target);
       throw error;
     }
@@ -2683,11 +2763,17 @@ export class StoreService implements OnModuleInit {
    * Resolves an admin user-export asset for download. Callers are already behind the admin
    * token guard, so no further per-admin scoping is applied.
    */
-  getUserExportDownload(assetId: string) {
-    const asset = this.assets.find(
-      (item) => item.id === assetId && item.usageType === 'user-export' && item.status === 'ready',
-    );
-    if (!asset) throw new NotFoundException('导出文件不存在或无权访问');
+  async getUserExportDownload(assetId: string) {
+    const asset = DIRECT_DB_MODELS.MediaAsset
+      ? await this.mediaAssetsDb.get(assetId)
+      : this.assets.find(
+          (item) => item.id === assetId && item.usageType === 'user-export' && item.status === 'ready',
+        );
+    // The usage type is checked after the read rather than in a where clause, because the caller is
+    // already past the admin token guard and only the admin route serves this asset type.
+    if (!asset || asset.usageType !== 'user-export' || asset.status !== 'ready') {
+      throw new NotFoundException('导出文件不存在或无权访问');
+    }
     const target = path.resolve(uploadsDirectory, asset.storageKey);
     if (!target.startsWith(`${uploadsDirectory}${path.sep}`) || !fs.existsSync(target)) {
       throw new NotFoundException('导出文件已不存在，请重新导出');
@@ -2716,7 +2802,8 @@ export class StoreService implements OnModuleInit {
       status: 'ready',
       createdAt: now(),
     };
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     await this.flush();
     return asset;
@@ -2743,16 +2830,22 @@ export class StoreService implements OnModuleInit {
       status: 'ready',
       createdAt: now(),
     };
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     await this.flush();
     return asset;
   }
 
   async deleteMediaAsset(assetId: string) {
-    const asset = this.assets.find(
-      (item) => item.id === assetId && item.userId === this.getDemoUserId() && item.status === 'ready',
-    );
+    // The draft delete has always been scoped to the demo account, which is the only owner the
+    // legacy array had. With MediaAsset registered the service applies the same scoping, so a
+    // foreign id is a 404 rather than an object whose owner the caller then compares.
+    const asset = DIRECT_DB_MODELS.MediaAsset
+      ? await this.mediaAssetsDb.findOwnedReady(assetId, this.getDemoUserId())
+      : this.assets.find(
+          (item) => item.id === assetId && item.userId === this.getDemoUserId() && item.status === 'ready',
+        );
     if (!asset) throw new NotFoundException('图片不存在');
     // Post attachments live on the mood (`Post.moodId` is unique), which is why the legacy check
     // scanned the posts array as well. With Post registered that array is gone, so the mood rows
@@ -2768,11 +2861,27 @@ export class StoreService implements OnModuleInit {
     if (attached) throw new ForbiddenException('已发布内容的图片不能在草稿删除接口中移除');
     const target = path.join(uploadsDirectory, asset.storageKey);
     if (fs.existsSync(target)) fs.unlinkSync(target);
-    asset.status = 'deleted';
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.markDeleted(assetId);
+    else asset.status = 'deleted';
     await this.persistAndFlush();
   }
 
-  mediaByIds(assetIds: string[] = []) {
+  /**
+   * The attachment list for a diary, letter or post.
+   *
+   * When MediaAsset is registered the assets are read by id, and `mediaAssetCache` holds the ones
+   * this request already loaded (the decoration context fills it for the page it is serving). A
+   * caller that has not filled it gets a database read rather than an empty list.
+   */
+  async mediaByIds(assetIds: string[] = []) {
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const found = new Map(this.mediaAssetCache);
+      const missing = [...new Set(assetIds)].filter((id) => !found.has(id));
+      if (missing.length) {
+        for (const asset of await this.mediaAssetsDb.readyByIds(missing)) found.set(asset.id, asset);
+      }
+      return assetIds.map((id) => found.get(id)).filter((asset): asset is MediaAsset => Boolean(asset));
+    }
     return assetIds
       .map((assetId) => this.assets.find((asset) => asset.id === assetId && asset.status === 'ready'))
       .filter((asset): asset is MediaAsset => Boolean(asset));
@@ -2804,11 +2913,22 @@ export class StoreService implements OnModuleInit {
           )
       : new Set<string>();
 
+    // One query for the whole page's assets, then the per-row loop reads the map. Reading the table
+    // per row inside a feed loop is exactly the N+1 this seam exists to prevent.
+    this.mediaAssetCache = new Map();
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const needed = [...new Set(posts.flatMap((post) => post.attachmentIds ?? []))];
+      for (const asset of await this.mediaAssetsDb.readyByIds(needed)) {
+        this.mediaAssetCache.set(asset.id, asset);
+      }
+    }
     const assetsById = new Map<string, MediaAsset>();
     for (const post of posts) {
       for (const assetId of post.attachmentIds ?? []) {
         if (assetsById.has(assetId)) continue;
-        const asset = this.assets.find((item) => item.id === assetId && item.status === 'ready');
+        const asset = DIRECT_DB_MODELS.MediaAsset
+          ? this.mediaAssetCache.get(assetId)
+          : this.assets.find((item) => item.id === assetId && item.status === 'ready');
         if (asset) assetsById.set(assetId, asset);
       }
     }
@@ -4422,12 +4542,17 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('只能删除已归档或已完成的旅程');
     }
 
-    const exportAssets = this.assets.filter(
-      (item) =>
-        item.userId === userId &&
-        item.usageType === 'journey-archive-export' &&
-        item.storageKey.startsWith(`journey-archive-export-${journeyId}-`),
-    );
+    // MediaAsset is registered, so the export rows for this journey are read out of the table by
+    // storage key. The rows are the record of which files exist; without this read the delete below
+    // would leave an orphaned export behind a URL the API still serves.
+    const exportAssets = DIRECT_DB_MODELS.MediaAsset
+      ? await this.mediaAssetsDb.forJourneyArchiveExport(journeyId, userId)
+      : this.assets.filter(
+          (item) =>
+            item.userId === userId &&
+            item.usageType === 'journey-archive-export' &&
+            item.storageKey.startsWith(`journey-archive-export-${journeyId}-`),
+        );
     const archiveRoute = `/pages/journey/detail?id=${journeyId}`;
 
     const { deletedActionIds } = await this.batch1Persistence.deleteJourneyArchive({
@@ -4445,7 +4570,9 @@ export class StoreService implements OnModuleInit {
         (item) => item.journeyId !== journeyId && !actionIds.has(item.commitmentId ?? ''),
       );
     }
-    this.data.assets = this.data.assets.filter((item) => !exportAssets.some((asset) => asset.id === item.id));
+    if (!DIRECT_DB_MODELS.MediaAsset) {
+      this.data.assets = this.data.assets.filter((item) => !exportAssets.some((asset) => asset.id === item.id));
+    }
 
     // The following records can stand on their own outside a Journey. Keep the
     // person's separately created materials, but remove the deleted Journey link.
@@ -4480,6 +4607,11 @@ export class StoreService implements OnModuleInit {
     for (const asset of exportAssets) {
       const target = path.resolve(uploadsDirectory, asset.storageKey);
       if (target.startsWith(`${uploadsDirectory}${path.sep}`) && fs.existsSync(target)) fs.unlinkSync(target);
+    }
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      // The files are gone, so the rows must stop claiming to be ready: leaving them would let
+      // `getExportDownload` resolve a storageKey that no longer exists on disk.
+      for (const asset of exportAssets) await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
     }
     return { deletedJourneyId: journeyId, removedExportCount: exportAssets.length };
   }
@@ -7300,7 +7432,7 @@ export class StoreService implements OnModuleInit {
     const risk = this.detectRisk(input.content);
     const attachmentIds = Array.from(new Set(input.assetIds ?? []));
     if (attachmentIds.length > 2) throw new NotFoundException('最多添加 2 张图片');
-    const media = this.mediaByIds(attachmentIds);
+    const media = await this.mediaByIds(attachmentIds);
     if (media.length !== attachmentIds.length || media.some((asset) => asset.userId !== userId))
       throw new NotFoundException('图片不存在、尚未上传完成或不属于当前用户');
     const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
@@ -8714,6 +8846,8 @@ export class StoreService implements OnModuleInit {
   private pendingMoodContent?: string;
   /** Same, for the companion diary a private mood publishes. */
   private pendingDiaryContent?: string;
+  /** The assets this request already loaded, so a feed loop reads a map rather than the table. */
+  private mediaAssetCache = new Map<string, MediaAsset>();
   /** Same idea for `resolveSourceContent`: a mood loaded this request, keyed by id. */
   private pendingSourceContent?: Record<string, string>;
 

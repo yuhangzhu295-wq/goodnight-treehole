@@ -2,7 +2,7 @@
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
   "head": "07bdbea577c274f5abfc566a34b485c246217d52",
-  "updatedAt": "2026-10-19T12:04:23.866Z",
+  "updatedAt": "2026-10-19T14:00:00.000Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -149,15 +149,15 @@
       "id": "P3",
       "phase": "Phase 3",
       "priority": "P1",
-      "status": "RUNNING",
+      "status": "DONE",
       "dependency": "B3-GATE",
-      "title": "Batch 4 legacy store retirement (15 of 16 models; MediaAsset remains)",
-      "implemented": "partial",
-      "tested": "partial",
-      "evidence": "Batch 4 at 7 of 16. Done: FaqItem, ReplyPreset, FeedbackCategory + FeedbackTicket (registered as one unit), AdminUserNote, PeerReputation (inert - no writer anywhere, recorded in the plan §5b), AgentDecisionLog. Each has a statement-level gate in batch4-faq-item-gate.spec.ts (14/14) and a reverse proof (M-K, M-L, M-M, M-N, M-O, M-P). BATCH4_LEGACY_FLUSH_RETIREMENT.md is the plan. Re-measured on 61dd20e: Reply also maintains post.replyCount (store.service.ts:8225,8253), so Favorite and Reply both write into Post counters - the cluster cannot be split.",
-      "blocker": "Two couplings constrain the order and were found while converting: FeedbackCategory pairs with FeedbackTicket (§2a); Favorite maintains post.favoriteCount and letter.favorite, so it pairs with Post and Letter; AIProvider and AIStyleRoute pair (three FKs from the route to the provider).",
-      "nextAction": "The remaining nine are ONE cluster around Post, not nine conversions (plan §5d). Next step is a design step: decide the cluster unit, and give decoratePost a per-request pre-fetch (viewer favourites + page assets) instead of per-row lookups from inside its two looping call sites. Then convert the cluster.",
-      "updatedAt": "2026-10-16T17:22:57.401Z"
+      "title": "Batch 4 legacy store retirement (16 of 16 models)",
+      "implemented": "complete",
+      "tested": "complete",
+      "evidence": "All 16 models registered: FaqItem, ReplyPreset, FeedbackCategory, FeedbackTicket, AdminUserNote, PeerReputation, AgentDecisionLog, Favorite, Reply, Post, Mood, Diary, Letter, MediaAsset, plus the AIProvider/AIStyleRoute pair. Each has a statement-level gate case in tests/business/batch4-faq-item-gate.spec.ts (18/18 passing) and a reverse proof by removing the registration line: M-K..M-X. Batch 4 complete.",
+      "blocker": "",
+      "nextAction": "MediaAsset was the last one (media-asset-persistence.service.ts). Its reverse proof initially passed with the registration removed, which is why the case was rewritten and two real gaps closed: the mapper hydration still read mediaAsset unconditionally, and the three export paths rolled back into the disabled data.assets array on a flush failure. Recorded in BATCH4_LEGACY_FLUSH_RETIREMENT.md under \"M-X: the reverse proof found a guard that was not there\".",
+      "updatedAt": "2026-10-19T14:00:00.000Z"
     },
     {
       "id": "P4",

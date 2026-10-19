@@ -36,6 +36,7 @@ const TARGET_TABLES = [
   'Mood',
   'Diary',
   'Letter',
+  'MediaAsset',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -127,6 +128,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await marked('UPDATE "Mood" SET "riskLevel" = "riskLevel" WHERE false');
     await marked('UPDATE "Diary" SET "source" = "source" WHERE false');
     await marked('UPDATE "Letter" SET "style" = "style" WHERE false');
+    await marked('UPDATE "MediaAsset" SET "status" = "status" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AIProvider', op: 'UPDATE', n: 1 },
       { table: 'AIStyleRoute', op: 'UPDATE', n: 1 },
@@ -138,6 +140,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
       { table: 'Letter', op: 'UPDATE', n: 1 },
+      { table: 'MediaAsset', op: 'UPDATE', n: 1 },
       { table: 'Mood', op: 'UPDATE', n: 1 },
       { table: 'PeerReputation', op: 'UPDATE', n: 1 },
       { table: 'Post', op: 'UPDATE', n: 1 },
@@ -163,6 +166,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await marked('DELETE FROM "Mood" WHERE false');
     await marked('DELETE FROM "Diary" WHERE false');
     await marked('DELETE FROM "Letter" WHERE false');
+    await marked('DELETE FROM "MediaAsset" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AIProvider', op: 'DELETE', n: 1 },
       { table: 'AIStyleRoute', op: 'DELETE', n: 1 },
@@ -174,6 +178,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
       { table: 'Letter', op: 'DELETE', n: 1 },
+      { table: 'MediaAsset', op: 'DELETE', n: 1 },
       { table: 'Mood', op: 'DELETE', n: 1 },
       { table: 'PeerReputation', op: 'DELETE', n: 1 },
       { table: 'Post', op: 'DELETE', n: 1 },
@@ -865,5 +870,83 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     expect(postRow?.replyCount).toBe(published);
     const afterApprove = await request(server).get(`/api/v1/posts/${postId}/replies`).expect(200);
     expect((afterApprove.body.items ?? []).some((item: any) => item.id === humanId)).toBe(true);
+  }, 120_000);
+
+  /**
+   * MediaAsset, the sixteenth and last model. The two encodeable facts are the ones the flush used
+   * to own: hydration (the snapshot's asset rows were re-inserted at boot) and the sweep (rows the
+   * snapshot did not carry were soft-deleted as absent).
+   *
+   * Removing `MediaAsset` from `DIRECT_DB_MODELS` has to fail this case, which is what makes it a
+   * guard rather than a restatement of the flag: without the registration the flush hydrates the
+   * snapshot's assets into the table and then sweeps this directly written row, so the row
+   * disappears and the read path stops serving it.
+   */
+  it('a media asset written straight to PostgreSQL is served, and survives a flush', async () => {
+    const stamp = Date.now();
+    const assetId = `batch4_asset_${stamp}`;
+    const storageKey = `batch4/probe-${stamp}.png`;
+    await prisma.mediaAsset.create({
+      data: {
+        id: assetId,
+        userId: DEMO_USER_ID,
+        storageKey,
+        url: `/uploads/${storageKey}`,
+        mimeType: 'image/png',
+        size: 64,
+        width: 1,
+        height: 1,
+        usageType: 'mood',
+        status: 'ready',
+        createdAt: new Date(),
+      },
+    });
+
+    // A flush must neither rewrite nor sweep the directly written row.
+    await clearProbe();
+    await request(server)
+      .post('/api/v1/moods')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const afterFlush = await prisma.mediaAsset.findUnique({ where: { id: assetId } });
+    expect(afterFlush).not.toBeNull();
+    expect(afterFlush?.status).toBe('ready');
+    expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
+
+    // The write path is the same table: an upload through the route lands as its own row, and the
+    // draft delete marks that one deleted without touching the row written above.
+    const uploaded = await request(server)
+      .post('/api/v1/media/upload')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .field('usageType', 'mood')
+      .attach('file', Buffer.from('batch4 upload probe'), { filename: `probe-${stamp}.png`, contentType: 'image/png' })
+      .expect(201);
+    const uploadedId = uploaded.body.item.id as string;
+    expect(await prisma.mediaAsset.findUnique({ where: { id: uploadedId } })).not.toBeNull();
+
+    await request(server)
+      .delete(`/api/v1/media/${uploadedId}`)
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .expect(200);
+    const deletedUpload = await prisma.mediaAsset.findUnique({ where: { id: uploadedId } });
+    expect(deletedUpload?.status).toBe('deleted');
+    // The direct row is untouched by the delete above: the sweep must not run and take it with it.
+    expect(await prisma.mediaAsset.findUnique({ where: { id: assetId } })).not.toBeNull();
+
+    // The deleted row must stay deleted across a flush. Without the registration the flush's upsert
+    // re-inserts the snapshot's asset rows, so a file the user just removed through the draft
+    // endpoint comes back ready — which is exactly what the model was registered to stop.
+    await clearProbe();
+    await request(server)
+      .post('/api/v1/moods')
+      .set('x-goodnight-user-id', await identityFor(DEMO_USER_ID))
+      .send({ content: `batch4 flush probe ${Date.now()}`, emotion: 'calm', visibility: 'PRIVATE' })
+      .expect(201);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const stillDeleted = await prisma.mediaAsset.findUnique({ where: { id: uploadedId } });
+    expect(stillDeleted?.status).toBe('deleted');
+    expect((await probeRows()).map((row) => `${row.table}:${row.op}x${row.n}`)).toEqual([]);
   }, 120_000);
 });

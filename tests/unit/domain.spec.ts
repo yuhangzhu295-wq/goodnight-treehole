@@ -34,6 +34,8 @@ const stubPersistence = {
     mood: { findUnique: async () => null, findMany: async () => [], findFirst: async () => null },
     moodAttachment: { findMany: async () => [] },
     diary: { findMany: async () => [], findFirst: async () => null, count: async () => 0 },
+  // MediaAsset is database-authoritative; uploads and the export pipeline write through it.
+  mediaAsset: { findMany: async () => [], findUnique: async () => null, findFirst: async () => null, create: async (a: any) => ({ id: 'asset', ...a?.data }), update: async () => ({}) },
     diaryAttachment: { findMany: async () => [] },
   aIStyleRoute: {
     findMany: async () => [
@@ -130,10 +132,25 @@ describe('domain services', () => {
     (store as any).moodsDb = { attachmentIdsFor: async () => [], isAttachedToAny: async () => false };
     // Diary is too, so the export's diary list comes from the table. The fixtures hold none.
     (store as any).diariesDb = { listForUser: async () => [], attachmentIdsFor: async () => [] };
+    // MediaAsset is too: the export writes an asset row for the generated document.
+    // The export writes the asset and the download reads it back by id. Without a returned row the
+    // download has no storageKey to resolve, which is what the real table provides.
+    const createdAssets = new Map<string, any>();
+    (store as any).mediaAssetsDb = {
+      create: async (input: any) => {
+        const data = input?.data ?? input ?? {};
+        const row = { ...data, id: data.id, createdAt: new Date().toISOString() };
+        createdAssets.set(row.id, row);
+        return row;
+      },
+      markDeleted: async () => ({}),
+      get: async (id: string) => createdAssets.get(id) ?? null,
+      readyByIds: async () => [],
+    };
     // The identity is stated rather than defaulted: the store no longer picks an owner for a caller
     // that did not name one, so a fixture needing the demo user has to say so.
     const result = await store.createDiaryExport('user_demo');
-    const download = store.getDiaryExportDownload(result.asset.id, 'user_demo');
+    const download = await store.getDiaryExportDownload(result.asset.id, 'user_demo');
 
     try {
       expect(result.asset.status).toBe('ready');
@@ -144,7 +161,17 @@ describe('domain services', () => {
         format: 'goodnight-treehole-diary-export/v1',
         count: result.count,
       });
-      expect((snapshots.at(-1) as { assets: Array<{ id: string }> }).assets.some((asset) => asset.id === result.asset.id)).toBe(true);
+      // The flush no longer carries MediaAsset rows, so the last snapshot must not contain the
+      // export; the row lives in the table the stub stands in for.
+      expect((snapshots.at(-1) as { assets?: Array<{ id: string }> }).assets ?? []).not.toContainEqual(
+        expect.objectContaining({ id: result.asset.id }),
+      );
+      expect(createdAssets.get(result.asset.id)).toMatchObject({
+        id: result.asset.id,
+        userId: 'user_demo',
+        usageType: 'diary-export',
+        status: 'ready',
+      });
     } finally {
       fs.rmSync(download.filePath, { force: true });
     }

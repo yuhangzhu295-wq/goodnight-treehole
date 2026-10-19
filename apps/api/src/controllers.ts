@@ -1960,8 +1960,8 @@ export class PublicController {
   }
 
   @Get('exports/:assetId/download')
-  downloadDiaryExport(@Param('assetId') assetId: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    const download = this.store.getExportDownload(assetId, requireRuntimeUserId(requestedUserId));
+  async downloadDiaryExport(@Param('assetId') assetId: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const download = await this.store.getExportDownload(assetId, requireRuntimeUserId(requestedUserId));
     return new StreamableFile(fs.createReadStream(download.filePath), {
       type: download.asset.mimeType,
       length: download.asset.size,
@@ -2298,7 +2298,7 @@ export class PublicController {
     // The screenshot check still runs in the store, because MediaAsset is not converted yet and its
     // checks include a filesystem existence probe. The ids it returns are handed to the ticket writer,
     // which owns the row - the two models convert together with FeedbackCategory.
-    const screenshots = this.store.resolveFeedbackScreenshotIds(userId, body.assetIds ?? body.images);
+    const screenshots = await this.store.resolveFeedbackScreenshotIds(userId, body.assetIds ?? body.images);
     const ticket = await this.feedbackPersistence.createTicket({
       userId,
       categoryId: body.categoryId,
@@ -3081,9 +3081,9 @@ export class AdminController {
   }
 
   @Get('users/export/:assetId/download')
-  userExportDownload(@Headers('authorization') auth: string, @Param('assetId') assetId: string) {
+  async userExportDownload(@Headers('authorization') auth: string, @Param('assetId') assetId: string) {
     this.admin(auth);
-    const download = this.store.getUserExportDownload(assetId);
+    const download = await this.store.getUserExportDownload(assetId);
     return new StreamableFile(fs.createReadStream(download.filePath), {
       type: download.asset.mimeType,
       length: download.asset.size,
@@ -3667,7 +3667,7 @@ export class AdminController {
   }
 
   @Get('feedback/tickets')
-  tickets(
+  async tickets(
     @Query('q') q?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
@@ -3684,7 +3684,7 @@ export class AdminController {
       return matchesQuery && matchesStatus;
     });
     return this.list(
-      items.map((ticket) => this.store.decorateFeedbackTicket(ticket)),
+      await Promise.all(items.map((ticket) => this.store.decorateFeedbackTicket(ticket))),
       page,
       pageSize,
     );
@@ -3741,8 +3741,8 @@ export class AdminController {
     return this.tickets(q, status, page, pageSize);
   }
   @Get('feedback/tickets/:id')
-  ticket(@Param('id') id: string) {
-    return { item: this.store.decorateFeedbackTicket(this.store.feedbackTicketOrThrow(id)) };
+  async ticket(@Param('id') id: string) {
+    return { item: await this.store.decorateFeedbackTicket(this.store.feedbackTicketOrThrow(id)) };
   }
 
   @Get('feedback/:id')
@@ -3754,7 +3754,7 @@ export class AdminController {
   async ticketReply(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { reply: string }) {
     const admin = this.admin(auth);
     const ticket = await this.store.replyToFeedbackTicket(admin.id, id, body.reply);
-    return { item: this.store.decorateFeedbackTicket(ticket) };
+    return { item: await this.store.decorateFeedbackTicket(ticket) };
   }
 
   @Patch('feedback/:id/reply')
@@ -3783,7 +3783,7 @@ export class AdminController {
   ) {
     const admin = this.admin(auth);
     const ticket = await this.store.updateFeedbackTicketStatus(admin.id, id, body.status);
-    return { item: this.store.decorateFeedbackTicket(ticket) };
+    return { item: await this.store.decorateFeedbackTicket(ticket) };
   }
 
   @Patch('feedback/:id/status')

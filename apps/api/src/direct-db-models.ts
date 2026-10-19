@@ -76,6 +76,9 @@ export const DIRECT_DB_MODELS = {
   // Batch 4 model 15 of 16. Derived from a mood and pointed at by Diary.letterId, which is why the
   // diary's hasLetter flag and this row have to agree.
   Letter: 'letters',
+  // Batch 4 model 16 of 16, the last one. With this registered the flush stops hydrating, upserting
+  // and sweeping the asset rows, so a file deleted through the draft endpoint stays deleted.
+  MediaAsset: 'mediaAssets',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

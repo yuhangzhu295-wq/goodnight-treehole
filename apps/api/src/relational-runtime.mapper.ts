@@ -90,7 +90,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.AIStyleRoute ? Promise.resolve([]) : db.aIStyleRoute.findMany({ orderBy: { style: 'asc' } }),
     db.systemSetting.findMany({ orderBy: { key: 'asc' } }),
     DIRECT_DB_MODELS.AIJob ? Promise.resolve([]) : db.aIJob.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.mediaAsset.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.MediaAsset ? Promise.resolve([]) : db.mediaAsset.findMany({ orderBy: { createdAt: 'desc' } }),
     db.auditLog.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.LifeJourney ? Promise.resolve([]) : db.lifeJourney.findMany({ orderBy: { updatedAt: 'desc' } }),
     DIRECT_DB_MODELS.SituationSnapshot
@@ -1168,7 +1168,7 @@ export async function saveRelationalRuntimeState(
           });
         }
       }
-      for (const item of asArray(state.assets)) {
+      for (const item of DIRECT_DB_MODELS.MediaAsset ? [] : asArray(state.assets)) {
         const storageKey = item.storageKey ?? item.objectKey ?? `legacy/${item.id}`;
         await tx.mediaAsset.upsert({
           where: { id: item.id },
@@ -2733,6 +2733,7 @@ export async function saveRelationalRuntimeState(
       await deleteAbsent('replyPreset', tx.replyPreset,
         asArray(state.replyPresets).map((item: any) => item.id),
       );
+      if (!DIRECT_DB_MODELS.MediaAsset)
       await deleteAbsent('mediaAsset', tx.mediaAsset,
         asArray(state.assets).map((item: any) => item.id),
       );
