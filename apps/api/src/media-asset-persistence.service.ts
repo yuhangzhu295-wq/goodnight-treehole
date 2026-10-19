@@ -104,12 +104,27 @@ export class MediaAssetPersistenceService {
     return this.markDeleted(id);
   }
 
+  /**
+   * Whether this asset is attached to any mood or diary, by the join rows' own column.
+   *
+   * The join tables are keyed `mediaAssetId`, which is the only way to answer "is this file in use".
+   * Passing the id where a `moodId` was expected answered a different question - whether a mood with
+   * this id has posts, diaries or a letter - which is always false for an asset id, so the check
+   * reported "not attached" for files that were attached and let the delete take them.
+   */
+  async isAttachedToAnyRow(mediaAssetId: string): Promise<boolean> {
+    const [moodLinks, diaryLinks] = await Promise.all([
+      this.prisma.moodAttachment.count({ where: { mediaAssetId } }),
+      this.prisma.diaryAttachment.count({ where: { mediaAssetId } }),
+    ]);
+    return moodLinks > 0 || diaryLinks > 0;
+  }
+
   /** Ids attached to any of the user's rows, used by the data-clearing paths. */
   async ownedReadyIds(userId: string, usageTypes?: string[]): Promise<string[]> {
     const rows = await this.prisma.mediaAsset.findMany({
       where: { userId, status: 'ready', ...(usageTypes?.length ? { usageType: { in: usageTypes } } : {}) },
-      select: { id: true },
-    });
+      select: { id: true },    });
     return rows.map((row) => row.id);
   }
 

@@ -2346,8 +2346,10 @@ export class PublicController {
   }
 
   @Delete('media/:id')
-  async deleteMedia(@Param('id') id: string) {
-    await this.store.deleteMediaAsset(id);
+  async deleteMedia(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // The caller's own identity, so the delete is scoped to the same owner the upload attributed the
+    // row to. Without it a non-demo user's draft image is a 404 to its own author.
+    await this.store.deleteMediaAsset(id, requireRuntimeUserId(requestedUserId));
     return { ok: true };
   }
 

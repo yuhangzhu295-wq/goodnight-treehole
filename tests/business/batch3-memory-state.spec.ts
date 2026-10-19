@@ -239,6 +239,44 @@ describe('Batch 3: MemoryItem state machine', () => {
    * first half by revoking between two calls and observing the boundary; it cannot pin the second
    * half, which is a window inside a dispatch, so it is not claimed.
    */
+  /**
+   * The consent is a join predicate of the same statement - that is the linearization point the
+   * design claims, and it has to be pinned on the statement itself rather than on two sequential
+   * calls. A revocation observed between call 1 and call 2 is equally consistent with "consent is a
+   * join in one statement" and "consent is read separately and then the memories", so the earlier
+   * shape of this case could not tell the two apart.
+   *
+   * This counts the statements one eligibility call issues, and asserts the consent is decided
+   * inside the one that reads the memories: exactly one statement, and it names the consent column.
+   * A separate consent read would make it two statements, and a consent read after the memories
+   * would make the order wrong even at two.
+   */
+  it('2.3b Eligibility decides consent inside the single statement that reads the memories', async () => {
+    const id = await createMemory('单语句');
+    const statements: string[] = [];
+    const realQueryRaw = (self as any).prisma.$queryRaw.bind((self as any).prisma);
+    (self as any).prisma.$queryRaw = async (strings: any, ...values: any[]) => {
+      statements.push(String(strings?.raw ?? strings));
+      return realQueryRaw(strings, ...values);
+    };
+    try {
+      const eligible = (await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id);
+      expect(eligible).toContain(id);
+    } finally {
+      (self as any).prisma.$queryRaw = realQueryRaw;
+    }
+
+    // Exactly one raw statement for one call - no separate consent read, no separate memories read.
+    expect(statements).toHaveLength(1);
+    // And that statement carries the consent as a predicate, not as a filter applied afterwards.
+    expect(statements[0]).toContain('allowAiMemoryUse');
+    expect(statements[0]).toContain('MemoryItem');
+    // The join is the same statement, so the linearization point is this statement.
+    expect(statements[0]).toMatch(/PrivacySetting[\s\S]*MemoryItem|MemoryItem[\s\S]*PrivacySetting/);
+
+    await prisma.memoryItem.deleteMany({ where: { id } });
+  });
+
   it('2.3 Revocation takes effect at the next eligibility statement, and the boundary is observable', async () => {
     const id = await createMemory('撤销边界');
     expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id)).toContain(id);

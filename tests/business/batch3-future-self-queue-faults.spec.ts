@@ -217,49 +217,62 @@ describe('FutureSelf delivery: a scheduled message survives the queue failing', 
   }, 120_000);
 
   /**
-   * A genuine Redis outage, at the point the queue is actually needed.
+   * A genuine queue outage, at the point the queue is actually needed.
    *
-   * The commit-then-enqueue case above points REDIS_URL at a dead port and drives the reconciler,
-   * which proves the reconciler's contract but not that a *delivery* through an unreachable queue
-   * fails honestly. This one fails the enqueue where the worker places it and then reconciles, so
-   * the durable row is what recovers the message rather than anything in memory.
+   * The first version of this case set `process.env.REDIS_URL` and called it an outage. It was not
+   * one: `follow-up-queue.ts` captures the URL at module load and the worker holds its connection,
+   * so the assignment changed nothing - and the assertion allowed either `pending` or `delivered`,
+   * so a normal delivery would satisfy it too. The case passed while proving nothing.
+   *
+   * What is failed here is the real queue object's own connection, replaced with one pointing at a
+   * port nothing listens on, so the failure the reconciler has to survive is the failure it would
+   * actually get. The durable row is the recovery, which is the property under test.
    */
-  it('a delivery whose queue is unreachable leaves the job pending, and the reconciler still finds it', async () => {
+  it('a queue whose connection is down leaves the job pending, and the reconciler reports it honestly', async () => {
     const { followUp } = await self.createFutureMessage({
       userId: owner,
       content: `${marker} outage`,
       deliverAt: new Date(Date.now() + 3_600_000),
     });
+    expect(followUp.status).toBe('pending');
 
-    // Make the queue unreachable for this worker only, then attempt the delivery. The failure has
-    // to surface rather than being swallowed: an enqueue that silently succeeded would leave the
-    // caller believing the queue would fire it.
-    const realRedisUrl = process.env.REDIS_URL;
-    process.env.REDIS_URL = DEAD_REDIS_URL;
+    const queueModule = await import('../../apps/api/src/follow-up-queue.js');
+    const realQueue = queueModule.followUpQueue();
+    const realConnection = (realQueue as any).connection;
+    // Break the real connection, not an environment variable nobody reads any more.
+    // Constructed through the API's own module, so the same ioredis the app uses is the one that
+    // fails - importing ioredis from the test tree does not resolve.
+    const ioredis = await import('../../apps/api/src/../node_modules/ioredis/built/index.js').catch(() => null);
+    if (!ioredis) throw new Error('could not load ioredis from the api tree');
+    const dead = new ioredis.Redis(DEAD_REDIS_URL, {
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+      retryStrategy: () => null,
+      enableOfflineQueue: false,
+    });
+    (realQueue as any).connection = dead;
     try {
-      const outcome = await Promise.allSettled([
-        (worker as any).deliver({
-          id: followUp.id,
-          kind: 'FUTURE_SELF',
-          userId: owner,
-          payload: { messageId: followUp.id },
-        }),
-      ]);
-      // Either the delivery refused (the claim needs the queue) or it went through on the durable
-      // row alone; both are honest. What is not acceptable is a silent success that loses the job.
-      const jobRow = await prisma.followUpJob.findUniqueOrThrow({ where: { id: followUp.id } });
-      expect(['pending', 'delivered']).toContain(jobRow.status);
-      if (outcome[0].status === 'rejected') {
-        expect(String((outcome[0] as PromiseRejectedResult).reason)).toMatch(/redis|ECONNREFUSED|connect|queue/i);
-      }
+      const result = await self.reconcilePendingFutureMessages();
+      // The sweep found the job and could not enqueue it. `failed` must be at least one: a
+      // reconciler that silently reported success would leave the caller believing the queue would
+      // fire a job that is not in it.
+      expect(result.scanned).toBeGreaterThanOrEqual(1);
+      expect(result.failed).toBeGreaterThanOrEqual(1);
+      expect(result.enqueued).toBeLessThanOrEqual(result.scanned);
+      expect(result.failed).toBeLessThanOrEqual(result.scanned);
     } finally {
-      if (realRedisUrl === undefined) delete process.env.REDIS_URL;
-      else process.env.REDIS_URL = realRedisUrl;
+      (realQueue as any).connection = realConnection;
+      dead.disconnect();
     }
 
-    // With the queue back, the reconciler must find the job whether it delivered or not.
-    const reconciled = await self.reconcilePendingFutureMessages();
-    expect(reconciled.scanned).toBeGreaterThanOrEqual(1);
+    // The durable row is untouched by the failed enqueue, which is the whole point of the
+    // commit-then-enqueue design: the job survives and is picked up on a later pass.
+    const after = await prisma.followUpJob.findUniqueOrThrow({ where: { id: followUp.id } });
+    expect(after.status).toBe('pending');
+
+    // And with the connection restored, the same reconciler run does enqueue it.
+    const recovered = await self.reconcilePendingFutureMessages();
+    expect(recovered.enqueued).toBeGreaterThanOrEqual(1);
   }, 120_000);
 });
 

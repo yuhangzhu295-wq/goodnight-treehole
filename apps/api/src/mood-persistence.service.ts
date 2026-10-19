@@ -107,8 +107,14 @@ export class MoodPersistenceService {
       // The race the read above cannot close: the other instance committed between the read and
       // this insert. Its row is the same one this caller wanted, so returning it is correct rather
       // than a failure - the seed is identical on every instance by construction.
-      const raced = await this.prisma.mood.findUnique({ where: { id: input.id } });
-      if (raced) return raced;
+      //
+      // Only the unique-key conflict gets this treatment. Swallowing any other error here would
+      // turn an unrelated write failure into a silent success, which is how a broken save starts
+      // looking like it worked.
+      if ((error as { code?: string })?.code === 'P2002') {
+        const raced = await this.prisma.mood.findUnique({ where: { id: input.id } });
+        if (raced) return raced;
+      }
       throw error;
     }
   }

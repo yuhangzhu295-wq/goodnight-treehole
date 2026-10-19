@@ -17,7 +17,13 @@ sighted look, and this document does not close them.
 
 ## Result
 
-39 tasks: **13 PASS**, **3 FAIL**, **2 INCONCLUSIVE**, **19 NO_CAPTURE**.
+39 tasks in the queue. The reviewer matched **20** to a design/screenshot pair (three of them from
+the evidence field where the queue's own `screenshot` field holds a brace-expansion string rather
+than a path: UI-V2-01, UI-V2-04, UI-V2-05, UI-V2-15 — so a naive path-existence check finds 14 of
+the 20 and the other four are real captures under a name the queue records differently). The other
+**19** tasks have no capture at all.
+
+Of the 20 reviewed: **13 PASS**, **3 FAIL**, **2 INCONCLUSIVE**.
 
 ## FAIL — user-visible defects, ranked
 
@@ -61,8 +67,9 @@ state until a capture exists.
 
 ## What this does and does not establish
 
-- Established: for the 15 pages with a capture, whether the render is structurally the right page and
-  free of gross defects. 13 of 15 are clean by that measure.
+- Established: for the 20 pages with a capture, whether the render is structurally the right page and
+  free of gross defects. 13 of the 20 are clean by that measure, 3 carry a named defect, and 2
+  could not be judged from pixels.
 - Established: 3 concrete, reproducible defects with pixel evidence attached.
 - Not established: any claim about the 19 uncaptured pages, about text content, or about
   sub-pixel-level visual fidelity on any page.

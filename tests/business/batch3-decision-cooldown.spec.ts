@@ -756,4 +756,44 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     const afterManual = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
     expect(afterManual?.status).toBe('cooling');
   }, 120_000);
+  /**
+   * The manual path refuses a superseded cooldown (case 1.13), but the list read had its own
+   * auto-transition that only excluded *active* cooldowns. So reading the list re-readied a decision
+   * whose cooldown was superseded: the same decision was ready through the read path and refused
+   * through the manual one, and the read path is the one that runs without the user asking for
+   * anything. This drives the list and asserts the decision stays where it was.
+   */
+  it('1.14 Reading the list does not ready a decision whose cooldown was superseded', async () => {
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `列表绕过守卫_${Date.now()}`,
+    });
+    const past = new Date(Date.now() - 5000);
+    const cdId = `cd_listauto_${Date.now()}`;
+
+    await prisma.cooldownItem.create({
+      data: {
+        id: cdId,
+        userId: owner,
+        decisionId: decision.id,
+        title: '已被取代的冷静',
+        releaseAt: past,
+        status: 'superseded',
+      },
+    });
+    await prisma.decisionRecord.update({ where: { id: decision.id }, data: { status: 'cooling', cooldownUntil: past } });
+
+    const listed = await selfPersistence.listDecisions(owner);
+    const row = listed.find((item: any) => item.id === decision.id);
+    expect(row?.status).toBe('cooling');
+
+    // And the row is still refused through the manual path, so the two paths agree.
+    const manual = await request(app.getHttpServer())
+      .patch(`/api/v1/decisions/${decision.id}`)
+      .set('x-goodnight-user-id', await identityFor(owner))
+      .send({ status: 'ready' });
+    expect([400, 409]).toContain(manual.status);
+    const after = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
+    expect(after?.status).toBe('cooling');
+  }, 120_000);
 });

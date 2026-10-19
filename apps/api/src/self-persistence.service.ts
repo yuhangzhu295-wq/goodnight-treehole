@@ -1668,6 +1668,21 @@ export class SelfPersistenceService {
           SELECT 1 FROM "CooldownItem"
           WHERE "decisionId" = "DecisionRecord".id AND status = 'active'
         )
+        -- A superseded cooldown is terminal for the whole cycle, which is what the manual
+        -- ready transition already enforces. Without this, reading the list re-readies a decision
+        -- whose cooldown was superseded, so the same decision is ready through one path and refuses
+        -- through the other - and the read path is the one that runs unasked.
+        AND NOT EXISTS (
+          SELECT 1 FROM "CooldownItem" recent
+          WHERE recent."decisionId" = "DecisionRecord".id
+            AND recent.status = 'superseded'
+            AND NOT EXISTS (
+              SELECT 1 FROM "CooldownItem" newer
+              WHERE newer."decisionId" = "DecisionRecord".id
+                AND newer."createdAt" > recent."createdAt"
+                AND newer.status <> 'superseded'
+            )
+        )
     `;
 
     const rows = await this.prisma.decisionRecord.findMany({

@@ -109,9 +109,12 @@ export class PostPersistenceService {
         return await this.prisma.post.create({ data: { id: input.id, ...data } });
       } catch (error) {
         // The race the read cannot close. The other instance's row is the same seed row, so
-        // returning it is correct rather than a failure.
-        const raced = await this.prisma.post.findUnique({ where: { id: input.id } });
-        if (raced) return raced;
+        // returning it is correct rather than a failure. Only the unique-key conflict gets this
+        // treatment; any other error must surface, or a broken save would look like it worked.
+        if ((error as { code?: string })?.code === 'P2002') {
+          const raced = await this.prisma.post.findUnique({ where: { id: input.id } });
+          if (raced) return raced;
+        }
         throw error;
       }
     }

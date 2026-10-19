@@ -498,4 +498,37 @@ describe('Batch 3 Task R-07: Admin minimal disclosure and audited reads', () => 
     expect(res.body.item.id).toBe(memoryId);
     expect(res.body.item.content).toBe(secretContent);
   });
+  /**
+   * The admin user export is a full-database dump of every user's profile and privacy settings. It is
+   * attributed to the demo account only because `MediaAsset.userId` is a required foreign key, so an
+   * owner check on that row cannot tell "my own export" from "the admin export".
+   *
+   * The public export download route therefore must not admit the `user-export` usage type at all:
+   * with it in the allowlist, any caller holding the demo credential could fetch every user's
+   * private data through a route with no admin guard. The admin route stays the only path.
+   */
+  it('the admin user export is not reachable through the public export route', async () => {
+    const server = app.getHttpServer();
+    const created = await request(server)
+      .get('/api/admin/v1/users/export')
+      .set('authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const assetId = created.body.item.assetId as string;
+    expect(assetId).toBeTruthy();
+
+    // As the demo account, which is the row's owner. This is the shape that made the defect
+    // invisible: the owner check passes, so only the usage-type allowlist can refuse.
+    const asDemoUser = await request(server)
+      .get(`/api/v1/exports/${assetId}/download`)
+      .set('x-goodnight-user-id', await identityFor(userA));
+    expect([403, 404]).toContain(asDemoUser.status);
+    // And the file is not served as a download either.
+    expect(asDemoUser.headers['content-disposition']).toBeUndefined();
+
+    // The admin route still serves it, so the fix is a scope change and not a disabled feature.
+    const asAdmin = await request(server)
+      .get(`/api/admin/v1/users/export/${assetId}/download`)
+      .set('authorization', `Bearer ${adminToken}`);
+    expect(asAdmin.status).toBe(200);
+  }, 120_000);
 });

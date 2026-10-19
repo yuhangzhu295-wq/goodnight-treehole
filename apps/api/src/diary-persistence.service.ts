@@ -120,6 +120,17 @@ export class DiaryPersistenceService {
   }
 
   /** The diary's attachment ids, the equivalent of the legacy `attachmentIds` array. */
+  /**
+   * Whether this asset is attached to any diary, by the join row's own column.
+   *
+   * The diary-delete guard needs "is this file in use", and the join table is keyed `mediaAssetId`;
+   * scanning the diary rows in application code would answer it only for the rows loaded here.
+   */
+  async isAttachedToAnyRow(mediaAssetId: string): Promise<boolean> {
+    const count = await this.prisma.diaryAttachment.count({ where: { mediaAssetId } });
+    return count > 0;
+  }
+
   async attachmentIdsFor(diaryId: string): Promise<string[]> {
     const rows = await this.prisma.diaryAttachment.findMany({
       where: { diaryId },

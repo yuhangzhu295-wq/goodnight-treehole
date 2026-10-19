@@ -54,8 +54,6 @@ const ORDINARY_WRITERS = {
  * `upsert`/`sweep` are inside the flush transaction. A model registered in one and not the others is
  * still dual-written: hydration alone re-seeds the snapshot, the sweep alone deletes rows.
  */
-const REQUIRED_GUARDS = ['hydrate', 'upsert', 'sweep'];
-
 const read = (file) => fs.readFileSync(file, 'utf8');
 
 function fail(message) {
@@ -64,7 +62,6 @@ function fail(message) {
 }
 
 const registry = read(registryPath);
-const mapper = read(mapperPath);
 
 /**
  * The mapper positions that must each carry a guard. `hydrate` is the load at boot/reload,
@@ -88,7 +85,7 @@ const mapper = read(mapperPath);
  * exception is a recorded claim instead of a lowered threshold that would also pass a model missing
  * its sweep.
  */
-const mapperText = fs.readFileSync(path.join(repoRoot, 'apps/api/src/relational-runtime.mapper.ts'), 'utf8');
+const mapperText = read(mapperPath);
 const loadStart = mapperText.indexOf('export async function loadRelationalRuntimeState');
 const saveStart = mapperText.indexOf('export async function saveRelationalRuntimeState');
 const loadSection = mapperText.slice(loadStart, saveStart);
@@ -124,7 +121,6 @@ const NO_SEPARATE_SWEEP = {
 console.log('[self-dual-writer] the ten Self models, and where the flush still reaches them');
 
 for (const model of SELF_MODELS) {
-  const modelKey = MODEL_KEYS[model].state;
   const sweepKey = MODEL_KEYS[model].sweep;
   // 1. Registered, so the store no longer holds an in-memory copy to flush.
   if (!registry.includes(`${model}:`)) {
@@ -152,8 +148,19 @@ for (const model of SELF_MODELS) {
     fail(`${model} is written by the flush with no guard above the write, so the flush still owns it`);
   }
 
-  // 2c. The sweep, by its own key.
-  const swept = saveSection.includes(`deleteAbsent('${sweepKey}'`);
+  // 2c. The sweep, by its own key AND by the guard immediately above it.
+  //
+  // Checking for the statement alone is what the reviewer caught: neutralising a sweep's guard to
+  // `if (true)` leaves the statement exactly where it was, so the check still passed and the reverse
+  // proof was decorative. The statement must be preceded - within the few lines the mapper uses -
+  // by `if (!DIRECT_DB_MODELS.<Model>)`, which is the shape every sweep actually has.
+  const sweepAt = saveSection.indexOf(`deleteAbsent('${sweepKey}'`);
+  const swept =
+    sweepAt !== -1 &&
+    (() => {
+      const above = saveSection.slice(Math.max(0, sweepAt - 240), sweepAt);
+      return above.includes(`!DIRECT_DB_MODELS.${model}`);
+    })();
   if (NO_SEPARATE_SWEEP[model]) {
     if (swept) {
       fail(`${model} is listed as having no separate sweep, but one now exists - the inventory is stale`);

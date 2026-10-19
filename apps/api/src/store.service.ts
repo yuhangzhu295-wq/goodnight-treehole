@@ -222,6 +222,15 @@ function extensionForMime(mimeType: string) {
   return mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
 }
 
+/**
+ * The export usage types the user-facing download route accepts.
+ *
+ * `user-export` is excluded on purpose: it is the admin user export, attributed to the demo account
+ * only because `MediaAsset.userId` is a required foreign key. An owner check cannot distinguish it
+ * from a user's own export, so it is reachable only through the admin route behind the token guard.
+ */
+const USER_EXPORT_USAGE_TYPES = ['diary-export', 'journey-archive-export'];
+
 function diaryExportFilename(generatedAt: string) {
   const date = generatedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
   return `goodnight-treehole-diaries-${date}.json`;
@@ -2527,18 +2536,28 @@ export class StoreService implements OnModuleInit {
               : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [])),
         })),
       )
-    ).map((item: any) => ({
-          ...item,
-          attachments: item.attachmentIds.map((asset: MediaAsset) => ({
-            id: asset.id,
-            url: asset.url,
-            mimeType: asset.mimeType,
-            size: asset.size,
-            width: asset.width,
-            height: asset.height,
-            createdAt: asset.createdAt,
-          })),
-        }));
+    );
+    // `attachmentIds` are ids, not rows. Mapping over them as if they were `MediaAsset` objects
+    // produced an attachments array of all-undefined fields whenever a diary actually had
+    // attachments, so the exported file could not describe the images it was exporting.
+    // `mediaByIds` resolves them against the table (or the legacy array) and the caller's own rows.
+    const attachmentsById = new Map(
+      (await this.mediaByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []))).map((asset) => [asset.id, asset]),
+    );
+    const exportedDiaries = diaries.map((item: any) => ({
+      ...item,
+      attachments: (((item.attachmentIds ?? []) as string[])
+        .map((assetId) => attachmentsById.get(assetId))
+        .filter((asset): asset is MediaAsset => Boolean(asset)) as MediaAsset[]).map((asset) => ({
+        id: asset.id,
+        url: asset.url,
+        mimeType: asset.mimeType,
+        size: asset.size,
+        width: asset.width,
+        height: asset.height,
+        createdAt: asset.createdAt,
+      })),
+    }));
     const assetId = id('export');
     const storageKey = `diary-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
     const target = path.join(uploadsDirectory, storageKey);
@@ -2559,7 +2578,7 @@ export class StoreService implements OnModuleInit {
       format: 'goodnight-treehole-diary-export/v1',
       generatedAt,
       count: diaries.length,
-      diaries,
+      diaries: exportedDiaries,
     };
     const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
     asset.size = contents.length;
@@ -2650,16 +2669,22 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
-   * Owner scoping for the export download.
+   * Owner scoping for the **user-facing** export download.
    *
    * MediaAsset stays table-bound, so the row is read first and the owner compared afterwards.
    * `usageType` is filtered here rather than in the `where` because the diary and journey paths
    * share this method: a ticket id or a poster id must not resolve as an export.
+   *
+   * `user-export` is deliberately NOT in this list. The admin user export is attributed to the demo
+   * account because `MediaAsset.userId` is a foreign key and has to name a real user, so an owner
+   * check alone cannot tell "my own export" from "the admin export". It is reachable only through
+   * the admin route, which is behind the admin token guard; admitting it here let any caller who
+   * could read the demo account download every user's profile and privacy settings.
    */
   private async findExportDownload(assetId: string, userId: string): Promise<MediaAsset | null> {
     if (DIRECT_DB_MODELS.MediaAsset) {
       const row = await this.mediaAssetsDb.get(assetId);
-      const usageTypes = ['diary-export', 'journey-archive-export', 'user-export'];
+      const usageTypes = USER_EXPORT_USAGE_TYPES;
       return row && row.userId === userId && usageTypes.includes(row.usageType) && row.status === 'ready'
         ? row
         : null;
@@ -2668,7 +2693,7 @@ export class StoreService implements OnModuleInit {
       (item) =>
         item.id === assetId &&
         item.userId === userId &&
-        ['diary-export', 'journey-archive-export', 'user-export'].includes(item.usageType) &&
+        USER_EXPORT_USAGE_TYPES.includes(item.usageType) &&
         item.status === 'ready',
     );
     return item ?? null;
@@ -2841,26 +2866,27 @@ export class StoreService implements OnModuleInit {
     return asset;
   }
 
-  async deleteMediaAsset(assetId: string) {
-    // The draft delete has always been scoped to the demo account, which is the only owner the
-    // legacy array had. With MediaAsset registered the service applies the same scoping, so a
-    // foreign id is a 404 rather than an object whose owner the caller then compares.
+  async deleteMediaAsset(assetId: string, requestedUserId?: string) {
+    // Scoped to the caller, not to the demo account. The legacy array only ever held the demo
+    // user's uploads, so the demo id was the only possible scope then; upload now attributes the
+    // row to the real caller, and a delete still scoped to the demo id would 404 every other user's
+    // own draft image - which is what it did.
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
     const asset = DIRECT_DB_MODELS.MediaAsset
-      ? await this.mediaAssetsDb.findOwnedReady(assetId, this.getDemoUserId())
-      : this.assets.find(
-          (item) => item.id === assetId && item.userId === this.getDemoUserId() && item.status === 'ready',
-        );
+      ? await this.mediaAssetsDb.findOwnedReady(assetId, userId)
+      : this.assets.find((item) => item.id === assetId && item.userId === userId && item.status === 'ready');
     if (!asset) throw new NotFoundException('图片不存在');
-    // Post attachments live on the mood (`Post.moodId` is unique), which is why the legacy check
-    // scanned the posts array as well. With Post registered that array is gone, so the mood rows
-    // carry the same information on their own.
+    // Attached, by the join rows' own `mediaAssetId`. The previous check passed the asset id where
+    // a `moodId` was expected, which answers a different question and always returns false for an
+    // asset id - so an image that was attached to a published mood or diary was deleted anyway and
+    // the content then pointed at a file that no longer exists.
     const attached =
-      (DIRECT_DB_MODELS.Mood
-        ? await this.moodsDb.isAttachedToAny(assetId)
+      (DIRECT_DB_MODELS.MediaAsset
+        ? await this.mediaAssetsDb.isAttachedToAnyRow(assetId)
         : this.moods.some((item) => (item.attachmentIds ?? []).includes(assetId))) ||
-      // Post attachments are the mood's attachments, so the mood check above covers them. The extra
-      // database read would only tell us a post exists for the mood, not that it holds the asset.
-      (DIRECT_DB_MODELS.Post ? false : this.data.posts.some((item: any) => item.attachmentIds?.includes(assetId))) ||
+      (DIRECT_DB_MODELS.Diary
+        ? await this.diariesDb.isAttachedToAnyRow(assetId)
+        : this.diaries.some((item: any) => (item.attachmentIds ?? []).includes(assetId))) ||
       this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId));
     if (attached) throw new ForbiddenException('已发布内容的图片不能在草稿删除接口中移除');
     const target = path.join(uploadsDirectory, asset.storageKey);
@@ -3729,7 +3755,15 @@ export class StoreService implements OnModuleInit {
       // this runs; a seed naming any other provider id is skipped rather than seeded into a broken
       // route, and a missing route is a visible failure while a dangling one is not.
       const ids = [route.primaryProviderId, route.backupProviderId, route.fallbackTemplateId];
-      if (ids.some((id) => !known.has(id))) continue;
+      const missing = ids.filter((id) => !known.has(id));
+      if (missing.length) {
+        // Named, not silent: a skipped route means that style has no working route, so the operator
+        // has to be able to see which one rather than wondering why AI calls for it fail.
+        console.error(
+          `[ai-routes] skipped seeding route "${route.style}": its providers are not in the table (${missing.join(', ')})`,
+        );
+        continue;
+      }
       await this.aiRoutingDb.saveRoute({
         style: route.style,
         label: route.label,

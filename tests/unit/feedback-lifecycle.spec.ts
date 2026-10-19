@@ -58,11 +58,20 @@ function createStore(assetRows?: Map<string, any>) {
       saveRuntimeState: async () => undefined,
       auditLog: { create: async () => undefined },
       // Mood is database-authoritative; the draft-delete guard asks whether any mood carries the asset.
-      moodAttachment: { findMany: async () => [] },
+      // The draft-delete guard asks these by `mediaAssetId`; the mood-draft path asks them by mood.
+      moodAttachment: { findMany: async () => [], count: async () => 0 },
+      diaryAttachment: { findMany: async () => [], count: async () => 0 },
       post: { count: async () => 0 },
       diary: { count: async () => 0 },
       // MediaAsset is database-authoritative; the draft-delete guard reads attachments through it.
-      mediaAsset: stubMediaAssetTable(rows),
+      mediaAsset: {
+        ...stubMediaAssetTable(rows),
+        // The draft-delete guard now asks the join tables by mediaAssetId, so the stub answers
+        // them. With no links the reply ticket's screenshot is unattached, which is what makes the
+        // 403 below come from the ticket attachment rather than from a missing method.
+        moodAttachment: { count: async () => 0 },
+        diaryAttachment: { count: async () => 0 },
+      },
       letter: { count: async () => 0 },
     } as any,
   );
