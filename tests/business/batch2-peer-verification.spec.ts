@@ -1582,13 +1582,16 @@ describe('Batch 2 Peer Persistence: Bilateral Consent, Races & Multi-Instance', 
       const store = app.get(StoreService);
       const remoteAi = app.get(RemoteAiProviderService);
 
-      let provider = store.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID);
+      // AIProvider is database-authoritative since Batch 4, so the provider this case needs
+      // enabled is a row, not an array entry - and the array's getter throws. The peer-assist path
+      // reads the row through the same service, so enabling it here is what the case needs.
+      let provider = await (store as any).aiRoutingDb.getProvider(DAPI_PROVIDER_ID);
       if (!provider) {
-        provider = { ...remoteAi.primaryDefinition(), enabled: true };
-        store.aiProviders.unshift(provider);
+        provider = { ...remoteAi.primaryDefinition(), enabled: true } as any;
+        await (store as any).aiRoutingDb.saveProvider(provider as never);
       }
       const previousEnabled = provider.enabled;
-      provider.enabled = true;
+      await (store as any).aiRoutingDb.saveProvider({ ...provider, enabled: true } as never);
 
       // The model's own output is the untrusted side of this boundary: it repeats identifiers the
       // other party wrote. Injecting the completion is what makes the redaction observable.
