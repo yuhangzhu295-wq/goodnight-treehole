@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "80d74ae45490dcf8907f69a275d53f7eb4064580",
-  "updatedAt": "2026-10-19T03:20:00.000Z",
+  "head": "94eae072f4de77cb6a5694605eafcf9db567736b",
+  "updatedAt": "2026-10-19T06:28:31.086Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -494,14 +494,14 @@
       "id": "B4-AIPROVIDER-ROUTE-PAIR",
       "phase": "Batch 4",
       "priority": "P1",
-      "status": "READY",
+      "status": "DONE",
       "title": "AIProvider + AIStyleRoute convert as a pair",
-      "implemented": "no",
-      "tested": "no",
+      "implemented": "yes",
+      "tested": "yes",
       "independentReview": "pending",
-      "evidence": "AIStyleRoute carries three FKs to AIProvider (primary/backup/fallback), and AIProvider is swept twice in the mapper (an if/else over keepProviderIds vs providerMap.keys()). Self-contained otherwise: the only consumers are the admin AI-routing routes and the store's provider sync.",
+      "evidence": "Registered as a pair; ai-routing-persistence.service.ts owns both tables and the DAPI policy; runAiJob resolves route/primary/backup/fallback through resolveAiRouteRecord and findAiProviderRecord; the admin routes read and write the table. The mapper no longer hydrates, upserts or sweeps them. Gate case plus mutation M-T (unregistering makes the flush write both tables again). 17/17 gate, 40/40 unit.",
       "blocker": "",
-      "nextAction": "Register both, convert the admin routes and the store sync, add the gate case and a reverse proof."
+      "nextAction": "None."
     },
     {
       "id": "B4-DECORATE-READ-PATH",

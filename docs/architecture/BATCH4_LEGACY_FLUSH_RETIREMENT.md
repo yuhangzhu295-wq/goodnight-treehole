@@ -267,8 +267,10 @@ page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-REA
 | `AgentDecisionLog` | **DONE** | writer + both readers in `Batch1PersistenceService`; the archive path deletes and the export path detaches, and that difference is preserved deliberately; mutation M-P |
 | `Favorite` | **DONE** | `favorite-persistence.service.ts`; gate case covers the table read, the feed flag, the `Post.favoriteCount` projection, the flush, and the write path; mutation M-Q (unregistering it makes a directly written favourite invisible to the feed) |
 | `Reply` | **DONE** | `reply-persistence.service.ts`; writers are the human reply route, the three AI-reply completions and the seed coverage (idempotent on `id`); `Post.replyCount` is derived from the table; mutation M-R (unregistering it hides a directly written reply from the public list) |
+| `AIProvider` | **DONE** | Registered as a pair with `AIStyleRoute` (three FKs); `ai-routing-persistence.service.ts` owns both tables and the DAPI policy writes through it. Gate case plus mutation M-T |
+| `AIStyleRoute` | **DONE** | Same pair; `resolveAiRouteRecord` is the read seam `runAiJob` uses. Mutation M-T covers both |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 6 | not started | see §4's order; `Post` is next, and it is the hub |
+| the other 4 | not starting | `Mood`, `Diary`, `Letter`, `MediaAsset` — `Mood` is next: it is upstream of Post and Diary |
 
 **What converting `Favorite` changed beyond the model.** `buildPostDecorationContext` is async and
 reads the viewer's post ids from the table once per request; `getPost`, `moderatePost` and five
