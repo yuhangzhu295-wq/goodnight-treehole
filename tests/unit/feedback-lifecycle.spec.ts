@@ -19,8 +19,12 @@ function createStore() {
   return new StoreService(
     {
       saveRuntimeState: async () => undefined,
-      // The operator routes write an AuditLog row to the table as well as to memory.
       auditLog: { create: async () => undefined },
+      // Mood is database-authoritative; the draft-delete guard asks whether any mood carries the asset.
+      moodAttachment: { findMany: async () => [] },
+      post: { count: async () => 0 },
+      diary: { count: async () => 0 },
+      letter: { count: async () => 0 },
     } as any,
   );
 }

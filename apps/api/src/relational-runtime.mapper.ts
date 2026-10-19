@@ -76,7 +76,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
   ] = await Promise.all([
     db.user.findMany({ include: { privacySetting: !DIRECT_DB_MODELS.PrivacySetting }, orderBy: { createdAt: 'desc' } }),
     db.adminUser.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } }),
-    db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.Mood ? Promise.resolve([]) : db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Post ? Promise.resolve([]) : db.post.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Reply ? Promise.resolve([]) : db.reply.findMany({ orderBy: { createdAt: 'desc' } }),
     db.letter.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -960,7 +960,7 @@ export async function saveRelationalRuntimeState(
   }
   const jobs = DIRECT_DB_MODELS.AIJob ? [] : asArray(state.aiJobs);
   for (const job of jobs) job.providerId = fallbackProvider(job.providerId);
-  const moodIds = new Set(asArray(state.moods).map((item: any) => item.id));
+  const moodIds = new Set((DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods)).map((item: any) => item.id));
   const letterIds = new Set(asArray(state.letters).map((item: any) => item.id));
   const fallbackJobIds = new Set(jobs.map((item: any) => item.id));
   const fallbackJourneyIds = DIRECT_DB_MODELS.LifeJourney
@@ -1025,7 +1025,7 @@ export async function saveRelationalRuntimeState(
           ...(DIRECT_DB_MODELS.OutcomeCheckin ? [] : asArray(state.outcomeCheckins).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.PeerExperience ? [] : asArray(state.peerExperiences).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.PeerMatch ? [] : asArray(state.peerMatches).map((item: any) => item.journeyId)),
-          ...asArray(state.moods).map((item: any) => item.journeyId),
+          ...(DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods).map((item: any) => item.journeyId)),
           ...(DIRECT_DB_MODELS.Post ? [] : asArray(state.posts).map((item: any) => item.journeyId)),
           ...asArray(state.diaries).map((item: any) => item.journeyId),
           ...(DIRECT_DB_MODELS.DecisionRecord ? [] : asArray(state.decisionRecords).map((item: any) => item.journeyId)),
@@ -1545,7 +1545,7 @@ export async function saveRelationalRuntimeState(
             restrictedUntil: item.restrictedUntil ? date(item.restrictedUntil) : null,
           },
         });
-      for (const item of asArray(state.moods))
+      for (const item of DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods))
         await tx.mood.upsert({
           where: { id: item.id },
           create: {
@@ -2469,11 +2469,11 @@ export async function saveRelationalRuntimeState(
       // was destroyed by any flush. Attachments of parents this store no longer carries need no
       // handling here, because deleting the parent cascades (`MoodAttachment.mood` is
       // `onDelete: Cascade`).
-      const snapshotMoodIds = asArray(state.moods).map((item: any) => item.id);
+      const snapshotMoodIds = DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods).map((item: any) => item.id);
       if (snapshotMoodIds.length) {
         await tx.moodAttachment.deleteMany({ where: { moodId: { in: snapshotMoodIds } } });
       }
-      const moodAttachments = asArray(state.moods).flatMap((item: any) =>
+      const moodAttachments = (DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods)).flatMap((item: any) =>
         asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({
           moodId: item.id,
           mediaAssetId,
@@ -2683,10 +2683,11 @@ export async function saveRelationalRuntimeState(
       const survivingMoodIds = new Set<string>(
         (await tx.post.findMany({ select: { moodId: true } })).map((row: { moodId: string }) => row.moodId),
       );
-      await deleteAbsent('mood', tx.mood,
-        asArray(state.moods).map((item: any) => item.id),
-        survivingMoodIds,
-      );
+      if (!DIRECT_DB_MODELS.Mood)
+        await deleteAbsent('mood', tx.mood,
+          asArray(state.moods).map((item: any) => item.id),
+          survivingMoodIds,
+        );
       if (!DIRECT_DB_MODELS.AIJob)
         await deleteAbsent('aIJob', tx.aIJob,
           jobs.map((item: any) => item.id),

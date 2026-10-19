@@ -37,6 +37,7 @@ import { FavoritePersistenceService } from './favorite-persistence.service.js';
 import { ReplyPersistenceService } from './reply-persistence.service.js';
 import { PostPersistenceService } from './post-persistence.service.js';
 import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
+import { MoodPersistenceService } from './mood-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1294,6 +1295,8 @@ export class StoreService implements OnModuleInit {
     public readonly postsDb: PostPersistenceService = new PostPersistenceService(prisma as any),
     @Inject(AiRoutingPersistenceService)
     public readonly aiRoutingDb: AiRoutingPersistenceService = new AiRoutingPersistenceService(prisma as any),
+    @Inject(MoodPersistenceService)
+    public readonly moodsDb: MoodPersistenceService = new MoodPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1641,6 +1644,19 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.Mood) {
+      delete data.moods;
+      Object.defineProperty(data, 'moods', {
+        get() {
+          throw new Error('StoreData.moods is disabled: Mood is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.moods is disabled: Mood is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
     if (DIRECT_DB_MODELS.AIStyleRoute) {
       delete data.aiStyleRoutes;
       Object.defineProperty(data, 'aiStyleRoutes', {
@@ -1669,19 +1685,43 @@ export class StoreService implements OnModuleInit {
     }
   }
 
-  async onModuleInit() {
-    const persisted = await this.prisma.loadRuntimeState<StoreData>();
-    this.data = persisted ?? this.loadLegacyStore();
-    // The flush no longer writes the posts table once Post is registered, so any post this snapshot
-    // holds - the legacy demo seeds, including `post_1` that the e2e flows target - has to be written
-    // here or it would never reach the database. This runs while `data.posts` is still readable.
+  /**
+   * Writes the snapshot's moods and posts to the database.
+   *
+   * The legacy flush wrote both tables. Once Mood and Post are registered it writes neither, so any
+   * row the snapshot holds - the legacy demo seeds, including `post_1` that the e2e flows target -
+   * would never reach the database. Order matters: `Post.moodId` is a Restrict FK, and a registered
+   * Mood means the mood must be written here explicitly rather than left to the flush.
+   *
+   * Callers must run this while `data.posts` and `data.moods` are still readable, i.e. before
+   * `isolateDirectDbModels`. It is a no-op while neither model is registered.
+   */
+  private async writeSnapshotPostsAndMoods(snapshot?: StoreData) {
+    if (!DIRECT_DB_MODELS.Mood && !DIRECT_DB_MODELS.Post) return;
+    // One flush first: it writes the users the moods and posts reference. When both models stay
+    // flush-owned this is the whole job.
+    this.persist();
+    await this.flush();
+    const source = (snapshot ?? this.data) as any;
+    const moods = Array.isArray(source.moods) ? source.moods : [];
+    const posts = Array.isArray(source.posts) ? source.posts : [];
+    if (DIRECT_DB_MODELS.Mood) {
+      for (const mood of moods) {
+        await this.moodsDb.create({
+          id: mood.id,
+          userId: mood.userId,
+          emotion: mood.emotion,
+          content: mood.content,
+          visibility: mood.visibility,
+          riskLevel: mood.riskLevel,
+          riskScore: mood.riskScore,
+          attachmentIds: mood.attachmentIds ?? [],
+          journeyId: mood.journeyId ?? null,
+          createdAt: new Date(mood.createdAt),
+        });
+      }
+    }
     if (DIRECT_DB_MODELS.Post) {
-      const posts = Array.isArray(this.data.posts) ? this.data.posts : [];
-      // Mood is still flush-owned and `Post.moodId` is a Restrict FK, so the moods this snapshot
-      // holds are written first. One flush is enough even when every mood is already in the
-      // database: the statement is a no-op, so this is not a per-reload cost.
-      this.persist();
-      await this.flush();
       for (const post of posts) {
         await this.postsDb.create({
           id: post.id,
@@ -1696,6 +1736,15 @@ export class StoreService implements OnModuleInit {
         });
       }
     }
+  }
+
+  async onModuleInit() {
+    const persisted = await this.prisma.loadRuntimeState<StoreData>();
+    this.data = persisted ?? this.loadLegacyStore();
+    // The flush no longer writes the posts table once Post is registered, so any post this snapshot
+    // holds - the legacy demo seeds, including `post_1` that the e2e flows target - has to be written
+    // here or it would never reach the database. This runs while `data.posts` is still readable.
+    await this.writeSnapshotPostsAndMoods();
     this.isolateDirectDbModels(this.data);
     if (DIRECT_DB_MODELS.PrivacySetting) {
       await this.selfPersistence.repairPrivacyDefaults();
@@ -1730,6 +1779,10 @@ export class StoreService implements OnModuleInit {
       await options._onAfterLoad();
     }
     if (persisted && this.mutationVersion === versionAtStart) {
+      // The reloaded snapshot's posts and moods are written to the table the same way boot does,
+      // because the flush no longer writes either once they are registered. `data.posts` is still
+      // readable here — `isolateDirectDbModels` runs on the next line.
+      await this.writeSnapshotPostsAndMoods(persisted);
       this.data = persisted;
       this.isolateDirectDbModels(this.data);
       this.ensurePhaseTwoCoverage();
@@ -2374,14 +2427,22 @@ export class StoreService implements OnModuleInit {
   async createDiaryExport(userId: string) {
     await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
     const generatedAt = now();
-    const diaries = this.diaries
-      .filter((item) => item.userId === userId)
-      .map((item) => {
-        const attachmentIds =
-          item.attachmentIds ?? this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [];
-        return {
+    const diaries = (
+      await Promise.all(
+        this.diaries
+          .filter((item) => item.userId === userId)
+          .map(async (item) => {
+            const attachmentIds =
+              item.attachmentIds ??
+              (item.moodId && DIRECT_DB_MODELS.Mood
+                ? await this.moodsDb.attachmentIdsFor(item.moodId)
+                : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? []));
+            return { ...item, attachmentIds };
+          }),
+      )
+    ).map((item) => ({
           ...item,
-          attachments: this.mediaByIds(attachmentIds).map((asset) => ({
+          attachments: this.mediaByIds(item.attachmentIds).map((asset) => ({
             id: asset.id,
             url: asset.url,
             mimeType: asset.mimeType,
@@ -2390,8 +2451,7 @@ export class StoreService implements OnModuleInit {
             height: asset.height,
             createdAt: asset.createdAt,
           })),
-        };
-      });
+        }));
     const assetId = id('export');
     const storageKey = `diary-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
     const target = path.join(uploadsDirectory, storageKey);
@@ -2655,7 +2715,9 @@ export class StoreService implements OnModuleInit {
     // scanned the posts array as well. With Post registered that array is gone, so the mood rows
     // carry the same information on their own.
     const attached =
-      this.moods.some((item) => (item.attachmentIds ?? []).includes(assetId)) ||
+      (DIRECT_DB_MODELS.Mood
+        ? await this.moodsDb.isAttachedToAny(assetId)
+        : this.moods.some((item) => (item.attachmentIds ?? []).includes(assetId))) ||
       // Post attachments are the mood's attachments, so the mood check above covers them. The extra
       // database read would only tell us a post exists for the mood, not that it holds the asset.
       (DIRECT_DB_MODELS.Post ? false : this.data.posts.some((item: any) => item.attachmentIds?.includes(assetId))) ||
@@ -3514,17 +3576,27 @@ export class StoreService implements OnModuleInit {
       if (published.length) continue;
       const moodId = `mood_seed_${seed.key}`;
       const postId = `post_seed_${seed.key}`;
-      this.data.moods.unshift({
+      const seedMood = {
         id: moodId,
         userId: seed.userId,
         emotion: seed.emotion as Emotion,
         content: seed.content,
-        visibility: 'PUBLIC',
-        riskLevel: 'low',
+        visibility: 'PUBLIC' as const,
+        riskLevel: 'low' as const,
         riskScore: 0.08,
-        status: 'active',
+        status: 'active' as const,
         createdAt: now(),
-      });
+      };
+      if (DIRECT_DB_MODELS.Mood) {
+        await this.moodsDb.create({
+          ...seedMood,
+          attachmentIds: [],
+          journeyId: null,
+          createdAt: new Date(seedMood.createdAt),
+        });
+      } else {
+        this.data.moods.unshift(seedMood);
+      }
       const seedPost = {
         id: postId,
         moodId,
@@ -3541,10 +3613,6 @@ export class StoreService implements OnModuleInit {
         createdAt: now(),
       };
       if (DIRECT_DB_MODELS.Post) {
-        // The reply's FK needs the post row to exist first. Mood is still flush-owned, so one flush
-        // writes the mood; the post is written here, in the same order the legacy array had them.
-        this.persist();
-        await this.flush();
         await this.postsDb.create({ ...seedPost, visibility: 'PUBLIC', createdAt: new Date(seedPost.createdAt) });
       } else {
         this.data.posts.unshift(seedPost);
@@ -7198,7 +7266,27 @@ export class StoreService implements OnModuleInit {
       journeyId: journey?.id,
       createdAt: now(),
     };
-    this.moods.unshift(mood);
+    if (DIRECT_DB_MODELS.Mood) {
+      // The mood is written to the table now that the arrays are gone. `pendingMoodContent` /
+      // `pendingSourceContent` hand the same content to the AI call this request makes next, without
+      // turning `queueAI` asynchronous.
+      await this.moodsDb.create({
+        id: mood.id,
+        userId,
+        emotion,
+        content: mood.content,
+        visibility: input.visibility,
+        riskLevel: risk.level,
+        riskScore: risk.score,
+        attachmentIds,
+        journeyId: journey?.id ?? null,
+        createdAt: new Date(mood.createdAt),
+      });
+      this.pendingMoodContent = mood.content;
+      this.pendingSourceContent = { ...(this.pendingSourceContent ?? {}), [mood.id]: mood.content };
+    } else {
+      this.moods.unshift(mood);
+    }
     if (input.visibility === 'PUBLIC') {
       const post: PostItem = {
         id: id('post'),
@@ -8522,14 +8610,21 @@ export class StoreService implements OnModuleInit {
 
   private latestUserContent(userId: string) {
     const diary = this.diaries.find((item) => item.userId === userId);
-    const mood = this.moods.find((item) => item.userId === userId);
-    return diary?.content ?? mood?.content ?? '';
+    if (diary?.content) return diary.content;
+    // Mood is database-authoritative; `queueAI` is on a hot synchronous path, so the caller passes
+    // the already-loaded mood content instead of this reaching for the table.
+    return this.pendingMoodContent ?? '';
   }
+
+  /** Set by `createMood` so a follow-up AI call for the same request can use the mood's content. */
+  private pendingMoodContent?: string;
+  /** Same idea for `resolveSourceContent`: a mood loaded this request, keyed by id. */
+  private pendingSourceContent?: Record<string, string>;
 
   resolveSourceContent(sourceId?: string) {
     if (!sourceId) return '';
     return (
-      this.moods.find((item) => item.id === sourceId)?.content ??
+      (this.pendingSourceContent ?? {})[sourceId] ??
       this.diaries.find((item) => item.id === sourceId)?.content ??
       this.letters.find((item) => item.id === sourceId)?.content ??
       ''

@@ -1327,7 +1327,7 @@ export class PublicController {
   @Post('moods/:id/queue-ai-replies')
   async queueReplies(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    const mood = this.store.moods.find((item) => item.id === id);
+    const mood = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.get(id) : this.store.moods.find((item) => item.id === id);
     const postId = DIRECT_DB_MODELS.Post
       ? await this.store.postsDb.idByMoodId(id)
       : (this.store.posts.find((item) => item.moodId === id)?.id ?? null);
@@ -1493,10 +1493,15 @@ export class PublicController {
   }
 
   @Get('letters/today')
-  today(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+  async today(@Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
     const letter = this.store.letters.find((item) => item.userId === userId);
-    const sourceId = letter?.sourceMoodId ?? this.store.moods.find((item) => item.userId === userId)?.id ?? 'mood_1';
+    const sourceId =
+      letter?.sourceMoodId ??
+      (DIRECT_DB_MODELS.Mood
+        ? (await this.store.moodsDb.latestForUser(userId))?.id
+        : this.store.moods.find((item) => item.userId === userId)?.id) ??
+      'mood_1';
     const source =
       this.store.resolveSourceContent(sourceId) ||
       this.store.diaries.find((item) => item.userId === userId)?.content ||
@@ -1920,10 +1925,10 @@ export class PublicController {
    * Present those records as a read-only diary projection instead of making
    * the diary index silently empty or inserting duplicate business records.
    */
-  private diaryEntries(userId: string) {
+  private async diaryEntries(userId: string) {
     const persisted = this.store.diaries.filter((item) => item.userId === userId);
     const linkedMoodIds = new Set(persisted.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
-    const projectedMoods = this.store.moods
+    const projectedMoods = (DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods)
       .filter(
         (item) =>
           item.userId === userId &&
@@ -1945,14 +1950,14 @@ export class PublicController {
           content: mood.content,
           hasLetter,
           source: 'private-mood-projection',
-          attachmentIds: mood.attachmentIds ?? [],
-          createdAt: mood.createdAt,
+          attachmentIds: 'attachmentIds' in mood ? (mood.attachmentIds ?? []) : [],
+          createdAt: typeof mood.createdAt === 'string' ? mood.createdAt : mood.createdAt.toISOString(),
         };
       });
     return [...persisted, ...projectedMoods].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  private decorateDiaryEntry(item: { emotion: Emotion; moodId?: string; attachmentIds?: string[] }) {
+  private decorateDiaryEntry(item: { emotion: string; moodId?: string; attachmentIds?: string[] }) {
     return {
       ...item,
       attachments: this.store.mediaByIds(
@@ -1963,7 +1968,7 @@ export class PublicController {
   }
 
   @Get('diaries')
-  diaries(
+  async diaries(
     @Query('month') month?: string,
     @Query('emotion') emotion?: string,
     @Query('hasLetter') hasLetter?: string,
@@ -1971,7 +1976,8 @@ export class PublicController {
   ) {
     const userId = requireRuntimeUserId(requestedUserId);
     const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
-    const items = this.diaryEntries(userId)
+    const entries = await this.diaryEntries(userId);
+    const items = entries
       .filter((item) => !month || item.createdAt.startsWith(month))
       .filter((item) => !emotion || emotion === '全部' || emotion === '全部' || item.emotion === normalizedEmotion)
       .filter((item) => !hasLetter || String(item.hasLetter) === hasLetter)
@@ -1980,14 +1986,11 @@ export class PublicController {
   }
 
   @Get('diaries/months')
-  diaryMonths(requestedUserId?: string) {
+  async diaryMonths(requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
+    const entries = await this.diaryEntries(userId);
     const items = [
-      ...new Set(
-        this.diaryEntries(userId)
-          .map((item) => item.createdAt.slice(0, 7))
-          .filter(Boolean),
-      ),
+      ...new Set(entries.map((item) => item.createdAt.slice(0, 7)).filter(Boolean)),
     ].sort((left, right) => right.localeCompare(left));
     return { items };
   }
@@ -2027,8 +2030,9 @@ export class PublicController {
   }
 
   @Get('diaries/:id')
-  diary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    const item = this.diaryEntries(requireRuntimeUserId(requestedUserId)).find((diary) => diary.id === id);
+  async diary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const entries = await this.diaryEntries(requireRuntimeUserId(requestedUserId));
+    const item = entries.find((diary) => diary.id === id);
     if (!item) return { item: null };
     return { item: this.decorateDiaryEntry(item) };
   }

@@ -143,7 +143,7 @@ export class MonthlyReportService {
     @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService = new SelfPersistenceService(prisma as any),
   ) {}
 
-  private recordsFor(userId: string, month: string): MonthlyRecord[] {
+  private async recordsFor(userId: string, month: string): Promise<MonthlyRecord[]> {
     const diaries = this.store.diaries
       .filter((item) => item.userId === userId && item.createdAt.startsWith(month))
       .map((item) => ({
@@ -153,15 +153,21 @@ export class MonthlyReportService {
         moodId: item.moodId,
       }));
     const diaryMoodIds = new Set(diaries.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
-    const unlinkedMoods = this.store.moods
+    const moodRows = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
+    const unlinkedMoods = moodRows
       .filter(
         (item) =>
           item.userId === userId &&
           item.status === 'active' &&
-          item.createdAt.startsWith(month) &&
+          new Date(item.createdAt).toISOString().startsWith(month) &&
           !diaryMoodIds.has(item.id),
       )
-      .map((item) => ({ emotion: item.emotion, content: item.content, createdAt: item.createdAt, moodId: item.id }));
+      .map((item) => ({
+        emotion: item.emotion,
+        content: item.content,
+        createdAt: new Date(item.createdAt).toISOString(),
+        moodId: item.id,
+      }));
     return [...diaries, ...unlinkedMoods];
   }
 
@@ -299,7 +305,7 @@ export class MonthlyReportService {
   }
 
   private async statisticsFor(userId: string, month: string): Promise<MonthlyStatistics> {
-    const records = this.recordsFor(userId, month);
+    const records = await this.recordsFor(userId, month);
     const distribution = records.reduce<Record<string, number>>((accumulator, item) => {
       const label = labelForEmotion(item.emotion);
       accumulator[label] = (accumulator[label] ?? 0) + 1;
@@ -369,7 +375,8 @@ export class MonthlyReportService {
       for (const value of values) if (value && /^\d{4}-\d{2}/.test(value)) months.add(value.slice(0, 7));
     };
     for (const item of this.store.diaries) if (item.userId === userId) addMonths(item.createdAt);
-    for (const item of this.store.moods) if (item.userId === userId) addMonths(item.createdAt);
+    const moodRowsForMonths = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
+    for (const item of moodRowsForMonths) addMonths(new Date(item.createdAt).toISOString());
     const journeyMonths = await this.batch1Persistence.getAvailableMonthsForJourneys(userId);
     for (const m of journeyMonths) months.add(m);
     const actionMonths = await this.batch1Persistence.getAvailableMonthsForActions(userId);

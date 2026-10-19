@@ -67,6 +67,9 @@ export const DIRECT_DB_MODELS = {
   // WORKER-RELOAD-FLUSH-LOCK contention came from.
   AIProvider: 'aiProviders',
   AIStyleRoute: 'aiStyleRoutes',
+  // Batch 4 model 13 of 16. Mood has no incoming FK - Post, Diary and Letter point at it - so the
+  // archive path detaches instead of deleting, which is what makes this the safe one to move first.
+  Mood: 'moods',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;
