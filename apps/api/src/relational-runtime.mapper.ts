@@ -86,9 +86,9 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.FaqItem ? Promise.resolve([]) : db.faqItem.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.ReplyPreset ? Promise.resolve([]) : db.replyPreset.findMany({ orderBy: { sortOrder: 'asc' } }),
     DIRECT_DB_MODELS.FeedbackTicket ? Promise.resolve([]) : db.feedbackTicket.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.AIProvider ? Promise.resolve([]) : db.aIProvider.findMany({ orderBy: { priority: 'asc' } }),
+    DIRECT_DB_MODELS.AIStyleRoute ? Promise.resolve([]) : db.aIStyleRoute.findMany({ orderBy: { style: 'asc' } }),
     db.systemSetting.findMany({ orderBy: { key: 'asc' } }),
-    db.aIProvider.findMany({ orderBy: { priority: 'asc' } }),
-    db.aIStyleRoute.findMany({ orderBy: { style: 'asc' } }),
     DIRECT_DB_MODELS.AIJob ? Promise.resolve([]) : db.aIJob.findMany({ orderBy: { createdAt: 'desc' } }),
     db.mediaAsset.findMany({ orderBy: { createdAt: 'desc' } }),
     db.auditLog.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -989,6 +989,12 @@ export async function saveRelationalRuntimeState(
 
   await db.$transaction(
     async (tx: DbClient) => {
+      // Marks this session as "the flush", so a statement-level probe created by a test can tell a
+      // flush write from a direct write to the same table. Once a model is registered its rows are
+      // written outside the flush, and a probe that cannot tell the two apart would report the
+      // product's own legal write as a legacy-flush write. The setting is transaction-local and has
+      // no effect when no probe exists.
+      await tx.$executeRawUnsafe("SELECT set_config('batch4.in_flush', 'on', true)");
       let jobIds: Set<string>;
       if (DIRECT_DB_MODELS.AIJob) {
         const candidateJobIds = [
@@ -1611,7 +1617,7 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
-      for (const item of providerMap.values())
+      for (const item of DIRECT_DB_MODELS.AIProvider ? [] : providerMap.values())
         await tx.aIProvider.upsert({
           where: { id: item.id },
           create: {
@@ -1652,7 +1658,7 @@ export async function saveRelationalRuntimeState(
             modelMeta: json(item.modelMeta),
           },
         });
-      for (const item of routes)
+      for (const item of DIRECT_DB_MODELS.AIStyleRoute ? [] : routes)
         await tx.aIStyleRoute.upsert({
           where: { style: item.style },
           create: {
@@ -2685,24 +2691,28 @@ export async function saveRelationalRuntimeState(
         await deleteAbsent('aIJob', tx.aIJob,
           jobs.map((item: any) => item.id),
         );
+      if (!DIRECT_DB_MODELS.AIStyleRoute)
       await deleteAbsent('aIStyleRoute', tx.aIStyleRoute,
         routes.map((item: any) => item.id ?? `route_${item.style}`),
       );
-      if (DIRECT_DB_MODELS.AIJob) {
-        // P1-4 Semantic change (Batch 1 Sub-batch C):
-        // An admin removing an AIProvider that any historical or active AIJob in the database
-        // still references will no longer take effect through the snapshot path.
-        // The foreign key AIJob_providerId_fkey ON DELETE RESTRICT forbids deleting a referenced provider;
-        // attempting to sweep it would abort the transaction with a foreign key violation.
-        // We explicitly preserve any AIProvider currently referenced by a database AIJob.
-        const dbUsedProviders = await tx.aIJob.findMany({
+      // AIProvider is database-authoritative once registered, so the flush no longer decides which
+      // provider rows exist. The keep-set logic below is kept for the legacy branch only.
+      if (!DIRECT_DB_MODELS.AIProvider) {
+        if (DIRECT_DB_MODELS.AIJob) {
+          // P1-4 Semantic change (Batch 1 Sub-batch C):
+          // An admin removing an AIProvider that any historical or active AIJob in the database still
+          // references will no longer take effect through the snapshot path. The foreign key
+          // AIJob_providerId_fkey ON DELETE RESTRICT forbids deleting a referenced provider, so
+          // sweeping it would abort the transaction; those providers are explicitly preserved.
+          const dbUsedProviders = await tx.aIJob.findMany({
           select: { providerId: true },
           distinct: ['providerId'],
         });
-        const keepProviderIds = new Set([...providerMap.keys(), ...dbUsedProviders.map((j: any) => j.providerId)]);
-        await deleteAbsent('aIProvider', tx.aIProvider, [...keepProviderIds]);
-      } else {
-        await deleteAbsent('aIProvider', tx.aIProvider, [...providerMap.keys()]);
+          const keepProviderIds = new Set([...providerMap.keys(), ...dbUsedProviders.map((j: any) => j.providerId)]);
+          await deleteAbsent('aIProvider', tx.aIProvider, [...keepProviderIds]);
+        } else {
+          await deleteAbsent('aIProvider', tx.aIProvider, [...providerMap.keys()]);
+        }
       }
       if (!DIRECT_DB_MODELS.FeedbackTicket)
       await deleteAbsent('feedbackTicket', tx.feedbackTicket,

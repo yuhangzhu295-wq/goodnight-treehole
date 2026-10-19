@@ -12,6 +12,7 @@ import { FeedbackPersistenceService } from './feedback-persistence.service.js';
 import { FavoritePersistenceService } from './favorite-persistence.service.js';
 import { ReplyPersistenceService } from './reply-persistence.service.js';
 import { PostPersistenceService } from './post-persistence.service.js';
+import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
 import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
 import { AnonymousSessionService } from './anonymous-session.service.js';
 import { IdentityMiddleware } from './identity.middleware.js';
@@ -28,6 +29,7 @@ import { IdentityMiddleware } from './identity.middleware.js';
     FavoritePersistenceService,
     ReplyPersistenceService,
     PostPersistenceService,
+    AiRoutingPersistenceService,
     AdminNotesPersistenceService,
     StoreService,
     MonthlyReportService,

@@ -23,6 +23,45 @@ const stubPersistence = {
   $queryRaw: async () => [],
   // An audit row is also written to the table so an operator action is readable without a restart.
   auditLog: { create: async () => undefined },
+  // The AI routing tables are database-authoritative since Batch 4; these tests assert the
+  // primary/backup/template order, so the stub answers with one route per style and its providers.
+  // upsert/no-op updates keep the in-memory policy's shape for the unit tests; the gate covers the
+  // real table behaviour.
+  // AIStyleRoute is database-authoritative, so the route this test resolves comes from the table. The
+  // stub supplies the warm row the legacy seed used, with the three provider FKs the policy points at
+  // the DAPI primary/secondary and the safe template.
+  aIStyleRoute: {
+    findMany: async () => [
+      {
+        id: 'route_warm',
+        style: 'warm',
+        primaryProviderId: 'provider_primary',
+        backupProviderId: 'provider_secondary',
+        fallbackTemplateId: 'provider_safe_template',
+        promptVersion: 'v1',
+        promptTemplate: 'template',
+        label: 'warm',
+        taskTypes: ['post_reply', 'today_letter'],
+        routeVersion: 1,
+        enabled: true,
+      },
+    ],
+    findUnique: async () => null,
+    update: async () => null,
+  },
+  aIProvider: {
+    findMany: async () => [],
+    // The remote stub generates 'remote-unit-model', so the two managed providers must resolve to it;
+    // the safe template keeps its own name.
+    findUnique: async ({ where }: any) =>
+      where?.id === 'provider_safe_template'
+        ? { id: 'provider_safe_template', modelName: 'safe-template', enabled: true, type: 'template', providerKind: 'template' }
+        : where?.id
+          ? { id: where.id, modelName: 'remote-unit-model', enabled: true, type: 'cloud', providerKind: 'openai-compatible' }
+          : null,
+    upsert: async () => ({}),
+    update: async () => ({}),
+  },
 };
 
 
@@ -41,13 +80,18 @@ describe('domain services', () => {
       const definitions = new RemoteAiProviderService();
       const remote = { primaryDefinition: () => definitions.primaryDefinition(), secondaryDefinition: () => definitions.secondaryDefinition(), canFailOver: () => true, generate: async () => ({ model: 'remote-unit-model', result: '这是远程模型生成的测试回应。', durationMs: 12 }) } as any;
       const store = new StoreService(stubPersistence as any, remote);
-      store.enforceRemoteAiProviderPolicy();
+      await store.enforceRemoteAiProviderPolicy();
       const ok = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi' });
       expect(ok.modelName).toBe('remote-unit-model');
       expect(ok.status).toBe('succeeded');
       const fallback = await store.runAiJob({ userId: 'user_demo', contentId: 'x', contentType: 'Mood', jobType: '今日回信', style: 'warm', promptSummary: 'hi', simulatePrimaryFail: true, simulateBackupFail: true });
       expect(fallback.status).toBe('fallback');
-      expect(fallback.providerId).toBe(store.aiRoutes.find((route) => route.style === 'warm')?.fallbackTemplateId);
+      // The template the route points at is the built-in last resort. The in-memory route array is
+      // gone (AIStyleRoute is database-authoritative), so the assertion reads the definition the
+      // policy applies instead - which is what "the route's fallback" means now.
+      const route = await (store as any).resolveAiRouteRecord('warm', 'post_reply');
+      expect(route.fallbackTemplateId).toBe((store as any).safeTemplateDefinition().id);
+      expect(fallback.providerId).toBe(route.fallbackTemplateId);
     } finally {
       if (savedPrimary === undefined) delete process.env.DAPI_API_KEY;
       else process.env.DAPI_API_KEY = savedPrimary;

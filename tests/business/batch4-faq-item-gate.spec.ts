@@ -31,6 +31,8 @@ const TARGET_TABLES = [
   'Favorite',
   'Reply',
   'Post',
+  'AIProvider',
+  'AIStyleRoute',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -45,6 +47,21 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     )) as Array<{ table: string; op: string; n: number }>;
   const clearProbe = () => prisma.$executeRawUnsafe('TRUNCATE "batch4_flush_probe"');
 
+  /**
+   * Runs a statement the way the flush does, i.e. with the session mark the probe honours.
+   *
+   * The self-tests need this because the probe records only a marked session — that is what lets it
+   * tell a flush write from a direct write to the same table. An unmarked statement must produce
+   * nothing, which is the other half of the discrimination.
+   */
+  const marked = (sql: string) =>
+    prisma.$transaction([
+      // One transaction, because set_config(..., true) is transaction-scoped: a separate statement
+      // would already have dropped the mark by the time the probe fires.
+      prisma.$executeRawUnsafe("SELECT set_config('batch4.in_flush', 'on', true)"),
+      prisma.$executeRawUnsafe(sql),
+    ]);
+
   beforeAll(async () => {
     app = await createApiTestApp();
     server = app.getHttpServer();
@@ -55,7 +72,18 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       'CREATE TABLE IF NOT EXISTS "batch4_flush_probe" (id serial PRIMARY KEY, "table_name" text NOT NULL, "op" text NOT NULL, "at" timestamptz NOT NULL DEFAULT now())',
     );
     await prisma.$executeRawUnsafe(
-      'CREATE OR REPLACE FUNCTION batch4_flush_probe_fn() RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN INSERT INTO "batch4_flush_probe"("table_name","op") VALUES (TG_TABLE_NAME, TG_OP); RETURN NULL; END $fn$',
+      // The probe records only what the flush writes. A statement-level trigger cannot tell a flush
+      // from a legitimate direct write to the same table - the AI routing tables, for one, are written
+      // outside the flush once their models are registered - so the flush marks its own session and
+      // the probe honours that mark. Without the mark, converting a model makes this gate fail on the
+      // product doing exactly what the conversion asked for.
+      [
+        'CREATE OR REPLACE FUNCTION batch4_flush_probe_fn() RETURNS trigger LANGUAGE plpgsql AS $probe$',
+        "BEGIN IF current_setting('batch4.in_flush', true) = 'on' THEN",
+        '  INSERT INTO "batch4_flush_probe"("table_name","op") VALUES (TG_TABLE_NAME, TG_OP);',
+        'END IF; RETURN NULL; END;',
+        '$probe$',
+      ].join(' '),
     );
     for (const table of TARGET_TABLES) {
       await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS batch4_flush_probe ON "${table}"`);
@@ -81,17 +109,21 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
   it('the probe sees a statement that changes no rows (self-test)', async () => {
     // A blind detector would report an empty probe as success, which is the failure mode this rules out.
     await clearProbe();
-    await prisma.$executeRawUnsafe('UPDATE "FaqItem" SET "sortOrder" = "sortOrder" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "ReplyPreset" SET "sortOrder" = "sortOrder" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "FeedbackCategory" SET "sortOrder" = "sortOrder" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "FeedbackTicket" SET "content" = "content" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "AdminUserNote" SET "content" = "content" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "PeerReputation" SET "helpfulCount" = "helpfulCount" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "AgentDecisionLog" SET "taskType" = "taskType" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "Favorite" SET "targetType" = "targetType" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "Reply" SET "style" = "style" WHERE false');
-    await prisma.$executeRawUnsafe('UPDATE "Post" SET "reviewStatus" = "reviewStatus" WHERE false');
+    await marked('UPDATE "FaqItem" SET "sortOrder" = "sortOrder" WHERE false');
+    await marked('UPDATE "ReplyPreset" SET "sortOrder" = "sortOrder" WHERE false');
+    await marked('UPDATE "FeedbackCategory" SET "sortOrder" = "sortOrder" WHERE false');
+    await marked('UPDATE "FeedbackTicket" SET "content" = "content" WHERE false');
+    await marked('UPDATE "AdminUserNote" SET "content" = "content" WHERE false');
+    await marked('UPDATE "PeerReputation" SET "helpfulCount" = "helpfulCount" WHERE false');
+    await marked('UPDATE "AgentDecisionLog" SET "taskType" = "taskType" WHERE false');
+    await marked('UPDATE "Favorite" SET "targetType" = "targetType" WHERE false');
+    await marked('UPDATE "Reply" SET "style" = "style" WHERE false');
+    await marked('UPDATE "Post" SET "reviewStatus" = "reviewStatus" WHERE false');
+    await marked('UPDATE "AIStyleRoute" SET "promptVersion" = "promptVersion" WHERE false');
+    await marked('UPDATE "AIProvider" SET "priority" = "priority" WHERE false');
     expect(await probeRows()).toEqual([
+      { table: 'AIProvider', op: 'UPDATE', n: 1 },
+      { table: 'AIStyleRoute', op: 'UPDATE', n: 1 },
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'AgentDecisionLog', op: 'UPDATE', n: 1 },
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
@@ -107,17 +139,21 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
 
   it('the probe sees a zero-row DELETE, the exact shape of the old sweep', async () => {
     await clearProbe();
-    await prisma.$executeRawUnsafe('DELETE FROM "FaqItem" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "ReplyPreset" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "FeedbackCategory" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "FeedbackTicket" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "AdminUserNote" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "PeerReputation" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "AgentDecisionLog" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "Favorite" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "Reply" WHERE false');
-    await prisma.$executeRawUnsafe('DELETE FROM "Post" WHERE false');
+    await marked('DELETE FROM "FaqItem" WHERE false');
+    await marked('DELETE FROM "ReplyPreset" WHERE false');
+    await marked('DELETE FROM "FeedbackCategory" WHERE false');
+    await marked('DELETE FROM "FeedbackTicket" WHERE false');
+    await marked('DELETE FROM "AdminUserNote" WHERE false');
+    await marked('DELETE FROM "PeerReputation" WHERE false');
+    await marked('DELETE FROM "AgentDecisionLog" WHERE false');
+    await marked('DELETE FROM "Favorite" WHERE false');
+    await marked('DELETE FROM "Reply" WHERE false');
+    await marked('DELETE FROM "Post" WHERE false');
+    await marked('DELETE FROM "AIStyleRoute" WHERE false');
+    await marked('DELETE FROM "AIProvider" WHERE false');
     expect(await probeRows()).toEqual([
+      { table: 'AIProvider', op: 'DELETE', n: 1 },
+      { table: 'AIStyleRoute', op: 'DELETE', n: 1 },
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'AgentDecisionLog', op: 'DELETE', n: 1 },
       { table: 'FaqItem', op: 'DELETE', n: 1 },

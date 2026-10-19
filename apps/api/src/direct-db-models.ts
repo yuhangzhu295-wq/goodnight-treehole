@@ -61,6 +61,12 @@ export const DIRECT_DB_MODELS = {
   // hydrates, upserts or sweeps Post; post-persistence.service.ts owns the row, the two
   // denormalised counters and the reads, and the reply/favourite paths write those counters.
   Post: 'posts',
+  // Batch 4 models 11 and 12 of 16, registered as a pair (BATCH4_LEGACY_FLUSH_RETIREMENT.md §5d):
+  // AIStyleRoute carries three FKs into AIProvider, so only both of them can retire together.
+  // They are also what the DAPI policy rewrites on every reloadRuntimeState(), which is where the
+  // WORKER-RELOAD-FLUSH-LOCK contention came from.
+  AIProvider: 'aiProviders',
+  AIStyleRoute: 'aiStyleRoutes',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

@@ -36,6 +36,7 @@ import { SelfPersistenceService, type PrivacySettingRecord } from './self-persis
 import { FavoritePersistenceService } from './favorite-persistence.service.js';
 import { ReplyPersistenceService } from './reply-persistence.service.js';
 import { PostPersistenceService } from './post-persistence.service.js';
+import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1291,6 +1292,8 @@ export class StoreService implements OnModuleInit {
     public readonly repliesDb: ReplyPersistenceService = new ReplyPersistenceService(prisma as any),
     @Inject(PostPersistenceService)
     public readonly postsDb: PostPersistenceService = new PostPersistenceService(prisma as any),
+    @Inject(AiRoutingPersistenceService)
+    public readonly aiRoutingDb: AiRoutingPersistenceService = new AiRoutingPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1625,6 +1628,32 @@ export class StoreService implements OnModuleInit {
         configurable: true,
       });
     }
+    if (DIRECT_DB_MODELS.AIProvider) {
+      delete data.aiProviders;
+      Object.defineProperty(data, 'aiProviders', {
+        get() {
+          throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.AIStyleRoute) {
+      delete data.aiStyleRoutes;
+      Object.defineProperty(data, 'aiStyleRoutes', {
+        get() {
+          throw new Error('StoreData.aiStyleRoutes is disabled: AIStyleRoute is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.aiStyleRoutes is disabled: AIStyleRoute is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
     if (DIRECT_DB_MODELS.Reply) {
       delete data.replies;
       Object.defineProperty(data, 'replies', {
@@ -1680,7 +1709,7 @@ export class StoreService implements OnModuleInit {
     this.ensureGoodnightTwoCoverage();
     this.ensurePhaseTwoCoverage();
     await this.ensureSeedCoverage();
-    if (!visualFixtureMode) this.enforceRemoteAiProviderPolicy();
+    if (!visualFixtureMode) await this.enforceRemoteAiProviderPolicy();
     await this.flush();
   }
 
@@ -1707,7 +1736,7 @@ export class StoreService implements OnModuleInit {
       // Reloaded relational data may contain a historical route definition.
       // Reapply the runtime-only DAPI policy before any queued job can use it.
       if (!visualFixtureMode) {
-        this.enforceRemoteAiProviderPolicy();
+        await this.enforceRemoteAiProviderPolicy();
         await this.flush();
       }
     }
@@ -2856,8 +2885,36 @@ export class StoreService implements OnModuleInit {
     }
   }
 
-  enforceRemoteAiProviderPolicy() {
+  async enforceRemoteAiProviderPolicy() {
     if (visualFixtureMode) return;
+    const primary = this.remoteAi.primaryDefinition();
+    const secondary = this.remoteAi.secondaryDefinition();
+    const fallback = this.safeTemplateDefinition();
+
+    if (DIRECT_DB_MODELS.AIProvider) {
+      // Both models are database-authoritative. The runtime counters are read from the table so a
+      // reload does not reset them, and the definitions are re-applied with an upsert.
+      for (const [definition, keepCounters] of [
+        [primary, true],
+        [secondary, true],
+        [fallback, false],
+      ] as const) {
+        const current = await this.aiRoutingDb.getProvider(definition.id);
+        await this.aiRoutingDb.saveProvider({
+          ...definition,
+          todayCalls: keepCounters ? (current?.todayCalls ?? definition.todayCalls) : definition.todayCalls,
+          avgLatencyMs: keepCounters ? (current?.avgLatencyMs ?? definition.avgLatencyMs) : definition.avgLatencyMs,
+          failureRate: keepCounters ? (current?.failureRate ?? definition.failureRate) : definition.failureRate,
+        } as never);
+      }
+      await this.aiRoutingDb.applyPolicyToProviders([primary.id, secondary.id, fallback.id], {
+        disableUnmanaged: true,
+        markLocalMissing: true,
+      });
+      await this.aiRoutingDb.applyPolicyToRoutes(primary.id, secondary.id, fallback.id);
+      return;
+    }
+
     const upsert = (definition: AIProvider) => {
       const current = this.aiProviders.find((item) => item.id === definition.id);
       const next: AIProvider = {
@@ -2871,8 +2928,8 @@ export class StoreService implements OnModuleInit {
       return current ?? next;
     };
 
-    const primary = upsert(this.remoteAi.primaryDefinition());
-    const secondary = upsert(this.remoteAi.secondaryDefinition());
+    upsert(primary);
+    upsert(secondary);
     for (const provider of this.aiProviders) {
       const managedRemote = provider.id === primary.id || provider.id === secondary.id;
       const template = provider.providerKind === 'template' || provider.type === 'template';
@@ -2883,18 +2940,39 @@ export class StoreService implements OnModuleInit {
       }
       if (provider.type === 'local' || provider.providerKind === 'ollama') provider.apiKeyStatus = 'missing';
     }
-    const fallback = this.ensureSafeBackupTemplateProvider();
+    const fallbackProvider = this.ensureSafeBackupTemplateProvider();
     for (const route of this.aiRoutes) {
       const changed =
         route.primaryProviderId !== primary.id || route.backupProviderId !== secondary.id || !route.fallbackTemplateId;
       route.primaryProviderId = primary.id;
       route.backupProviderId = secondary.id;
-      route.fallbackTemplateId = fallback.id;
+      route.fallbackTemplateId = fallbackProvider.id;
       route.promptVersion = `dapi-${route.style}-v1`;
-      route.timeoutSeconds = Math.max(30, Number(route.timeoutSeconds ?? 30));
       if (changed) route.routeVersion = Math.max(1, Number(route.routeVersion ?? 0)) + 1;
     }
     this.persist();
+  }
+
+  /** The built-in last-resort provider, as data. Shared by both branches of the policy. */
+  private safeTemplateDefinition(): AIProvider {
+    return {
+      id: 'provider_safe_template',
+      name: '安全文案备用',
+      type: 'template',
+      providerKind: 'template',
+      baseUrl: 'local://safe-response-template',
+      modelName: 'safe-response-template',
+      apiKeyStatus: 'configured',
+      enabled: true,
+      priority: 98,
+      dailyLimit: 99_999,
+      timeoutSeconds: 1,
+      failoverEnabled: false,
+      usageTags: ['backup', 'template', 'safe'],
+      failureRate: 0,
+      avgLatencyMs: 1,
+      todayCalls: 0,
+    };
   }
 
   async syncOllamaModels(assignRoutes = true) {
@@ -2902,7 +2980,7 @@ export class StoreService implements OnModuleInit {
     this.ollamaLastCheckedAt = now();
     this.ollamaOnline = false;
     this.ollamaLastError = '本地模型已被 DAPI-only 运行策略禁用。';
-    this.enforceRemoteAiProviderPolicy();
+    await this.enforceRemoteAiProviderPolicy();
     await this.flush();
     return {
       online: false,
@@ -2981,6 +3059,61 @@ export class StoreService implements OnModuleInit {
       void this.batch1Persistence.recordJobProgress({ id: job.id, traceEntry: event }).catch(() => {});
     }
     return event;
+  }
+
+  /**
+   * The AI route for a task, read from wherever the routing tables live.
+   *
+   * Both models are registered together, so a single guard covers the pair.
+   */
+  private async resolveAiRouteRecord(style: string, taskType: string) {
+    if (DIRECT_DB_MODELS.AIStyleRoute) {
+      const rows = await this.aiRoutingDb.listRoutes();
+      const byStyle = rows.find((item) => item.style === style && item.enabled);
+      const byTask = rows.find(
+        (item) => item.enabled && Array.isArray(item.taskTypes) && (item.taskTypes as unknown[]).includes(taskType),
+      );
+      return byStyle ?? byTask ?? rows[0] ?? null;
+    }
+    return (
+      this.aiRoutes.find((item) => item.style === style && item.enabled) ??
+      this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType)) ??
+      this.aiRoutes[0] ??
+      null
+    );
+  }
+
+  private async findAiProviderRecord(id: string) {
+    if (DIRECT_DB_MODELS.AIProvider) return await this.aiRoutingDb.getProvider(id);
+    return this.aiProviders.find((item) => item.id === id) ?? null;
+  }
+
+  private async listAiProviderRecords() {
+    if (DIRECT_DB_MODELS.AIProvider) return await this.aiRoutingDb.listProviders();
+    return this.aiProviders as unknown as Awaited<ReturnType<AiRoutingPersistenceService['listProviders']>>;
+  }
+
+  /** Records the DAPI provider row when a peer draft needs it and the table does not have it yet. */
+  private async ensureAiProviderRecord(provider: AIProvider) {
+    if (DIRECT_DB_MODELS.AIProvider) {
+      await this.aiRoutingDb.saveProvider({
+        id: provider.id,
+        name: provider.name,
+        type: provider.type,
+        baseUrl: provider.baseUrl,
+        modelName: provider.modelName,
+        enabled: provider.enabled,
+        priority: provider.priority,
+        dailyLimit: provider.dailyLimit,
+        timeoutSeconds: provider.timeoutSeconds,
+        failoverEnabled: provider.failoverEnabled,
+        usageTags: provider.usageTags,
+        providerKind: provider.providerKind,
+        apiKeyStatus: provider.apiKeyStatus,
+      } as never);
+      return;
+    }
+    this.aiProviders.unshift(provider);
   }
 
   async testAiProvider(providerId: string) {
@@ -7504,22 +7637,22 @@ export class StoreService implements OnModuleInit {
     jobId?: string;
   }) {
     const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
-    const route =
-      this.aiRoutes.find((item) => item.style === input.style && item.enabled) ??
-      this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType)) ??
-      this.aiRoutes[0];
+    const route = await this.resolveAiRouteRecord(input.style, taskType);
     if (!route) throw new NotFoundException('没有可用的 AI 路由规则');
     const isPeerResponseAssist = taskType === 'peer_response_assist';
     // Peer drafts are a safety boundary: historical route state must never make
     // them use a template, local provider, or an unrelated remote fallback.
-    const peerDraftProvider = isPeerResponseAssist
-      ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
-      : undefined;
-    if (peerDraftProvider && !this.aiProviders.some((item) => item.id === peerDraftProvider.id)) {
-      this.aiProviders.unshift(peerDraftProvider);
+    let peerDraftProvider: AIProvider | undefined;
+    if (isPeerResponseAssist) {
+      peerDraftProvider =
+        ((await this.findAiProviderRecord(DAPI_PROVIDER_ID)) as AIProvider | null) ??
+        this.remoteAi.primaryDefinition();
+      if (!(await this.findAiProviderRecord(peerDraftProvider.id))) {
+        await this.ensureAiProviderRecord(peerDraftProvider);
+      }
     }
-    const primary = peerDraftProvider ?? this.aiProviders.find((item) => item.id === route.primaryProviderId);
-    const backup = this.aiProviders.find((item) => item.id === route.backupProviderId);
+    const primary = peerDraftProvider ?? ((await this.findAiProviderRecord(route.primaryProviderId)) as AIProvider | undefined);
+    const backup = (await this.findAiProviderRecord(route.backupProviderId)) as AIProvider | undefined;
 
     let job: AIJob;
     if (DIRECT_DB_MODELS.AIJob) {
@@ -7722,7 +7855,7 @@ export class StoreService implements OnModuleInit {
     const prompt = this.buildAiPrompt({
       taskType,
       style: input.style,
-      route,
+      route: route as AIStyleRoute,
       content: `${input.promptSummary}${memoryPrompt}`,
       mood: input.mood ?? this.inferMood(input.promptSummary),
     });
@@ -7741,7 +7874,7 @@ export class StoreService implements OnModuleInit {
       'recovery_summary',
       'peer_response_assist',
     ].includes(taskType);
-    const candidates: Array<{ provider?: AIProvider; role: 'primary' | 'backup' | 'retry'; forcedFailure: boolean }> =
+    const candidates: Array<{ provider: AIProvider | undefined; role: 'primary' | 'backup' | 'retry'; forcedFailure: boolean }> =
       isPeerResponseAssist
         ? [
             { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
@@ -7986,8 +8119,8 @@ export class StoreService implements OnModuleInit {
       routeLabel: route.label,
     });
     const fallbackProviderId = route.fallbackTemplateId || this.templateProvider().id;
-    const fallbackModelName =
-      this.aiProviders.find((provider) => provider.id === fallbackProviderId)?.modelName ?? 'safe-template';
+    const fallbackProvider = await this.findAiProviderRecord(fallbackProviderId);
+    const fallbackModelName = (fallbackProvider as AIProvider | null)?.modelName ?? 'safe-template';
     const fallbackResult = this.safetyFilter(template.result);
     const fallbackStructured = needsStructuredResult ? template.structured : undefined;
     const fallbackErrorMessage = errors.join(' | ') || 'AI_PROVIDER_FAILED';

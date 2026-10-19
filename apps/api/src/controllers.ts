@@ -3355,9 +3355,12 @@ export class AdminController {
   }
 
   @Get('ai/providers')
-  providers(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async providers(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    const rows = DIRECT_DB_MODELS.AIProvider
+      ? await this.store.aiRoutingDb.listProviders()
+      : this.store.aiProviders;
     return this.list(
-      this.store.aiProviders.map((p) => ({
+      rows.map((p) => ({
         ...p,
         apiKeySecretRef: undefined,
         apiKeyMasked: p.apiKeyStatus === 'missing' ? '未配置' : '••••••••',
@@ -3388,8 +3391,9 @@ export class AdminController {
       avgLatencyMs: 0,
       todayCalls: 0,
     };
-    this.store.aiProviders.unshift(provider);
-    this.store.audit(admin.id, 'AI_PROVIDER_CREATE', 'AIProvider', provider.id, null, provider);
+    if (DIRECT_DB_MODELS.AIProvider) await this.store.aiRoutingDb.saveProvider(provider as never);
+    else this.store.aiProviders.unshift(provider);
+    await this.store.audit(admin.id, 'AI_PROVIDER_CREATE', 'AIProvider', provider.id, null, provider);
     this.store.persist();
     await this.store.flush();
     return { item: provider };
@@ -3401,15 +3405,19 @@ export class AdminController {
     @Body() body: Partial<AIProvider>,
   ) {
     const admin = this.admin(auth);
-    const provider = this.store.aiProviders.find((p) => p.id === id);
-    if (!provider) throw new NotFoundException('AI Provider 不存在');
-    assertProviderMutation(provider, body);
-    const before = { ...provider };
-    Object.assign(provider, body);
-    this.store.audit(admin.id, 'AI_PROVIDER_UPDATE', 'AIProvider', id, before, provider);
+    const existing = DIRECT_DB_MODELS.AIProvider
+      ? await this.store.aiRoutingDb.getProvider(id)
+      : this.store.aiProviders.find((p) => p.id === id);
+    if (!existing) throw new NotFoundException('AI Provider 不存在');
+    assertProviderMutation(existing as never, body);
+    const before = { ...existing };
+    const merged = { ...existing, ...body };
+    if (DIRECT_DB_MODELS.AIProvider) await this.store.aiRoutingDb.saveProvider(merged as never);
+    else Object.assign(this.store.aiProviders.find((p) => p.id === id)!, merged);
+    await this.store.audit(admin.id, 'AI_PROVIDER_UPDATE', 'AIProvider', id, before, merged);
     this.store.persist();
     await this.store.flush();
-    return { item: provider };
+    return { item: merged };
   }
 
   @Patch('ai/providers/:id')
@@ -3448,18 +3456,25 @@ export class AdminController {
   @Delete('ai/providers/:id')
   async deleteProvider(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const provider = this.store.aiProviders.find((p) => p.id === id);
-    const before = provider ? { ...provider } : null;
-    if (provider) provider.enabled = false;
-    if (provider) this.store.audit(admin.id, 'AI_PROVIDER_DISABLE', 'AIProvider', id, before, provider);
+    const existing = DIRECT_DB_MODELS.AIProvider
+      ? await this.store.aiRoutingDb.getProvider(id)
+      : this.store.aiProviders.find((p) => p.id === id);
+    const before = existing ? { ...existing } : null;
+    if (existing) {
+      const next = { ...existing, enabled: false };
+      if (DIRECT_DB_MODELS.AIProvider) await this.store.aiRoutingDb.saveProvider(next as never);
+      else this.store.aiProviders.find((p) => p.id === id)!.enabled = false;
+      await this.store.audit(admin.id, 'AI_PROVIDER_DISABLE', 'AIProvider', id, before, next);
+    }
     this.store.persist();
     await this.store.flush();
-    return { item: provider };
+    return { item: existing ? { ...existing, enabled: false } : null };
   }
 
   @Get('ai/routes')
-  routes(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.list(this.store.aiRoutes, page, pageSize);
+  async routes(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    const rows: unknown[] = DIRECT_DB_MODELS.AIStyleRoute ? await this.store.aiRoutingDb.listRoutes() : this.store.aiRoutes;
+    return this.list(rows, page, pageSize);
   }
   @Put('ai/routes/:style')
   async updateRoute(
@@ -3468,7 +3483,9 @@ export class AdminController {
     @Body() body: Partial<AIStyleRoute>,
   ) {
     const admin = this.admin(auth);
-    const route = this.store.aiRoutes.find((r) => r.style === style);
+    const route = DIRECT_DB_MODELS.AIStyleRoute
+      ? await this.store.aiRoutingDb.getRouteByStyle(style)
+      : this.store.aiRoutes.find((r) => r.style === style);
     if (!route) throw new NotFoundException('AI 路由不存在');
     const nextPrimary = body.primaryProviderId ?? route.primaryProviderId;
     const nextBackup = body.backupProviderId ?? route.backupProviderId;
@@ -3476,7 +3493,9 @@ export class AdminController {
       ['主路由', nextPrimary],
       ['备用路由', nextBackup],
     ] as const) {
-      const provider = this.store.aiProviders.find((item) => item.id === providerId);
+      const provider = DIRECT_DB_MODELS.AIProvider
+        ? await this.store.aiRoutingDb.getProvider(providerId)
+        : this.store.aiProviders.find((item) => item.id === providerId);
       if (!provider) throw new BadRequestException(`${role}供应商不存在`);
       if (!provider.enabled) throw new BadRequestException(`${role}供应商未启用`);
       if (provider.type === 'local' || provider.providerKind !== 'openai-compatible') {
@@ -3484,11 +3503,16 @@ export class AdminController {
       }
     }
     const before = { ...route };
-    Object.assign(route, body, { routeVersion: route.routeVersion + 1 });
-    this.store.audit(admin.id, 'AI_ROUTE_UPDATE', 'AIStyleRoute', style, before, route);
+    const merged = { ...route, ...body, routeVersion: route.routeVersion + 1 };
+    if (DIRECT_DB_MODELS.AIStyleRoute) {
+      await this.store.aiRoutingDb.saveRoute({ ...merged, bumpVersion: false } as never);
+    } else {
+      Object.assign(this.store.aiRoutes.find((r) => r.style === style)!, merged);
+    }
+    await this.store.audit(admin.id, 'AI_ROUTE_UPDATE', 'AIStyleRoute', style, before, merged);
     this.store.persist();
     await this.store.flush();
-    return { item: route };
+    return { item: merged };
   }
 
   @Patch('ai/routes/:style')
