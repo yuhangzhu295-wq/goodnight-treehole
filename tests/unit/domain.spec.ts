@@ -146,6 +146,10 @@ describe('domain services', () => {
       markDeleted: async () => ({}),
       get: async (id: string) => createdAssets.get(id) ?? null,
       readyByIds: async () => [],
+      // The export resolves its attachments through this, so a diary with attachments needs the rows
+      // back rather than the ids alone.
+      ownedReadyByIds: async (ids: string[]) => ids.map((id) => createdAssets.get(id)).filter(Boolean),
+      isAttachedToAnyRow: async () => false,
     };
     // The identity is stated rather than defaulted: the store no longer picks an owner for a caller
     // that did not name one, so a fixture needing the demo user has to say so.

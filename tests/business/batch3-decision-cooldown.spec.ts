@@ -796,4 +796,69 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     const after = await prisma.decisionRecord.findUnique({ where: { id: decision.id } });
     expect(after?.status).toBe('cooling');
   }, 120_000);
+  /**
+   * The tie-break, and the case that matters because it is a real regression risk: an OLD superseded
+   * cooldown must not block a decision that later finished a normal cooldown.
+   *
+   * Ordering by `createdAt` alone left "the latest cooldown" to whatever the planner returned, so a
+   * decision could be refused by a supersede that had already been superseded itself. The id is the
+   * tie-breaker in both the manual guard and the list read.
+   *
+   * Scope, stated plainly: this case pins the *outcome* (an old superseded cooldown does not block a
+   * finished one). It does not isolate the id tie-break on its own - a strictly-later newer
+   * cooldown satisfies `createdAt >` without it. The tie-break is defence in depth for the exact
+   * same-timestamp case, which this fixture cannot produce because Prisma's default timestamp has
+   * microsecond resolution and two writes in the same request still land on different values.
+   */
+  it('1.15 An older superseded cooldown does not block a decision that later finished a normal one', async () => {
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `旧取代不阻挡_${Date.now()}`,
+    });
+    const supersededId = `cd_old_sup_${Date.now()}`;
+    const releasedId = `cd_new_rel_${Date.now()}`;
+    // The superseded one is created first, then the newer normal cooldown. Both deadlines are in the
+    // past so the normal one is genuinely finished.
+    const supersededAt = new Date(Date.now() - 120_000);
+    const releasedAt = new Date(Date.now() - 60_000);
+
+    await prisma.cooldownItem.create({
+      data: {
+        id: supersededId,
+        userId: owner,
+        decisionId: decision.id,
+        title: '先被取代',
+        releaseAt: supersededAt,
+        status: 'superseded',
+        createdAt: supersededAt,
+      },
+    });
+    await prisma.cooldownItem.create({
+      data: {
+        id: releasedId,
+        userId: owner,
+        decisionId: decision.id,
+        title: '后写入并已释放',
+        releaseAt: releasedAt,
+        status: 'released',
+        createdAt: releasedAt,
+      },
+    });
+    await prisma.decisionRecord.update({
+      where: { id: decision.id },
+      data: { status: 'cooling', cooldownUntil: releasedAt },
+    });
+
+    // The list read must not be blocked by the superseded one: the newer cooldown was released and
+    // its deadline has passed.
+    const listed = await selfPersistence.listDecisions(owner);
+    const fromList = listed.find((item: any) => item.id === decision.id);
+    expect(fromList?.status).toBe('ready');
+
+    // And the manual path agrees, rather than the two paths disagreeing about which cooldown is newest.
+    const guard = await selfPersistence.latestCooldownForDecisionIsSuperseded(owner, decision.id);
+    expect(guard).toBe(false);
+
+    await prisma.cooldownItem.deleteMany({ where: { id: { in: [supersededId, releasedId] } } });
+  }, 120_000);
 });

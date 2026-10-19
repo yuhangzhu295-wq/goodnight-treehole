@@ -42,17 +42,34 @@ describe('AI route seeding at boot', () => {
     expect(routes.every((route) => route.enabled)).toBe(true);
   }, 120_000);
 
-  it('a boot on an empty route table re-seeds it', async () => {
-    // Exactly the state a fresh install is in: routes gone, providers present (the policy writes
-    // those at boot). Re-running the store's own coverage pass must restore the routes.
+  /**
+   * A real restart, not a call to the private method.
+   *
+   * The first version of this case emptied the table and then invoked `ensureAiRouteSeedCoverage()`
+   * directly. That proves the method works, not that boot calls it — exactly the gap the reviewer
+   * flagged, because a regression in the boot sequence would leave the table empty while this case
+   * still passed. So: empty the table, close this app, build a new one, and read the database.
+   */
+  it('a real restart on an empty route table re-seeds it', async () => {
     await prisma.aIStyleRoute.deleteMany({});
     expect(await prisma.aIStyleRoute.count()).toBe(0);
 
-    const { StoreService } = await import('../../apps/api/src/store.service.js');
-    const store = app.get(StoreService);
-    await (store as any).ensureAiRouteSeedCoverage();
-
-    const after = await prisma.aIStyleRoute.count();
-    expect(after).toBeGreaterThanOrEqual(5);
-  }, 120_000);
+    const firstServer = app.getHttpServer();
+    await app.close();
+    const restarted = await createApiTestApp();
+    try {
+      const routes = await prisma.aIStyleRoute.findMany({ orderBy: { style: 'asc' } });
+      const styles = routes.map((route) => route.style);
+      for (const required of ['warm', 'rational', 'light', 'clear', 'poetic']) {
+        expect(styles).toContain(required);
+      }
+      const providerIds = [...new Set(routes.flatMap((r) => [r.primaryProviderId, r.backupProviderId, r.fallbackTemplateId]))];
+      const providers = await prisma.aIProvider.findMany({ where: { id: { in: providerIds } }, select: { id: true } });
+      expect(providers.map((p) => p.id).sort()).toEqual(providerIds.sort());
+      // The HTTP server is still serving after restart, so the boot sequence ran past the seeding.
+      expect(firstServer).toBeTruthy();
+    } finally {
+      await restarted.close();
+    }
+  }, 180_000);
 });

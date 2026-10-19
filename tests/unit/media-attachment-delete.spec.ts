@@ -152,3 +152,43 @@ describe('draft delete: an attached image is refused, and the author can delete 
     expect(rows.get('media_other').status).toBe('ready');
   });
 });
+
+describe('draft delete: a screenshot on a real feedback ticket is refused', () => {
+  /**
+   * The path the review caught: the ticket check scanned `this.feedbackTickets`, the in-memory array.
+   * A ticket created through the real HTTP route is written by `FeedbackPersistenceService` and
+   * never enters that array, so an image attached to a live ticket could be deleted out from under
+   * the ticket.
+   *
+   * This drives the ticket table directly (the unit stub below is that table) rather than the array,
+   * which is what the store's guard must consult now.
+   */
+  it('refuses a delete when the asset is a screenshot on a ticket in the table', async () => {
+    const rows = new Map<string, any>();
+    const ticketRows: any[] = [];
+    const { store } = createStore(rows);
+    // Replace the ticket query with one that reads the table rows, the way the service does.
+    (store as any).feedbackPersistence = {
+      isScreenshotReferencedByAnyTicket: async (assetId: string) =>
+        ticketRows.some((ticket) => (ticket.screenshots ?? []).includes(assetId)),
+    };
+    const { storageKey } = writeUpload(`ticket-shot-${Date.now()}.png`);
+    rows.set('media_ticket_1', {
+      id: 'media_ticket_1',
+      userId: 'user_demo',
+      storageKey,
+      url: `/uploads/${storageKey}`,
+      mimeType: 'image/png',
+      size: 15,
+      usageType: 'feedback',
+      status: 'ready',
+      createdAt: new Date().toISOString(),
+    });
+    ticketRows.push({ id: 'ticket_1', userId: 'user_demo', screenshots: ['media_ticket_1'] });
+
+    await expect(
+      runWithIdentity({ userId: 'user_demo', sessionId: 'unit-demo' }, () => store.deleteMediaAsset('media_ticket_1')),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(rows.get('media_ticket_1').status).toBe('ready');
+  });
+});

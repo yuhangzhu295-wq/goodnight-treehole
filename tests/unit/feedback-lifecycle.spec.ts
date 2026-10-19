@@ -51,8 +51,9 @@ function stubMediaAssetTable(rows: Map<string, any>) {
   };
 }
 
-function createStore(assetRows?: Map<string, any>) {
+function createStore(assetRows?: Map<string, any>, ticketRows?: any[]) {
   const rows = assetRows ?? new Map<string, any>();
+  const tickets = ticketRows ?? [];
   return new StoreService(
     {
       saveRuntimeState: async () => undefined,
@@ -61,6 +62,10 @@ function createStore(assetRows?: Map<string, any>) {
       // The draft-delete guard asks these by `mediaAssetId`; the mood-draft path asks them by mood.
       moodAttachment: { findMany: async () => [], count: async () => 0 },
       diaryAttachment: { findMany: async () => [], count: async () => 0 },
+      // The draft-delete guard asks the ticket table by asset id, because the in-memory array only
+      // holds tickets this instance wrote - which is the gap that let a live ticket's screenshot be
+      // deleted. Seeded by the case that creates the ticket.
+      feedbackTicket: { findMany: async () => tickets },
       post: { count: async () => 0 },
       diary: { count: async () => 0 },
       // MediaAsset is database-authoritative; the draft-delete guard reads attachments through it.
@@ -71,6 +76,8 @@ function createStore(assetRows?: Map<string, any>) {
         // 403 below come from the ticket attachment rather than from a missing method.
         moodAttachment: { count: async () => 0 },
         diaryAttachment: { count: async () => 0 },
+        isAttachedToAnyRow: async () => false,
+        ownedReadyByIds: async (ids: string[]) => ids.map((id) => rows.get(id)).filter(Boolean),
       },
       letter: { count: async () => 0 },
     } as any,
@@ -110,8 +117,13 @@ afterEach(() => {
 describe('feedback media and lifecycle', () => {
   it('persists MediaAsset ids, decorates them as real URLs, and protects attached files', async () => {
     const assetRows = new Map<string, any>();
-    const store = createStore(assetRows);
+    const ticketRows: any[] = [];
+    const store = createStore(assetRows, ticketRows);
     const asset = addFeedbackAsset(store, assetRows);
+    // The real route writes the ticket through `FeedbackPersistenceService`, and the draft-delete
+    // guard now asks the table - so the ticket has to exist in the table, not in the store's array.
+    // Driving the store's legacy `createFeedbackTicket` would put it in an array the guard no longer
+    // reads, which is the same gap that let a real ticket's screenshot be deleted.
     const ticket = await asUser('user_demo', () =>
       store.createFeedbackTicket({
         categoryId: 'cat_1',
@@ -120,6 +132,8 @@ describe('feedback media and lifecycle', () => {
         assetIds: [asset.id],
       }),
     );
+    // The real writer lands the row in the table; this stub is that table.
+    ticketRows.push({ id: ticket.id, userId: 'user_demo', screenshots: [asset.id] });
 
     expect(ticket.screenshots).toEqual([asset.id]);
     expect((await store.decorateFeedbackTicket(ticket)).screenshots).toEqual([

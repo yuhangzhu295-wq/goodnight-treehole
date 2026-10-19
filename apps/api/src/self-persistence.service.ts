@@ -1679,8 +1679,11 @@ export class SelfPersistenceService {
             AND NOT EXISTS (
               SELECT 1 FROM "CooldownItem" newer
               WHERE newer."decisionId" = "DecisionRecord".id
-                AND newer."createdAt" > recent."createdAt"
                 AND newer.status <> 'superseded'
+                AND (
+                  newer."createdAt" > recent."createdAt"
+                  OR (newer."createdAt" = recent."createdAt" AND newer."id" > recent."id")
+                )
             )
         )
     `;
@@ -1860,10 +1863,15 @@ export class SelfPersistenceService {
    * without changing the answer.
    */
   async latestCooldownForDecisionIsSuperseded(userId: string, decisionId: string): Promise<boolean> {
+    // Ordered by `createdAt, id`, not `createdAt` alone. Two cooldowns written in the same clock tick
+    // are a real case - the supersede and its replacement are created by the same request handling
+    // path - and with `createdAt` alone the order between them is whatever the planner returns, so
+    // the "latest" one is not deterministic and the guard would refuse or admit by luck. The id is the
+    // tie-breaker, and the list path orders the same way.
     const row = await this.prisma.$queryRaw<Array<{ status: string }>>`
       SELECT "status" FROM "CooldownItem"
       WHERE "userId" = ${userId} AND "decisionId" = ${decisionId}
-      ORDER BY "createdAt" DESC
+      ORDER BY "createdAt" DESC, "id" DESC
       LIMIT 1
     `;
     return row[0]?.status === 'superseded';

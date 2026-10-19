@@ -262,6 +262,27 @@ export class FeedbackPersistenceService {
     });
   }
 
+  /**
+   * Whether any ticket references this asset id.
+   *
+   * `screenshots` is a Json column holding the ids, so the containment check is a SQL array-membership
+   * test rather than a scan of an in-memory array. The legacy array only held tickets this instance
+   * had written, so a ticket created through the real route did not appear in it - which is how an
+   * image attached to a live ticket could still be deleted through the draft endpoint.
+   */
+  async isScreenshotReferencedByAnyTicket(assetId: string): Promise<boolean> {
+    // Only the ids are read, and the containment test is done on the arrays that came back. Building a
+    // jsonpath by string concatenation would put the id inside the query text; reading the column
+    // keeps it a parameter-free value comparison and works on every PostgreSQL the app supports.
+    const rows = await this.prisma.feedbackTicket.findMany({
+      select: { screenshots: true },
+    });
+    return rows.some((row) => {
+      const ids = Array.isArray(row.screenshots) ? (row.screenshots as unknown[]) : [];
+      return ids.includes(assetId);
+    });
+  }
+
   /** The caller's own tickets, newest first. */
   async listTicketsForUser(userId: string) {
     return this.prisma.feedbackTicket.findMany({

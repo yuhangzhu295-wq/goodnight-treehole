@@ -38,6 +38,7 @@ import { ReplyPersistenceService } from './reply-persistence.service.js';
 import { PostPersistenceService } from './post-persistence.service.js';
 import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
 import { MoodPersistenceService } from './mood-persistence.service.js';
+import { FeedbackPersistenceService } from './feedback-persistence.service.js';
 import { DiaryPersistenceService } from './diary-persistence.service.js';
 import { LetterPersistenceService } from './letter-persistence.service.js';
 import { MediaAssetPersistenceService } from './media-asset-persistence.service.js';
@@ -1307,6 +1308,8 @@ export class StoreService implements OnModuleInit {
     public readonly postsDb: PostPersistenceService = new PostPersistenceService(prisma as any),
     @Inject(AiRoutingPersistenceService)
     public readonly aiRoutingDb: AiRoutingPersistenceService = new AiRoutingPersistenceService(prisma as any),
+    @Inject(FeedbackPersistenceService)
+    public readonly feedbackPersistence: FeedbackPersistenceService = new FeedbackPersistenceService(prisma as any),
     @Inject(MoodPersistenceService)
     public readonly moodsDb: MoodPersistenceService = new MoodPersistenceService(prisma as any),
     @Inject(DiaryPersistenceService)
@@ -2540,9 +2543,16 @@ export class StoreService implements OnModuleInit {
     // `attachmentIds` are ids, not rows. Mapping over them as if they were `MediaAsset` objects
     // produced an attachments array of all-undefined fields whenever a diary actually had
     // attachments, so the exported file could not describe the images it was exporting.
-    // `mediaByIds` resolves them against the table (or the legacy array) and the caller's own rows.
+    //
+    // Owner-scoped on purpose: a diary row can name an asset id belonging to somebody else (the
+    // column has no foreign key), and an export is a file the user downloads - it must not carry
+    // another account's storageKey, url, size or created time.
     const attachmentsById = new Map(
-      (await this.mediaByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []))).map((asset) => [asset.id, asset]),
+      (
+        DIRECT_DB_MODELS.MediaAsset
+          ? await this.mediaAssetsDb.ownedReadyByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []), userId)
+          : await this.mediaByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []))
+      ).map((asset) => [asset.id, asset]),
     );
     const exportedDiaries = diaries.map((item: any) => ({
       ...item,
@@ -2887,7 +2897,12 @@ export class StoreService implements OnModuleInit {
       (DIRECT_DB_MODELS.Diary
         ? await this.diariesDb.isAttachedToAnyRow(assetId)
         : this.diaries.some((item: any) => (item.attachmentIds ?? []).includes(assetId))) ||
-      this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId));
+      // The real route writes tickets through `FeedbackPersistenceService`, so the check has to ask
+      // the table. The in-memory array only holds tickets this instance wrote itself, which let an
+      // image attached to a live ticket be deleted out from under it.
+      (DIRECT_DB_MODELS.FeedbackTicket
+        ? await this.feedbackPersistence.isScreenshotReferencedByAnyTicket(assetId)
+        : this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId)));
     if (attached) throw new ForbiddenException('已发布内容的图片不能在草稿删除接口中移除');
     const target = path.join(uploadsDirectory, asset.storageKey);
     if (fs.existsSync(target)) fs.unlinkSync(target);

@@ -52,6 +52,22 @@ export class MediaAssetPersistenceService {
     return ids.map((id) => byId.get(id)).filter((asset): asset is MediaAsset => Boolean(asset));
   }
 
+  /**
+   * Resolves ids to rows, scoped to one owner.
+   *
+   * The export and the diary/letter attachment readers need "the assets this user's own rows point
+   * at". A plain `readyByIds` returns any caller's row for the same id, which would put another
+   * user's storageKey, url, size and created time into an exported file.
+   */
+  async ownedReadyByIds(ids: string[], userId: string): Promise<MediaAsset[]> {
+    if (!ids.length) return [];
+    const rows = await this.prisma.mediaAsset.findMany({
+      where: { id: { in: ids }, userId, status: 'ready' },
+    });
+    const byId = new Map(rows.map((row: any) => [row.id, MediaAssetPersistenceService.normalize(row)]));
+    return ids.map((id) => byId.get(id)).filter((asset): asset is MediaAsset => Boolean(asset));
+  }
+
   async countForUser(userId: string): Promise<number> {
     return this.prisma.mediaAsset.count({ where: { userId } });
   }
