@@ -269,8 +269,9 @@ page's assets) instead of a per-row lookup. That is recorded as `B4-DECORATE-REA
 | `Reply` | **DONE** | `reply-persistence.service.ts`; writers are the human reply route, the three AI-reply completions and the seed coverage (idempotent on `id`); `Post.replyCount` is derived from the table; mutation M-R (unregistering it hides a directly written reply from the public list) |
 | `AIProvider` | **DONE** | Registered as a pair with `AIStyleRoute` (three FKs); `ai-routing-persistence.service.ts` owns both tables and the DAPI policy writes through it. Gate case plus mutation M-T |
 | `AIStyleRoute` | **DONE** | Same pair; `resolveAiRouteRecord` is the read seam `runAiJob` uses. Mutation M-T covers both |
+| `Mood` | **DONE** | `mood-persistence.service.ts`; all eleven read sites moved; boot/reload write the snapshot's moods and posts (`Post.moodId` is a Restrict FK). Gate case plus mutation M-U |
 | `MediaAsset` | not started | 8 write sites (`this.assets.unshift`) and readers across store + controllers; converts with its publishers |
-| the other 4 | not starting | `Mood`, `Diary`, `Letter`, `MediaAsset` — `Mood` is next: it is upstream of Post and Diary |
+| the other 3 | not starting | `Diary`, `Letter`, `MediaAsset`
 
 **What converting `Favorite` changed beyond the model.** `buildPostDecorationContext` is async and
 reads the viewer's post ids from the table once per request; `getPost`, `moderatePost` and five
