@@ -73,6 +73,9 @@ export const DIRECT_DB_MODELS = {
   // Batch 4 model 14 of 16. The diary is what a private mood without a companion row projects
   // from, so its moodIdsWithDiaries() is the exclusion the projection reads.
   Diary: 'diaries',
+  // Batch 4 model 15 of 16. Derived from a mood and pointed at by Diary.letterId, which is why the
+  // diary's hasLetter flag and this row have to agree.
+  Letter: 'letters',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

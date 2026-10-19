@@ -1495,7 +1495,9 @@ export class PublicController {
   @Get('letters/today')
   async today(@Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    const letter = this.store.letters.find((item) => item.userId === userId);
+    const letter = (DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findLatestWithContent(userId)
+      : this.store.letters.find((item) => item.userId === userId)) ?? undefined;
     const sourceId =
       letter?.sourceMoodId ??
       (DIRECT_DB_MODELS.Mood
@@ -1503,14 +1505,14 @@ export class PublicController {
         : this.store.moods.find((item) => item.userId === userId)?.id) ??
       'mood_1';
     const source =
-      this.store.resolveSourceContent(sourceId) ||
+      (await this.store.resolveSourceContent(sourceId)) ||
       this.store.diaries.find((item) => item.userId === userId)?.content ||
       '今天也辛苦了';
     // A read must never repeatedly enqueue a replacement task for a completed
     // letter. New private moods and explicit style changes already create a
     // real AiJob; GET remains an idempotent read of that persisted state.
     if (!letter || !letter.content) {
-      const queued = this.store.queueLetterGeneration({
+      const queued = await this.store.queueLetterGeneration({
         userId,
         sourceMoodId: sourceId,
         style: letter?.style ?? 'warm',
@@ -1523,9 +1525,11 @@ export class PublicController {
   }
 
   @Get('letters')
-  letters(@Query('status') status?: string, requestedUserId?: string) {
+  async letters(@Query('status') status?: string, requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    let items = this.store.letters.filter((item) => item.userId === userId);
+    let items = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.listForUser(userId)
+      : this.store.letters.filter((item) => item.userId === userId);
     if (status === 'unread') items = items.filter((item) => item.status === 'unread');
     if (status === 'favorited' || status === 'fav')
       // `Letter.favorite` is the denormalised column FavoritePersistenceService keeps in step with
@@ -1535,20 +1539,24 @@ export class PublicController {
   }
 
   @Get('letters/:id')
-  letter(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+  async letter(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
     // The letter is private to its owner. The ownership check has to happen before the
     // lookup: an unknown caller id must not silently fall back to the demo user's letters
     // (product audit ISSUE-017).
     const caller = this.store.resolveRuntimeUserId(runtimeUserId(userId));
-    const letter = this.store.letters.find((item) => item.id === id);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.get(id)
+      : this.store.letters.find((item) => item.id === id);
     if (letter && letter.userId !== caller) throw new NotFoundException('回信不存在');
     return { item: letter ? this.store.decorateLetter(letter) : undefined };
   }
 
   @Patch('letters/:id/read')
-  readLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+  async readLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     letter.status = 'read';
     this.store.persist();
@@ -1556,9 +1564,11 @@ export class PublicController {
   }
 
   @Post('letters/:id/like')
-  likeLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+  async likeLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     letter.likeCount = (letter.likeCount ?? 0) + 1;
     this.store.persist();
@@ -1566,7 +1576,7 @@ export class PublicController {
   }
 
   @Post('letters/:id/regenerate')
-  regenerate(
+  async regenerate(
     @Param('id') id: string,
     @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean },
     @Headers('x-goodnight-user-id') requestedUserId?: string,
@@ -1575,10 +1585,12 @@ export class PublicController {
     // silently regenerated whichever letter happened to be first in the store - possibly another
     // user's, using their private content as the AI source.
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     const source =
-      this.store.resolveSourceContent(letter.sourceMoodId) ||
+      (await this.store.resolveSourceContent(letter.sourceMoodId)) ||
       this.store.diaries.find((item) => item.userId === letter.userId)?.content ||
       letter.content;
     const job = this.store.queueAI({
@@ -1617,14 +1629,16 @@ export class PublicController {
   }
 
   @Post('letters/generate')
-  generateLetter(
+  async generateLetter(
     @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean },
     @Headers('x-goodnight-user-id') requestedUserId?: string,
   ) {
     const userId = requireRuntimeUserId(requestedUserId);
-    const letter = this.store.letters.find((item) => item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? (await this.store.lettersDb.listRecentForUser(userId)).at(-1) ?? null
+      : this.store.letters.find((item) => item.userId === userId);
     if (letter) return this.regenerate(letter.id, body, userId);
-    const queued = this.store.queueLetterGeneration({
+    const queued = await this.store.queueLetterGeneration({
       userId,
       sourceMoodId: 'mood_1',
       style: body.style ?? 'warm',
@@ -1636,7 +1650,9 @@ export class PublicController {
   @Post('letters/:id/poster')
   async poster(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     const asset = await this.store.createLetterPoster(letter);
     return { posterUrl: asset.url, asset, permission: 'album-required' };
@@ -1649,7 +1665,9 @@ export class PublicController {
   ) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
     const letter = body.id
-      ? this.store.letters.find((item) => item.id === body.id && item.userId === userId)
+      ? DIRECT_DB_MODELS.Letter
+        ? await this.store.lettersDb.findOwned(body.id, userId)
+        : this.store.letters.find((item) => item.id === body.id && item.userId === userId)
       : undefined;
     if (body.type === 'letter' || body.id) {
       if (!letter) throw new NotFoundException('回信不存在');
@@ -1663,7 +1681,9 @@ export class PublicController {
   @Post('letters/:id/save-to-diary')
   async saveToDiary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     letter.savedToDiary = true;
     const savedDiary = {
@@ -1688,7 +1708,9 @@ export class PublicController {
   @Post('letters/:id/favorite')
   async favoriteLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     await this.store.addFavorite(userId, 'letter', id);
     await this.store.persistAndFlush();
@@ -1698,7 +1720,9 @@ export class PublicController {
   @Delete('letters/:id/favorite')
   async deleteFavoriteLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     await this.store.removeFavoriteByTarget(userId, 'letter', id);
     await this.store.persistAndFlush();
@@ -1851,7 +1875,9 @@ export class PublicController {
     const userDiaries = DIRECT_DB_MODELS.Diary
       ? await this.store.diariesDb.listForUser(runtimeId)
       : this.store.diaries.filter((item) => item.userId === runtimeId);
-    const userLetters = this.store.letters.filter((item) => item.userId === runtimeId);
+    const userLetters = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.listForUser(runtimeId)
+      : this.store.letters.filter((item) => item.userId === runtimeId);
     // Favorite is database-authoritative; counting the in-memory array would always report 0.
     const favoriteCount = await this.store.favoritesDb.countForUser(runtimeId);
     return {
@@ -1879,7 +1905,8 @@ export class PublicController {
     await this.store.clearFavoritesForUser(runtimeId);
     if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
     else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
-    this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
+    if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(runtimeId);
+    else this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
     await this.store.persistAndFlush();
     return { ok: true };
   }
@@ -1952,7 +1979,16 @@ export class PublicController {
   private async diaryEntries(userId: string) {
     const persisted = this.store.diaries.filter((item) => item.userId === userId);
     const linkedMoodIds = new Set(persisted.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
-    const projectedMoods = (DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods)
+    const moodRows = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
+    // The companion letter for each candidate mood is fetched once, because the projection needs it
+    // for every row that survives the filter and a per-row read would be an N+1 over the same ids.
+    const letterByMoodId = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.latestBySourceMoods(
+          (moodRows as Array<{ id: string }>).map((item) => item.id),
+          userId,
+        )
+      : new Map<string, { generationStatus?: string; id?: string } | null>();
+    const projectedMoods = moodRows
       .filter(
         (item) =>
           item.userId === userId &&
@@ -1961,7 +1997,9 @@ export class PublicController {
           !linkedMoodIds.has(item.id),
       )
       .map((mood) => {
-        const letter = this.store.letters.find((item) => item.userId === userId && item.sourceMoodId === mood.id);
+        const letter = DIRECT_DB_MODELS.Letter
+          ? letterByMoodId.get(mood.id)
+          : this.store.letters.find((item) => item.userId === userId && item.sourceMoodId === mood.id);
         const hasLetter = Boolean(
           letter && (!letter.generationStatus || ['succeeded', 'fallback'].includes(letter.generationStatus)),
         );
@@ -2082,12 +2120,15 @@ export class PublicController {
     const favouritePosts = DIRECT_DB_MODELS.Post
       ? await this.store.postsDb.findByIds(rows.filter((item) => item.targetType === 'post').map((item) => item.targetId))
       : [];
-    const items = rows.map((item) => {
+    const items = await Promise.all(
+      rows.map(async (item) => {
       const post =
         item.targetType === 'post' ? favouritePosts.find((postItem) => postItem.id === item.targetId) : undefined;
       const letter =
         item.targetType === 'letter'
-          ? this.store.letters.find((letterItem) => letterItem.id === item.targetId)
+          ? DIRECT_DB_MODELS.Letter
+            ? await this.store.lettersDb.get(item.targetId)
+            : this.store.letters.find((letterItem) => letterItem.id === item.targetId)
           : undefined;
       const diary =
         item.targetType === 'diary'
@@ -2103,7 +2144,8 @@ export class PublicController {
             ? emotionLabel(diary.emotion)
             : undefined,
       };
-    });
+    }),
+    );
     return { items };
   }
 
@@ -3136,7 +3178,8 @@ export class AdminController {
   async deleteUserData(@Param('id') id: string) {
     await this.store.clearFavoritesForUser(id);
     this.store.diaries = this.store.diaries.filter((item) => item.userId !== id);
-    this.store.letters = this.store.letters.filter((item) => item.userId !== id);
+    if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(id);
+    else this.store.letters = this.store.letters.filter((item) => item.userId !== id);
     await this.store.persistAndFlush();
     return { ok: true };
   }

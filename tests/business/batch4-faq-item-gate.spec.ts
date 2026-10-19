@@ -35,6 +35,7 @@ const TARGET_TABLES = [
   'AIStyleRoute',
   'Mood',
   'Diary',
+  'Letter',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -125,6 +126,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await marked('UPDATE "AIProvider" SET "priority" = "priority" WHERE false');
     await marked('UPDATE "Mood" SET "riskLevel" = "riskLevel" WHERE false');
     await marked('UPDATE "Diary" SET "source" = "source" WHERE false');
+    await marked('UPDATE "Letter" SET "style" = "style" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AIProvider', op: 'UPDATE', n: 1 },
       { table: 'AIStyleRoute', op: 'UPDATE', n: 1 },
@@ -135,6 +137,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'Favorite', op: 'UPDATE', n: 1 },
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
       { table: 'FeedbackTicket', op: 'UPDATE', n: 1 },
+      { table: 'Letter', op: 'UPDATE', n: 1 },
       { table: 'Mood', op: 'UPDATE', n: 1 },
       { table: 'PeerReputation', op: 'UPDATE', n: 1 },
       { table: 'Post', op: 'UPDATE', n: 1 },
@@ -159,6 +162,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await marked('DELETE FROM "AIProvider" WHERE false');
     await marked('DELETE FROM "Mood" WHERE false');
     await marked('DELETE FROM "Diary" WHERE false');
+    await marked('DELETE FROM "Letter" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AIProvider', op: 'DELETE', n: 1 },
       { table: 'AIStyleRoute', op: 'DELETE', n: 1 },
@@ -169,6 +173,7 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
       { table: 'Favorite', op: 'DELETE', n: 1 },
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },
       { table: 'FeedbackTicket', op: 'DELETE', n: 1 },
+      { table: 'Letter', op: 'DELETE', n: 1 },
       { table: 'Mood', op: 'DELETE', n: 1 },
       { table: 'PeerReputation', op: 'DELETE', n: 1 },
       { table: 'Post', op: 'DELETE', n: 1 },

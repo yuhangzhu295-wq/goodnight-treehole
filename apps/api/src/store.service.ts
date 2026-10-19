@@ -39,6 +39,7 @@ import { PostPersistenceService } from './post-persistence.service.js';
 import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
 import { MoodPersistenceService } from './mood-persistence.service.js';
 import { DiaryPersistenceService } from './diary-persistence.service.js';
+import { LetterPersistenceService } from './letter-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1300,6 +1301,8 @@ export class StoreService implements OnModuleInit {
     public readonly moodsDb: MoodPersistenceService = new MoodPersistenceService(prisma as any),
     @Inject(DiaryPersistenceService)
     public readonly diariesDb: DiaryPersistenceService = new DiaryPersistenceService(prisma as any),
+    @Inject(LetterPersistenceService)
+    public readonly lettersDb: LetterPersistenceService = new LetterPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1642,6 +1645,19 @@ export class StoreService implements OnModuleInit {
         },
         set(_val) {
           throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Letter) {
+      delete data.letters;
+      Object.defineProperty(data, 'letters', {
+        get() {
+          throw new Error('StoreData.letters is disabled: Letter is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.letters is disabled: Letter is database-authoritative (Batch 4)');
         },
         enumerable: false,
         configurable: true,
@@ -2157,7 +2173,7 @@ export class StoreService implements OnModuleInit {
   ) {
     if (DIRECT_DB_MODELS.Favorite) {
       const result = await this.favoritesDb.add(userId, targetType, targetId);
-      await this.syncFavoriteProjections(targetType, targetId);
+      await this.syncFavoriteProjections(targetType, targetId, userId);
       return result;
     }
     const existing = this.data.favorites.find(
@@ -2179,8 +2195,11 @@ export class StoreService implements OnModuleInit {
       }
     }
     if (targetType === 'letter') {
-      const letter = this.letters.find((item) => item.id === targetId && item.userId === userId);
-      if (letter) letter.favorite = true;
+      if (DIRECT_DB_MODELS.Letter) await this.lettersDb.setFavorite(targetId, userId, true);
+      else {
+        const letter = this.letters.find((item) => item.id === targetId && item.userId === userId);
+        if (letter) letter.favorite = true;
+      }
     }
     return { item: favorite, created: true };
   }
@@ -2192,7 +2211,7 @@ export class StoreService implements OnModuleInit {
   ) {
     if (DIRECT_DB_MODELS.Favorite) {
       const removed = await this.favoritesDb.removeByTarget(userId, targetType, targetId);
-      if (removed.length) await this.syncFavoriteProjections(targetType, targetId);
+      if (removed.length) await this.syncFavoriteProjections(targetType, targetId, userId);
       return removed;
     }
     const removed = this.data.favorites.filter(
@@ -2207,7 +2226,7 @@ export class StoreService implements OnModuleInit {
   async removeFavoriteById(userId: string, favoriteId: string) {
     if (DIRECT_DB_MODELS.Favorite) {
       const removed = await this.favoritesDb.removeById(userId, favoriteId);
-      if (removed) await this.syncFavoriteProjections(removed.targetType as any, removed.targetId);
+      if (removed) await this.syncFavoriteProjections(removed.targetType as any, removed.targetId, removed.userId);
       return removed;
     }
     const favorite = this.data.favorites.find((item) => item.id === favoriteId && item.userId === userId);
@@ -2221,7 +2240,7 @@ export class StoreService implements OnModuleInit {
     if (DIRECT_DB_MODELS.Favorite) {
       const removed = await this.favoritesDb.clearForUser(userId);
       for (const item of removed) {
-        await this.syncFavoriteProjections(item.targetType as any, item.targetId);
+        await this.syncFavoriteProjections(item.targetType as any, item.targetId, item.userId);
       }
       return removed;
     }
@@ -2240,6 +2259,7 @@ export class StoreService implements OnModuleInit {
   private async syncFavoriteProjections(
     targetType: StoreData['favorites'][number]['targetType'],
     targetId: string,
+    userId?: string,
   ) {
     if (targetType === 'post') {
       const counts = await this.favoritesDb.countsForPosts([targetId]);
@@ -2254,6 +2274,14 @@ export class StoreService implements OnModuleInit {
       return;
     }
     if (targetType === 'letter') {
+      if (DIRECT_DB_MODELS.Letter) {
+        // The flag is per user, so the projection needs to know whose flag moved. Every caller has
+        // that: the favourite it just wrote carries the user id.
+        if (!userId) return;
+        const isFavorite = await this.favoritesDb.isFavorite(userId, 'letter', targetId);
+        await this.lettersDb.setFavorite(targetId, userId, isFavorite);
+        return;
+      }
       const letters = this.letters.filter((item) => item.id === targetId);
       for (const letter of letters) {
         letter.favorite = await this.favoritesDb.isFavorite(letter.userId, 'letter', letter.id);
@@ -2918,6 +2946,9 @@ export class StoreService implements OnModuleInit {
   }
 
   private async reconcileLetterFavorites() {
+    // Letter is database-authoritative and the favourite path writes this column itself, so there is
+    // nothing left for boot to reconcile.
+    if (DIRECT_DB_MODELS.Letter) return;
     if (DIRECT_DB_MODELS.Favorite) {
       const keys = await this.favoritesDb.letterFavoriteKeys();
       let changed = false;
@@ -2946,18 +2977,21 @@ export class StoreService implements OnModuleInit {
     return;
   }
 
-  private applyFavoriteRemoval(favorites: StoreData['favorites']) {
+  private async applyFavoriteRemoval(favorites: StoreData['favorites']) {
     for (const favorite of favorites) {
       if (favorite.targetType === 'post' && !DIRECT_DB_MODELS.Post) {
         const post = this.posts.find((item) => item.id === favorite.targetId);
         if (post) post.favoriteCount = Math.max(0, post.favoriteCount - 1);
       }
       if (favorite.targetType === 'letter') {
-        const letter = this.letters.find((item) => item.id === favorite.targetId && item.userId === favorite.userId);
-        // The removed row was this user's only favourite for the letter (the unique constraint is
-        // per user/type/target), so the flag is false. This branch only runs when Favorite is not
-        // database-authoritative.
-        if (letter) letter.favorite = false;
+        if (DIRECT_DB_MODELS.Letter) {
+          // The removed row was this user's only favourite for the letter (the unique constraint is
+          // per user/type/target), so the flag is false.
+          await this.lettersDb.setFavorite(favorite.targetId, favorite.userId, false);
+        } else {
+          const letter = this.letters.find((item) => item.id === favorite.targetId && item.userId === favorite.userId);
+          if (letter) letter.favorite = false;
+        }
       }
     }
   }
@@ -3834,7 +3868,9 @@ export class StoreService implements OnModuleInit {
     const matches = userMatches
       .filter((item) => !['declined', 'blocked'].includes(item.status))
       .slice(0, 3);
-    const latestLetter = this.letters.find((item) => item.userId === userId && item.content);
+    const latestLetter = DIRECT_DB_MODELS.Letter
+      ? await this.lettersDb.findLatestWithContent(userId)
+      : this.letters.find((item) => item.userId === userId && item.content);
     return {
       journey: journey ?? null,
       activeActions,
@@ -7443,7 +7479,7 @@ export class StoreService implements OnModuleInit {
     } else {
       this.diaries.unshift(diary);
     }
-    const queued = this.queueLetterGeneration({
+    const queued = await this.queueLetterGeneration({
       userId,
       sourceMoodId: mood.id,
       style: isSupportedAiReplyStyle(input.style) ? input.style : 'warm',
@@ -7476,7 +7512,7 @@ export class StoreService implements OnModuleInit {
     return { level: high ? ('high' as const) : ('low' as const), score: high ? 0.92 : 0.08 };
   }
 
-  queueLetterGeneration(input: {
+  async queueLetterGeneration(input: {
     userId: string;
     sourceMoodId: string;
     style: AIStyle;
@@ -7510,7 +7546,22 @@ export class StoreService implements OnModuleInit {
       generationStatus: 'queued' as const,
       createdAt: now(),
     };
-    if (!input.letter) this.letters.unshift(letter);
+    if (!input.letter) {
+      if (DIRECT_DB_MODELS.Letter) {
+        await this.lettersDb.create({
+          id: letter.id,
+          userId: input.userId,
+          content: letter.content,
+          style: letter.style,
+          sourceMoodId: input.sourceMoodId ?? null,
+          aiJobId: null,
+          generationStatus: letter.generationStatus,
+          createdAt: new Date(letter.createdAt),
+        });
+      } else {
+        this.letters.unshift(letter);
+      }
+    }
     const job = this.queueAI({
       taskType: 'warm_letter',
       content: input.content,
@@ -7522,7 +7573,16 @@ export class StoreService implements OnModuleInit {
     letter.generationStatus = job.status;
     this.persist();
     const completionPromise: Promise<void> = this.waitForAiJob(job.id)
-      .then((completed) => {
+      .then(async (completed) => {
+        if (DIRECT_DB_MODELS.Letter) {
+          const produced = ['succeeded', 'fallback'].includes(completed.status);
+          await this.lettersDb.applyGenerationResult(letter.id, input.userId, {
+            aiJobId: completed.id,
+            generationStatus: completed.status,
+            ...(produced ? { style: input.style, content: completed.result } : {}),
+          });
+          return;
+        }
         const target = this.letters.find((item) => item.id === letter.id);
         if (!target) return;
         target.aiJobId = completed.id;
@@ -8657,12 +8717,14 @@ export class StoreService implements OnModuleInit {
   /** Same idea for `resolveSourceContent`: a mood loaded this request, keyed by id. */
   private pendingSourceContent?: Record<string, string>;
 
-  resolveSourceContent(sourceId?: string) {
+  async resolveSourceContent(sourceId?: string) {
     if (!sourceId) return '';
     return (
       (this.pendingSourceContent ?? {})[sourceId] ??
       this.diaries.find((item) => item.id === sourceId)?.content ??
-      this.letters.find((item) => item.id === sourceId)?.content ??
+      (DIRECT_DB_MODELS.Letter
+        ? ((await this.lettersDb.get(sourceId)) as { content?: string } | null)?.content
+        : this.letters.find((item) => item.id === sourceId)?.content) ??
       ''
     );
   }

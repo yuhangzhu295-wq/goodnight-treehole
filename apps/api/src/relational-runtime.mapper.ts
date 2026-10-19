@@ -79,7 +79,7 @@ export async function loadRelationalRuntimeState(db: DbClient): Promise<RuntimeD
     DIRECT_DB_MODELS.Mood ? Promise.resolve([]) : db.mood.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Post ? Promise.resolve([]) : db.post.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Reply ? Promise.resolve([]) : db.reply.findMany({ orderBy: { createdAt: 'desc' } }),
-    db.letter.findMany({ orderBy: { createdAt: 'desc' } }),
+    DIRECT_DB_MODELS.Letter ? Promise.resolve([]) : db.letter.findMany({ orderBy: { createdAt: 'desc' } }),
     db.diary.findMany({ include: { attachments: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.Favorite ? Promise.resolve([]) : db.favorite.findMany({ orderBy: { createdAt: 'desc' } }),
     DIRECT_DB_MODELS.FeedbackCategory ? Promise.resolve([]) : db.feedbackCategory.findMany({ orderBy: { sortOrder: 'asc' } }),
@@ -961,7 +961,7 @@ export async function saveRelationalRuntimeState(
   const jobs = DIRECT_DB_MODELS.AIJob ? [] : asArray(state.aiJobs);
   for (const job of jobs) job.providerId = fallbackProvider(job.providerId);
   const moodIds = new Set((DIRECT_DB_MODELS.Mood ? [] : asArray(state.moods)).map((item: any) => item.id));
-  const letterIds = new Set(asArray(state.letters).map((item: any) => item.id));
+  const letterIds = new Set((DIRECT_DB_MODELS.Letter ? [] : asArray(state.letters)).map((item: any) => item.id));
   const fallbackJobIds = new Set(jobs.map((item: any) => item.id));
   const fallbackJourneyIds = DIRECT_DB_MODELS.LifeJourney
     ? new Set<string>()
@@ -998,7 +998,7 @@ export async function saveRelationalRuntimeState(
       let jobIds: Set<string>;
       if (DIRECT_DB_MODELS.AIJob) {
         const candidateJobIds = [
-          ...asArray(state.letters).map((item: any) => item.aiJobId),
+          ...(DIRECT_DB_MODELS.Letter ? [] : asArray(state.letters).map((item: any) => item.aiJobId)),
           ...(DIRECT_DB_MODELS.Reply
             ? []
             : asArray(state.replies).map(
@@ -1738,7 +1738,7 @@ export async function saveRelationalRuntimeState(
             },
           });
       }
-      for (const item of asArray(state.letters)) {
+      for (const item of DIRECT_DB_MODELS.Letter ? [] : asArray(state.letters)) {
         const sourceMoodId = item.sourceMoodId ? (moodIds.has(item.sourceMoodId) ? item.sourceMoodId : null) : null;
         const legacySourceMoodId = item.sourceMoodId && !sourceMoodId ? item.sourceMoodId : null;
         const initialAiJobId = await resolveAiJobForCreate(item.aiJobId, jobIds, tx);
@@ -2659,9 +2659,10 @@ export async function saveRelationalRuntimeState(
         await deleteAbsent('favorite', tx.favorite,
           asArray(state.favorites).map((item: any) => item.id),
         );
-      await deleteAbsent('letter', tx.letter,
-        asArray(state.letters).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.Letter)
+        await deleteAbsent('letter', tx.letter,
+          asArray(state.letters).map((item: any) => item.id),
+        );
       // `Post` is still swept by the flush, but `Reply` is not: a post that still has replies must
       // not be deleted, or the sweep fails on `Reply_postId_fkey` (and would take DB-authoritative
       // replies with it). The set is read from the whole table, not just the posts in the snapshot:
