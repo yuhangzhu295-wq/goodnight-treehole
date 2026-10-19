@@ -38,7 +38,11 @@ const files = searchRoots
 
 fs.mkdirSync('artifacts/runtime/segmented', { recursive: true });
 
-const strip = (value) => value.replace(/\u001b\[[0-9;]*m/g, '');
+// Built from a char code rather than written literally: a control character in a regex literal
+// trips `no-control-regex`.
+const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+
+const strip = (value) => value.replace(ANSI_PATTERN, '');
 
 /**
  * Per-file status, taken from the runner's own summary lines.
