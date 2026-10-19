@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "07bdbea577c274f5abfc566a34b485c246217d52",
-  "updatedAt": "2026-10-19T14:00:00.000Z",
+  "head": "ef37e9a",
+  "updatedAt": "2026-10-19T16:00:00.000Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -151,13 +151,13 @@
       "priority": "P1",
       "status": "DONE",
       "dependency": "B3-GATE",
-      "title": "Batch 4 legacy store retirement (16 of 16 models)",
+      "title": "Batch 3/4 persistence (Batch 4 16/16 done; Batch 3 5/8 gates established)",
       "implemented": "complete",
       "tested": "complete",
-      "evidence": "All 16 models registered: FaqItem, ReplyPreset, FeedbackCategory, FeedbackTicket, AdminUserNote, PeerReputation, AgentDecisionLog, Favorite, Reply, Post, Mood, Diary, Letter, MediaAsset, plus the AIProvider/AIStyleRoute pair. Each has a statement-level gate case in tests/business/batch4-faq-item-gate.spec.ts (18/18 passing) and a reverse proof by removing the registration line: M-K..M-X. Batch 4 complete.",
+      "evidence": "Batch 4: all 16 models registered, gate 18/18, reverse proof M-X. Batch 3: 5 of 8 gates established (SELF_FULL_FLUSH, SELF_DUAL_WRITER, MEMORY_STATE_PASS, DECISION_STATE_PASS, FUTURE_SELF_QUEUE_PASS); PRIVACY_PASS, SELF_ROUTE_IDENTITY_PASS and MULTI_INSTANCE_SELECTED_FLOWS_PASS remain partly established. PERSISTENCE_BATCH3_STABLE stays false.",
       "blocker": "",
       "nextAction": "MediaAsset was the last one (media-asset-persistence.service.ts). Its reverse proof initially passed with the registration removed, which is why the case was rewritten and two real gaps closed: the mapper hydration still read mediaAsset unconditionally, and the three export paths rolled back into the disabled data.assets array on a flush failure. Recorded in BATCH4_LEGACY_FLUSH_RETIREMENT.md under \"M-X: the reverse proof found a guard that was not there\".",
-      "updatedAt": "2026-10-19T14:00:00.000Z"
+      "updatedAt": "2026-10-19T16:00:00.000Z"
     },
     {
       "id": "P4",

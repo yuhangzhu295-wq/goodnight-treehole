@@ -914,6 +914,27 @@ Leased databases created by tracked `prisma migrate deploy`, two independently i
 | `SELF_ROUTE_IDENTITY_PASS=true` | the §0.5/A8 per-route identity/ownership/consent matrix, with a negative test per route, and the FutureSelf optional-context degradation fix | **ESTABLISHED** for the identity and ownership axes — 87/87 C-end routes and 4/4 admin routes have a 401 negative test, 43/43 parameterised routes have a foreign-id refusal test, and mutation M-F (unfiltered `getJourneyById` in `requireJourney`) fails 8 of 16 cases. The consent axis is enforced centrally by `privacyAllows` and is **not** claimed per route. The FutureSelf degradation fix is in (`batch3-future-self-authority.spec.ts`). See `BATCH3_ROUTE_IDENTITY_GATE.md` |
 | `MULTI_INSTANCE_SELECTED_FLOWS_PASS=true` | the strict-barrier races above, independent-client rows, DB-only reads, stale flush/reload | **PARTLY ESTABLISHED** (2026-10-15) — one Self flow now has race evidence: `batch3-self-multi-instance.spec.ts` races two workers on the same cooldown job with the barrier **inside** the claim transaction (exactly one delivered job, one released cooldown, one ready decision), and covers the re-cool race where a stale job's release must be refused. Mutation M-H (claim's status guard removed) fails it. **Not yet part:** the other Self flows, and a stale flush/reload race for a Self table |
 
+**`PERSISTENCE_BATCH3_STABLE` status as of 2026-10-19 (HEAD `ef37e9a`).** Six of the eight hold;
+three are **partly** established with named gaps, so the aggregate is **NOT** established and is not
+claimed. The aggregate is not the main-agent's to set: §4 requires an independent review to accept
+the implementation, and no such review has run. Recorded here as a state, not a verdict.
+
+| Gate | State |
+| --- | --- |
+| `SELF_FULL_FLUSH=false` | **ESTABLISHED** |
+| `SELF_DUAL_WRITER=false` | **ESTABLISHED** (2026-10-19) |
+| `MEMORY_STATE_PASS=true` | **ESTABLISHED** (2026-10-19) |
+| `DECISION_STATE_PASS=true` | **ESTABLISHED** (2026-10-19) |
+| `FUTURE_SELF_QUEUE_PASS=true` | **ESTABLISHED** (2026-10-19) |
+| `PRIVACY_PASS=true` | **PARTLY** — owner/AI reads under revocation are not enumerated; consent is enforced centrally by `privacyAllows` rather than per route |
+| `SELF_ROUTE_IDENTITY_PASS=true` | **PARTLY** — identity and ownership axes hold (87/87 and 43/43 with negative tests, mutation M-F fails 8/16); the consent axis is central, not per route |
+| `MULTI_INSTANCE_SELECTED_FLOWS_PASS=true` | **PARTLY** — one Self flow has barrier evidence; the other Self flows and a stale flush/reload race for a Self table do not |
+
+Re-establishing the three partly-held gates found a real P0 while doing it: `/api/v1/me/diaries`, the
+favourite projection and "today's letter" all threw `StoreData.diaries is disabled`, because they
+scanned the array whose getter throws once `Diary` is registered. Fixed in `ef37e9a` — which is why
+the state above was measured by running the specs rather than read off the table.
+
 `PERSISTENCE_BATCH3_STABLE=true` only when all eight hold, the escalations are adjudicated (done in
 §0.4 and §0.5), and an independent review accepts the implementation. This is a **selected
 Self-flow** claim — not application-wide multi-instance safety, live-AI verification, or any
