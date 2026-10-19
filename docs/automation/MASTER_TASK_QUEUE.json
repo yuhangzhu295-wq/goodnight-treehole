@@ -1,8 +1,8 @@
 {
   "project": "goodnight-treehole",
   "branch": "codex/post-recovery-validation",
-  "head": "4a522a57793689be9743051b86d1630459c56ae6",
-  "updatedAt": "2026-10-19T08:35:09.832Z",
+  "head": "f9515358045c6326c48e355474f33783241a5710",
+  "updatedAt": "2026-10-19T09:59:50.368Z",
   "statusVocabulary": [
     "PENDING",
     "READY",
@@ -151,7 +151,7 @@
       "priority": "P1",
       "status": "RUNNING",
       "dependency": "B3-GATE",
-      "title": "Batch 4 legacy store retirement (13 of 16 models; Diary, Letter, MediaAsset remain)",
+      "title": "Batch 4 legacy store retirement (14 of 16 models; Letter and MediaAsset remain)",
       "implemented": "partial",
       "tested": "partial",
       "evidence": "Batch 4 at 7 of 16. Done: FaqItem, ReplyPreset, FeedbackCategory + FeedbackTicket (registered as one unit), AdminUserNote, PeerReputation (inert - no writer anywhere, recorded in the plan §5b), AgentDecisionLog. Each has a statement-level gate in batch4-faq-item-gate.spec.ts (14/14) and a reverse proof (M-K, M-L, M-M, M-N, M-O, M-P). BATCH4_LEGACY_FLUSH_RETIREMENT.md is the plan. Re-measured on 61dd20e: Reply also maintains post.replyCount (store.service.ts:8225,8253), so Favorite and Reply both write into Post counters - the cluster cannot be split.",
@@ -827,6 +827,19 @@
       "evidence": "mood-persistence.service.ts owns the table; all eleven read sites moved (diary projection, diary export, letter source lookup, monthly report unlinked-mood roll-up and months, draft-delete guard, AI source resolvers). writeSnapshotPostsAndMoods covers boot and reload. Gate case plus mutation M-U. 17/17 gate, 40/40 unit.",
       "blocker": "",
       "nextAction": "Diary, Letter, MediaAsset remain."
+    },
+    {
+      "id": "B4-DIARY",
+      "phase": "Batch 4",
+      "priority": "P1",
+      "status": "DONE",
+      "title": "Diary converted with its projection, export and per-owner delete",
+      "implemented": "yes",
+      "tested": "yes",
+      "independentReview": "pending",
+      "evidence": "diary-persistence.service.ts owns the table. Readers moved: diary routes and filters, export, stats, clearData, save-to-diary, tool-decompose, monthly report roll-up and months. Per-owner delete is in the service. Gate case plus mutation M-V. 17/17 gate, 40/40 unit.",
+      "blocker": "",
+      "nextAction": "Letter and MediaAsset remain."
     }
   ]
 }
