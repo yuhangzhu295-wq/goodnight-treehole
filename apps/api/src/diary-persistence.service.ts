@@ -15,12 +15,52 @@ import { PrismaRuntimeService } from './prisma-runtime.service.js';
 export class DiaryPersistenceService {
   constructor(@Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService) {}
 
+  /**
+   * Reshapes a row into the application shape.
+   *
+   * The callers compare and slice `createdAt` as a string and pass `moodId` around as
+   * `string | undefined`, both of which a `Date` and a nullable column break. Normalising here - the
+   * same way `LetterPersistenceService` does - keeps those two shapes from having to be reconciled at
+   * every call site.
+   */
+  private static normalize(row: Record<string, any>) {
+    return {
+      id: row.id,
+      userId: row.userId,
+      moodId: row.moodId ?? undefined,
+      journeyId: row.journeyId ?? undefined,
+      letterId: row.letterId ?? undefined,
+      content: row.content ?? '',
+      emotion: row.emotion,
+      source: row.source ?? undefined,
+      hasLetter: row.hasLetter ?? false,
+      toolResult: row.toolResult ?? undefined,
+      attachmentIds: (row.attachments ?? []).map((item: any) => item.mediaAssetId),
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
+    };
+  }
+
   async get(id: string) {
-    return this.prisma.diary.findUnique({ where: { id } });
+    const row = await this.prisma.diary.findUnique({ where: { id } });
+    return row ? DiaryPersistenceService.normalize(row) : null;
   }
 
   async listForUser(userId: string) {
-    return this.prisma.diary.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+    const rows = await this.prisma.diary.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      include: { attachments: { orderBy: { sortOrder: 'asc' } } },
+    });
+    return rows.map((row) => DiaryPersistenceService.normalize(row));
+  }
+
+  async findLatestWithContent(userId: string) {
+    const row = await this.prisma.diary.findFirst({
+      where: { userId, content: { not: '' } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return row ? DiaryPersistenceService.normalize(row) : null;
   }
 
   /** The mood ids that already have a diary row - the exclusion the projection needs. */

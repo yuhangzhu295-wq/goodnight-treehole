@@ -1504,9 +1504,11 @@ export class PublicController {
         ? (await this.store.moodsDb.latestForUser(userId))?.id
         : this.store.moods.find((item) => item.userId === userId)?.id) ??
       'mood_1';
+    // Diary is database-authoritative, so the fallback source is a row read rather than a scan of the
+    // legacy array - whose getter throws.
     const source =
       (await this.store.resolveSourceContent(sourceId)) ||
-      this.store.diaries.find((item) => item.userId === userId)?.content ||
+      (DIRECT_DB_MODELS.Diary ? await this.store.diariesDb.findLatestWithContent(userId) : undefined)?.content ||
       '今天也辛苦了';
     // A read must never repeatedly enqueue a replacement task for a completed
     // letter. New private moods and explicit style changes already create a
@@ -1591,7 +1593,7 @@ export class PublicController {
     if (!letter) throw new NotFoundException('回信不存在');
     const source =
       (await this.store.resolveSourceContent(letter.sourceMoodId)) ||
-      this.store.diaries.find((item) => item.userId === letter.userId)?.content ||
+      (DIRECT_DB_MODELS.Diary ? await this.store.diariesDb.findLatestWithContent(letter.userId) : undefined)?.content ||
       letter.content;
     const job = this.store.queueAI({
       taskType: 'today_letter',
@@ -1977,7 +1979,11 @@ export class PublicController {
    * the diary index silently empty or inserting duplicate business records.
    */
   private async diaryEntries(userId: string) {
-    const persisted = this.store.diaries.filter((item) => item.userId === userId);
+    // Diary is database-authoritative since Batch 4, so the list is a table read. The legacy array
+    // read that used to sit here threw - its getter is disabled - which made every diary list a 500.
+    const persisted = DIRECT_DB_MODELS.Diary
+      ? await this.store.diariesDb.listForUser(userId)
+      : this.store.diaries.filter((item) => item.userId === userId);
     const linkedMoodIds = new Set(persisted.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
     const moodRows = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
     // The companion letter for each candidate mood is fetched once, because the projection needs it
@@ -2019,12 +2025,23 @@ export class PublicController {
     return [...persisted, ...projectedMoods].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  private decorateDiaryEntry(item: { emotion: string; moodId?: string; attachmentIds?: string[] }) {
+  /**
+   * Turns a diary or projected mood row into the shape the page renders.
+   *
+   * The attachments are the mood's, which is where the upload actually lives (`Post.moodId` is
+   * unique and the mood owns its files). MediaAsset is database-authoritative, so resolving the ids
+   * is an async table read, which is why this is async and both call sites await it.
+   */
+  private async decorateDiaryEntry(item: { emotion: string; moodId?: string; attachmentIds?: string[] }) {
+    const attachmentIds =
+      item.attachmentIds ??
+      (DIRECT_DB_MODELS.Mood
+        ? await this.store.moodsDb.attachmentIdsFor(item.moodId ?? '')
+        : this.store.moods.find((mood) => mood.id === item.moodId)?.attachmentIds) ??
+      [];
     return {
       ...item,
-      attachments: this.store.mediaByIds(
-        item.attachmentIds ?? this.store.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [],
-      ),
+      attachments: await this.store.mediaByIds(attachmentIds),
       emotionLabel: emotionLabel(item.emotion),
     };
   }
@@ -2039,11 +2056,13 @@ export class PublicController {
     const userId = requireRuntimeUserId(requestedUserId);
     const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
     const entries = await this.diaryEntries(userId);
-    const items = entries
-      .filter((item) => !month || item.createdAt.startsWith(month))
-      .filter((item) => !emotion || emotion === '全部' || emotion === '全部' || item.emotion === normalizedEmotion)
-      .filter((item) => !hasLetter || String(item.hasLetter) === hasLetter)
-      .map((item) => this.decorateDiaryEntry(item));
+    const items = await Promise.all(
+      entries
+        .filter((item) => !month || item.createdAt.startsWith(month))
+        .filter((item) => !emotion || emotion === '全部' || emotion === '全部' || item.emotion === normalizedEmotion)
+        .filter((item) => !hasLetter || String(item.hasLetter) === hasLetter)
+        .map((item) => this.decorateDiaryEntry(item)),
+    );
     return { items };
   }
 
@@ -2096,7 +2115,7 @@ export class PublicController {
     const entries = await this.diaryEntries(requireRuntimeUserId(requestedUserId));
     const item = entries.find((diary) => diary.id === id);
     if (!item) return { item: null };
-    return { item: this.decorateDiaryEntry(item) };
+    return { item: await this.decorateDiaryEntry(item) };
   }
 
   @Delete('diaries/:id')
@@ -2132,7 +2151,9 @@ export class PublicController {
           : undefined;
       const diary =
         item.targetType === 'diary'
-          ? this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
+          ? DIRECT_DB_MODELS.Diary
+            ? await this.store.diariesDb.get(item.targetId)
+            : this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
           : undefined;
       return {
         ...item,
