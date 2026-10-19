@@ -144,13 +144,14 @@ export class MonthlyReportService {
   ) {}
 
   private async recordsFor(userId: string, month: string): Promise<MonthlyRecord[]> {
-    const diaries = this.store.diaries
-      .filter((item) => item.userId === userId && item.createdAt.startsWith(month))
+    const diaryRows = DIRECT_DB_MODELS.Diary ? await this.store.diariesDb.listForUser(userId) : this.store.diaries;
+    const diaries = diaryRows
+      .filter((item) => item.userId === userId && new Date(item.createdAt).toISOString().startsWith(month))
       .map((item) => ({
         emotion: item.emotion,
         content: item.content,
-        createdAt: item.createdAt,
-        moodId: item.moodId,
+        createdAt: new Date(item.createdAt).toISOString(),
+        moodId: item.moodId ?? undefined,
       }));
     const diaryMoodIds = new Set(diaries.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
     const moodRows = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
@@ -374,7 +375,8 @@ export class MonthlyReportService {
     const addMonths = (...values: Array<string | undefined>) => {
       for (const value of values) if (value && /^\d{4}-\d{2}/.test(value)) months.add(value.slice(0, 7));
     };
-    for (const item of this.store.diaries) if (item.userId === userId) addMonths(item.createdAt);
+    const diaryRowsForMonths = DIRECT_DB_MODELS.Diary ? await this.store.diariesDb.listForUser(userId) : this.store.diaries;
+    for (const item of diaryRowsForMonths) addMonths(new Date(item.createdAt).toISOString());
     const moodRowsForMonths = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
     for (const item of moodRowsForMonths) addMonths(new Date(item.createdAt).toISOString());
     const journeyMonths = await this.batch1Persistence.getAvailableMonthsForJourneys(userId);

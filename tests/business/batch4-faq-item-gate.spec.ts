@@ -34,6 +34,7 @@ const TARGET_TABLES = [
   'AIProvider',
   'AIStyleRoute',
   'Mood',
+  'Diary',
 ];
 
 describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
@@ -123,11 +124,13 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await marked('UPDATE "AIStyleRoute" SET "promptVersion" = "promptVersion" WHERE false');
     await marked('UPDATE "AIProvider" SET "priority" = "priority" WHERE false');
     await marked('UPDATE "Mood" SET "riskLevel" = "riskLevel" WHERE false');
+    await marked('UPDATE "Diary" SET "source" = "source" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AIProvider', op: 'UPDATE', n: 1 },
       { table: 'AIStyleRoute', op: 'UPDATE', n: 1 },
       { table: 'AdminUserNote', op: 'UPDATE', n: 1 },
       { table: 'AgentDecisionLog', op: 'UPDATE', n: 1 },
+      { table: 'Diary', op: 'UPDATE', n: 1 },
       { table: 'FaqItem', op: 'UPDATE', n: 1 },
       { table: 'Favorite', op: 'UPDATE', n: 1 },
       { table: 'FeedbackCategory', op: 'UPDATE', n: 1 },
@@ -155,11 +158,13 @@ describe('Batch 4 gate — the legacy flush writes nothing to FaqItem', () => {
     await marked('DELETE FROM "AIStyleRoute" WHERE false');
     await marked('DELETE FROM "AIProvider" WHERE false');
     await marked('DELETE FROM "Mood" WHERE false');
+    await marked('DELETE FROM "Diary" WHERE false');
     expect(await probeRows()).toEqual([
       { table: 'AIProvider', op: 'DELETE', n: 1 },
       { table: 'AIStyleRoute', op: 'DELETE', n: 1 },
       { table: 'AdminUserNote', op: 'DELETE', n: 1 },
       { table: 'AgentDecisionLog', op: 'DELETE', n: 1 },
+      { table: 'Diary', op: 'DELETE', n: 1 },
       { table: 'FaqItem', op: 'DELETE', n: 1 },
       { table: 'Favorite', op: 'DELETE', n: 1 },
       { table: 'FeedbackCategory', op: 'DELETE', n: 1 },

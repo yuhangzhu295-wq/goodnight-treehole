@@ -70,6 +70,9 @@ export const DIRECT_DB_MODELS = {
   // Batch 4 model 13 of 16. Mood has no incoming FK - Post, Diary and Letter point at it - so the
   // archive path detaches instead of deleting, which is what makes this the safe one to move first.
   Mood: 'moods',
+  // Batch 4 model 14 of 16. The diary is what a private mood without a companion row projects
+  // from, so its moodIdsWithDiaries() is the exclusion the projection reads.
+  Diary: 'diaries',
 } as const;
 
 export type DirectDbModelName = keyof typeof DIRECT_DB_MODELS;

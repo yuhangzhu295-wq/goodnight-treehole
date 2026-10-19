@@ -1786,7 +1786,7 @@ export async function saveRelationalRuntimeState(
           },
         });
       }
-      for (const item of asArray(state.diaries)) {
+      for (const item of DIRECT_DB_MODELS.Diary ? [] : asArray(state.diaries)) {
         const moodId = item.moodId ? (moodIds.has(item.moodId) ? item.moodId : null) : null;
         const letterId = item.letterId ? (letterIds.has(item.letterId) ? item.letterId : null) : null;
         await tx.diary.upsert({
@@ -2481,11 +2481,11 @@ export async function saveRelationalRuntimeState(
         })),
       );
       if (moodAttachments.length) await tx.moodAttachment.createMany({ data: moodAttachments, skipDuplicates: true });
-      const snapshotDiaryIds = asArray(state.diaries).map((item: any) => item.id);
+      const snapshotDiaryIds = DIRECT_DB_MODELS.Diary ? [] : asArray(state.diaries).map((item: any) => item.id);
       if (snapshotDiaryIds.length) {
         await tx.diaryAttachment.deleteMany({ where: { diaryId: { in: snapshotDiaryIds } } });
       }
-      const diaryAttachments = asArray(state.diaries).flatMap((item: any) =>
+      const diaryAttachments = (DIRECT_DB_MODELS.Diary ? [] : asArray(state.diaries)).flatMap((item: any) =>
         asArray<string>(item.attachmentIds).map((mediaAssetId, sortOrder) => ({
           diaryId: item.id,
           mediaAssetId,
@@ -2651,9 +2651,10 @@ export async function saveRelationalRuntimeState(
         await deleteAbsent('reply', tx.reply,
           asArray(state.replies).map((item: any) => item.id),
         );
-      await deleteAbsent('diary', tx.diary,
-        asArray(state.diaries).map((item: any) => item.id),
-      );
+      if (!DIRECT_DB_MODELS.Diary)
+        await deleteAbsent('diary', tx.diary,
+          asArray(state.diaries).map((item: any) => item.id),
+        );
       if (!DIRECT_DB_MODELS.Favorite)
         await deleteAbsent('favorite', tx.favorite,
           asArray(state.favorites).map((item: any) => item.id),

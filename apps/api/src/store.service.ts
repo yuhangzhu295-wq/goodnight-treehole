@@ -38,6 +38,7 @@ import { ReplyPersistenceService } from './reply-persistence.service.js';
 import { PostPersistenceService } from './post-persistence.service.js';
 import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
 import { MoodPersistenceService } from './mood-persistence.service.js';
+import { DiaryPersistenceService } from './diary-persistence.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -1297,6 +1298,8 @@ export class StoreService implements OnModuleInit {
     public readonly aiRoutingDb: AiRoutingPersistenceService = new AiRoutingPersistenceService(prisma as any),
     @Inject(MoodPersistenceService)
     public readonly moodsDb: MoodPersistenceService = new MoodPersistenceService(prisma as any),
+    @Inject(DiaryPersistenceService)
+    public readonly diariesDb: DiaryPersistenceService = new DiaryPersistenceService(prisma as any),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -1639,6 +1642,19 @@ export class StoreService implements OnModuleInit {
         },
         set(_val) {
           throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Diary) {
+      delete data.diaries;
+      Object.defineProperty(data, 'diaries', {
+        get() {
+          throw new Error('StoreData.diaries is disabled: Diary is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.diaries is disabled: Diary is database-authoritative (Batch 4)');
         },
         enumerable: false,
         configurable: true,
@@ -2427,20 +2443,19 @@ export class StoreService implements OnModuleInit {
   async createDiaryExport(userId: string) {
     await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
     const generatedAt = now();
+    const diaryRows = DIRECT_DB_MODELS.Diary ? await this.diariesDb.listForUser(userId) : this.diaries;
     const diaries = (
       await Promise.all(
-        this.diaries
-          .filter((item) => item.userId === userId)
-          .map(async (item) => {
-            const attachmentIds =
-              item.attachmentIds ??
-              (item.moodId && DIRECT_DB_MODELS.Mood
-                ? await this.moodsDb.attachmentIdsFor(item.moodId)
-                : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? []));
-            return { ...item, attachmentIds };
-          }),
+        diaryRows.map(async (item: any) => {
+          const attachmentIds =
+            item.attachmentIds ??
+            (item.moodId && DIRECT_DB_MODELS.Mood
+              ? await this.moodsDb.attachmentIdsFor(item.moodId)
+              : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? []));
+          return { ...item, attachmentIds };
+        }),
       )
-    ).map((item) => ({
+    ).map((item: any) => ({
           ...item,
           attachments: this.mediaByIds(item.attachmentIds).map((asset) => ({
             id: asset.id,
@@ -7412,7 +7427,22 @@ export class StoreService implements OnModuleInit {
       attachmentIds,
       createdAt: now(),
     };
-    this.diaries.unshift(diary);
+    if (DIRECT_DB_MODELS.Diary) {
+      await this.diariesDb.create({
+        id: diary.id,
+        userId,
+        content: diary.content,
+        emotion: diary.emotion,
+        moodId: mood.id,
+        journeyId: journey?.id ?? null,
+        hasLetter: false,
+        createdAt: new Date(diary.createdAt),
+      });
+      this.pendingDiaryContent = diary.content;
+      this.pendingSourceContent = { ...(this.pendingSourceContent ?? {}), [diary.id]: diary.content };
+    } else {
+      this.diaries.unshift(diary);
+    }
     const queued = this.queueLetterGeneration({
       userId,
       sourceMoodId: mood.id,
@@ -7422,8 +7452,12 @@ export class StoreService implements OnModuleInit {
     void this.waitForAiJob(queued.job.id)
       .then(async (completed) => {
         if (!['succeeded', 'fallback'].includes(completed.status)) return;
-        const savedDiary = this.diaries.find((item) => item.id === diary.id);
-        if (savedDiary) savedDiary.hasLetter = true;
+        if (DIRECT_DB_MODELS.Diary) {
+          await this.diariesDb.setHasLetter(diary.id, true);
+        } else {
+          const savedDiary = this.diaries.find((item) => item.id === diary.id);
+          if (savedDiary) savedDiary.hasLetter = true;
+        }
         await this.persistAndFlush();
       })
       .catch(() => undefined);
@@ -8611,13 +8645,15 @@ export class StoreService implements OnModuleInit {
   private latestUserContent(userId: string) {
     const diary = this.diaries.find((item) => item.userId === userId);
     if (diary?.content) return diary.content;
-    // Mood is database-authoritative; `queueAI` is on a hot synchronous path, so the caller passes
-    // the already-loaded mood content instead of this reaching for the table.
-    return this.pendingMoodContent ?? '';
+    // Mood and Diary are database-authoritative; `queueAI` is on a hot synchronous path, so the
+    // caller passes the already-loaded content instead of this reaching for the table.
+    return this.pendingDiaryContent ?? this.pendingMoodContent ?? '';
   }
 
   /** Set by `createMood` so a follow-up AI call for the same request can use the mood's content. */
   private pendingMoodContent?: string;
+  /** Same, for the companion diary a private mood publishes. */
+  private pendingDiaryContent?: string;
   /** Same idea for `resolveSourceContent`: a mood loaded this request, keyed by id. */
   private pendingSourceContent?: Record<string, string>;
 

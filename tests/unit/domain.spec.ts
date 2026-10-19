@@ -30,9 +30,11 @@ const stubPersistence = {
   // AIStyleRoute is database-authoritative, so the route this test resolves comes from the table. The
   // stub supplies the warm row the legacy seed used, with the three provider FKs the policy points at
   // the DAPI primary/secondary and the safe template.
-  // Mood is database-authoritative; the diary export resolves a mood's attachments through it.
-  mood: { findUnique: async () => null, findMany: async () => [], findFirst: async () => null },
-  moodAttachment: { findMany: async () => [] },
+    // Mood is database-authoritative; the diary export resolves a mood's attachments through it.
+    mood: { findUnique: async () => null, findMany: async () => [], findFirst: async () => null },
+    moodAttachment: { findMany: async () => [] },
+    diary: { findMany: async () => [], findFirst: async () => null, count: async () => 0 },
+    diaryAttachment: { findMany: async () => [] },
   aIStyleRoute: {
     findMany: async () => [
       {
@@ -126,6 +128,8 @@ describe('domain services', () => {
     // Mood is database-authoritative, so a diary with no attachments of its own resolves them
     // through the mood service. These fixtures carry none, which is what the stub answers.
     (store as any).moodsDb = { attachmentIdsFor: async () => [], isAttachedToAny: async () => false };
+    // Diary is too, so the export's diary list comes from the table. The fixtures hold none.
+    (store as any).diariesDb = { listForUser: async () => [], attachmentIdsFor: async () => [] };
     // The identity is stated rather than defaulted: the store no longer picks an owner for a caller
     // that did not name one, so a fixture needing the demo user has to say so.
     const result = await store.createDiaryExport('user_demo');

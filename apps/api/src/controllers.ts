@@ -1666,15 +1666,20 @@ export class PublicController {
     const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     letter.savedToDiary = true;
-    this.store.diaries.unshift({
+    const savedDiary = {
       id: `diary_${Date.now()}`,
       userId: letter.userId,
       letterId: id,
-      emotion: '委屈',
+      emotion: '委屈' as Emotion,
       content: letter.content,
       hasLetter: true,
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (DIRECT_DB_MODELS.Diary) {
+      await this.store.diariesDb.create({ ...savedDiary, createdAt: new Date(savedDiary.createdAt) });
+    } else {
+      this.store.diaries.unshift(savedDiary);
+    }
     this.store.persist();
     await this.store.flush();
     return { item: letter };
@@ -1814,16 +1819,20 @@ export class PublicController {
       job?.traceJson.find((item) => typeof item === 'object' && item && 'structured' in item) as
         { structured?: unknown } | undefined
     )?.structured;
-    this.store.diaries.unshift({
+    const decomposedDiary = {
       id: id('diary'),
       userId,
-      emotion: '焦虑',
+      emotion: '焦虑' as Emotion,
       content: job?.result ?? `情绪拆解结果 ${taskId}`,
       hasLetter: false,
       source: 'tool-decompose',
-      toolResult: structured,
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (DIRECT_DB_MODELS.Diary) {
+      await this.store.diariesDb.create({ ...decomposedDiary, createdAt: new Date(decomposedDiary.createdAt) });
+    } else {
+      this.store.diaries.unshift(decomposedDiary);
+    }
     await this.store.persistAndFlush();
     return { ok: true };
   }
@@ -1839,7 +1848,9 @@ export class PublicController {
   async stats(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     const month = currentMonth();
-    const userDiaries = this.store.diaries.filter((item) => item.userId === runtimeId);
+    const userDiaries = DIRECT_DB_MODELS.Diary
+      ? await this.store.diariesDb.listForUser(runtimeId)
+      : this.store.diaries.filter((item) => item.userId === runtimeId);
     const userLetters = this.store.letters.filter((item) => item.userId === runtimeId);
     // Favorite is database-authoritative; counting the in-memory array would always report 0.
     const favoriteCount = await this.store.favoritesDb.countForUser(runtimeId);
@@ -1851,7 +1862,7 @@ export class PublicController {
         growthDays: 21,
         streakDays: Math.min(7, Math.max(1, userDiaries.length + 3)),
         replyCount: userLetters.length,
-        monthlyDiaryCount: userDiaries.filter((item) => item.createdAt.startsWith(month)).length,
+        monthlyDiaryCount: userDiaries.filter((item) => new Date(item.createdAt).toISOString().startsWith(month)).length,
       },
     };
   }
@@ -1866,7 +1877,8 @@ export class PublicController {
   async clearData(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     await this.store.clearFavoritesForUser(runtimeId);
-    this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
+    if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
+    else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
     this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
     await this.store.persistAndFlush();
     return { ok: true };
@@ -1897,6 +1909,18 @@ export class PublicController {
       toolResult: body.toolResult,
       createdAt: new Date().toISOString(),
     };
+    if (DIRECT_DB_MODELS.Diary) {
+      const created = await this.store.diariesDb.create({
+        id: diary.id,
+        userId: targetUserId,
+        content: diary.content,
+        emotion: diary.emotion,
+        letterId: diary.letterId,
+        source: diary.source,
+        createdAt: new Date(diary.createdAt),
+      });
+      return { item: created };
+    }
     this.store.diaries.unshift(diary);
     this.store.persist();
     await this.store.flush();
@@ -2042,12 +2066,9 @@ export class PublicController {
     // A diary id is not a capability. Without the owner scope any authenticated caller could delete
     // someone else's entry by guessing an id, and the ids are timestamp-derived.
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const existing = this.store.diaries.find((item) => item.id === id && item.userId === userId);
-    if (!existing) throw new NotFoundException('日记不存在');
-    this.store.diaries = this.store.diaries.filter((item) => item.id !== id);
     // The delete has to reach the table before the response: a 200 followed by a restart used to
-    // bring the entry back, because this handler mutated memory and never flushed.
-    await this.store.persistAndFlush();
+    // bring the entry back, because the handler mutated memory and never flushed.
+    await this.store.diariesDb.deleteOwned(id, userId);
     return { ok: true };
   }
 
