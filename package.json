@@ -92,6 +92,7 @@
     "test:ai-routing": "vitest run tests/business/ai-provider-routing.spec.ts",
     "test:cross": "tsx scripts/test-runner.ts vitest run tests/cross",
     "lint": "eslint .",
+    "audit:self-dual-writer": "node scripts/self-dual-writer-inventory.mjs",
     "typecheck": "tsc --noEmit -p apps/api/tsconfig.json && vue-tsc -p apps/admin/tsconfig.json --noEmit && vue-tsc -p apps/mp/tsconfig.json --noEmit && tsc --noEmit -p packages/shared-types/tsconfig.json && tsc --noEmit -p packages/api-sdk/tsconfig.json",
     "qa:all": "tsx scripts/qa-all.ts",
     "qa:real-all": "pnpm lint && pnpm typecheck && pnpm diagnose:api-bindings && pnpm diagnose:clickability && pnpm diagnose:overflow && pnpm test:front-business && pnpm test:admin-sync && pnpm test:ai-routing && pnpm test:visual",
