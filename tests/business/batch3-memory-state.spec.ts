@@ -230,6 +230,87 @@ describe('Batch 3: MemoryItem state machine', () => {
     expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Journey')).map((m) => m.id)).toContain(journeyScoped);
   });
 
+  /**
+   * The AI linearization point from §0.5/A5, stated so a later change cannot quietly move it.
+   *
+   * Eligibility is decided by ONE statement that joins the consent flag, so the decision
+   * linearizes at that statement: a revocation committing before it excludes the memory, and one
+   * committing after it lets the in-flight request finish and applies to the next one. 2.3 pins the
+   * first half by revoking between two calls and observing the boundary; it cannot pin the second
+   * half, which is a window inside a dispatch, so it is not claimed.
+   */
+  it('2.3 Revocation takes effect at the next eligibility statement, and the boundary is observable', async () => {
+    const id = await createMemory('撤销边界');
+    expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id)).toContain(id);
+
+    // The consent is a join predicate of the same statement, so this update must be visible to the
+    // very next call. If the consent were read in a separate statement - the earlier shape - this is
+    // where the two reads could interleave and the memory would still be served.
+    await prisma.privacySetting.update({ where: { userId: owner }, data: { allowAiMemoryUse: false } });
+    expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id)).not.toContain(id);
+
+    // And re-consent restores it with no other change to the row.
+    await prisma.privacySetting.update({ where: { userId: owner }, data: { allowAiMemoryUse: true } });
+    expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id)).toContain(id);
+
+    await prisma.memoryItem.deleteMany({ where: { id } });
+  });
+
+  it('2.4 Concurrent extension and expiry: the extension of an expired row is refused, and re-consent is the only way back', async () => {
+    // The A5 hazard is not a single write but the order of two: a user extending a memory while the
+    // window lapses. Both are issued at once through the real service so whichever lands second has
+    // to be refused on its own merits rather than by luck.
+    const id = await createMemory('并发延期');
+    await prisma.memoryItem.update({ where: { id }, data: { status: 'active', expiresAt: await expiredAt() } });
+
+    const [extend, reconsent] = await Promise.allSettled([
+      self.updateMemory(id, owner, { days: 60 }),
+      self.reactivateMemory(id, owner, 60),
+    ]);
+
+    const row = await prisma.memoryItem.findUniqueOrThrow({ where: { id } });
+    // One of the two must have succeeded. "Both refused" is what this case watches for: the row
+    // would be left expired with no way forward, which is the same user-visible stuck state A5
+    // forbids from the other direction.
+    expect(extend.status === 'fulfilled' || reconsent.status === 'fulfilled').toBe(true);
+    // `updateMemory` writes no status field, so a fulfilled extension on this row means the
+    // re-consent landed first and the extension followed a row that was active again. It is never
+    // evidence that the extension alone revived an expired row - 2.5 pins that sequentially.
+    if (extend.status === 'fulfilled') {
+      expect(reconsent.status).toBe('fulfilled');
+    }
+    expect(row.status).toBe('active');
+    expect(row.deletedAt).toBeNull();
+    expect(Date.parse(String(row.expiresAt))).toBeGreaterThan(Date.now());
+    expect(Date.parse(String(row.consentedAt))).toBeGreaterThan(Date.now() - 3_600_000);
+    await prisma.memoryItem.deleteMany({ where: { id } });
+  });
+
+  /**
+   * 2.4 races the two writes, so it cannot say which one succeeded. This case states the sequential
+   * behaviour: an extension alone is refused on an expired row, the refused extension moves no date,
+   * and only then does re-consent open the row. Together they cover both halves - the race proves
+   * the pair never leaves the row stuck, and this proves the extension alone never revives it.
+   */
+  it('2.5 An extension alone on an expired row is refused, and re-consent then opens it', async () => {
+    const id = await createMemory('单独延期');
+    await prisma.memoryItem.update({ where: { id }, data: { status: 'active', expiresAt: await expiredAt() } });
+
+    await expect(self.updateMemory(id, owner, { days: 60 })).rejects.toThrow(/已经过期/);
+
+    const afterRefused = await prisma.memoryItem.findUniqueOrThrow({ where: { id } });
+    expect(afterRefused.status).toBe('active');
+    // The refused extension did not move the date, so the row is still effectively expired and
+    // therefore still invisible to a prompt.
+    expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id)).not.toContain(id);
+
+    const revived = await self.reactivateMemory(id, owner, 60);
+    expect(revived.status).toBe('active');
+    expect(Date.parse(String(revived.expiresAt))).toBeGreaterThan(Date.now());
+    expect((await self.listAiEligibleMemories(owner, 'breakdown', 'Mood')).map((m) => m.id)).toContain(id);
+    await prisma.memoryItem.deleteMany({ where: { id } });
+  });
+
   it('3.1 The admin memory list is metadata-only and never searches the memory text', async () => {
     const id = await createMemory('后台披露');
     const adminLogin = await request(app.getHttpServer())

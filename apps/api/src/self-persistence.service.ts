@@ -1023,14 +1023,10 @@ export class SelfPersistenceService {
       const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
       if (!existing) throw new NotFoundException('记忆不存在');
       if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
-      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
       if (memoryDatePassed(existing)) {
         // §0.5/A5: an effectively expired row allows read, delete and explicit re-consent only.
         // Disabling or re-expiring it is not in that set, and allowing it would let an expired row
         // be moved around as if it were live.
-        throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
-      }
-      if (memoryDatePassed(existing)) {
         throw new BadRequestException('这条记忆已经过期，需要重新确认后才能继续使用');
       }
 
