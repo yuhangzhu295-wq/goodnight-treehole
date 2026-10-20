@@ -229,3 +229,81 @@ describe('Batch 3 multi-instance: a decision cooldown race', () => {
     expect(active).toBe(1);
   });
 });
+
+/**
+ * The second Self flow the gate names: a future-self letter's delivery.
+ *
+ * `batch3-future-self-queue-faults.spec.ts` already races two `deliver` calls on the same job. What it
+ * does not do, and what this file exists for, is read the **final rows with an independent client** —
+ * the app's own arrays and a cached reload cannot prove that a second instance would see one
+ * delivered letter, one notification, one `deliveredAt`.
+ *
+ * The barrier again enters inside the claim transaction, so neither worker can be a fast follower.
+ */
+describe('multi-instance: a future-self letter is delivered exactly once', () => {
+  it('two deliveries of one letter leave one delivered row, one notification, and one stamp', async () => {
+    const app = await createApiTestApp();
+    try {
+      const { SelfPersistenceService } = await import('../../apps/api/src/self-persistence.service.js');
+      const self = app.get(SelfPersistenceService);
+      const worker = app.get(FollowUpWorkerService);
+      const rows = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+
+      const userA = `user_self_fs_${Date.now()}`;
+      await rows.user.upsert({
+        where: { id: userA },
+        create: { id: userA, openid: `openid_${userA}`, anonymousCode: `anon_${userA}`, nickname: '未来信' },
+        update: {},
+      });
+      // With consent off the claim deliberately writes no notification, which is correct and would
+      // make a "one notification" assertion fail for the wrong reason. Consent is on here so the
+      // assertion is about the duplicate delivery, not about the consent path.
+      await rows.privacySetting.create({
+        data: { userId: userA, allowFutureSelfNotifications: true, allowAiMemoryUse: true },
+      });
+
+      const { item, followUp } = await self.createFutureMessage({
+        userId: userA,
+        content: `multi-instance future self ${Date.now()}`,
+        deliverAt: new Date(Date.now() + 3_600_000),
+      });
+
+      const barrier = new StrictBarrier(['workerA', 'workerB']);
+      const jobInput = {
+        id: followUp.id,
+        kind: 'FUTURE_SELF',
+        userId: userA,
+        payload: { messageId: item.id },
+      };
+      const outcomes = await Promise.allSettled([
+        (worker as any).deliver({ ...jobInput, _onBeforeClaim: () => barrier.enter('workerA') }),
+        (worker as any).deliver({ ...jobInput, _onBeforeClaim: () => barrier.enter('workerB') }),
+      ]);
+      barrier.assertAllArrived();
+
+      // Exactly one claim. The row-level assertions below cannot see this on their own: the
+      // notification id is deterministic and `skipDuplicates` holds at 1 even when both rows were
+      // written, so "one notification" is also what a double claim looks like. The claim's own
+      // signal - `skipped` - is what distinguishes them.
+      const skipped = outcomes.filter((o) => o.status === 'fulfilled' && (o.value as any)?.skipped === true).length;
+      expect(skipped).toBe(1);
+
+      const letter = await rows.messageToFutureSelf.findUnique({ where: { id: item.id } });
+      const notifications = await rows.userNotification.count({ where: { id: `notification_${followUp.id}` } });
+      const job = await rows.followUpJob.findUnique({ where: { id: followUp.id } });
+
+      expect(letter?.deliveredAt).not.toBeNull();
+      expect(notifications).toBe(1);
+      expect(job?.status).toBe('delivered');
+
+      await rows.userNotification.deleteMany({ where: { id: `notification_${followUp.id}` } }).catch(() => undefined);
+      await rows.messageToFutureSelf.deleteMany({ where: { id: item.id } }).catch(() => undefined);
+      await rows.followUpJob.deleteMany({ where: { id: followUp.id } }).catch(() => undefined);
+      await rows.privacySetting.deleteMany({ where: { userId: userA } }).catch(() => undefined);
+      await rows.user.deleteMany({ where: { id: userA, openid: `openid_${userA}` } }).catch(() => undefined);
+      await rows.$disconnect();
+    } finally {
+      await app.close();
+    }
+  }, 120_000);
+});
