@@ -36,16 +36,39 @@ Of the 20 compared, the verdicts are mutually exclusive and add up:
 
 | Verdict | Count | Tasks |
 | --- | --- | --- |
-| PASS | 15 | 02, 03, 04, 05, 06, 07, 08, 09, 11, 12, 14, 15, 16, 17, 18 |
-| FAIL | 3 | 10, 20, 29 |
-| INCONCLUSIVE | 2 | 01, 13 |
+| PASS | 17 | 02, 03, 04, 05, 06, 07, 08, 09, 11, 12, 14, 15, 16, 17, 18, 20, 29 |
+| FAIL | 0 | — |
+| INCONCLUSIVE | 3 | 01, 10, 13 |
 
-15 + 3 + 2 = 20. Two earlier versions of this document were wrong here: one listed UI-V2-01 as both
-INCONCLUSIVE and PASS, and both inherited a summary line of "13 PASS" that does not match the
-per-page table it summarises. The table above is transcribed from the reviewer's per-page verdicts,
-which is the evidence; the summary line was the error.
+17 + 0 + 3 = 20. The counts changed once, after the three FAILs were re-tested against a live device
+and found to be capture artefacts (see the correction section). Two *earlier* versions were also
+wrong in a different way: one listed UI-V2-01 as both INCONCLUSIVE and PASS, and both inherited a
+summary line of "13 PASS" that did not match the per-page table it summarised. The per-page table is
+the evidence in every case.
 
-## FAIL — user-visible defects, ranked
+## Correction: the three FAILs were not product defects
+
+The pixel review below was written from the captures on disk. Re-testing them against a live device
+(emulator-5554, app running, API reachable over `adb reverse`) showed that **all three were
+capture-state artefacts**, not rendering defects. The originals are kept as invalid evidence. Both the originals and the recaptures live under
+`artifacts/ui-v2/android/`, which is gitignored - the evidence is on the machine that ran the
+review, not in the repository, and this document names the exact files so it can be re-checked.
+
+| Task | Original verdict | What re-testing showed |
+| --- | --- | --- |
+| UI-V2-20 DecisionVault | FAIL — whole content area dark | The page's computed background is `rgb(255,255,255)`, opacity 1, filter none. A fresh capture measures mean 242.9 / median 255 / 27.8% content, against the design's ~250. The old capture measured 84% non-white at a uniform `(170,173,175)` — a dimming scrim over the whole content area, present at capture time and absent from the page. |
+| UI-V2-29 MeProfile | FAIL — blank page, only an error line | The old capture had 0.5% content because the app held **no identity** (the API was unreachable at launch, so `ensureIdentity()` returned null and `/me/profile` answered 401). With an identity present the same route returns 200 and the page renders the full profile: 10.0% content, name, anonymous code, account status. |
+| UI-V2-10 PeerConversation | FAIL — message list blank | The page loads `/api/v1/peer-conversations` and selects the one matching its `matchId`. The capture's viewer owned none of the five conversations in the database, so an empty list was the **correct** render for that viewer. Not a defect; also not evidence of a populated conversation. |
+
+What this means for the counts: **PASS 17, FAIL 0, INCONCLUSIVE 3** (01, 13, and 10 — 10 is now
+inconclusive rather than failed because a populated capture requires a viewer who owns a
+conversation, which this run could not produce).
+
+The general lesson is recorded in `feedback-screen-is-not-evidence`: a capture taken in a broken
+environment is not evidence about the product. The R3 batch was taken while the API was unreachable,
+which is why two of its pages look empty and one looks dimmed.
+
+## Original FAIL findings (superseded — kept so the error is auditable)
 
 **1. UI-V2-20 `DecisionVault` — the whole content area renders dark.**
 Content-area mean brightness 179.2 on screen against 250.3 in the design, a 28% difference, with the
@@ -88,8 +111,8 @@ state until a capture exists.
 ## What this does and does not establish
 
 - Established: for the 20 pages with a capture, whether the render is structurally the right page and
-  free of gross defects. 15 of the 20 are clean by that measure, 3 carry a named defect, and 2 could
-  not be judged from pixels.
+  free of gross defects. 17 of the 20 are clean by that measure; 3 could not be judged from pixels,
+  and none carries a confirmed defect.
 - Established: 3 concrete, reproducible defects with pixel evidence attached.
 - Not established: any claim about the 19 uncaptured pages, about text content, or about
   sub-pixel-level visual fidelity on any page.
