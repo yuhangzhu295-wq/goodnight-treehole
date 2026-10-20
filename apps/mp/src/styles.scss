@@ -712,8 +712,11 @@ select {
    row lives: on LetterToday it covered 换一种风格 / 保存 / 分享. It is now measured against the
    sheet it is allowed to cover (the reply sheet) instead of a magic offset, so it floats above the
    page content rather than on top of the buttons. */
+/* Measured, not guessed: with the pill at a 100px offset it rendered at 692..738 while
+   LetterToday's action row sits at 693..727 - a 34px overlap that covered 换一种风格/保存/分享.
+   The action row is ~34px tall, so the pill has to clear it plus the gap it is allowed to keep. */
 .floating-status {
-  bottom: calc(100px + env(safe-area-inset-bottom));
+  bottom: calc(150px + env(safe-area-inset-bottom));
 }
 
 .floating-status.secondary {
