@@ -174,9 +174,8 @@ const EDIT_AFTER_GATE = {
   'peer-matches/:id': 'responding to a match; consentMatch is the mutual-consent mechanism itself',
   'peer-matches/:id/respond': 'responding to a match; consentMatch is the mutual-consent mechanism itself',
   'peer-matches/:id/consent': 'consentMatch is the bilateral consent mechanism, not a share channel',
-  'me/memories/:id': 'edit of memory; the save gate is allowLongTermMemory, the read side needs none',
+  'me/memories/:id': 'edit or delete of own memory; the save gate is allowLongTermMemory, the read side needs none',
   'memory/:id': 'delete of own memory',
-  'me/memories/:id': 'delete of own memory',
 };
 
 const stillUnclassified = [];
