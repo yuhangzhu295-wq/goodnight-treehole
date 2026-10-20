@@ -14,6 +14,10 @@
  * Each file's verdict comes from the test runner's own report, so a connection failure is recorded
  * as ENVIRONMENT rather than being counted as a business regression.
  *
+ * A file that fails inside a segment and passes when re-run alone is recorded as `TRANSIENT`, not
+ * as a pass: the runner then exits non-zero. That is deliberate — "49 of 50 passed" and "one file
+ * is flaky" are different facts, and the second one must not be read off the summary as a green run.
+ *
  * Usage:
  *   node scripts/run-suite-segmented.mjs [--segment 6] [tests/business ...]
  */
@@ -101,7 +105,22 @@ for (const [index, group] of groups.entries()) {
     repair();
     outcome = await runFiles(group);
   }
-  for (const file of group) results.push({ file: file.replaceAll('\\', '/'), verdict: perFileStatus(outcome.output, file) });
+  for (const file of group) {
+    // Re-run a file that failed when nothing else in the segment did, so a transient failure (a WSL
+    // restart landing mid-segment, say) is not reported as a regression. A file that fails again is
+    // kept as FAIL, and the retry is recorded rather than hidden - a retry that passes on the second
+    // attempt is a flake, not a green suite.
+    let verdict = perFileStatus(outcome.output, file);
+    if (verdict !== 'PASS') {
+      const retry = await runFiles([file]);
+      const retryVerdict = perFileStatus(retry.output, file);
+      if (retryVerdict === 'PASS') {
+        console.log(`[segmented] ${file} failed in the segment and passed alone - recorded as TRANSIENT`);
+        verdict = 'TRANSIENT';
+      }
+    }
+    results.push({ file: file.replaceAll('\\', '/'), verdict });
+  }
 }
 
 const counts = results.reduce((acc, item) => ({ ...acc, [item.verdict]: (acc[item.verdict] ?? 0) + 1 }), {});
@@ -110,4 +129,9 @@ fs.writeFileSync('artifacts/runtime/segmented/segmented-results.json', JSON.stri
 
 console.log(`\n=== ${results.length} files: ${JSON.stringify(counts)}`);
 for (const item of results) if (item.verdict !== 'PASS') console.log(`  ${item.verdict} ${item.file}`);
-process.exit(counts.ENV || counts.FAIL || counts.MISSING ? 1 : 0);
+if (counts.TRANSIENT) {
+  console.log(
+    `\n[segmented] ${counts.TRANSIENT} file(s) failed inside a segment and passed alone. That is a flake, not a green run: those files are not evidence that the segment passes.`,
+  );
+}
+process.exit(counts.ENV || counts.FAIL || counts.MISSING || counts.TRANSIENT ? 1 : 0);
