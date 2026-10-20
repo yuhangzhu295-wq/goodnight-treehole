@@ -66,6 +66,12 @@ function createStore(assetRows?: Map<string, any>, ticketRows?: any[]) {
       // holds tickets this instance wrote - which is the gap that let a live ticket's screenshot be
       // deleted. Seeded by the case that creates the ticket.
       feedbackTicket: { findMany: async () => tickets },
+      // The ticket guard is a `@>` containment query against the FeedbackTicket table; the stub
+      // answers it from the same fixture rows.
+      $queryRaw: async (_strings: any, ...values: any[]) => {
+        const needle = JSON.parse(String(values[0] ?? '[]'))[0];
+        return [{ found: tickets.some((ticket: any) => (ticket.screenshots ?? []).includes(needle)) }];
+      },
       post: { count: async () => 0 },
       diary: { count: async () => 0 },
       // MediaAsset is database-authoritative; the draft-delete guard reads attachments through it.

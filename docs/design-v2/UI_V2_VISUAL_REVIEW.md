@@ -21,20 +21,29 @@ sighted look, and this document does not close them.
 
 How the 20 were reached, so the number can be re-derived rather than trusted:
 
-- **17** resolve from the task's own `screenshot` field. For four of those (UI-V2-05, 10, 15) the
-  field holds a brace-expansion list rather than a single path, so the first member that exists is
+- **17** resolve from the task's own `screenshot` field. Three of those (UI-V2-05, UI-V2-10,
+  UI-V2-15) hold a brace-expansion list rather than a single path, so the first member that exists is
   the one compared.
-- **3** more (UI-V2-01 TonightHome, UI-V2-04 Me, and UI-V2-03 ActionCenter) are named in the task's
-  evidence notes as re-captured on device — `R1_TonightHome_after_RECAPTURED.png`,
-  `R1_Me_after_RECAPTURED.png`, `R1_ActionCenter_current.png` — and were compared from those.
-- The other **19** tasks have no file under `artifacts/ui-v2/android/` at all. Nine of them are
-  Round 4; the rest are Round 3 pages whose captures were never taken (UI-V2-19 MemoryCenter is
-  recorded as unreachable on the emulator, UI-V2-36 PrivacySettings landed on the wrong page twice).
+- **3** more — UI-V2-01 TonightHome, UI-V2-03 ActionCenter, UI-V2-04 Me — are named in the task's
+  evidence notes as re-captured on device (`R1_TonightHome_after_RECAPTURED.png`,
+  `R1_ActionCenter_current.png`, `R1_Me_after_RECAPTURED.png`) and were compared from those.
+- The other **19** have no file under `artifacts/ui-v2/android/`. **14** of those are Round 4
+  (UI-V2-22–28, 30, 31, 33–35, 38, 39); the remaining five are UI-V2-19 MemoryCenter (recorded as
+  unreachable on the emulator), UI-V2-21 Archive, UI-V2-32 ReportMonth, UI-V2-36 PrivacySettings
+  (landed on the wrong page twice), and UI-V2-37 DataPolicy.
 
-Of the 20 compared: **13 PASS**, **3 FAIL**, **2 INCONCLUSIVE**, and 2 more (UI-V2-01,
-UI-V2-03) were counted among the PASSes on the strength of structural metrics alone. The numbers add
-to 20; if you re-count and get a different total, this document is wrong and should be corrected
-rather than reconciled.
+Of the 20 compared, the verdicts are mutually exclusive and add up:
+
+| Verdict | Count | Tasks |
+| --- | --- | --- |
+| PASS | 15 | 02, 03, 04, 05, 06, 07, 08, 09, 11, 12, 14, 15, 16, 17, 18 |
+| FAIL | 3 | 10, 20, 29 |
+| INCONCLUSIVE | 2 | 01, 13 |
+
+15 + 3 + 2 = 20. Two earlier versions of this document were wrong here: one listed UI-V2-01 as both
+INCONCLUSIVE and PASS, and both inherited a summary line of "13 PASS" that does not match the
+per-page table it summarises. The table above is transcribed from the reviewer's per-page verdicts,
+which is the evidence; the summary line was the error.
 
 ## FAIL — user-visible defects, ranked
 
@@ -79,8 +88,8 @@ state until a capture exists.
 ## What this does and does not establish
 
 - Established: for the 20 pages with a capture, whether the render is structurally the right page and
-  free of gross defects. 13 of the 20 are clean by that measure, 3 carry a named defect, and 2
-  could not be judged from pixels.
+  free of gross defects. 15 of the 20 are clean by that measure, 3 carry a named defect, and 2 could
+  not be judged from pixels.
 - Established: 3 concrete, reproducible defects with pixel evidence attached.
 - Not established: any claim about the 19 uncaptured pages, about text content, or about
   sub-pixel-level visual fidelity on any page.

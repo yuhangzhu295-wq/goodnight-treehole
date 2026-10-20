@@ -2554,9 +2554,8 @@ export class StoreService implements OnModuleInit {
           : await this.mediaByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []))
       ).map((asset) => [asset.id, asset]),
     );
-    const exportedDiaries = diaries.map((item: any) => ({
-      ...item,
-      attachments: (((item.attachmentIds ?? []) as string[])
+    const exportedDiaries = diaries.map((item: any) => {
+      const resolved = (((item.attachmentIds ?? []) as string[])
         .map((assetId) => attachmentsById.get(assetId))
         .filter((asset): asset is MediaAsset => Boolean(asset)) as MediaAsset[]).map((asset) => ({
         id: asset.id,
@@ -2566,8 +2565,16 @@ export class StoreService implements OnModuleInit {
         width: asset.width,
         height: asset.height,
         createdAt: asset.createdAt,
-      })),
-    }));
+      }));
+      return {
+        ...item,
+        attachments: resolved,
+        // Ids that did not resolve are named rather than dropped silently: a diary can carry an id
+        // that belongs to another account or whose row is gone, and an export whose attachmentIds
+        // and attachments disagree without saying why is unreadable to whoever inspects it.
+        unresolvedAttachmentIds: ((item.attachmentIds ?? []) as string[]).filter((id) => !attachmentsById.has(id)),
+      };
+    });
     const assetId = id('export');
     const storageKey = `diary-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
     const target = path.join(uploadsDirectory, storageKey);

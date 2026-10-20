@@ -1594,13 +1594,18 @@ export class SelfPersistenceService {
           // superseded, which is terminal for the whole cycle, and `deliverCooldownJob` refuses to
           // release one - so this route has to refuse it as well, or the same decision reaches
           // `ready` through one path and stays `cooling` through the other.
-          const [latestCooldown] = await tx.$queryRaw<Array<{ status: string }>>`
-            SELECT "status" FROM "CooldownItem"
-            WHERE "userId" = ${userId} AND "decisionId" = ${id}
-            ORDER BY "createdAt" DESC
-            LIMIT 1
+          //
+          // The test is order-independent on purpose. Asking "which cooldown is newest" cannot be
+          // answered reliably here: `createdAt` is `TIMESTAMP(3)`, the supersede and its replacement
+          // are written by the same request, and the id's suffix is random - so within a millisecond
+          // there is no column that records write order. What the guard actually needs is whether the
+          // cycle ended by supersede: every cooldown is superseded, with nothing active or released.
+          const [cycle] = await tx.$queryRaw<Array<{ superseded: boolean; live: boolean }>>`
+            SELECT
+              EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${id} AND status = 'superseded') AS superseded,
+              EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${id} AND status IN ('active', 'released')) AS live
           `;
-          if (latestCooldown?.status === 'superseded') {
+          if (cycle?.superseded && !cycle.live) {
             throw new BadRequestException('这个冷静期已经被取代，请重新开始一个冷静期');
           }
           updateData.status = 'ready';
@@ -1672,19 +1677,19 @@ export class SelfPersistenceService {
         -- ready transition already enforces. Without this, reading the list re-readies a decision
         -- whose cooldown was superseded, so the same decision is ready through one path and refuses
         -- through the other - and the read path is the one that runs unasked.
-        AND NOT EXISTS (
-          SELECT 1 FROM "CooldownItem" recent
-          WHERE recent."decisionId" = "DecisionRecord".id
-            AND recent.status = 'superseded'
-            AND NOT EXISTS (
-              SELECT 1 FROM "CooldownItem" newer
-              WHERE newer."decisionId" = "DecisionRecord".id
-                AND newer.status <> 'superseded'
-                AND (
-                  newer."createdAt" > recent."createdAt"
-                  OR (newer."createdAt" = recent."createdAt" AND newer."id" > recent."id")
-                )
-            )
+        -- Order-independent, for the same reason the manual path is: within a millisecond there is
+        -- no column that records which cooldown was written first, so "the newest one is superseded"
+        -- has no determinate answer. What does: the cycle is over when something was superseded and
+        -- nothing is live (active or released).
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM "CooldownItem"
+            WHERE "decisionId" = "DecisionRecord".id AND status = 'superseded'
+          )
+          OR EXISTS (
+            SELECT 1 FROM "CooldownItem"
+            WHERE "decisionId" = "DecisionRecord".id AND status IN ('active', 'released')
+          )
         )
     `;
 
@@ -1862,19 +1867,25 @@ export class SelfPersistenceService {
    * row that only the superseding write changes, and a transaction would add a second failure mode
    * without changing the answer.
    */
-  async latestCooldownForDecisionIsSuperseded(userId: string, decisionId: string): Promise<boolean> {
-    // Ordered by `createdAt, id`, not `createdAt` alone. Two cooldowns written in the same clock tick
-    // are a real case - the supersede and its replacement are created by the same request handling
-    // path - and with `createdAt` alone the order between them is whatever the planner returns, so
-    // the "latest" one is not deterministic and the guard would refuse or admit by luck. The id is the
-    // tie-breaker, and the list path orders the same way.
-    const row = await this.prisma.$queryRaw<Array<{ status: string }>>`
-      SELECT "status" FROM "CooldownItem"
-      WHERE "userId" = ${userId} AND "decisionId" = ${decisionId}
-      ORDER BY "createdAt" DESC, "id" DESC
-      LIMIT 1
+  /**
+   * Whether this decision's cooldown cycle ended by supersede.
+   *
+   * Order-independent by construction: "the newest cooldown was superseded" is not answerable here.
+   * `createdAt` is `TIMESTAMP(3)`, the supersede and its replacement are written by the same
+   * request, and `genId`'s suffix is random - so two cooldowns can share a millisecond with nothing
+   * recording which was written first. An earlier version of this guard ordered by the whole id,
+   * which is ordering by the random suffix.
+   *
+   * The question that has a determinate answer is whether the cycle is over: there is at least one
+   * superseded cooldown and none that is still live (active or released).
+   */
+  async cooldownCycleWasSuperseded(userId: string, decisionId: string): Promise<boolean> {
+    const [row] = await this.prisma.$queryRaw<Array<{ superseded: boolean; live: boolean }>>`
+      SELECT
+        EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${decisionId} AND status = 'superseded') AS superseded,
+        EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${decisionId} AND status IN ('active', 'released')) AS live
     `;
-    return row[0]?.status === 'superseded';
+    return row?.superseded === true && row?.live === false;
   }
 
   async listCooldowns(userId: string): Promise<CooldownItemRecord[]> {

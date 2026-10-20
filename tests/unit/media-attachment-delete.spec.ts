@@ -57,6 +57,8 @@ function createStore(rows: Map<string, any>) {
       diary: { count: async () => 0 },
       letter: { count: async () => 0 },
       feedbackTicket: { findMany: async () => [] },
+      // The ticket guard is a containment query now; with no ticket rows the answer is false.
+      $queryRaw: async () => [{ found: false }],
     } as any,
   );
   (store as any).moodsDb = { attachmentIdsFor: async () => [] };
@@ -155,23 +157,64 @@ describe('draft delete: an attached image is refused, and the author can delete 
 
 describe('draft delete: a screenshot on a real feedback ticket is refused', () => {
   /**
-   * The path the review caught: the ticket check scanned `this.feedbackTickets`, the in-memory array.
-   * A ticket created through the real HTTP route is written by `FeedbackPersistenceService` and
-   * never enters that array, so an image attached to a live ticket could be deleted out from under
-   * the ticket.
+   * The path the review caught: the ticket check scanned `this.feedbackTickets`, the in-memory array,
+   * but the real route writes tickets through `FeedbackPersistenceService` - so a ticket created over
+   * HTTP never appeared and its image was deleted out from under it.
    *
-   * This drives the ticket table directly (the unit stub below is that table) rather than the array,
-   * which is what the store's guard must consult now.
+   * This drives the real service, not a hand-written replacement: the stub below is the
+   * `FeedbackTicket` table and the service runs its actual `$queryRaw` against it. Replacing the
+   * service with an object that answers the question itself (an earlier version of this test) would
+   * keep passing if the query or its call site regressed.
    */
+  function createStoreWithTickets(rows: Map<string, any>, ticketRows: any[]) {
+    const store = new StoreService(
+      {
+        saveRuntimeState: async () => undefined,
+        auditLog: { create: async () => undefined },
+        mediaAsset: {
+          findMany: async () => [...rows.values()],
+          findUnique: async ({ where }: any) => rows.get(where?.id) ?? null,
+          findFirst: async ({ where }: any) =>
+            [...rows.values()].find(
+              (row) => (!where?.id || row.id === where.id) && (!where?.userId || row.userId === where.userId) && (!where?.status || row.status === where.status),
+            ) ?? null,
+          create: async ({ data }: any) => {
+            rows.set(data.id, { ...data });
+            return rows.get(data.id);
+          },
+          update: async ({ where, data }: any) => Object.assign(rows.get(where.id), data),
+          updateMany: async () => ({ count: 0 }),
+          count: async () => rows.size,
+          moodAttachment: { count: async () => 0 },
+          diaryAttachment: { count: async () => 0 },
+          isAttachedToAnyRow: async () => false,
+          ownedReadyByIds: async (ids: string[]) => ids.map((id) => rows.get(id)).filter(Boolean),
+        },
+        moodAttachment: { count: async () => 0 },
+        diaryAttachment: { count: async () => 0 },
+        mood: { count: async () => 0 },
+        post: { count: async () => 0 },
+        diary: { count: async () => 0 },
+        letter: { count: async () => 0 },
+        // The real service's query is `screenshots @> '["<id>"]'::jsonb`; the stub evaluates that
+        // containment against the fixture rows, so the service's own code path is what runs.
+        $queryRaw: async (strings: any, ...values: any[]) => {
+          const sql = String(strings?.raw ?? strings);
+          if (!sql.includes('FeedbackTicket')) return [{ found: false }];
+          const needle = JSON.parse(String(values[0] ?? '[]'))[0];
+          return [{ found: ticketRows.some((ticket) => (ticket.screenshots ?? []).includes(needle)) }];
+        },
+      } as any,
+    );
+    (store as any).moodsDb = { attachmentIdsFor: async () => [] };
+    (store as any).diariesDb = { attachmentIdsFor: async () => [], isAttachedToAnyRow: async () => false };
+    return store;
+  }
+
   it('refuses a delete when the asset is a screenshot on a ticket in the table', async () => {
     const rows = new Map<string, any>();
     const ticketRows: any[] = [];
-    const { store } = createStore(rows);
-    // Replace the ticket query with one that reads the table rows, the way the service does.
-    (store as any).feedbackPersistence = {
-      isScreenshotReferencedByAnyTicket: async (assetId: string) =>
-        ticketRows.some((ticket) => (ticket.screenshots ?? []).includes(assetId)),
-    };
+    const store = createStoreWithTickets(rows, ticketRows);
     const { storageKey } = writeUpload(`ticket-shot-${Date.now()}.png`);
     rows.set('media_ticket_1', {
       id: 'media_ticket_1',
@@ -190,5 +233,30 @@ describe('draft delete: a screenshot on a real feedback ticket is refused', () =
       runWithIdentity({ userId: 'user_demo', sessionId: 'unit-demo' }, () => store.deleteMediaAsset('media_ticket_1')),
     ).rejects.toMatchObject({ status: 403 });
     expect(rows.get('media_ticket_1').status).toBe('ready');
+  });
+
+  it('allows the delete when no ticket references the asset', async () => {
+    const rows = new Map<string, any>();
+    const ticketRows: any[] = [];
+    const store = createStoreWithTickets(rows, ticketRows);
+    const { storageKey } = writeUpload(`unreferenced-${Date.now()}.png`);
+    rows.set('media_free_1', {
+      id: 'media_free_1',
+      userId: 'user_demo',
+      storageKey,
+      url: `/uploads/${storageKey}`,
+      mimeType: 'image/png',
+      size: 15,
+      usageType: 'mood',
+      status: 'ready',
+      createdAt: new Date().toISOString(),
+    });
+    // A ticket exists, but references a different asset.
+    ticketRows.push({ id: 'ticket_2', userId: 'user_demo', screenshots: ['media_other'] });
+
+    await expect(
+      runWithIdentity({ userId: 'user_demo', sessionId: 'unit-demo' }, () => store.deleteMediaAsset('media_free_1')),
+    ).resolves.toBeUndefined();
+    expect(rows.get('media_free_1').status).toBe('deleted');
   });
 });

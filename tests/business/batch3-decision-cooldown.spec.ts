@@ -800,15 +800,9 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
    * The tie-break, and the case that matters because it is a real regression risk: an OLD superseded
    * cooldown must not block a decision that later finished a normal cooldown.
    *
-   * Ordering by `createdAt` alone left "the latest cooldown" to whatever the planner returned, so a
-   * decision could be refused by a supersede that had already been superseded itself. The id is the
-   * tie-breaker in both the manual guard and the list read.
-   *
-   * Scope, stated plainly: this case pins the *outcome* (an old superseded cooldown does not block a
-   * finished one). It does not isolate the id tie-break on its own - a strictly-later newer
-   * cooldown satisfies `createdAt >` without it. The tie-break is defence in depth for the exact
-   * same-timestamp case, which this fixture cannot produce because Prisma's default timestamp has
-   * microsecond resolution and two writes in the same request still land on different values.
+   * The guard asks whether the cycle ended by supersede, which is order-independent: it is blocked
+   * only when something was superseded and nothing is active or released. This case pins the
+   * outcome - an old superseded cooldown does not block a decision that later finished a normal one.
    */
   it('1.15 An older superseded cooldown does not block a decision that later finished a normal one', async () => {
     const decision = await selfPersistence.createDecision({
@@ -856,8 +850,67 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     expect(fromList?.status).toBe('ready');
 
     // And the manual path agrees, rather than the two paths disagreeing about which cooldown is newest.
-    const guard = await selfPersistence.latestCooldownForDecisionIsSuperseded(owner, decision.id);
+    const guard = await selfPersistence.cooldownCycleWasSuperseded(owner, decision.id);
     expect(guard).toBe(false);
+
+    await prisma.cooldownItem.deleteMany({ where: { id: { in: [supersededId, releasedId] } } });
+  }, 120_000);
+  /**
+   * Two cooldowns in the same millisecond, with ids that sort the wrong way.
+   *
+   * `CooldownItem.createdAt` is `TIMESTAMP(3)` and `genId`'s suffix is random, so within a
+   * millisecond no column records write order - which is why the guard does not try to order them.
+   * It asks whether the cycle is over instead: superseded something, live nothing. This fixture
+   * gives the superseded row the lexicographically LARGER id, so any ordering-based implementation
+   * would pick it as newest and refuse; the order-independent rule gets it right.
+   */
+  it('1.16 Two cooldowns in the same millisecond: the cycle is over only if nothing is live', async () => {
+    const decision = await selfPersistence.createDecision({
+      userId: owner,
+      question: `同毫秒并列_${Date.now()}`,
+    });
+    const sameMillisecond = new Date(Date.now() - 60_000);
+    const msStamp = sameMillisecond.getTime();
+    // Same prefix. The superseded one gets the lexicographically larger suffix, so `ORDER BY id DESC`
+    // would pick it as newest - which is exactly the wrong answer.
+    const supersededId = `cooldown_${msStamp}_ffff`;
+    const releasedId = `cooldown_${msStamp}_0001`;
+
+    await prisma.cooldownItem.create({
+      data: {
+        id: supersededId,
+        userId: owner,
+        decisionId: decision.id,
+        title: '同毫秒更早被取代',
+        releaseAt: sameMillisecond,
+        status: 'superseded',
+        createdAt: sameMillisecond,
+      },
+    });
+    await prisma.cooldownItem.create({
+      data: {
+        id: releasedId,
+        userId: owner,
+        decisionId: decision.id,
+        title: '同毫秒更晚释放',
+        releaseAt: sameMillisecond,
+        status: 'released',
+        createdAt: sameMillisecond,
+      },
+    });
+    await prisma.decisionRecord.update({
+      where: { id: decision.id },
+      data: { status: 'cooling', cooldownUntil: sameMillisecond },
+    });
+
+    // The manual guard reads the newer (released) one, not the lexicographically larger superseded id.
+    const guard = await selfPersistence.cooldownCycleWasSuperseded(owner, decision.id);
+    expect(guard).toBe(false);
+
+    // And the list read agrees.
+    const listed = await selfPersistence.listDecisions(owner);
+    const fromList = listed.find((item: any) => item.id === decision.id);
+    expect(fromList?.status).toBe('ready');
 
     await prisma.cooldownItem.deleteMany({ where: { id: { in: [supersededId, releasedId] } } });
   }, 120_000);
