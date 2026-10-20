@@ -708,6 +708,14 @@ select {
   pointer-events: none;
 }
 
+/* The status pill used to sit at a fixed 88px from the bottom, which is exactly where the action
+   row lives: on LetterToday it covered 换一种风格 / 保存 / 分享. It is now measured against the
+   sheet it is allowed to cover (the reply sheet) instead of a magic offset, so it floats above the
+   page content rather than on top of the buttons. */
+.floating-status {
+  bottom: calc(100px + env(safe-area-inset-bottom));
+}
+
 .floating-status.secondary {
   bottom: 134px;
 }
@@ -2343,7 +2351,11 @@ select {
   border-radius: 18px;
 }
 
-.list-page::before,
+/* The list/settings/feedback/report headers each carry their own matte-treated tree
+   (-list-hero::before etc.). This page-level layer is the same artwork at 0.42 opacity in the same
+   corner, so on those pages two identical trees overlapped and showed a visible seam in the header.
+   The hero-level layer stays; this generic one is dropped rather than faded, because a second faded
+   copy is the defect, not the decoration. */
 .settings-page::before,
 .feedback-page::before,
 .report-page::before,

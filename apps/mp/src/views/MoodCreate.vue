@@ -283,11 +283,11 @@ async function submit() {
 .mood-create-page .emotion-choice:nth-child(5) .face { background-image: url("../assets/goodnight/tool-baby-letter-cutout.png"); }
 .mood-create-page .emotion-choice:nth-child(6) .face { background-image: url("../assets/goodnight/tool-icon-sleep.png"); }
 
-/* Keep both privacy descriptions real, but let them fit the compact two-card
-   layout rather than making the first viewport depend on wrapping length. */
+/* The cards grow to hold the full privacy sentence. They used to be pinned at 50px so the first
+   viewport stayed short, which was only affordable while the sentence was ellipsised. */
 .mood-create-page .visibility-card {
   grid-template-columns: 32px minmax(0, 1fr);
-  min-height: 50px;
+  min-height: 62px;
   padding: 6px 8px;
   gap: 4px 7px;
 }
@@ -298,10 +298,13 @@ async function submit() {
 }
 
 .mood-create-page .visibility-card small {
-  overflow: hidden;
+  /* Two full lines, not an ellipsis. These two strings are the whole privacy consequence -
+     "only my diary and monthly report" versus "after review, AI and real people can reply" - so
+     truncating them means the user picks a visibility without being able to read what it does. */
   font-size: 10px;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
 }
 </style>
