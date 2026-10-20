@@ -272,6 +272,11 @@ export class FeedbackPersistenceService {
    * The legacy in-memory array only held tickets this instance had written, so a ticket created
    * through the real route did not appear in it - which is how an image attached to a live ticket
    * could still be deleted through the draft endpoint.
+   *
+   * Cost: `FeedbackTicket.screenshots` has no GIN index, so this is a sequential scan on every draft
+   * delete. Acceptable at the ticket table's size; if it grows, the fix is
+   * `CREATE INDEX ... USING GIN ("screenshots")` in a new migration, not a return to reading the
+   * column into this process.
    */
   async isScreenshotReferencedByAnyTicket(assetId: string): Promise<boolean> {
     const [row] = await this.prisma.$queryRaw<Array<{ found: boolean }>>`

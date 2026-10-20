@@ -1595,17 +1595,9 @@ export class SelfPersistenceService {
           // release one - so this route has to refuse it as well, or the same decision reaches
           // `ready` through one path and stays `cooling` through the other.
           //
-          // The test is order-independent on purpose. Asking "which cooldown is newest" cannot be
-          // answered reliably here: `createdAt` is `TIMESTAMP(3)`, the supersede and its replacement
-          // are written by the same request, and the id's suffix is random - so within a millisecond
-          // there is no column that records write order. What the guard actually needs is whether the
-          // cycle ended by supersede: every cooldown is superseded, with nothing active or released.
-          const [cycle] = await tx.$queryRaw<Array<{ superseded: boolean; live: boolean }>>`
-            SELECT
-              EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${id} AND status = 'superseded') AS superseded,
-              EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${id} AND status IN ('active', 'released')) AS live
-          `;
-          if (cycle?.superseded && !cycle.live) {
+          // One implementation, shared with the public helper: this guard had been written out twice
+          // and only one copy was exercised by the tests, which is how two same-meaning queries drift.
+          if (await SelfPersistenceService.cooldownCycleWasSupersededOn(tx, userId, id)) {
             throw new BadRequestException('这个冷静期已经被取代，请重新开始一个冷静期');
           }
           updateData.status = 'ready';
@@ -1880,7 +1872,22 @@ export class SelfPersistenceService {
    * superseded cooldown and none that is still live (active or released).
    */
   async cooldownCycleWasSuperseded(userId: string, decisionId: string): Promise<boolean> {
-    const [row] = await this.prisma.$queryRaw<Array<{ superseded: boolean; live: boolean }>>`
+    return SelfPersistenceService.cooldownCycleWasSupersededOn(this.prisma, userId, decisionId);
+  }
+
+  /**
+   * The single implementation, on whatever client the caller holds.
+   *
+   * The manual `ready` transition runs inside its own transaction and the public helper does not, so
+   * the client is a parameter. Both callers must ask the same question, and they did not before: the
+   * query was written out in both places and only the helper was covered by a test.
+   */
+  private static async cooldownCycleWasSupersededOn(
+    client: { $queryRaw: PrismaRuntimeService['$queryRaw'] },
+    userId: string,
+    decisionId: string,
+  ): Promise<boolean> {
+    const [row] = await client.$queryRaw<Array<{ superseded: boolean; live: boolean }>>`
       SELECT
         EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${decisionId} AND status = 'superseded') AS superseded,
         EXISTS (SELECT 1 FROM "CooldownItem" WHERE "userId" = ${userId} AND "decisionId" = ${decisionId} AND status IN ('active', 'released')) AS live

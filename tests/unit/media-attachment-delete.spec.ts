@@ -201,7 +201,13 @@ describe('draft delete: a screenshot on a real feedback ticket is refused', () =
         $queryRaw: async (strings: any, ...values: any[]) => {
           const sql = String(strings?.raw ?? strings);
           if (!sql.includes('FeedbackTicket')) return [{ found: false }];
-          const needle = JSON.parse(String(values[0] ?? '[]'))[0];
+          // The service binds exactly one value: the JSON array containing the asset id. Asserting
+          // that shape means a future change that prepends a parameter fails loudly here instead of
+          // silently answering about the wrong value.
+          if (values.length !== 1) throw new Error(`expected one bound parameter, got ${values.length}`);
+          const parsed = JSON.parse(String(values[0]));
+          if (!Array.isArray(parsed) || parsed.length !== 1) throw new Error(`expected a one-element JSON array, got ${String(values[0])}`);
+          const needle = parsed[0];
           return [{ found: ticketRows.some((ticket) => (ticket.screenshots ?? []).includes(needle)) }];
         },
       } as any,

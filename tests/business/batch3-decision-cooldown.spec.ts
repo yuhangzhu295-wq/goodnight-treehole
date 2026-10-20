@@ -912,6 +912,25 @@ describe('Batch 3: DecisionRecord + CooldownItem database authority and lifecycl
     const fromList = listed.find((item: any) => item.id === decision.id);
     expect(fromList?.status).toBe('ready');
 
-    await prisma.cooldownItem.deleteMany({ where: { id: { in: [supersededId, releasedId] } } });
+    // The manual transition is the third caller of the same question, and it was the copy that no
+    // test reached. Drive it directly so a change to one implementation cannot pass unnoticed.
+    const second = await selfPersistence.createDecision({ userId: owner, question: `同毫秒手动_${Date.now()}` });
+    await prisma.cooldownItem.create({
+      data: { id: `${supersededId}_m`, userId: owner, decisionId: second.id, title: '同毫秒更早被取代', releaseAt: sameMillisecond, status: 'superseded', createdAt: sameMillisecond },
+    });
+    await prisma.cooldownItem.create({
+      data: { id: `${releasedId}_m`, userId: owner, decisionId: second.id, title: '同毫秒更晚释放', releaseAt: sameMillisecond, status: 'released', createdAt: sameMillisecond },
+    });
+    await prisma.decisionRecord.update({
+      where: { id: second.id },
+      data: { status: 'cooling', cooldownUntil: sameMillisecond },
+    });
+    // The manual path allows it: a released cooldown exists, so the cycle did not end by supersede.
+    const updated = await selfPersistence.updateDecision(second.id, owner, { status: 'ready' });
+    expect(updated.status).toBe('ready');
+
+    await prisma.cooldownItem.deleteMany({
+      where: { id: { in: [supersededId, releasedId, `${supersededId}_m`, `${releasedId}_m`] } },
+    });
   }, 120_000);
 });
