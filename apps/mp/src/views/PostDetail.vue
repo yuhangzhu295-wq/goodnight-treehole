@@ -324,11 +324,14 @@ onMounted(async () => {
   <!-- Opened without a resolvable id the page rendered nothing: no header, no back button, no way
        out. Offer the route back the way LetterDetail does. -->
   <section v-else class="page goodnight-page detail-page">
-    <header class="detail-top">
-      <div class="status-row"><span>{{ timeLabel }}</span><span aria-hidden="true"></span></div>
+    <!-- The compact bar, not the hero. `detail-top` is a 190px hero with a 44px title, meant for a
+         post that exists; in this branch there is no post, and the hero stacked the back chevron
+         under the title instead of beside it. Every other detail page's empty state uses
+         `rest-topbar`, which is a 3-column grid: back | centred title | spacer. -->
+    <header class="rest-topbar">
       <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>树洞详情</h1>
-      <div class="tree-scene detail-tree" aria-hidden="true"><span class="tree-heart">♡</span></div>
+      <span aria-hidden="true"></span>
     </header>
     <article class="detail-card">
       <h2>没有找到这条树洞</h2>

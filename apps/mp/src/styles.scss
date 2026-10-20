@@ -2088,8 +2088,11 @@ button.primary,
   min-height: 74px;
   padding: 8px 10px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: none;
+  /* Opaque, not 0.94. The bar floats over the scroll area, so any translucency lets the list behind
+     it show through: on PrivacySettings and FeedbackHelp the last two rows were legible *inside* the
+     bar, overlapping the tab labels. A floating surface has to occlude what it covers. */
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 -2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .tabbar a {
@@ -7870,7 +7873,10 @@ body {
 
 .decompose-page .decompose-guide {
   left: 20px;
-  padding-left: 36px;
+  /* The icon in ::before is 46px wide and sits at left:0 of this element, so the text has to start
+     beyond it. At 36px the icon covered the first character - 把 rendered as a question mark with the
+     glyph behind the artwork. 52px keeps the same 4px gap the desktop rule leaves. */
+  padding-left: 52px;
 }
 
 .decompose-page .decompose-result-section {
@@ -8050,8 +8056,12 @@ body {
   padding: 5px 9px;
   border: 1px solid var(--gn-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: none;
+  /* This is the rule that actually paints the bar: `.phone-shell .tabbar` outranks `.tabbar`, so
+     editing the latter changed nothing (measured: the live bar still computed 0.94 after a rebuild).
+     Opaque, because the bar floats over the scroll area and any translucency lets the list behind it
+     show through - PrivacySettings and FeedbackHelp had rows legible inside the bar. */
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 -2px 10px rgba(0, 0, 0, 0.05);
   transform: translateX(-50%);
 }
 
