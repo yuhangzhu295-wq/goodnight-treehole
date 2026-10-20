@@ -1498,12 +1498,17 @@ export class PublicController {
     const letter = (DIRECT_DB_MODELS.Letter
       ? await this.store.lettersDb.findLatestWithContent(userId)
       : this.store.letters.find((item) => item.userId === userId)) ?? undefined;
-    const sourceId =
+    const sourceId: string | undefined =
       letter?.sourceMoodId ??
       (DIRECT_DB_MODELS.Mood
         ? (await this.store.moodsDb.latestForUser(userId))?.id
         : this.store.moods.find((item) => item.userId === userId)?.id) ??
-      'mood_1';
+      undefined;
+    // `sourceMoodId` is a real foreign key, so a letter may only point at a mood row that exists.
+    // This used to fall back to the literal seed id 'mood_1', which the seed no longer writes - it
+    // writes `mood_seed_*` - so every user without a mood hit a foreign-key violation and the page
+    // 500'd. A letter with no source is legitimate (`sourceMoodId` is nullable), so the fallback is
+    // to leave it null rather than to invent a row that will never satisfy the constraint.
     // Diary is database-authoritative, so the fallback source is a row read rather than a scan of the
     // legacy array - whose getter throws.
     const source =
@@ -1640,9 +1645,14 @@ export class PublicController {
       ? (await this.store.lettersDb.listRecentForUser(userId)).at(-1) ?? null
       : this.store.letters.find((item) => item.userId === userId);
     if (letter) return this.regenerate(letter.id, body, userId);
+    // Same nullable-source rule as `today` above: the user may have no mood at all, and inventing a
+    // source id that no row satisfies only turns this into a foreign-key failure.
+    const latestMoodId = DIRECT_DB_MODELS.Mood
+      ? (await this.store.moodsDb.latestForUser(userId))?.id
+      : this.store.moods.find((item) => item.userId === userId)?.id;
     const queued = await this.store.queueLetterGeneration({
       userId,
-      sourceMoodId: 'mood_1',
+      sourceMoodId: latestMoodId ?? null,
       style: body.style ?? 'warm',
       content: '今天也辛苦了',
     });
