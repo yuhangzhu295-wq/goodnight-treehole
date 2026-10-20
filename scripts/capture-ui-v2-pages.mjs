@@ -45,10 +45,6 @@ const DEFAULT_ROUTES = [
 
 const adb = (...args) => execFileSync(ADB, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-/** The emulator's foreground is shared with other projects; a capture from a backgrounded app is
- * not evidence about what a user sees, so the app is re-raised before each page. */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 function currentFocus() {
   const out = adb('shell', 'dumpsys', 'window');
   return out.split(/\r?\n/).find((line) => line.includes('mCurrentFocus')) ?? '';
@@ -135,7 +131,10 @@ async function main() {
       a.remove();
     })()`);
     await new Promise((r) => setTimeout(r, 2500));
-    const state = JSON.parse(await evaluate(send, `(() => {
+    // The snippet runs in the page, so it is built with String.raw: a template literal would have to
+    // escape the `\s` in the whitespace collapse, and that escape is exactly what ESLint's
+    // no-useless-escape flags (the browser needs a single backslash).
+    const state = JSON.parse(await evaluate(send, String.raw`(() => {
       const main = document.querySelector('main');
       const text = (main?.innerText || '').replace(/\s+/g, ' ').trim();
       return JSON.stringify({
