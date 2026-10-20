@@ -61,11 +61,19 @@ The guard is load-bearing, and the tests discriminate.
 
 ## 4. What this gate does not claim
 
-- **Consent is enforced centrally, not per route.** Every consent decision goes through
-  `privacyAllows` (16 call sites), which reads the committed row. One of those gates - the human-reply
-  gate - is pinned by `tests/business/privacy-gate-reads-database.spec.ts` with its own mutation
-  (M-E). The other consent gates are covered by their own Self specs, not by a per-route enumeration,
-  and this document does not claim a per-route consent matrix.
+- **The consent axis is enumerated from the code, not asserted per route.** Every consent decision
+  goes through `privacyAllows` (16 call sites), which reads the committed row. That a central helper
+  exists says nothing about which routes reach it, and a route that stopped calling it would look
+  identical - so `pnpm audit:route-consent` parses `controllers.ts`, follows each handler to the store
+  method it calls, and from there to the `privacyAllows` call that guards it. Result: of 170 C-end
+  routes, 15 reach a consent gate (listed with the flag and the store method they pass through), 13
+  more are named as having no gate for a stated reason (public feed, consent editor itself,
+  attachments, identity issuance, diagnostics), 5 are edits of content whose creation was gated or the
+  bilateral consent mechanism itself, and the rest are reads of the caller's own records. One gate -
+  the human-reply one - is additionally pinned by
+  `tests/business/privacy-gate-reads-database.spec.ts` with its own mutation (M-E).
+  `scripts/audit-route-consent-coverage.mjs` is the source of that breakdown; this paragraph is a
+  summary of its output, not a hand-kept table.
 - **The peer family's ownership evidence is at the persistence layer.** `batch2-peer-verification`
   3.3 exercises every direct peer operation with a non-participant caller; it is stronger evidence
   about ownership than an HTTP status would be, but it is not per-route HTTP coverage and is labelled
@@ -89,5 +97,5 @@ The guard is load-bearing, and the tests discriminate.
 | 1 | Per-route identity (401) for every matrix route | done — 87/87 C-end, 4/4 admin |
 | 2 | Per-route foreign-id refusal for parameterised routes | done — 43/43 |
 | 3 | Mutation proving the journey owner guard is load-bearing | done — M-F, 8/16 fail |
-| 4 | Per-route consent negative tests | not claimed; enforced by `privacyAllows`, pinned for the reply gate only |
+| 4 | Per-route consent negative tests | enumerated from code by `pnpm audit:route-consent` — 15 gated routes traced to their `privacyAllows` call; a negative test per gated route is still not claimed |
 | 5 | Correct the matrix's Negative Test column | open — §4 records the defect; the column itself still names tests that do not exist |
