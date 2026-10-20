@@ -23,6 +23,14 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const saved = ref('');
+/**
+ * "You have to allow this in privacy settings first" is a consent prompt, not a failure. Routing it
+ * through `error` rendered it as a red alert, which reads as the page being broken when in fact
+ * nothing is wrong and the user only needs to flip one switch. It is its own state, set by the
+ * failure handlers below, rather than derived from `error` - deriving it would make the two vie for
+ * the same tick.
+ */
+const needsConsent = ref('');
 const currentId = ref('');
 const updatedAt = ref('');
 const contacts = ref<any[]>([]);
@@ -93,6 +101,7 @@ function add(key: ListKey) {
 async function load() {
   loading.value = true;
   error.value = '';
+  needsConsent.value = '';
   try {
     const [result, contactResult] = await Promise.all([
       api.get<any>('/api/v1/me/stable-self'),
@@ -105,7 +114,11 @@ async function load() {
       hydrate(result.item.profile);
     }
   } catch (cause: any) {
-    error.value = cause?.message ?? '稳定状态资料读取失败';
+    const message = cause?.message ?? '稳定状态资料读取失败';
+    // A consent prompt is information, not a failure: it goes in its own state and leaves `error`
+    // empty, so the page renders the green note instead of a red alert.
+    if (/请先在隐私设置/.test(message)) needsConsent.value = message;
+    else error.value = message;
   } finally {
     loading.value = false;
   }
@@ -118,6 +131,7 @@ async function save() {
   }
   saving.value = true;
   error.value = '';
+  needsConsent.value = '';
   saved.value = '';
   try {
     const response = await api.put<any>('/api/v1/me/stable-self', { profile: { ...profile } });
@@ -125,7 +139,9 @@ async function save() {
     updatedAt.value = response.item.updatedAt;
     saved.value = '稳定状态参考已保存。';
   } catch (cause: any) {
-    error.value = cause?.message ?? '提醒卡没有保存成功';
+    const message = cause?.message ?? '提醒卡没有保存成功';
+    if (/请先在隐私设置/.test(message)) needsConsent.value = message;
+    else error.value = message;
   } finally {
     saving.value = false;
   }
@@ -300,7 +316,8 @@ onMounted(load);
       </section>
       <small v-if="currentId" class="version-note">最近保存：{{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
       <div class="stable-cta">
-        <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+        <p v-if="needsConsent" class="consent-prompt" role="status">{{ needsConsent }}</p>
+        <p v-else-if="error" class="error-note" role="alert">{{ error }}</p>
         <p v-if="saved" class="saved-note" role="status">{{ saved }}</p>
         <button class="stable-save" data-testid="stable-self-save" :disabled="saving" type="submit">
           {{ saving ? '正在保存…' : '保存稳定参考卡' }}
@@ -450,10 +467,14 @@ onMounted(load);
   width: 34px;
   height: 34px;
   flex-shrink: 0;
+  /* A visible border and a darker glyph. Without the border this was a near-white square on a white
+     page, so an unchecked option read as decoration rather than as a control that can be tapped -
+     measured on the emulator screenshot as a faint grey-blue block with no outline. */
+  border: 1.5px solid var(--gn-line-strong, #c9ced6);
   border-radius: 10px;
   background: var(--gn-paper-warm);
-  color: var(--gn-muted);
-  font-size: 15px;
+  color: var(--gn-ink-soft);
+  font-size: 16px;
   line-height: 1;
 }
 
@@ -635,6 +656,13 @@ onMounted(load);
 
 .saved-note {
   background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+}
+
+/* A consent prompt is information, not a failure. Green-family rather than red, so the page does not
+   look broken when the user simply has not allowed saving yet. */
+.consent-prompt {
+  background: var(--gn-paper-warm);
   color: var(--gn-leaf-deep);
 }
 

@@ -41,6 +41,11 @@ const DEFAULT_ROUTES = [
   ['UI-V2-37', 'DataPolicy', '/pages/settings/data-policy'],
   ['UI-V2-38', 'FeedbackHelp', '/pages/help/feedback'],
   ['UI-V2-39', 'HelpFaqs', '/pages/help/faqs'],
+  // The two R3 pages the reviewer flagged. They are here so the identity precondition the rest of
+  // this script enforces also applies to them: both "FAIL" findings from the last review pass were
+  // capture-state faults (no credential, and a route path that does not exist).
+  ['UI-V2-17', 'SupportPlan', '/pages/support-plan/index'],
+  ['UI-V2-18', 'StableSelf', '/pages/stable-self/index'],
 ];
 
 const adb = (...args) => execFileSync(ADB, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
