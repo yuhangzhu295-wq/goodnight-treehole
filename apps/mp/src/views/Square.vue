@@ -44,41 +44,44 @@ function relativeTime(value: string) {
 }
 
 /**
- * The feed shows a headline above the body, the way the design's list rows do. The headline is
- * derived from the post's real content - its first clause - so nothing here is a stored label or a
- * mock value.
+ * The row's leading mark.
  *
- * A short post is its own headline, and rendering both prints the same sentence twice, so this
- * returns '' for content that does not need one and the template omits the heading.
+ * The design shows a letter from an anonymous nickname ("北", "原"), but the public Post carries no
+ * author identifier at all - `anonymousCode`/`authorCode` are not in its response - so deriving one
+ * would either read a field that does not exist (always the same fallback character) or invent an
+ * identity. The emotion the post actually carries is used instead: it is real data, it distinguishes
+ * rows visually, and it claims nothing about who wrote them.
  */
-function postHeadline(content: string) {
-  const text = (content || '').trim();
-  if (text.length <= 22) return '';
-  const clause = text.split(/[。！？!?\n，,；;]/).find((part) => part.trim().length >= 4);
-  const head = (clause ?? text).trim();
-  return head.length > 20 ? `${head.slice(0, 20)}…` : head;
+function emotionMark(emotion: string) {
+  return { 委屈: '委屈', 焦虑: '焦虑', 失眠: '失眠', 恋爱: '恋爱', 工作: '工作' }[emotion] ?? '树洞';
 }
 
-/** The feed row's leading mark: a stable initial from the post's own anonymous code. */
-function authorInitial(post: any) {
-  const code = String(post?.anonymousCode ?? post?.authorCode ?? '').trim();
-  return code ? code.slice(0, 1) : '匿';
-}
+/**
+ * Guards against a slow earlier response overwriting a newer filter's result.
+ *
+ * Switching filters twice in quick succession issues two requests; without a sequence number the
+ * first one to *finish* wins, which can leave the feed showing the filter the user already left. Each
+ * call takes a ticket and only the newest ticket is allowed to write state.
+ */
+let loadSeq = 0;
 
 async function load() {
+  const ticket = ++loadSeq;
   loading.value = true;
   loadError.value = '';
   try {
     const query = active.value ? `?mood=${encodeURIComponent(active.value)}` : '';
     const res = await api.get<any>(`/api/v1/posts${query}`);
+    if (ticket !== loadSeq) return;
     posts.value = res.items ?? [];
   } catch (cause) {
     // Without this the spinner never stops: `loading` was set true above and only cleared on the
     // success path, so a failed request left the page spinning forever with no way to retry.
+    if (ticket !== loadSeq) return;
     posts.value = [];
     loadError.value = cause instanceof Error ? cause.message : '内容加载失败，请稍后重试';
   } finally {
-    loading.value = false;
+    if (ticket === loadSeq) loading.value = false;
   }
 }
 
@@ -178,28 +181,38 @@ onMounted(() => {
       @click="openPost(post)"
     >
       <div class="post-head">
-        <span class="post-avatar" :data-emotion="post.emotion">{{ authorInitial(post) }}</span>
+        <span class="post-avatar" :data-emotion="post.emotion" aria-hidden="true">{{ emotionMark(post.emotion) }}</span>
         <div class="post-who">
           <strong class="post-author">匿名树洞</strong>
           <span class="post-meta">{{ post.emotion }} · {{ relativeTime(post.createdAt) }}</span>
         </div>
         <button
-          v-if="index === 0"
           class="post-more"
-          data-testid="post-more-first"
+          :data-testid="index === 0 ? 'post-more-first' : `post-more-${post.id}`"
           aria-label="更多"
           @click.stop="openMore(post)"
         >
           ···
         </button>
       </div>
-      <h2 v-if="postHeadline(post.content)" class="post-title">{{ postHeadline(post.content) }}</h2>
       <p class="post-content">{{ post.content }}</p>
       <div class="post-foot">
         <span class="post-stat">{{ post.replyCount ? `${post.replyCount} 条回应` : '暂无回应' }}</span>
         <span class="post-acts">
-          <button class="plain-action" @click.stop="hugPost(post)">♡ {{ post.hugCount }}</button>
-          <button class="plain-action" @click.stop="replyPost(post)">回应</button>
+          <button
+            class="plain-action"
+            :data-testid="index === 0 ? 'btn-square-hug-first' : `btn-square-hug-${post.id}`"
+            @click.stop="hugPost(post)"
+          >
+            ♡ {{ post.hugCount }}
+          </button>
+          <button
+            class="plain-action"
+            :data-testid="index === 0 ? 'btn-square-reply-first' : `btn-square-reply-${post.id}`"
+            @click.stop="replyPost(post)"
+          >
+            回应
+          </button>
         </span>
       </div>
     </article>
@@ -434,7 +447,10 @@ onMounted(() => {
   background: #f4f6f7;
 }
 
-/* The publish entry stays where it was; only its treatment follows the design's filled accent. */
+/* The publish entry stays where it was; only its treatment follows the design's filled accent.
+   Width, height and radius are stated explicitly because the shared `.write-fab` rule in styles.scss
+   fixes a 92px circle - without overriding all three, the global values win on the ones left out and
+   the button renders as a round blob with the label wrapped onto two lines. */
 .write-fab {
   position: fixed;
   right: 18px;
@@ -443,14 +459,18 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  padding: 0 20px;
+  width: auto;
+  min-width: 96px;
+  height: 46px;
+  padding: 0 18px;
   border: 0;
   border-radius: 10px;
   background: #275f56;
   color: #ffffff;
   font-size: 14px;
   font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
   box-shadow: 0 8px 22px rgba(39, 95, 86, 0.22);
 }
 
