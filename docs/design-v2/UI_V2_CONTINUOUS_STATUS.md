@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `ec4208c`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `fe9c4bc`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -15,8 +15,18 @@
 
 | 页面 | 路由 | 实现 | 渲染 | 交互 | 业务 | 视觉审查 | 代码审查 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Square 广场 | `/pages/square/index` | yes | yes | 17/17 控件点击（未断言 API 效果） | spec 3/3 | 待独立复审 | 一轮 FAIL→已修；二轮 FAIL→已修 | IN_REVIEW |
-| DiaryList 日记 | `/pages/diary/index` | yes | yes | 10/10 控件点击（6 项无点击后断言） | spec 待补 | 待独立复审 | 一轮 FAIL→已修 | IN_REVIEW |
+| Square 广场 | `/pages/square/index` | yes | yes | 17/17 控件点击 | spec 3/3 | 待独立复审 | 两轮 FAIL→已修 | IN_REVIEW |
+| DiaryList 日记 | `/pages/diary/index` | yes | yes | 10/10 控件点击 | 待 spec | 待独立复审 | 一轮 FAIL→已修 | IN_REVIEW |
+| LetterList 回信 | `/pages/letter/list` | yes | yes | 待控件实测 | 待 spec | 待独立复审 | 未审 | IN_PROGRESS |
+| ToolIndex 工具 | `/pages/tool/index` | yes | yes | 待控件实测 | tools spec PASS | 待独立复审 | 未审 | IN_PROGRESS |
+| ToolRun 工具执行 | `/pages/tool/run` | yes | yes | **7/7 控件点击** | tools spec PASS | 待独立复审 | 未审 | IN_REVIEW |
+| SafetySupport 安全 | `/pages/safety/index` | yes | yes | **3/3 控件点击** | 待 spec | 待独立复审 | 未审 | IN_REVIEW |
+| FutureSelf 未来信 | `/pages/future-self/index` | yes | yes | **7/7 控件点击** | 2 spec 5/5 | 待独立复审 | 未审 | IN_REVIEW |
+| MoodCreate 写心情 | `/pages/mood/create` | yes | yes | **5/5 控件点击** | publish 3/5 | 待独立复审 | 未审 | IN_REVIEW |
+| PeerWait / PeerConversation | `/pages/peer/*` | yes | yes | 已核验状态不同 | peer spec 10/10 | 待独立复审 | 未审 | IN_REVIEW |
+
+**审计"peer-wait 重大状态疑点"已证伪**：两页是独立组件、不同 class/header；同一 matchId 下分别渲染
+"等待对方决定"与"还剩约 N 小时 + 真实消息"。
 
 ### 已完成批次
 
