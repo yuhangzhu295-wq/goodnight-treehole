@@ -31,3 +31,4 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+scripts/tmp-*.mjs
