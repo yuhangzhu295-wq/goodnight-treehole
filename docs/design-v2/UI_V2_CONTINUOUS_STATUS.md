@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `fe9c4bc`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `f09e988`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -23,6 +23,8 @@
 | SafetySupport 安全 | `/pages/safety/index` | yes | yes | **3/3 控件点击** | 待 spec | 待独立复审 | 未审 | IN_REVIEW |
 | FutureSelf 未来信 | `/pages/future-self/index` | yes | yes | **7/7 控件点击** | 2 spec 5/5 | 待独立复审 | 未审 | IN_REVIEW |
 | MoodCreate 写心情 | `/pages/mood/create` | yes | yes | **5/5 控件点击** | publish 3/5 | 待独立复审 | 未审 | IN_REVIEW |
+| PostDetail 树洞详情 | `/pages/post/detail` | yes | yes | **7/7 控件点击** | 待 spec | 待独立复审 | 未审 | IN_REVIEW |
+| LetterToday 回信 | `/pages/letter/today` | yes | yes | **4/4 控件点击** | letter spec PASS | 待独立复审 | 未审 | IN_REVIEW |
 | PeerWait / PeerConversation | `/pages/peer/*` | yes | yes | 已核验状态不同 | peer spec 10/10 | 待独立复审 | 未审 | IN_REVIEW |
 
 **审计"peer-wait 重大状态疑点"已证伪**：两页是独立组件、不同 class/header；同一 matchId 下分别渲染
