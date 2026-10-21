@@ -36,12 +36,23 @@ const meta = computed(() => ({
   future_letter: { title: '写给未来的自己', subtitle: '把今天的你，整理成一封可以编辑的信。', emotion: '焦虑', action: '帮我整理成一封信' },
 }[type.value] ?? { title: '情绪工具', subtitle: '给此刻的自己一点空间。', emotion: '焦虑', action: '开始生成' }));
 
+/**
+ * Which action the banner's retry should repeat.
+ *
+ * All three failures on this page - restoring the last result, generating, and copying - used to share
+ * one banner wired to `restoreLatestResult`. Retrying a failed *generation* therefore re-read the last
+ * result instead of running the tool again, and retrying a failed *copy* did nothing at all.
+ */
+type ToolFailure = 'restore' | 'generate' | 'copy';
+const failure = ref<ToolFailure>('restore');
+
 async function restoreLatestResult() {
   result.value = '';
   jobId.value = '';
   saved.value = false;
   copied.value = false;
   error.value = '';
+  failure.value = 'restore';
   aiNotice.value = '';
   try {
     const latest = await api.get<any>(`/api/v1/ai/tasks/latest?taskType=${encodeURIComponent(type.value)}`);
@@ -52,6 +63,7 @@ async function restoreLatestResult() {
     if (latest.item.promptSummary) input.value = latest.item.promptSummary;
   } catch (cause: any) {
     error.value = cause?.message ?? '无法恢复最近的生成结果';
+    failure.value = 'restore';
   }
 }
 
@@ -75,6 +87,7 @@ async function runTool() {
   saved.value = false;
   copied.value = false;
   error.value = '';
+  failure.value = 'generate';
   aiNotice.value = '';
   try {
     const queued = await api.post<any>('/api/v1/ai/tasks', { taskType: type.value, content: input.value, sourceId: `tool_${Date.now()}` });
@@ -89,6 +102,15 @@ async function runTool() {
   }
 }
 
+/** Repeats whichever action produced the current error. */
+async function retryFailedAction() {
+  error.value = '';
+  const which = failure.value;
+  if (which === 'generate') await runTool();
+  else if (which === 'copy') await copyResult();
+  else await restoreLatestResult();
+}
+
 async function saveResult() {
   if (!result.value) await runTool();
   if (!result.value) return;
@@ -99,7 +121,10 @@ async function saveResult() {
 async function copyResult() {
   if (!result.value) return;
   copied.value = await copyText(result.value);
-  if (!copied.value) error.value = '复制失败，请稍后重试';
+  if (!copied.value) {
+    error.value = '复制失败，请稍后重试';
+    failure.value = 'copy';
+  }
 }
 </script>
 
@@ -121,6 +146,10 @@ async function copyResult() {
       <div class="sheet-actions"><button data-testid="btn-tool-run-save" class="primary" @click="saveResult">{{ saved ? '已保存到日记' : '保存到日记' }}</button><button data-testid="btn-tool-run-copy" @click="copyResult">{{ copied ? '已复制' : '复制结果' }}</button><button data-testid="btn-tool-run-close" @click="result = ''">收起结果</button></div>
     </article>
     <ToolTaskContracts v-if="result" :type="type" :input="input" :result="result" />
-    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="restoreLatestResult" />
+    <LoadErrorBanner
+      :message="error"
+      :retry-label="failure === 'copy' ? '重新复制' : failure === 'generate' ? '重新生成' : '重新加载'"
+      @retry="retryFailedAction"
+    />
   </section>
 </template>

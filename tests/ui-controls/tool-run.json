@@ -1,0 +1,35 @@
+[
+  {
+    "selector": "front-tool-run-back",
+    "expect": {}
+  },
+  {
+    "selector": "input-tool-run",
+    "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
+    "expect": {}
+  },
+  {
+    "selector": "btn-tool-run-submit",
+    "expect": {}
+  },
+  {
+    "selector": "tool-run-result-card",
+    "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
+    "expect": {}
+  },
+  {
+    "selector": "btn-tool-run-copy",
+    "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
+    "expect": {}
+  },
+  {
+    "selector": "btn-tool-run-save",
+    "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
+    "expect": {}
+  },
+  {
+    "selector": "btn-tool-run-close",
+    "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
+    "expect": {}
+  }
+]

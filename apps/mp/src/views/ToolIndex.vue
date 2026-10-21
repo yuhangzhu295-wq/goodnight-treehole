@@ -1,13 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '../api';
 import { useDeviceClock } from '../composables/useDeviceClock';
-
 const router = useRouter();
 const { timeLabel } = useDeviceClock();
-const toolsLoaded = ref(false);
-
 const toolCards = [
   { type: 'decompose', title: '情绪拆解', desc: '拆解情绪根源，看清真实感受', icon: '⌕', testId: 'tool-decompose', route: '/pages/tool/decompose' },
   { type: 'rewrite', title: '负面改写', desc: '把消极想法换个温柔说法', icon: '✎', testId: 'tool-rewrite', route: '/pages/tool/run?type=rewrite' },
@@ -18,11 +13,6 @@ const toolCards = [
   { type: 'future-letter', title: '写给未来的自己', desc: '写一封信，给未来的你', icon: '✉', testId: 'tool-future-letter', route: '/pages/tool/run?type=future-letter' },
   { type: 'report', title: '情绪月报', desc: '回顾情绪变化，看见成长轨迹', icon: '▥', testId: 'tool-report', route: '/pages/report/month' },
 ];
-
-async function loadTools() {
-  await api.get('/api/v1/tools');
-  toolsLoaded.value = true;
-}
 
 function openTool(card: (typeof toolCards)[number]) {
   const canonicalTypes: Record<string, string> = {
@@ -44,8 +34,6 @@ function openTool(card: (typeof toolCards)[number]) {
   }
   router.push(`/pages/tool/run?type=${card.type}`);
 }
-
-onMounted(loadTools);
 </script>
 
 <template>
@@ -57,43 +45,40 @@ onMounted(loadTools);
       </div>
       <div class="hero-copy">
         <h1>情绪工具</h1>
-        <p>帮你整理和安放情绪</p>
-      </div>
-      <div class="tree-scene small" aria-hidden="true">
-        <span class="tree-heart">♡</span>
-        <span class="tree-bell">♧</span>
-        <span class="seedling-face">•‿•</span>
       </div>
     </header>
 
-    <article class="feature-card letter-tool-card">
-      <div>
-        <h2>一键生成温柔回信</h2>
-        <p>理解你的心情，给你温柔回应</p>
-        <button class="primary" data-testid="tool-letter" @click="router.push('/pages/letter/today')">去试试</button>
-      </div>
-      <div class="mail-seed" aria-hidden="true">
-        <span>✉</span>
-      </div>
-    </article>
-
-    <div class="tool-grid">
+    <!--
+      A tool list, not a function board. The V1 page led with a marketing card for the letter tool and
+      then a four-up grid of illustrated tiles; the design asks for a list a reader can scan and pick
+      from, with at most two levels of grouping. The letter tool keeps its own row and testid - the
+      brief allows merging similar entries but not dropping original function.
+    -->
+    <div class="tool-list" role="list">
+      <button class="tool-row" role="listitem" data-testid="tool-letter" @click="router.push('/pages/letter/today')">
+        <span class="tool-row-icon" aria-hidden="true">✉</span>
+        <span class="tool-row-copy">
+          <strong>一键生成温柔回信</strong>
+          <small>理解你的心情，给你温柔回应</small>
+        </span>
+        <span class="tool-row-chevron" aria-hidden="true">›</span>
+      </button>
       <button
         v-for="card in toolCards"
         :key="card.type"
-        class="tool-tile"
+        class="tool-row"
+        role="listitem"
         :data-testid="card.testId"
         @click="openTool(card)"
       >
-        <span class="tool-icon">{{ card.icon }}</span>
-        <span class="tool-copy">
+        <span class="tool-row-icon" aria-hidden="true">{{ card.icon }}</span>
+        <span class="tool-row-copy">
           <strong>{{ card.title }}</strong>
           <small>{{ card.desc }}</small>
         </span>
+        <span class="tool-row-chevron" aria-hidden="true">›</span>
       </button>
     </div>
-
-    <p class="bottom-slogan" :data-state="toolsLoaded ? 'synced' : 'loading'">每一种情绪都值得被看见</p>
   </section>
 </template>
 
@@ -102,23 +87,69 @@ onMounted(loadTools);
   visibility: hidden;
 }
 
-/* The feature card is a fixed editorial composition. Its real navigation
-   button and tool links are unchanged; this only restores the card/grid
-   rhythm above the fixed navigation. */
 .tool-page.goodnight-page {
-  gap: 10px;
+  gap: 0;
 }
 
-.tool-page .feature-card {
-  height: 142px;
-  min-height: 142px;
+/* A scannable list: hairline-separated rows, a quiet mark, the title as the strongest element, and
+   the description underneath. The old page spent a 142px marketing card and a grid of illustrated
+   tiles on the same information. */
+.tool-list {
+  display: block;
+  background: #ffffff;
 }
 
-.tool-page .feature-card h2 {
-  transform: translateY(-6px);
+.tool-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  padding: 12px 20px;
+  border: 0;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
+  text-align: left;
 }
 
-.tool-page .feature-card p {
-  transform: translateY(-3px);
+.tool-row:active {
+  background: #f7f8f9;
+}
+
+.tool-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #f2f4f5;
+  color: #5b6a5f;
+  font-size: 15px;
+}
+
+.tool-row-copy { min-width: 0; }
+
+.tool-row-copy strong {
+  display: block;
+  color: #242a32;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.tool-row-copy small {
+  display: block;
+  margin-top: 2px;
+  color: #818993;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.tool-row-chevron {
+  color: #b6bcc2;
+  font-size: 18px;
+  line-height: 1;
 }
 </style>
