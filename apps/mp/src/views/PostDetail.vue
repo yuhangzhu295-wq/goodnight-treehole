@@ -298,16 +298,32 @@ onMounted(async () => {
           <span>匿名回复</span>
           <input data-testid="toggle-reply-anonymous" type="checkbox" v-model="anonymous" />
         </label>
+        <!--
+          "仅作者可见" is offered by the composer but the Reply table has no visibility column, so the
+          server cannot honour it and now refuses it outright. Rather than hide the choice (which would
+          remove a control the reader expects) or keep it as a silent lie, it stays and says what it
+          does; submitting is blocked while it is selected.
+        -->
         <label class="setting-row">
           <span>可见范围：</span>
           <select data-testid="select-reply-visibility" v-model="replyVisibility">
             <option value="PUBLIC">所有人可见</option>
-            <option value="PRIVATE">仅作者可见</option>
+            <option value="PRIVATE">仅作者可见（暂不支持）</option>
           </select>
         </label>
+        <p v-if="replyVisibility === 'PRIVATE'" class="reply-visibility-note" role="status">
+          回应审核后会公开显示，"仅作者可见"尚未支持，服务端会拒绝这条回应。
+        </p>
         <div class="sheet-actions">
           <button data-testid="btn-close-reply" class="outline-wide" @click="closeReplySheet">取消</button>
-          <button data-testid="btn-submit-reply" class="submit-wide" @click="submitReply">发布回应</button>
+          <button
+            data-testid="btn-submit-reply"
+            class="submit-wide"
+            :disabled="replyVisibility === 'PRIVATE'"
+            @click="submitReply"
+          >
+            发布回应
+          </button>
         </div>
       </div>
     </div>
@@ -346,6 +362,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.reply-visibility-note {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  border: 1px solid #f2e4ce;
+  border-radius: 8px;
+  background: #fff8ee;
+  color: #8a6a34;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
 /* The post is the page: a plain top bar, then the content. The old header was a 190px hero with a
    44px title, a tree scene and a mascot cutout above the post body. */
 .detail-topbar {
@@ -382,6 +409,17 @@ onMounted(async () => {
   padding: 16px 0 12px;
   border: 0;
   background: none;
+}
+
+/*
+ * The shared `.detail-page .detail-author` rule fixes two grid columns - 58px for an avatar plus the
+ * text - and the avatar is gone. Leaving the column count alone puts the remaining text in the second
+ * column and renders it one character per line (measured: 58px of empty space beside a 32px-tall
+ * stack). State the single column explicitly.
+ */
+.detail-page .detail-author {
+  display: block;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .detail-author strong {
@@ -440,10 +478,29 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+/*
+ * Same shape as the author row above: the shared `.reply-card` fixes three columns (avatar, text,
+ * like button) and the avatar is gone, so the text lands in the middle column and the like button in
+ * a column of its own - which truncates the reply. One column with the like button inline.
+ */
 .detail-page .reply-card {
+  display: block;
   padding: 13px 0;
   border-bottom: 1px solid #e8eaed;
   background: none;
+}
+
+.detail-page .reply-like {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  margin-top: 8px;
+  padding: 5px 10px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #606a74;
+  font-size: 11.5px;
 }
 
 .detail-page .reply-card strong {

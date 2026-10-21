@@ -89,6 +89,11 @@ async function runTool() {
   error.value = '';
   failure.value = 'generate';
   aiNotice.value = '';
+  // Clear the previous run's result and job id before the new one starts. Leaving them in place meant
+  // a failed generation still had last time's text on screen and the *new* job's id in `jobId`, so
+  // "保存到日记" wrote the old text labelled with the new task - a result that no job produced.
+  result.value = '';
+  jobId.value = '';
   try {
     const queued = await api.post<any>('/api/v1/ai/tasks', { taskType: type.value, content: input.value, sourceId: `tool_${Date.now()}` });
     jobId.value = queued.jobId;
@@ -112,8 +117,13 @@ async function retryFailedAction() {
 }
 
 async function saveResult() {
-  if (!result.value) await runTool();
-  if (!result.value) return;
+  // Only an existing result of *this* run is saved. Generating here and then saving would mean the
+  // text and the job id could come from different attempts.
+  if (!result.value || !jobId.value) {
+    error.value = '还没有可保存的结果，请先运行一次';
+    failure.value = 'generate';
+    return;
+  }
   await api.post('/api/v1/diaries', { emotion: meta.value.emotion, content: result.value, hasLetter: false, source: `tool-${type.value}`, toolResult: { taskType: type.value, input: input.value, result: result.value, jobId: jobId.value } });
   saved.value = true;
 }

@@ -7503,7 +7503,12 @@ export class StoreService implements OnModuleInit {
       const post = await this.postsDb.get(idValue);
       const hidden = !includeUnpublished && post?.reviewStatus === 'hidden';
       if (!post || post.status !== 'active' || hidden) throw new NotFoundException('树洞不存在');
+      // A private post belongs to its author. The read used to check only `status` and `hidden`, so a
+      // private row would have been served to anyone holding its id. There are no private posts today
+      // (a private mood does not create one), which is why this never surfaced - but the gap is real
+      // and the fix belongs with the check rather than after the first leak.
       const viewer = this.viewerUserId();
+      if (post.visibility !== 'PUBLIC' && post.userId !== viewer) throw new NotFoundException('树洞不存在');
       const favouriteIds = viewer ? await this.favoritesDb.postIdsForUser(viewer) : new Set<string>();
       const replyCounts = await this.postsDb.replyCountsForPosts([post.id]);
       return {
@@ -9198,6 +9203,12 @@ export class StoreService implements OnModuleInit {
 
   async createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
     const post = await this.getPost(postId, true);
+    // The composer offers "仅作者可见", and the Reply table has no visibility column, so that choice
+    // could not be honoured. Silently accepting it and publishing anyway is the worst outcome - the
+    // reader is told their reply is private when it is not. Refuse instead, so the client can say so.
+    if (input.visibility && input.visibility !== 'PUBLIC') {
+      throw new BadRequestException('暂不支持"仅作者可见"的回应：当前所有回应审核后都会公开显示');
+    }
     // The owner's consent is read from the DATABASE, not from the process cache: a cache is
     // per-process, so a revocation committed on another instance would otherwise still let a reply
     // through here. This is an authorization gate, and the design's rule is that authorization reads

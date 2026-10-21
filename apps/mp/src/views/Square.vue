@@ -34,7 +34,11 @@ const filters = [
 /** The post's real creation time. This read a hardcoded "2 小时前", which is a mock value. */
 function relativeTime(value: string) {
   if (!value) return '时间未记录';
-  const minutes = Math.floor((Date.now() - Date.parse(value)) / 60_000);
+  const parsed = Date.parse(value);
+  // An unparseable timestamp used to flow through every comparison as NaN and end in
+  // `Intl.DateTimeFormat.format(Invalid Date)`, which throws and takes the whole feed down with it.
+  if (!Number.isFinite(parsed)) return '时间未记录';
+  const minutes = Math.floor((Date.now() - parsed) / 60_000);
   if (minutes < 1) return '刚刚';
   if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.floor(minutes / 60);

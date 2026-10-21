@@ -13,7 +13,11 @@
 defineProps<{
   /** The message to show. Falsy renders nothing, so callers can bind their error ref directly. */
   message?: string;
-  /** Accessible label for the retry control, e.g. "重新加载今晚记录". */
+  /**
+   * Accessible label for the retry control, e.g. "重新加载今晚记录". When omitted the banner shows
+   * the message only: a page whose error comes from a write or a validation has nothing to reload,
+   * and a button that emits into the void is worse than no button.
+   */
   retryLabel?: string;
 }>();
 
@@ -21,9 +25,9 @@ const emit = defineEmits<{ retry: [] }>();
 </script>
 
 <template>
-  <div v-if="message" class="load-error" role="alert" :data-testid="'load-error'">
+  <div v-if="message" class="load-error" role="alert" data-testid="load-error">
     <span class="load-error-text">{{ message }}</span>
-    <button type="button" class="load-error-retry" @click="emit('retry')">{{ retryLabel ?? '重新加载' }}</button>
+    <button v-if="retryLabel" type="button" class="load-error-retry" @click="emit('retry')">{{ retryLabel }}</button>
   </div>
 </template>
 

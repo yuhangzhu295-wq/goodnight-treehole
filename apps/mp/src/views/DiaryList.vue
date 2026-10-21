@@ -42,10 +42,21 @@ async function load() {
   }
 }
 
+/**
+ * The month list is a filter aid, not the content. It used to run first and uncaught, so a failure
+ * here stopped `onMounted` before the diary list was ever requested - the page showed a spinner that
+ * never resolved. It now degrades on its own and the list loads regardless.
+ */
 async function loadMonths() {
-  const result = await api.get<any>('/api/v1/diaries/months');
-  availableMonths.value = Array.isArray(result.items) ? result.items : [];
-  if (!month.value || !availableMonths.value.includes(month.value)) month.value = availableMonths.value[0] ?? new Date().toISOString().slice(0, 7);
+  try {
+    const result = await api.get<any>('/api/v1/diaries/months');
+    availableMonths.value = Array.isArray(result.items) ? result.items : [];
+  } catch {
+    availableMonths.value = [];
+  }
+  if (!month.value || !availableMonths.value.includes(month.value)) {
+    month.value = availableMonths.value[0] ?? new Date().toISOString().slice(0, 7);
+  }
 }
 
 async function confirmFilter() {
@@ -87,8 +98,9 @@ function diaryDate(value: string) {
 }
 
 onMounted(async () => {
-  await loadMonths();
-  await load();
+  // The list is the page; the month filter is an extra. Both start together so neither can block the
+  // other, and the filter settles whenever its own request does.
+  await Promise.allSettled([loadMonths(), load()]);
 });
 </script>
 

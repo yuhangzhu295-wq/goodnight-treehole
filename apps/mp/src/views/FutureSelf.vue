@@ -29,6 +29,12 @@ const deliverAt = ref('');
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
+/**
+ * Which action produced the current error, so the banner retries that one. A failed *save* used to be
+ * answered by re-reading the list, which looked like a retry and did nothing about the save.
+ */
+type FutureFailure = 'load' | 'save';
+const failure = ref<FutureFailure>('load');
 const notice = ref('');
 /** Set when an optional context list could not be read, so it is not mistaken for "no records". */
 const contextNotice = ref('');
@@ -114,6 +120,7 @@ async function load() {
     items.value = messageResult.items ?? [];
   } catch (cause: any) {
     error.value = cause?.message ?? '未来信暂时没有打开';
+    failure.value = 'load';
   } finally {
     loading.value = false;
   }
@@ -162,6 +169,7 @@ async function save() {
     await load();
   } catch (cause: any) {
     error.value = cause?.message ?? '这封未来信没有保存成功';
+    failure.value = 'save';
   } finally {
     saving.value = false;
   }
@@ -246,7 +254,11 @@ onMounted(() => {
       </fieldset>
 
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
-      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
+      <LoadErrorBanner
+        :message="error"
+        :retry-label="failure === 'load' ? '重新加载' : undefined"
+        @retry="load"
+      />
     </form>
 
     <section class="letters-section">

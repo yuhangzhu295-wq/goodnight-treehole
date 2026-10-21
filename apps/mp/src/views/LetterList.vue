@@ -2,10 +2,12 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const letters = ref<any[]>([]);
 const filter = ref<'all' | 'unread' | 'favorited'>('all');
+const loadError = ref('');
 
 const styleNames: Record<string, string> = {
   warm: '温柔陪伴',
@@ -27,8 +29,17 @@ function sourceLabel(letter: any) {
 
 async function load(next = filter.value) {
   filter.value = next;
+  loadError.value = '';
   const query = next === 'all' ? '' : `?status=${next}`;
-  letters.value = (await api.get<any>(`/api/v1/letters${query}`)).items;
+  try {
+    const result = await api.get<any>(`/api/v1/letters${query}`);
+    letters.value = result.items ?? [];
+  } catch (cause: any) {
+    // Without this a failed read left the list empty and the page said "还没有符合条件的回信" - the
+    // reader was told they had no letters when in fact none had loaded.
+    letters.value = [];
+    loadError.value = cause?.message ?? '回信加载失败，请稍后重试';
+  }
 }
 
 async function readFull(letter: any) {
@@ -106,7 +117,9 @@ onMounted(load);
       </div>
     </article>
 
-    <article v-if="!letters.length" class="empty-card letter-list-empty">
+    <LoadErrorBanner :message="loadError" retry-label="重新加载" @retry="load" />
+
+    <article v-if="!loadError && !letters.length" class="empty-card letter-list-empty">
       <strong>还没有符合条件的回信</strong>
       <p>写下一次心情后，新的回信会出现在这里。</p>
       <button class="primary" @click="router.push('/pages/mood/create')">写下心情</button>

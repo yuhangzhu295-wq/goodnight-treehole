@@ -228,7 +228,13 @@ async function submit() {
   text-align: center;
 }
 
-.compact-topbar .back-icon {
+/*
+ * The shared `.mood-create-page .back-icon` is absolutely positioned for the old hero. Inside this
+ * three-column bar it has to stay in the flow, or the title is pushed into the first (32px) column
+ * and renders one character per line - measured as 32px wide by 99px tall.
+ */
+.mood-create-page .compact-topbar .back-icon {
+  position: static;
   width: 32px;
   height: 32px;
   border: 0;
