@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { copyText } from '../clipboard';
 import { useDeviceClock } from '../composables/useDeviceClock';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const route = useRoute();

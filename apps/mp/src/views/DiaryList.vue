@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -13,13 +14,32 @@ const emotion = ref('');
 const hasLetter = ref('');
 const filterOpen = ref(false);
 const monthOpen = ref(false);
+const loadError = ref('');
+
+/**
+ * Guards against a slow earlier response overwriting a newer filter's result: switching filters twice
+ * issues two requests, and without a ticket the first to *finish* wins.
+ */
+let loadSeq = 0;
 
 async function load() {
+  const ticket = ++loadSeq;
+  loadError.value = '';
   const params = new URLSearchParams();
   if (month.value) params.set('month', month.value);
   if (emotion.value) params.set('emotion', emotion.value);
   if (hasLetter.value) params.set('hasLetter', hasLetter.value);
-  diaries.value = (await api.get<any>(`/api/v1/diaries?${params.toString()}`)).items;
+  try {
+    const result = await api.get<any>(`/api/v1/diaries?${params.toString()}`);
+    if (ticket !== loadSeq) return;
+    diaries.value = result.items ?? [];
+  } catch (cause) {
+    // A failed read used to leave the list empty, which the page rendered as "还没有日记" - the user
+    // was told they had written nothing when in fact nothing had loaded.
+    if (ticket !== loadSeq) return;
+    diaries.value = [];
+    loadError.value = cause instanceof Error ? cause.message : '日记加载失败，请稍后重试';
+  }
 }
 
 async function loadMonths() {
@@ -96,6 +116,8 @@ onMounted(async () => {
       </button>
     </div>
 
+    <LoadErrorBanner :message="loadError" retry-label="重新加载日记" @retry="load" />
+
     <div class="diary-timeline">
       <article
         v-for="(diary, index) in diaries"
@@ -117,10 +139,15 @@ onMounted(async () => {
             </small>
           </span>
         </button>
-        <!-- The letter entry stays a real control: tapping it opens that diary's letter, which is the
-             page's original behaviour. It reads as a text action rather than an icon button. -->
+        <!--
+          The letter entry only appears when this diary's own letter id is known. The API's manual
+          diary rows carry `hasLetter` without a `letterId`, and jumping to /pages/letter/today in
+          that case would open the *newest* letter and present it as this entry's reply - a wrong
+          answer rather than a missing feature. The row's meta line already states whether a reply
+          exists, so hiding the button loses no information.
+        -->
         <button
-          v-if="diary.hasLetter"
+          v-if="diary.letterId"
           class="diary-letter-action"
           :data-testid="index === 0 ? 'diary-letter-first' : `diary-letter-${diary.id}`"
           @click="openLetter(diary)"
@@ -128,7 +155,7 @@ onMounted(async () => {
           查看回信
         </button>
       </article>
-      <article v-if="!diaries.length" class="empty-card" data-testid="diary-empty-state">
+      <article v-if="!loadError && !diaries.length" class="empty-card" data-testid="diary-empty-state">
         <span class="empty-diary-mark" aria-hidden="true"><span>✦</span></span>
         <div class="empty-diary-copy">
           <strong>{{ emotion || hasLetter ? '没有符合筛选的日记' : `${month} 还没有日记` }}</strong>
