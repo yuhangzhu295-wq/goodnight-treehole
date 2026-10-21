@@ -1878,17 +1878,6 @@ body {
 .front-hero::before,
 .rest-hero::before,
 .me-hero::before,
-.detail-top::before {
-  position: absolute;
-  top: -5px;
-  right: -10px;
-  width: 252px;
-  height: 206px;
-  border-radius: 0;
-  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
-  opacity: 0.98;
-  content: "";
-}
 
 .front-hero::after,
 .rest-hero::after,
@@ -2219,12 +2208,6 @@ select {
 }
 
 .letter-intro::after,
-.feature-card::after {
-  width: 126px;
-  height: 126px;
-  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center / contain no-repeat;
-  content: "";
-}
 
 .envelope-illustration,
 .letter-intro > .envelope-illustration {
@@ -2257,12 +2240,6 @@ select {
   min-height: 168px;
   padding: 24px 18px;
   background: var(--gn-paper);
-}
-
-.feature-card::after {
-  width: 140px;
-  height: 140px;
-  background-image: url("./assets/goodnight/tool-baby-letter-cutout.png");
 }
 
 .mail-seed {
@@ -2362,18 +2339,6 @@ select {
 .settings-page::before,
 .feedback-page::before,
 .report-page::before,
-.detail-rest-page::before {
-  position: absolute;
-  top: -4px;
-  right: -15px;
-  z-index: 0;
-  width: 185px;
-  height: 150px;
-  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
-  opacity: 0.42;
-  pointer-events: none;
-  content: "";
-}
 
 .rest-topbar,
 .list-toolbar,
@@ -3937,18 +3902,6 @@ select {
   box-shadow: none;
 }
 
-.list-page .letter-list-card::after {
-  position: absolute;
-  right: 12px;
-  bottom: 18px;
-  width: 84px;
-  height: 84px;
-  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center / contain no-repeat;
-  opacity: 0.82;
-  content: "";
-  pointer-events: none;
-}
-
 .list-page .letter-list-card > * {
   position: relative;
   z-index: 1;
@@ -4526,16 +4479,6 @@ body {
   border-radius: var(--gn-radius-card);
 }
 
-.letter-intro::before {
-  left: 16px;
-  top: 50%;
-  width: 104px;
-  height: 72px;
-  background: url("./assets/goodnight/letter-envelope-cutout.png") center / contain no-repeat;
-  filter: drop-shadow(0 10px 14px rgba(108, 96, 58, 0.1));
-  transform: translateY(-50%);
-}
-
 .letter-intro::after,
 .letter-intro > .envelope-illustration {
   display: none;
@@ -4634,15 +4577,6 @@ body {
   min-height: 122px;
   padding: 13px 18px 13px 20px;
   border-radius: var(--gn-radius-card);
-}
-
-.tool-page .feature-card::after {
-  right: 10px;
-  bottom: 6px;
-  width: 108px;
-  height: 108px;
-  background: url("./assets/goodnight/tool-baby-letter-cutout.png") center / contain no-repeat;
-  filter: drop-shadow(0 10px 16px rgba(100, 88, 54, 0.08));
 }
 
 .tool-page .tool-grid {
@@ -5005,7 +4939,6 @@ body {
   top: 36px;
   left: 14px;
 }
-
 
 .detail-page .detail-card {
   min-height: 0;
@@ -5417,7 +5350,6 @@ body {
   font-size: 20px;
 }
 
-
 .square-page .mood-filter-row .mood-pill:focus,
 .square-page .mood-filter-row .mood-pill:focus-visible {
   outline: 2px solid rgba(95, 127, 62, 0.34);
@@ -5663,19 +5595,6 @@ body {
   padding-bottom: 138px;
 }
 
-.diary-list-page::before {
-  position: absolute;
-  top: -22px;
-  right: -18px;
-  z-index: 0;
-  width: 236px;
-  height: 164px;
-  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
-  content: "";
-  opacity: 0.88;
-  pointer-events: none;
-}
-
 .diary-list-page > * {
   position: relative;
   z-index: 1;
@@ -5704,29 +5623,6 @@ body {
   color: var(--gn-leaf-deep);
   font-size: 36px;
   line-height: 1;
-}
-
-.diary-intro {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  min-height: 68px;
-  max-width: 260px;
-  padding-left: 1px;
-}
-
-.diary-intro p {
-  margin: 0;
-  color: #53713c;
-  font-size: 16px;
-  line-height: 1.7;
-  letter-spacing: 0.03em;
-}
-
-.diary-intro > span {
-  margin: 0 2px 8px 0;
-  color: #789352;
-  font-size: 22px;
 }
 
 .diary-controls {
@@ -5762,68 +5658,10 @@ body {
   padding: 8px 12px;
 }
 
-.diary-calendar-mark {
-  position: relative;
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border: 2px solid #66834a;
-  border-radius: 5px;
-}
-
-.diary-calendar-mark::before {
-  position: absolute;
-  top: 4px;
-  right: 3px;
-  left: 3px;
-  height: 2px;
-  background: #66834a;
-  content: "";
-}
-
-.diary-calendar-mark::after {
-  position: absolute;
-  top: -4px;
-  left: 4px;
-  width: 8px;
-  height: 4px;
-  border-right: 2px solid #66834a;
-  border-left: 2px solid #66834a;
-  content: "";
-}
-
 .diary-control-chevron {
   color: #66834a;
   font-size: 18px;
   transform: translateY(-2px);
-}
-
-.diary-filter-mark {
-  position: relative;
-  width: 20px;
-  height: 18px;
-  overflow: hidden;
-}
-
-.diary-filter-mark::before {
-  position: absolute;
-  inset: 0 0 auto;
-  width: 20px;
-  height: 10px;
-  border: 2px solid #66834a;
-  border-radius: 4px 4px 9px 9px;
-  content: "";
-}
-
-.diary-filter-mark::after {
-  position: absolute;
-  top: 9px;
-  left: 8px;
-  width: 4px;
-  height: 9px;
-  border-radius: 0 0 4px 4px;
-  background: #66834a;
-  content: "";
 }
 
 .diary-list-page .diary-timeline {
@@ -5832,57 +5670,21 @@ body {
 
 .diary-list-page .diary-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 86px;
-  align-items: stretch;
-  min-height: 110px;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-bottom: 1px solid #e8eaed;
   background: #ffffff;
-  box-shadow: none;
 }
 
 .diary-list-page .diary-main {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-  min-height: 110px;
-  padding: 12px 8px 12px 12px;
+  display: block;
+  min-height: 64px;
+  padding: 14px 20px;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-}
-
-.diary-entry-visual {
-  display: grid;
-  width: 72px;
-  height: 72px;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid rgba(124, 143, 93, 0.13);
-  border-radius: 50%;
-  background: #f9fafb;
-}
-
-.diary-entry-image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.diary-entry-placeholder {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 1px solid rgba(101, 132, 76, 0.24);
-  border-radius: 50% 50% 50% 8px;
-  color: #719052;
-  font-size: 17px;
-  transform: rotate(-12deg);
+  text-align: left;
 }
 
 .diary-entry-copy {
@@ -5934,37 +5736,24 @@ body {
   line-height: 1.2;
 }
 
-.diary-letter-action,
-.diary-letter-state {
-  display: grid;
-  min-height: 0;
-  place-content: center;
-  justify-items: center;
-  gap: 7px;
-  padding: 12px 6px;
-  border: 0;
-  border-left: 1px solid rgba(118, 136, 90, 0.1);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: #667e44;
-  text-align: center;
-  font-size: 13px;
-  line-height: 1.28;
+/* The letter entry is a text action, not an icon button: it sits in the row's right column and
+   keeps its original job of opening that diary's letter. */
+.diary-list-page .diary-letter-action {
+  justify-self: end;
+  min-height: 34px;
+  margin-right: 16px;
+  padding: 6px 11px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2f6b60;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.diary-letter-action:hover {
-  background: rgba(241, 246, 235, 0.7);
-}
-
-.diary-letter-state {
-  color: #a6a79d;
-}
-
-.diary-letter-icon {
-  color: currentColor;
-  font-size: 27px;
-  line-height: 1;
+.diary-list-page .diary-letter-action:active {
+  background: #f2f6f4;
 }
 
 .diary-list-page .empty-card {
@@ -6021,10 +5810,6 @@ body {
 @media (max-width: 374px) {
   .diary-list-page .rest-topbar h1 {
     font-size: 25px;
-  }
-
-  .diary-intro p {
-    font-size: 15px;
   }
 
   .diary-month-control {
@@ -6115,16 +5900,6 @@ body {
   font-size: 22px;
 }
 
-.diary-intro {
-  min-height: 50px;
-  margin-top: -24px;
-}
-
-.diary-intro p {
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 .diary-controls {
   min-height: 42px;
 }
@@ -6159,11 +5934,6 @@ body {
   padding: 9px 6px 9px 10px;
 }
 
-.diary-entry-visual {
-  width: 64px;
-  height: 64px;
-}
-
 .diary-list-page .diary-main strong {
   font-size: 13px;
   line-height: 1.38;
@@ -6188,18 +5958,6 @@ body {
   min-height: 122px;
   overflow: hidden;
   padding: 14px 0 10px;
-}
-
-.report-hero::before {
-  position: absolute;
-  top: -16px;
-  right: -12px;
-  width: 230px;
-  height: 148px;
-  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
-  content: "";
-  opacity: 0.9;
-  pointer-events: none;
 }
 
 .report-topbar,
@@ -6716,18 +6474,6 @@ body {
   padding: 18px 0 12px;
 }
 
-.letter-list-hero::before {
-  position: absolute;
-  top: -20px;
-  right: -16px;
-  width: 242px;
-  height: 164px;
-  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
-  content: "";
-  opacity: 0.9;
-  pointer-events: none;
-}
-
 .letter-list-hero .back-icon,
 .letter-list-heading {
   position: relative;
@@ -6983,18 +6729,6 @@ body {
   min-height: 128px;
   overflow: hidden;
   padding: 14px 0 8px;
-}
-
-.favorite-list-hero::before {
-  position: absolute;
-  top: -26px;
-  right: -12px;
-  width: 254px;
-  height: 168px;
-  background: url("./assets/goodnight/tree-top-cutout.png") top right / contain no-repeat;
-  content: "";
-  opacity: 0.9;
-  pointer-events: none;
 }
 
 .favorite-list-hero .back-icon,
@@ -7451,27 +7185,6 @@ body {
    live links and copy in DOM, but place those assets on the same handset grid
    used by the supplied reference instead of scaling each image through a
    generic card rule. */
-.tool-page .tool-hero::before {
-  top: 32.9px;
-  right: auto;
-  bottom: auto;
-  left: 214.77px;
-  width: 214.77px;
-  height: 113.33px;
-  background-image: url("./assets/goodnight/tree-top-cutout.png");
-  background-size: 100% 100%;
-}
-
-.tool-page .feature-card::after {
-  top: 14.9px;
-  right: 19px;
-  bottom: auto;
-  width: 118.81px;
-  height: 128px;
-  background-image: url("./assets/goodnight/tool-baby-letter-cutout.png");
-  background-size: 100% 100%;
-  filter: none;
-}
 
 .tool-page .tool-tile {
   grid-template-columns: 66.25px minmax(0, 1fr);
@@ -7499,22 +7212,6 @@ body {
    controls and cards together with a decorative asset. */
 .square-page .square-hero::before,
 .mood-create-page .compact-hero::before,
-.detail-page .detail-top::before,
-.letter-page .letter-hero::before,
-.me-page .me-hero::before {
-  right: auto;
-  bottom: auto;
-  background-image: url("./assets/goodnight/tree-top-cutout.png");
-  background-size: 100% 100%;
-  /* This is a decorative blend, not a visual-test mask. The supplied tree
-     crop has a light paper matte; retaining the edge fade lets the real
-     illustration merge with each live hero instead of exposing a rectangle. */
-  opacity: .94;
-  filter: drop-shadow(0 12px 18px rgba(92, 95, 60, 0.08));
-  mix-blend-mode: multiply;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
-}
 
 .square-page .square-hero::before {
   top: 30.16px;
@@ -7568,7 +7265,6 @@ body {
   font-weight: 400;
 }
 
-
 .square-page .square-hero::after,
 .mood-create-page .compact-hero::after,
 .detail-page .detail-top::after,
@@ -7578,21 +7274,6 @@ body {
 }
 
 .decompose-page::before,
-.diary-list-page::before,
-.report-hero::before,
-.letter-list-hero::before,
-.favorite-list-hero::before {
-  right: auto;
-  bottom: auto;
-  background-image: url("./assets/goodnight/tree-top-cutout.png");
-  background-size: 100% 100%;
-  /* Same real decorative matte treatment for the document/list headers. */
-  opacity: .92;
-  filter: drop-shadow(0 12px 18px rgba(92, 95, 60, 0.08));
-  mix-blend-mode: multiply;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, #000 10%, #000 92%, transparent 100%);
-}
 
 .decompose-page::before {
   top: 42.96px;

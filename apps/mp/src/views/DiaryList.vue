@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, resolveApiUrl } from '../api';
+import { api } from '../api';
 
 const router = useRouter();
 const route = useRoute();
@@ -80,19 +80,18 @@ onMounted(async () => {
       <span class="diary-header-spacer" aria-hidden="true"></span>
     </header>
 
-    <div class="diary-intro" aria-label="日记说明">
-      <p>每一篇日记，都是你情绪的印记<br>记录下来，让树洞一直陪着你</p>
-      <span aria-hidden="true">✦</span>
-    </div>
-
+    <!--
+      The V2 list is a plain date-grouped text list: date, emotion, body. The old header carried two
+      lines of mood copy and every row carried a decorative mark and a separate letter button, which is
+      the "thick card, big envelope" the design brief names as the V1 problem. The letter state moved
+      into the row's own meta line, so the row stays one tappable unit and no control was lost.
+    -->
     <div class="diary-controls">
       <button class="diary-month-control" data-testid="filter-diary-month" @click="monthOpen = true">
-        <span class="diary-calendar-mark" aria-hidden="true"></span>
         <span>{{ month }}</span>
         <span class="diary-control-chevron" aria-hidden="true">⌄</span>
       </button>
       <button class="diary-filter-control" data-testid="btn-diary-filter" @click="filterOpen = true">
-        <span class="diary-filter-mark" aria-hidden="true"></span>
         筛选
       </button>
     </div>
@@ -105,37 +104,29 @@ onMounted(async () => {
         :data-testid="index === 0 ? 'diary-card-first' : `diary-card-${diary.id}`"
       >
         <button class="diary-main" @click="openDiary(diary)">
-          <span class="diary-entry-visual" aria-hidden="true">
-            <img
-              v-if="diary.attachments?.length"
-              class="diary-entry-image"
-              :src="resolveApiUrl(diary.attachments[0].url)"
-              alt=""
-            >
-            <span v-else class="diary-entry-placeholder">✦</span>
-          </span>
           <span class="diary-entry-copy">
             <span class="diary-entry-heading">
               <span class="diary-entry-date">{{ diaryDate(diary.createdAt).day }}</span>
               <span class="tag">{{ diary.emotionLabel || diary.emotion || '心情' }}</span>
             </span>
             <strong>{{ diary.content }}</strong>
-            <small>{{ diaryDate(diary.createdAt).time }} · 晚安树洞</small>
+            <small>
+              {{ diaryDate(diary.createdAt).time }}
+              <template v-if="diary.hasLetter">· 已有回信</template>
+              <template v-else>· 暂无回信</template>
+            </small>
           </span>
         </button>
+        <!-- The letter entry stays a real control: tapping it opens that diary's letter, which is the
+             page's original behaviour. It reads as a text action rather than an icon button. -->
         <button
           v-if="diary.hasLetter"
           class="diary-letter-action"
           :data-testid="index === 0 ? 'diary-letter-first' : `diary-letter-${diary.id}`"
           @click="openLetter(diary)"
         >
-          <span class="diary-letter-icon" aria-hidden="true">✉</span>
-          <span>已有回信</span>
+          查看回信
         </button>
-        <span v-else class="diary-letter-state">
-          <span class="diary-letter-icon" aria-hidden="true">✉</span>
-          <span>暂无回信</span>
-        </span>
       </article>
       <article v-if="!diaries.length" class="empty-card" data-testid="diary-empty-state">
         <span class="empty-diary-mark" aria-hidden="true"><span>✦</span></span>
