@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `8ab8da5`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `ec4208c`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -15,8 +15,8 @@
 
 | 页面 | 路由 | 实现 | 渲染 | 交互 | 业务 | 视觉审查 | 代码审查 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Square 广场 | `/pages/square/index` | yes | yes | **17/17 控件实测** | spec 3/3 | 待独立复审 | 一轮 FAIL→已修→待复审 | IN_REVIEW |
-| DiaryList 日记 | `/pages/diary/index` | yes | yes | 待控件实测 | 待 spec | 待独立复审 | 未审 | IN_PROGRESS |
+| Square 广场 | `/pages/square/index` | yes | yes | 17/17 控件点击（未断言 API 效果） | spec 3/3 | 待独立复审 | 一轮 FAIL→已修；二轮 FAIL→已修 | IN_REVIEW |
+| DiaryList 日记 | `/pages/diary/index` | yes | yes | 10/10 控件点击（6 项无点击后断言） | spec 待补 | 待独立复审 | 一轮 FAIL→已修 | IN_REVIEW |
 
 ### 已完成批次
 
@@ -59,3 +59,32 @@
 2. **Batch 1 剩余**：共享设计令牌统一（`packages/ui-tokens` 与 styles.scss 的绿色/暖纸色体系
    与 V2 的白底/深墨/深绿契约仍有冲突），以及 5 处元素级插画的逐页处理。
 3. **Batch 2 主 Tab**：今晚/广场/同路/行动/我的 的首页信息层级与首屏利用率。
+
+
+## 第二轮独立审查结论（code-reviewer，FAIL）
+
+5 项 P1，逐条核验后 **4 项成立并已修**：
+
+1. **Square 用了未导入的 `LoadErrorBanner`**（真，我的疏漏）：模板渲染组件但没 import，错误分支静默渲染空白。
+   vue-tsc 不报这类错，只有运行时才暴露。已修，并全仓审计 25 个使用页。
+2. **日记"查看回信"打开的是错的回信**（真）：`openLetter` 在无 `letterId` 时跳 `/pages/letter/today`，
+   而 manual 日记行只带 `hasLetter` 不带 `letterId`（实测 `source:"manual"` 三行全部 `letterId:null`）。
+   改为仅有 `letterId` 时才显示入口——不冒充能打开该篇回信。
+3. **日记加载失败被渲染成"还没有日记"**（真）：`load()` 无 catch，失败即空列表。已加错误横幅+重试+请求序号。
+4. **日记行仍是圆角卡片**（真）：`.diary-card` 与 letter/favorite 共用四边边框+圆角，我只覆盖了
+   `border-bottom`。实测 radius 12px → 0px。
+5. **审查代理对"17/17、10/10"的读法被高估**（部分成立，已如实记录）：那两次运行只证明控件被找到、
+   被点击、页面去了哪里，**不断言 API 或数据库效果**，且日记 10 项里有 6 项没有任何点击后断言。
+   提交信息已注明这个数字的口径。
+
+## 环境顽疾（本轮 8 次数据库中断，已定位根因）
+
+- **直接原因**：`docker compose up -d postgres` 用基础 `docker-compose.yml`（映射 5432），
+  而 `.env` 指向 15432；15432 映射在 `docker-compose.recovery.yml` 里。
+  正确启动方式：`docker compose -f docker-compose.yml -f docker-compose.recovery.yml up -d postgres redis`。
+- **加剧因素**：`wsl --shutdown` 时 PostgreSQL 正在 fsync，导致数据目录损坏、容器 Exited 255 反复崩溃；
+  需要等恢复窗口（约 1 分钟）后再启动。
+- **修复后**：`localhost:15432` 由 docker-proxy 监听（netsh 提权失败，无需它）。
+- **App 曾无法启动**（"Activity class does not exist" / result code -92）：`adb install -r` 后组件注册异常，
+  `adb uninstall` + 全新 `adb install` 解决。
+- CozyFocus 持续抢占模拟器前台，多次切断 CDP；采集脚本的前置守卫已能正确中止而不是空转。
