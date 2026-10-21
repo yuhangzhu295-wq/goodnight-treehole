@@ -168,7 +168,6 @@ onMounted(async () => {
         </button>
       </article>
       <article v-if="!loadError && !diaries.length" class="empty-card" data-testid="diary-empty-state">
-        <span class="empty-diary-mark" aria-hidden="true"><span>✦</span></span>
         <div class="empty-diary-copy">
           <strong>{{ emotion || hasLetter ? '没有符合筛选的日记' : `${month} 还没有日记` }}</strong>
           <p>{{ emotion || hasLetter ? '可以调整筛选条件，或写下一篇新的日记。' : '写下一点今天的心情，它会在这里长成记录。' }}</p>
@@ -280,57 +279,31 @@ onMounted(async () => {
   gap: 12px;
 }
 
+/* The empty state is a statement, not an illustration: a hairline panel with the reason and the next
+   step. It used to carry a foliage cutout, a warm gradient and a 24px radius, which is the same
+   decoration the list rows no longer have. */
 .diary-list-page.is-empty .empty-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
-  align-items: center;
-  gap: 15px;
-  min-height: 164px;
-  padding: 19px 18px;
-  border-color: rgba(224, 220, 197, 0.82);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at 90% 14%, rgba(240, 229, 185, 0.3), transparent 31%),
-    rgba(255, 254, 249, 0.96);
-  box-shadow: 0 12px 26px rgba(76, 90, 62, 0.07);
-}
-
-.diary-list-page.is-empty .empty-card::after {
-  position: absolute;
-  right: 12px;
-  bottom: 8px;
-  width: 62px;
-  height: 62px;
-  background: url('../assets/goodnight/growth-leaves.png') right bottom / contain no-repeat;
-  content: '';
-  opacity: .42;
-  pointer-events: none;
-}
-
-.diary-list-page.is-empty .empty-diary-copy {
-  position: relative;
-  z-index: 1;
-}
-
-.empty-diary-mark {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  border: 1px solid rgba(137, 155, 96, 0.24);
-  border-radius: 50% 50% 50% 13px;
-  background:
-    radial-gradient(circle at 70% 28%, rgba(255, 245, 205, 0.9), transparent 26%),
-    linear-gradient(145deg, #fbf7e9, #edf4e8);
-  color: #779259;
-  font-size: 25px;
-  transform: rotate(-10deg);
-}
-
-.empty-diary-mark > span {
   display: block;
-  transform: rotate(10deg);
+  margin: 16px 20px;
+  padding: 18px;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.diary-list-page.is-empty .empty-card strong {
+  display: block;
+  color: #242a32;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.diary-list-page.is-empty .empty-card p {
+  margin: 6px 0 0;
+  color: #7a838e;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .empty-diary-copy {
@@ -375,10 +348,5 @@ onMounted(async () => {
     padding-inline: 15px;
   }
 
-  .empty-diary-mark {
-    width: 52px;
-    height: 52px;
-    font-size: 22px;
-  }
 }
 </style>
