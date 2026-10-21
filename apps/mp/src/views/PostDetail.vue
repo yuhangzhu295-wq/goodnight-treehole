@@ -3,11 +3,22 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { copyText } from '../clipboard';
-import { useDeviceClock } from '../composables/useDeviceClock';
 
 const route = useRoute();
 const router = useRouter();
-const { timeLabel } = useDeviceClock();
+
+/** The post's real creation time. This used to print a hardcoded "2 小时前". */
+function relativeTime(value?: string) {
+  if (!value) return '时间未记录';
+  const minutes = Math.floor((Date.now() - Date.parse(value)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(value));
+}
 
 const post = ref<any>();
 const replies = ref<any[]>([]);
@@ -175,26 +186,18 @@ onMounted(async () => {
 
 <template>
   <section class="page goodnight-page detail-page" v-if="post">
-    <header class="detail-top">
-      <div class="status-row">
-        <span>{{ timeLabel }}</span>
-        <span aria-hidden="true"></span>
-      </div>
+    <header class="detail-topbar">
       <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>树洞详情</h1>
-      <div class="tree-scene detail-tree" aria-hidden="true">
-        <span class="tree-heart">♡</span>
-      </div>
-      <span class="detail-hero-baby" aria-hidden="true" />
+      <span class="topbar-spacer" aria-hidden="true"></span>
     </header>
 
     <article class="detail-card">
       <button class="card-more" data-testid="btn-open-more" aria-label="更多" @click="showMore = true">...</button>
       <div class="detail-author">
-        <div class="avatar-bubble large">♧</div>
         <div>
           <strong>匿名树洞</strong>
-          <p><span>2 小时前</span><span class="tag green">{{ post.emotion }}</span></p>
+          <p><span>{{ relativeTime(post.createdAt) }}</span><span class="tag">{{ post.emotion }}</span></p>
         </div>
       </div>
       <p class="detail-content">{{ post.content }}</p>
@@ -219,9 +222,8 @@ onMounted(async () => {
     </article>
 
     <section class="reply-section">
-      <h2>♧ 温柔回应</h2>
+      <h2>温柔回应</h2>
       <article v-for="(reply, index) in replies.slice(0, 5)" :key="reply.id" class="reply-card">
-        <div class="avatar-bubble">{{ index === 1 ? '◌' : '♡' }}</div>
         <div>
           <strong>{{ reply.style === 'rational' ? '理性分析' : index === 2 ? '轻松一下' : '暖心陪伴' }}</strong>
           <p>{{ reply.content }}</p>
@@ -239,7 +241,7 @@ onMounted(async () => {
     </section>
 
     <section class="hug-section">
-      <h2>♧ 大家的抱抱</h2>
+      <h2>大家的抱抱</h2>
       <div class="style-row">
         <button
           v-for="(item, index) in quickHugs"
@@ -344,19 +346,117 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.detail-page .status-row {
-  visibility: hidden;
+/* The post is the page: a plain top bar, then the content. The old header was a 190px hero with a
+   44px title, a tree scene and a mascot cutout above the post body. */
+.detail-topbar {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 52px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
 }
 
-.detail-hero-baby {
-  position: absolute;
-  right: 89px;
-  bottom: -1px;
-  z-index: 2;
-  width: 72px;
-  height: 68px;
-  background: url("../assets/goodnight/square-baby-cutout.png") center / contain no-repeat;
-  pointer-events: none;
+.detail-topbar h1 {
+  color: #242a32;
+  font-size: 17px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.detail-topbar .back-icon {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: #39454c;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.topbar-spacer { display: block; }
+
+.detail-card {
+  padding: 16px 0 12px;
+  border: 0;
+  background: none;
+}
+
+.detail-author strong {
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.detail-author p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0 0;
+  color: #818993;
+  font-size: 11.5px;
+}
+
+.detail-author .tag {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #f0f3f4;
+  color: #69717a;
+  font-size: 10.5px;
+}
+
+.detail-content {
+  margin: 12px 0 0;
+  color: #242a32;
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-page h2 {
+  margin: 18px 0 6px;
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+/* One primary reaction, as the design asks: the rest live in the reply sheet. */
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.detail-actions .plain-action {
+  flex: 1;
+  min-height: 40px;
+  border: 1px solid #e4e7ea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #39454c;
+  font-size: 13px;
+}
+
+.detail-page .reply-card {
+  padding: 13px 0;
+  border-bottom: 1px solid #e8eaed;
+  background: none;
+}
+
+.detail-page .reply-card strong {
+  color: #242a32;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.detail-page .reply-card p {
+  margin: 5px 0 0;
+  color: #58616b;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 /* Bring the first live detail card back to the compact header without
@@ -414,11 +514,6 @@ onMounted(async () => {
   min-height: 72px;
   padding: 8px 10px;
   grid-template-columns: 48px minmax(0, 1fr) 52px;
-}
-
-.detail-page .reply-card .avatar-bubble {
-  width: 46px;
-  height: 46px;
 }
 
 .detail-page .reply-card p {
@@ -481,10 +576,6 @@ onMounted(async () => {
 /* The reply state keeps the live post readable behind the sheet. Tighten only
    the composing controls to the supplied mobile rhythm; all reply inputs,
    visibility choices, and submission actions remain unchanged. */
-.detail-page:has(.reply-sheet-mask) .detail-hero-baby {
-  display: none;
-}
-
 .detail-page .reply-compose textarea {
   height: 108px;
   min-height: 108px;

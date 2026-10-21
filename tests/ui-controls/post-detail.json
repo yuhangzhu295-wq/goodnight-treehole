@@ -1,0 +1,9 @@
+[
+  { "selector": "front-post-back", "expect": {} },
+  { "selector": "detail-reply-count", "expect": {} },
+  { "selector": "btn-hug", "expect": {} },
+  { "selector": "btn-open-reply", "expect": {} },
+  { "selector": "reply-like-first", "expect": {} },
+  { "selector": "quick-hug-0", "expect": {} },
+  { "selector": "btn-open-more", "expect": {} }
+]
