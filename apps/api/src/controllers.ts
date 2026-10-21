@@ -1498,12 +1498,12 @@ export class PublicController {
     const letter = (DIRECT_DB_MODELS.Letter
       ? await this.store.lettersDb.findLatestWithContent(userId)
       : this.store.letters.find((item) => item.userId === userId)) ?? undefined;
-    const sourceId: string | undefined =
+    const sourceId: string | null =
       letter?.sourceMoodId ??
       (DIRECT_DB_MODELS.Mood
         ? (await this.store.moodsDb.latestForUser(userId))?.id
         : this.store.moods.find((item) => item.userId === userId)?.id) ??
-      undefined;
+      null;
     // `sourceMoodId` is a real foreign key, so a letter may only point at a mood row that exists.
     // This used to fall back to the literal seed id 'mood_1', which the seed no longer writes - it
     // writes `mood_seed_*` - so every user without a mood hit a foreign-key violation and the page

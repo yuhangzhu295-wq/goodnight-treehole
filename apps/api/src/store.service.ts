@@ -271,7 +271,12 @@ export interface Mood {
 export interface Letter {
   id: string;
   userId: string;
-  sourceMoodId?: string;
+  /**
+   * The mood this letter was written from, or null when the user had none. The column is nullable,
+   * and a user who has never written a mood still gets a letter - so this has to be able to hold
+   * null. `?: string` could not, which is what pushed the caller toward inventing a source id.
+   */
+  sourceMoodId?: string | null;
   style: AIStyle;
   title: string;
   content: string;
@@ -7751,7 +7756,12 @@ export class StoreService implements OnModuleInit {
 
   async queueLetterGeneration(input: {
     userId: string;
-    sourceMoodId: string;
+    /**
+     * Nullable, because the user may have written no mood at all and `Letter.sourceMoodId` is a
+     * nullable foreign key. This used to be `string`, which is what forced the caller to invent the
+     * literal seed id 'mood_1' - a row that does not exist - and made the insert violate the FK.
+     */
+    sourceMoodId: string | null;
     style: AIStyle;
     content: string;
     letter?: Letter;
@@ -8960,7 +8970,13 @@ export class StoreService implements OnModuleInit {
   /** Same idea for `resolveSourceContent`: a mood loaded this request, keyed by id. */
   private pendingSourceContent?: Record<string, string>;
 
-  async resolveSourceContent(sourceId?: string) {
+  /**
+   * The text a letter can be generated from, for a source that may not exist.
+   *
+   * A letter whose `sourceMoodId` is null has no source to look up, so this accepts null and
+   * returns '' for it rather than forcing every caller to juggle the two shapes.
+   */
+  async resolveSourceContent(sourceId?: string | null) {
     if (!sourceId) return '';
     return (
       (this.pendingSourceContent ?? {})[sourceId] ??
