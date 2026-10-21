@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -171,7 +172,7 @@ onMounted(load);
       </div>
     </header>
 
-    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
 
     <section v-if="!conversation" class="empty-panel">
       <span class="empty-glyph" aria-hidden="true">⌘</span>
@@ -396,16 +397,6 @@ onMounted(load);
   color: var(--gn-muted);
   font-size: 11px;
   text-align: center;
-}
-
-.error-note {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  color: var(--gn-danger);
-  font-size: 13px;
 }
 
 .empty-panel {

@@ -6,6 +6,7 @@ import { aiDegradationNotice } from '../aiStatus';
 import { copyText } from '../clipboard';
 import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import ToolTaskContracts from '../components/ToolTaskContracts.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -120,6 +121,6 @@ async function copyResult() {
       <div class="sheet-actions"><button data-testid="btn-tool-run-save" class="primary" @click="saveResult">{{ saved ? '已保存到日记' : '保存到日记' }}</button><button data-testid="btn-tool-run-copy" @click="copyResult">{{ copied ? '已复制' : '复制结果' }}</button><button data-testid="btn-tool-run-close" @click="result = ''">收起结果</button></div>
     </article>
     <ToolTaskContracts v-if="result" :type="type" :input="input" :result="result" />
-    <p v-if="error" class="error-text">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="restoreLatestResult" />
   </section>
 </template>

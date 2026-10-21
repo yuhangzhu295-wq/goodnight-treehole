@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -134,7 +135,8 @@ const steps = [
       >查看官方说明</a>
     </p>
 
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <!-- 本页是为静态内容，无可重试的加载函数，仅展示错误提示。 -->
+    <LoadErrorBanner :message="error" />
   </section>
 </template>
 
@@ -391,9 +393,4 @@ const steps = [
   color: var(--gn-primary, #275f56);
 }
 
-.error-text {
-  margin: 14px 0 0;
-  font-size: 14px;
-  color: var(--gn-danger, #bd4545);
-}
 </style>

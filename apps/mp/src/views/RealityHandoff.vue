@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type Contact = { id: string; nickname: string; relation: string; contactHint: string };
 type Handoff = { id: string; recipient: string; summary: string; status: string };
@@ -137,7 +138,7 @@ onMounted(load);
     </section>
 
     <p v-if="status" class="status-note" role="status">{{ status }}</p>
-    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
 
     <button class="contacts-trigger" type="button" @click="contactSheet = true">
       <AppIcon name="people" :size="18" />
@@ -391,23 +392,9 @@ onMounted(load);
 }
 
 .status-note,
-.error-note {
-  margin: 0;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  padding: 10px 14px;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
 .status-note {
   background: var(--gn-paper);
   color: var(--gn-leaf-deep);
-}
-
-.error-note {
-  background: var(--gn-paper);
-  color: var(--gn-danger);
 }
 
 .contacts-trigger {

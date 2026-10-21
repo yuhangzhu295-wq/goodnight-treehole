@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { Keyboard } from '@capacitor/keyboard';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type Journey = { id: string; title: string; domain: string; stage: string; summary?: string };
 type TonightItem = {
@@ -232,7 +233,12 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+    <!--
+      The error banner carries a retry, because this page is the cold-start screen: the API may not be
+      listening yet when the app opens (a local restart does exactly that), and without a way to retry
+      the only recovery is killing the app.
+    -->
+    <LoadErrorBanner :message="error" retry-label="重新加载今晚记录" data-testid="btn-tonight-retry" @retry="load" />
 
     <div v-if="loading" class="loading-state">
       <p>正在读取今晚记录…</p>
@@ -462,16 +468,6 @@ onUnmounted(() => {
   font-weight: 600;
   line-height: 16px;
   text-align: center;
-}
-
-.error-banner {
-  margin: 12px 20px 0;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: #FEF2F0;
-  border: 1px solid #F6DCDA;
-  color: #BD4545;
-  font-size: 13px;
 }
 
 .loading-state {

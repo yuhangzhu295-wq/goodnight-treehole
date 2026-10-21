@@ -165,10 +165,7 @@ onMounted(() => {
     </div>
 
     <p v-if="loading" class="soft-note">正在轻轻翻找树洞...</p>
-    <div v-else-if="loadError" class="square-error" role="alert">
-      <p>{{ loadError }}</p>
-      <button data-testid="btn-square-retry" class="plain-action" @click="load">重新加载</button>
-    </div>
+    <LoadErrorBanner v-else-if="loadError" :message="loadError" retry-label="重新加载" @retry="load" />
     <p v-else-if="posts.length === 0" class="square-empty">
       还没有这类心情，<button data-testid="btn-empty-write-mood" class="link-btn" @click="router.push('/pages/post/create')">写下第一条</button>吧。
     </p>
@@ -314,23 +311,7 @@ onMounted(() => {
   line-height: 1.7;
 }
 
-.square-error {
-  margin: 22px 20px;
-  padding: 14px;
-  border: 1px solid #f2dcd8;
-  border-radius: 10px;
-  background: #fdf6f4;
-  color: #8f4a42;
-  font-size: 13px;
-  line-height: 1.7;
-}
 
-.square-error .plain-action {
-  margin-top: 10px;
-  border-color: #e6c9c3;
-  background: #ffffff;
-  color: #8f4a42;
-}
 
 .link-btn {
   padding: 0;

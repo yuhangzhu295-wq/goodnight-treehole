@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
 import AiDegradationNotice from '../components/AiDegradationNotice.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -264,7 +265,7 @@ onMounted(async () => {
       <p v-else-if="!summaryLoading && !summaryParagraphs.length" class="muted">本月回顾暂时不可用，稍后刷新可查看任务状态。</p>
     </article>
 
-    <p v-if="loadError" class="error-text">{{ loadError }}</p>
+    <LoadErrorBanner :message="loadError" retry-label="重新加载" @retry="load" />
 
     <div class="report-actions">
       <button class="primary" data-testid="btn-report-poster" :disabled="summaryLoading || !report.summary" @click="makeShareImage"><span aria-hidden="true">▧</span>生成分享图</button>

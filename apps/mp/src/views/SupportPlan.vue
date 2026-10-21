@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type ListKey = 'earlySignals' | 'thingsThatHelp' | 'thingsThatMakeWorse' | 'safePeople' | 'places' | 'smallActions';
 type PlanDraft = Record<ListKey, string[]> & { professionalSupport: string; emergencyPreference: string };
@@ -271,7 +272,7 @@ onMounted(load);
           需要即时安全支持
         </button>
       </details>
-      <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
       <p v-if="savedNotice" class="saved-note" role="status">{{ savedNotice }}</p>
       <small v-if="currentId" class="version-note">已保存于 {{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
       <button class="save-plan" data-testid="support-plan-save" :disabled="saving" type="submit">
@@ -612,7 +613,6 @@ onMounted(load);
 }
 
 .state-note,
-.error-note,
 .saved-note {
   margin: 0;
   border-radius: var(--gn-radius-card);
@@ -625,11 +625,6 @@ onMounted(load);
 .state-note {
   background: var(--gn-paper);
   color: var(--gn-muted);
-}
-
-.error-note {
-  background: var(--gn-paper);
-  color: var(--gn-danger);
 }
 
 .saved-note {

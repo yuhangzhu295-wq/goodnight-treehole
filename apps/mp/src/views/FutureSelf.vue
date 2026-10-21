@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type ContextType = 'none' | 'journey' | 'decision' | 'recovery';
 type FutureMessage = {
@@ -245,7 +246,7 @@ onMounted(() => {
       </fieldset>
 
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
-      <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     </form>
 
     <section class="letters-section">
@@ -682,7 +683,6 @@ onMounted(() => {
 }
 
 .notice,
-.error-note,
 .state-note,
 .empty-note {
   margin: 0;
@@ -696,11 +696,6 @@ onMounted(() => {
 .notice {
   background: var(--gn-paper);
   color: var(--gn-leaf-deep);
-}
-
-.error-note {
-  background: var(--gn-paper);
-  color: var(--gn-danger);
 }
 
 .state-note,

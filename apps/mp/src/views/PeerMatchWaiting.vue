@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type Match = {
   id: string;
@@ -169,7 +170,7 @@ onBeforeUnmount(() => {
     </section>
 
     <p class="quiet-tip">无需在此持续停留，对方回应后将在请求列表中提示。</p>
-    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
   </section>
 </template>
 
@@ -448,13 +449,4 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
-.error-note {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  color: var(--gn-danger);
-  font-size: 13px;
-}
 </style>

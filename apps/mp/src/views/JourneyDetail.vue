@@ -5,6 +5,7 @@ import type { SupportIntent } from '@goodnight/shared-types';
 import { api } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
 import AiDegradationNotice from '../components/AiDegradationNotice.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 import JourneyFlowShell from '../components/journey/JourneyFlowShell.vue';
 import SituationConfirmationScreen from '../components/journey/SituationConfirmationScreen.vue';
 import EmotionTemperatureScreen from '../components/journey/EmotionTemperatureScreen.vue';
@@ -192,7 +193,7 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
 
 <template>
   <JourneyFlowShell :mode="flowStep" title="当前旅程" @back="router.back()">
-    <p v-if="error" class="journey-error" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <AiDegradationNotice :notice="aiNotice" />
     <p v-if="loading && !detail" class="loading-note">正在打开这段经历…</p>
     <template v-if="detail">
@@ -250,16 +251,6 @@ onMounted(async () => { await load(); const job = typeof route.query.analysisJob
 </template>
 
 <style scoped>
-.journey-error {
-  margin: 0;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  padding: 10px 14px;
-  color: var(--gn-danger);
-  font-size: 13px;
-}
-
 .loading-note {
   margin: 0;
   border-radius: var(--gn-radius-card);

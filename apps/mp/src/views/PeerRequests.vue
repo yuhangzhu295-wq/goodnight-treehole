@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type RequestItem = { id: string; status: string; requestReason?: string; requestQuestion?: string; experience?: { title?: string; domain?: string } };
 const router = useRouter();
@@ -61,7 +62,7 @@ onMounted(load);
       <button type="button" @click="router.push('/pages/peers/index')">推荐经历</button>
     </div>
 
-    <p v-if="error" class="error-note">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <p v-if="loading" class="state-note">正在读取请求…</p>
 
     <template v-else>
@@ -219,16 +220,6 @@ onMounted(load);
   color: var(--gn-muted);
   font-size: 13px;
   text-align: center;
-}
-
-.error-note {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  color: var(--gn-danger);
-  font-size: 13px;
 }
 
 .request-section {

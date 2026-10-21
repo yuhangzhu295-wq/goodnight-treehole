@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type MemoryItem = {
   id: string;
@@ -212,7 +213,7 @@ onMounted(load);
     </section>
 
     <p v-if="loading" class="status-msg info">正在读取记忆记录…</p>
-    <p v-if="error" class="status-msg error" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <p v-if="notice" class="status-msg success" role="status">{{ notice }}</p>
 
     <!-- Create Memory Form -->
@@ -603,10 +604,6 @@ onMounted(load);
   background: var(--gn-paper-warm);
   font-size: 13px;
   line-height: 1.5;
-}
-
-.status-msg.error {
-  color: var(--gn-danger);
 }
 
 .status-msg.success {

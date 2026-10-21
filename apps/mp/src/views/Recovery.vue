@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const fields = [
@@ -175,7 +176,7 @@ onMounted(load);
         <p>记录现实里的变化，不给自己打分。</p>
       </div>
 
-      <p v-if="error" class="error-note">{{ error }}</p>
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
 
       <!-- The design asks one topic at a time. All six indicators and their three states remain, so
            the signals payload the API receives is unchanged. -->
@@ -514,21 +515,6 @@ onMounted(load);
 }
 
 .empty,
-.error-note {
-  margin: 0;
-  color: var(--gn-muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.error-note {
-  color: var(--gn-danger);
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-}
-
 .privacy-gate {
   padding: 20px;
   display: flex;

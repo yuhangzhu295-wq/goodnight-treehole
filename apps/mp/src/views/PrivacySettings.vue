@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
 import { IDENTITY_CREDENTIAL_KEY, IDENTITY_USER_KEY } from '../identity';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type PrivacySetting = {
   defaultVisibility: 'PRIVATE' | 'PUBLIC';
@@ -183,7 +184,7 @@ onMounted(load);
 
     <p class="privacy-lead">管理内容可见范围、AI 使用偏好与个人数据</p>
 
-    <p v-if="loadError" class="privacy-error" role="alert">{{ loadError }}</p>
+    <LoadErrorBanner :message="loadError" retry-label="重新加载" @retry="load" />
     <p v-if="message" class="privacy-feedback" role="status" aria-live="polite">{{ message }}</p>
 
     <!-- Group 1: 可见范围 -->
@@ -644,16 +645,6 @@ onMounted(load);
   font-size: 13px;
   line-height: 1.4;
   color: var(--gn-muted);
-}
-
-.privacy-error {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  color: var(--gn-danger);
-  font-size: 13px;
 }
 
 .privacy-feedback {

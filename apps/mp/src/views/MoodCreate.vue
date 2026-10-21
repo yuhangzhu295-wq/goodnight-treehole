@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import type { AIStyle } from '@goodnight/shared-types';
 import { api, deleteMedia, resolveApiUrl, uploadMedia } from '../api';
 import { useDeviceClock } from '../composables/useDeviceClock';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const { timeLabel } = useDeviceClock();
@@ -204,7 +205,8 @@ async function submit() {
       </div>
     </section>
 
-    <p v-if="error" class="error-text">{{ error }}</p>
+    <!-- 本页没有可重试的加载函数（错误来自校验/上传/发布），仅展示错误提示。 -->
+    <LoadErrorBanner :message="error" />
     <button class="submit-bar" data-testid="btn-submit-mood" :disabled="submitting" @click="submit">{{ submitting ? '正在发布…' : '发布心情' }}</button>
   </section>
 </template>

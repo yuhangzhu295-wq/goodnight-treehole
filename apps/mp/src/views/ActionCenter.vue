@@ -5,6 +5,7 @@ import type { ActionBarrier, ActionRecommendation, AdaptiveActionResult } from '
 import { api } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
 import AiDegradationNotice from '../components/AiDegradationNotice.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 import AdaptiveActionSheet from '../components/action/AdaptiveActionSheet.vue';
 
 type ActionRecord = {
@@ -468,7 +469,7 @@ onMounted(async () => {
       </div>
     </header>
 
-    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <div v-if="intentNotice" class="notice-box" role="status" data-testid="action-intent-note">{{ intentNotice }}</div>
     <div v-if="smallerNotice" class="notice-box" role="status" data-testid="action-smaller-note">{{ smallerNotice }}</div>
     <div v-if="followUpNotice" class="notice-box" role="status" data-testid="action-followup-note">{{ followUpNotice }}</div>

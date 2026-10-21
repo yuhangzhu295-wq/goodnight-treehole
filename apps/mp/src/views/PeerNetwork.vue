@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type PeerExperience = {
   id: string;
@@ -249,7 +250,7 @@ onMounted(() => {
       </button>
     </nav>
 
-    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
 
     <div v-if="loading" class="state-message">
       正在寻找走过相似道路的记录…
@@ -556,16 +557,6 @@ onMounted(() => {
   height: 2px;
   background: #275F56;
   border-radius: 2px;
-}
-
-.error-banner {
-  margin: 12px 20px 0;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: #FEF2F0;
-  border: 1px solid #F6DCDA;
-  color: #BD4545;
-  font-size: 13px;
 }
 
 .state-message {

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type Notice = { id: string; title: string; body: string; type: string; targetRoute?: string; status: 'unread' | 'read' | 'dismissed'; createdAt: string };
 const router = useRouter();
@@ -135,7 +136,7 @@ onMounted(load);
       </button>
     </div>
 
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <p v-if="loading" class="loading-note">正在读取提醒…</p>
 
     <template v-else>
@@ -353,9 +354,4 @@ onMounted(load);
   color: var(--gn-muted, #757d87);
 }
 
-.error-text {
-  margin: 14px 0 0;
-  font-size: 14px;
-  color: var(--gn-danger, #bd4545);
-}
 </style>

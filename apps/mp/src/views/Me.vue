@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const profile = ref<any>();
@@ -199,7 +200,7 @@ onMounted(() => {
       </div>
     </header>
 
-    <div v-if="loadError" class="error-banner" role="alert">{{ loadError }}</div>
+    <LoadErrorBanner :message="loadError" retry-label="重新加载" @retry="load" />
     <div v-if="clearMessage" class="message-banner" role="status">{{ clearMessage }}</div>
 
     <main class="me-content">

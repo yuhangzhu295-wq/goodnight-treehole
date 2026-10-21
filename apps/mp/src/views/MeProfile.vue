@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const profile = ref<any>();
@@ -44,8 +45,7 @@ onMounted(load);
 
     <p v-if="loading" class="state-note">正在读取账号资料…</p>
     <template v-else-if="error">
-      <p class="error-note" role="alert">{{ error }}</p>
-      <button class="retry-btn" type="button" @click="load">重新读取</button>
+      <LoadErrorBanner :message="error" retry-label="重新读取" @retry="load" />
     </template>
     <template v-else-if="profile">
       <div class="identity-block">
@@ -142,32 +142,8 @@ onMounted(load);
 }
 
 .state-note,
-.error-note {
-  margin: 16px 20px 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gn-muted);
-}
 
-.error-note {
-  color: var(--gn-danger);
-}
 
-.retry-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  margin: 12px 20px 0;
-  padding: 0 18px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
-  color: var(--gn-ink);
-  font-family: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
 
 /* Identity block: avatar at the top-left, the name and its caption centred under it. */
 .identity-block {

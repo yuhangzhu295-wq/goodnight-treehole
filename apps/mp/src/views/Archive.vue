@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type ArchiveTab = 'diary' | 'post' | 'letter' | 'journey';
 type TimeScope = 'all' | 'week' | 'month';
@@ -259,7 +260,7 @@ onMounted(load);
       <button class="archive-filter" data-testid="archive-filter-reset" aria-label="重置时间筛选" @click="scope = 'all'">▽</button>
     </div>
 
-    <p v-if="error" class="archive-error" role="alert">{{ error }}</p>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <p v-if="loading" class="archive-loading">正在读取你已经保存的内容…</p>
 
     <div v-if="activeTab === 'diary' && !loading" class="archive-list">
@@ -378,7 +379,6 @@ onMounted(load);
 .archive-scopes button.active { border-color: var(--gn-leaf); background: var(--gn-leaf-soft); color: var(--gn-leaf); font-weight: 700; }
 .archive-scopes .archive-filter { display: grid; width: 30px; min-width: 30px; height: 30px; place-items: center; padding: 0; border-radius: 50%; color: var(--gn-muted); font-size: 14px; }
 
-.archive-error { margin: 12px 0 0; color: var(--gn-danger); font-size: 13px; }
 .archive-loading { padding: 28px 12px; color: var(--gn-muted); text-align: center; font-size: 13px; }
 
 /* Rows: a bold title, a muted meta line and a bare chevron, separated by hairlines. */

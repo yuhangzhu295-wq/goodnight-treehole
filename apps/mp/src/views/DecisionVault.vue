@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type DecisionStatus = 'draft' | 'cooling' | 'ready' | 'decided' | 'archived';
 type DecisionItem = {
@@ -231,7 +232,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
       </form>
 
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
       <p v-if="loading" class="loading">正在打开冷静箱…</p>
 
       <section v-if="activeItems.length" class="saved-section">
@@ -538,7 +539,6 @@ onBeforeUnmount(() => window.clearInterval(timer));
 }
 
 .notice,
-.error,
 .loading {
   margin: 12px 0 0;
   padding: 10px 12px;
@@ -550,10 +550,6 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
 .notice {
   color: var(--gn-leaf-deep);
-}
-
-.error {
-  color: var(--gn-danger);
 }
 
 .loading {
