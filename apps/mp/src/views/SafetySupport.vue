@@ -9,6 +9,8 @@ const route = useRoute();
 const router = useRouter();
 const journeyId = computed(() => String(route.query.journeyId ?? ''));
 const busy = ref(false);
+/** Whether the reader has asked to see the mainland-China numbers behind the neutral entry. */
+const showLocalNumbers = ref(false);
 const error = ref('');
 const supportPlan = ref<Record<string, unknown> | null>(null);
 const savedSupport = computed(() => {
@@ -74,14 +76,30 @@ const steps = [
       <h2>如果你现在有立即危险</h2>
       <p>优先联系当地紧急服务，或请身边可信任的人陪同。不要等待应用中的消息。</p>
       <div class="danger-actions">
-        <a class="danger-primary" data-testid="safety-emergency-medical" href="tel:120">
+        <!--
+          One region-neutral entry, as the design draws it. The page used to print 120 and 12356
+          unconditionally - those are mainland-China numbers, so for a reader anywhere else the page
+          named the wrong emergency service while claiming to help. The app holds no region data, so
+          rather than guess, it shows the neutral action and how to find the local number; the
+          mainland numbers stay available for the reader who confirms that is where they are.
+        -->
+        <button class="danger-primary" data-testid="safety-emergency-medical" type="button" @click="showLocalNumbers = !showLocalNumbers">
           <AppIcon name="heart" />
-          <span>紧急医疗求助 120</span>
-        </a>
-        <a class="danger-secondary" data-testid="safety-emergency" href="tel:12356">
-          <AppIcon name="people" />
-          <span>心理援助热线 12356</span>
-        </a>
+          <span>查看紧急求助方式</span>
+        </button>
+        <p class="danger-hint">紧急电话按国家/地区不同。可先查看手机锁屏或设置里的紧急求助，或询问身边的人。</p>
+        <div v-if="showLocalNumbers" class="local-numbers" data-testid="safety-local-numbers">
+          <p class="local-note">如果你在中国大陆：</p>
+          <a class="danger-secondary" data-testid="safety-emergency" href="tel:120">
+            <AppIcon name="people" />
+            <span>紧急医疗求助 120</span>
+          </a>
+          <a class="danger-secondary" data-testid="safety-emergency-hotline" href="tel:12356">
+            <AppIcon name="people" />
+            <span>心理援助热线 12356</span>
+          </a>
+          <p class="local-note">12356 为国家卫生健康委统一心理援助热线；110、120 为紧急求助电话。</p>
+        </div>
       </div>
     </section>
 
@@ -126,9 +144,13 @@ const steps = [
       </ul>
     </section>
 
+    <!--
+      The scope statement stays; the mainland-number explanation moved next to the numbers themselves,
+      so it is read by whoever actually opens them rather than asserted on a page that may be read
+      outside that region.
+    -->
     <p class="source-note">
-      这不是医疗或紧急救援服务。风险情况下优先使用现实中的帮助。12356 为国家卫生健康委统一心理援助热线；110、120
-      为紧急求助电话。<a
+      这不是医疗或紧急救援服务。风险情况下优先使用现实中的帮助。<a
         href="https://www.nhc.gov.cn/yzygj/c100068/202412/49a1a65386cd4be582d4702fd0926ee8.shtml"
         target="_blank"
         rel="noreferrer"
@@ -175,6 +197,32 @@ const steps = [
 
 /* Danger block: the one place on this page where the danger colour is correct. The spec forbids
    masking a risk with the brand colour. */
+/* The neutral entry's explanation and the region-conditional numbers. */
+.danger-hint {
+  margin: 2px 2px 0;
+  color: #8a5a52;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.local-numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid #f0d5d2;
+  border-radius: 10px;
+  background: #fffafa;
+}
+
+.local-note {
+  margin: 0;
+  color: #8a5a52;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
 .danger-block {
   margin: 16px 0 0;
   padding: 16px;
@@ -203,7 +251,8 @@ const steps = [
   gap: 8px;
 }
 
-.danger-actions a {
+.danger-actions a,
+.danger-actions button {
   display: flex;
   align-items: center;
   justify-content: center;

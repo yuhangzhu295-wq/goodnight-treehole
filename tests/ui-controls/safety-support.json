@@ -1,0 +1,5 @@
+[
+  { "selector": "safety-emergency-medical", "expect": {} },
+  { "selector": "safety-handoff", "expect": {} },
+  { "selector": "safety-stay", "expect": {} }
+]
