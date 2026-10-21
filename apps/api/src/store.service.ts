@@ -7726,6 +7726,7 @@ export class StoreService implements OnModuleInit {
       sourceMoodId: mood.id,
       style: isSupportedAiReplyStyle(input.style) ? input.style : 'warm',
       content: mood.content,
+      mood: emotion,
     });
     void this.waitForAiJob(queued.job.id)
       .then(async (completed) => {
@@ -7764,6 +7765,12 @@ export class StoreService implements OnModuleInit {
     sourceMoodId: string | null;
     style: AIStyle;
     content: string;
+    /**
+     * The emotion the user chose for this mood. Without it the reply text infers a mood from the
+     * body, and that inference defaults to 焦虑 for anything it does not recognise - so a calm entry
+     * gets a reply that says "这份焦虑不是矫情", which is a claim about the user that is simply wrong.
+     */
+    mood?: Emotion;
     letter?: Letter;
   }) {
     if (input.letter?.aiJobId) {
@@ -7813,6 +7820,7 @@ export class StoreService implements OnModuleInit {
       taskType: 'warm_letter',
       content: input.content,
       style: input.style,
+      mood: input.mood,
       userId: input.userId,
       sourceId: letter.id,
     });
@@ -8997,7 +9005,10 @@ export class StoreService implements OnModuleInit {
     if (/喜欢|恋爱|想念|关系|分手|暧昧/.test(text)) return '恋爱' as Emotion;
     if (/委屈|批评|误会|刺|被说|责备/.test(text)) return '委屈' as Emotion;
     if (/焦虑|担心|害怕|紧张|慌|压力/.test(text)) return '焦虑' as Emotion;
-    return '焦虑' as Emotion;
+    // The fallback used to be 焦虑 too, which meant every entry the matcher did not recognise was
+    // described to its author as anxious - a statement about the user that the text does not support.
+    // 平静 asserts nothing; the caller's own emotion is preferred whenever it is known.
+    return '平静' as Emotion;
   }
 
   private extractTopic(content: string) {
