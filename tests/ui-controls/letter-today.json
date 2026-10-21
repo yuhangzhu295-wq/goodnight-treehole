@@ -1,0 +1,6 @@
+[
+  { "selector": "letter-back", "expect": {} },
+  { "selector": "btn-letter-regenerate", "expect": {} },
+  { "selector": "btn-letter-save", "expect": {} },
+  { "selector": "btn-letter-poster", "expect": {} }
+]

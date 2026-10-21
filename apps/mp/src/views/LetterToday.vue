@@ -4,10 +4,8 @@ import { useRouter } from 'vue-router';
 import { api } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
 import AiDegradationNotice from '../components/AiDegradationNotice.vue';
-import { useDeviceClock } from '../composables/useDeviceClock';
 
 const router = useRouter();
-const { timeLabel } = useDeviceClock();
 
 type Letter = {
   id: string;
@@ -16,6 +14,8 @@ type Letter = {
   content: string;
   sourceMoodId?: string;
   savedToDiary?: boolean;
+  /** The API returns this; the local type omitted it, so the source line could not use it. */
+  createdAt?: string;
 };
 
 const letter = ref<Letter>();
@@ -39,9 +39,21 @@ const styles = [
 
 const letterTitle = computed(() => letter.value?.title || '给现在的你');
 const savedText = computed(() => (letter.value?.savedToDiary ? '已保存' : '保存到日记'));
+/**
+ * Where this letter came from.
+ *
+ * This used to print the body's first sentence as an "intro", so the page showed the same words
+ * twice - once small above the style tabs and once as the letter itself. The source line now says
+ * which record the letter answers, or that it is still being written, neither of which repeats the
+ * body.
+ */
 const letterIntro = computed(() => {
-  const first = letter.value?.content.split(/[。！？\n]/).find(Boolean)?.trim();
-  return first ? `${first.slice(0, 36)}。` : '树洞正在根据你最近写下的心情生成回信。';
+  if (!letter.value) return '';
+  if (!letter.value.content) return '树洞正在根据你最近写下的心情生成回信。';
+  const when = letter.value.createdAt
+    ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(letter.value.createdAt))
+    : '';
+  return when ? `来自 ${when} 写下的一条心情记录` : '来自你最近写下的一条心情记录';
 });
 const signatureText = computed(() => {
   if (style.value === 'rational') return '今晚先处理可控的一小步。';
@@ -158,31 +170,13 @@ onMounted(load);
 
 <template>
   <section class="page goodnight-page letter-page" v-if="letter">
-    <header class="front-hero letter-hero">
-      <div class="status-row">
-        <span>{{ timeLabel }}</span>
-        <span aria-hidden="true"></span>
-      </div>
+    <header class="letter-topbar">
       <button class="back-icon" data-testid="letter-back" aria-label="返回" @click="safeBack">‹</button>
-      <div class="letter-heading">
-        <h1>今日回信</h1>
-        <p>▣ 仅自己可见</p>
-      </div>
-      <div class="tree-scene letter-tree" aria-hidden="true">
-        <span class="tree-heart">♡</span>
-        <span class="seedling-face">♡</span>
-      </div>
+      <h1>今日回信</h1>
+      <span class="visibility-note">仅自己可见</span>
     </header>
 
-    <section class="letter-intro">
-      <div class="envelope-illustration" aria-hidden="true">
-        <span>♡</span>
-      </div>
-      <div>
-        <h2>给现在的你</h2>
-        <p>{{ letterIntro }}</p>
-      </div>
-    </section>
+    <p class="letter-source">{{ letterIntro }}</p>
 
     <div class="letter-style-tabs" aria-label="回信风格">
       <button
@@ -199,13 +193,10 @@ onMounted(load);
     </div>
 
     <article class="letter-card">
-      <span class="botanical left" aria-hidden="true">♧</span>
-      <span class="botanical right" aria-hidden="true">♧</span>
-      <h2>{{ letterTitle }} <span>♧</span></h2>
-      <p class="letter-line" />
+      <h2>{{ letterTitle }}</h2>
       <p v-if="letter.content" class="letter-content">{{ letter.content }}</p>
       <p v-else class="letter-content is-empty">这封回信还没有生成出来。换一种风格，或稍后再回来看看。</p>
-      <p class="signature">{{ signatureText }} ♧</p>
+      <p class="signature">{{ signatureText }}</p>
     </article>
 
     <AiDegradationNotice :notice="aiNotice" />
@@ -226,7 +217,7 @@ onMounted(load);
     </div>
 
     <section class="advice-section">
-      <h2>♧ 今日小建议</h2>
+      <h2>今日小建议</h2>
       <div class="advice-row">
         <button
           v-for="item in adviceItems"
@@ -269,6 +260,178 @@ onMounted(load);
 </template>
 
 <style scoped>
+/* The letter is the page: a plain top bar, the source line, then the body. The old version spent a
+   hero, an envelope illustration and a second title above the text. */
+.letter-topbar {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
+}
+
+.letter-topbar h1 {
+  color: #242a32;
+  font-size: 17px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.letter-topbar .back-icon {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: #39454c;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.letter-topbar .visibility-note {
+  color: #88909a;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Where the letter came from - one quiet line, not an illustrated block. */
+.letter-source {
+  margin: 14px 0 0;
+  color: #7a838e;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.letter-style-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.letter-style-tabs::-webkit-scrollbar { display: none; }
+
+.letter-style-tabs button {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #606a74;
+  font-size: 12px;
+}
+
+.letter-style-tabs button.active {
+  border-color: #c3dad0;
+  background: #eaf2ee;
+  color: #2b6358;
+  font-weight: 600;
+}
+
+.letter-card {
+  margin-top: 14px;
+  padding: 18px 16px;
+  border: 1px solid #e8eaed;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.letter-card h2 {
+  margin: 0 0 12px;
+  color: #242a32;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.letter-content {
+  color: #333c44;
+  font-size: 14.5px;
+  line-height: 2.0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.letter-content.is-empty {
+  color: #88909a;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.letter-card .signature {
+  margin: 16px 0 0;
+  color: #88909a;
+  font-size: 12px;
+  text-align: right;
+}
+
+/* The actions stay as they are - they are the page's real business. */
+.letter-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.letter-actions button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 9px 6px;
+  border: 1px solid #e4e7ea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #39454c;
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.advice-section h2 {
+  margin: 20px 0 8px;
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.advice-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.advice-row::-webkit-scrollbar { display: none; }
+
+.advice-row button {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #606a74;
+  font-size: 12px;
+}
+
+.advice-row button.active {
+  border-color: #c3dad0;
+  background: #eaf2ee;
+  color: #2b6358;
+  font-weight: 600;
+}
+
 .letter-page .status-row {
   position: absolute;
   top: 10px;
