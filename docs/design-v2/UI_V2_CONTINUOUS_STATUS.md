@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `f09e988`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `dc5cf6c`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -100,3 +100,33 @@
 - **App 曾无法启动**（"Activity class does not exist" / result code -92）：`adb install -r` 后组件注册异常，
   `adb uninstall` + 全新 `adb install` 解决。
 - CozyFocus 持续抢占模拟器前台，多次切断 CDP；采集脚本的前置守卫已能正确中止而不是空转。
+
+
+## 第三轮独立审查（code-reviewer，FAIL → 已修 10 项）
+
+审查代理给出 FAIL 并列出 3 个 P0、9 个 P1、1 个 P2。逐条核验后**全部成立并已修**：
+
+**P0**
+1. MoodCreate / PostDetail 标题竖排（实测 32×99）——全局 grid 列为已删除的头像预留空间；
+   改单列后实测 271×25。
+2. ToolRun 生成失败后把**旧结果**连同**新 jobId** 存进日记——请求前清空 result/jobId，
+   保存时要求两者同属本次运行。
+3. 回复"仅作者可见"是假承诺——`createReply` 收了 `visibility` 却从不使用，Reply 表无此列。
+   改为服务端明确拒绝 + UI 标注"暂不支持"并禁用提交（不隐藏选项、不悄悄公开）。
+
+**P1**
+4. 私密帖可被任何持 ID 者读取（`getPost` 未核验 visibility）——已补；当前无私密帖数据，
+   属防御性缺口。
+5. `LoadErrorBanner` 无重试处理器时仍渲染"重新加载"按钮——改为有 label 才渲染；
+   FutureSelf 的保存错误不再引导去重载列表。
+6. LetterList 读取失败无错误态；DiaryList `loadMonths` 阻塞列表加载；Square `relativeTime`
+   遇无效日期会抛错并拖垮整个 Feed——三处均已修。
+7. styles.scss 悬空选择器 `.decompose-page::before,`（Sass 静默合并下一条规则）——已删，
+   并全文件复查同形状为 0。
+
+**P2**：DiaryList 空态仍保留树叶插画（页面局部 CSS）——待处理。
+
+## 审查代理的完成度结论（如实记录）
+
+十页**全部 NOT DONE**。未过门槛主要是：360/390/430 三档宽度与字体放大未测、失败/离线重试未验、
+控件点击未断言 API/DB 效果、独立视觉审查未做。这些是本轮之后的主要剩余工作。
