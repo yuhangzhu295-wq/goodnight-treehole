@@ -3,11 +3,9 @@ import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AIStyle } from '@goodnight/shared-types';
 import { api, deleteMedia, resolveApiUrl, uploadMedia } from '../api';
-import { useDeviceClock } from '../composables/useDeviceClock';
 import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
-const { timeLabel } = useDeviceClock();
 const MAX_IMAGES = 2;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -136,12 +134,10 @@ async function submit() {
 
 <template>
   <section class="page goodnight-page mood-create-page">
-    <header class="front-hero compact-hero">
-      <div class="status-row"><span>{{ timeLabel }}</span><span aria-hidden="true"></span></div>
+    <header class="compact-topbar">
       <button class="back-icon" data-testid="front-mood-back" aria-label="返回" @click="safeBack">‹</button>
-      <div class="hero-copy"><h1>写下心情</h1><p>把心里的话写下来，晚安树洞陪你听</p></div>
-      <div class="tree-scene small" aria-hidden="true"><span class="tree-heart">♥</span><span class="seedling-face">●</span></div>
-      <span class="mood-hero-baby" aria-hidden="true" />
+      <h1>写下心情</h1>
+      <span class="topbar-spacer" aria-hidden="true"></span>
     </header>
 
     <section class="write-card">
@@ -150,7 +146,7 @@ async function submit() {
     </section>
 
     <section class="panel-card">
-      <h2>♧ 选择心情</h2>
+      <h2>选择心情</h2>
       <div class="emotion-grid">
         <button v-for="item in emotions.slice(0, 6)" :key="item.testId" :data-testid="item.testId" class="emotion-choice" :class="{ active: form.emotion === item.value }" @click="form.emotion = item.value">
           <span class="face">{{ item.face }}</span><span>{{ item.label }}</span>
@@ -159,7 +155,7 @@ async function submit() {
     </section>
 
     <section class="panel-card">
-      <h2>♧ 谁可以看见？</h2>
+      <h2>谁可以看见</h2>
       <div class="visibility-grid">
         <button data-testid="mood-visibility-private" class="visibility-card" :class="{ active: form.visibility === 'PRIVATE' }" @click="form.visibility = 'PRIVATE'">
           <span class="round-icon">◐</span><strong>仅自己可见</strong><small>只进入我的日记与情绪月报</small>
@@ -170,8 +166,8 @@ async function submit() {
       </div>
     </section>
 
-    <section class="panel-card reply-style-panel" aria-labelledby="reply-style-title">
-      <h2 id="reply-style-title">♧ 想收到怎样的回应？</h2>
+    <details class="panel-card secondary-panel" aria-labelledby="reply-style-title">
+      <summary id="reply-style-title">想收到怎样的回应</summary>
       <div class="style-row" role="group" aria-label="公开树洞的 AI 回应风格">
         <button
           v-for="item in replyStyles"
@@ -188,10 +184,10 @@ async function submit() {
           <span>{{ item.label }}</span>
         </button>
       </div>
-    </section>
+    </details>
 
-    <section class="panel-card media-panel">
-      <h2>♧ 添加图片 <small>（最多 2 张）</small></h2>
+    <details class="panel-card secondary-panel">
+      <summary>添加图片 <small>（最多 2 张）</small></summary>
       <input ref="fileInput" class="file-picker" data-testid="input-mood-images" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="chooseImages" />
       <div class="image-row" data-testid="mood-image-grid">
         <article v-for="asset in assets" :key="asset.id" class="image-box filled" data-testid="mood-image-preview">
@@ -203,7 +199,7 @@ async function submit() {
           <span>＋</span><span>添加图片</span>
         </button>
       </div>
-    </section>
+    </details>
 
     <!-- 本页没有可重试的加载函数（错误来自校验/上传/发布），仅展示错误提示。 -->
     <LoadErrorBanner :message="error" />
@@ -212,26 +208,115 @@ async function submit() {
 </template>
 
 <style scoped>
-.mood-create-page .status-row {
-  visibility: hidden;
+/* The composer is the page: a plain top bar, then the textarea, then the choices. The old header
+   spent ~150px on a display title, mood copy and a mascot cutout above the writing area. */
+.compact-topbar {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 52px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
 }
 
-.mood-hero-baby {
-  position: absolute;
-  right: 82px;
-  bottom: 0;
-  z-index: 2;
-  width: 76px;
-  height: 72px;
-  background: url("../assets/goodnight/square-baby-cutout.png") center / contain no-repeat;
-  pointer-events: none;
+.compact-topbar h1 {
+  color: #242a32;
+  font-size: 17px;
+  font-weight: 650;
+  text-align: center;
 }
 
-.mood-create-page .back-icon {
-  position: absolute;
-  top: 44px;
-  left: 14px;
-  z-index: 5;
+.compact-topbar .back-icon {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: #39454c;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.topbar-spacer { display: block; }
+
+.write-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e4e7ea;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.write-card textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #242a32;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+}
+
+.write-card .counter {
+  display: block;
+  margin-top: 8px;
+  color: #9aa1a8;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* Visibility is the one choice the design keeps on the first level: private is the default and has
+   to be obvious, because it is what a first-time writer gets. */
+.panel-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.panel-card h2 {
+  margin: 0 0 10px;
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+/* Reply style and attachments are second-level: still fully functional, but folded away so the
+   writing area and the privacy choice lead. */
+.secondary-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.secondary-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+  color: #39454c;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.secondary-panel > summary::-webkit-details-marker { display: none; }
+
+.secondary-panel > summary::after {
+  content: '⌄';
+  color: #9aa1a8;
+  font-size: 14px;
+}
+
+.secondary-panel[open] > summary::after { content: '⌃'; }
+
+.secondary-panel > *:not(summary) {
+  margin: 0 14px 14px;
 }
 
 /* The reference gives this otherwise short display title a little more
