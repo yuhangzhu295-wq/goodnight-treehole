@@ -194,17 +194,17 @@ onMounted(() => {
     <form class="future-form" @submit.prevent="save">
       <label class="letter-field">
         <span class="sr-only">写给未来自己的内容</span>
-        <textarea v-model="content" maxlength="1200" placeholder="有些事想提醒以后那时的我……"></textarea>
+        <textarea v-model="content" data-testid="future-content" maxlength="1200" placeholder="有些事想提醒以后那时的我……"></textarea>
         <small>{{ content.length }}/1200</small>
       </label>
 
       <fieldset class="form-block">
         <legend>什么时候再看</legend>
         <div class="time-options">
-          <button type="button" :class="{ selected: timePreset === 'tomorrow' }" @click="changePreset('tomorrow')">明天晚上</button>
-          <button type="button" :class="{ selected: timePreset === 'week' }" @click="changePreset('week')">一周后</button>
-          <button type="button" :class="{ selected: timePreset === 'month' }" @click="changePreset('month')">一个月后</button>
-          <button type="button" :class="{ selected: timePreset === 'custom' }" @click="changePreset('custom')">自己选</button>
+          <button type="button" data-testid="future-time-tomorrow" :class="{ selected: timePreset === 'tomorrow' }" @click="changePreset('tomorrow')">明天晚上</button>
+          <button type="button" data-testid="future-time-week" :class="{ selected: timePreset === 'week' }" @click="changePreset('week')">一周后</button>
+          <button type="button" data-testid="future-time-month" :class="{ selected: timePreset === 'month' }" @click="changePreset('month')">一个月后</button>
+          <button type="button" data-testid="future-time-custom" :class="{ selected: timePreset === 'custom' }" @click="changePreset('custom')">自己选</button>
         </div>
         <label v-if="timePreset === 'custom'" class="custom-time">
           具体送达时间
@@ -217,7 +217,7 @@ onMounted(() => {
            honestly and pointing at the real toggle rather than claiming a reminder will be sent. -->
       <fieldset class="form-block">
         <legend>通知</legend>
-        <button class="notify-row" type="button" @click="router.push('/pages/settings/privacy')">
+        <button class="notify-row" type="button" data-testid="future-notify-row" @click="router.push('/pages/settings/privacy')">
           <span class="notify-icon"><AppIcon name="bell" :size="18" /></span>
           <span class="notify-copy">
             <strong>到期提醒</strong>
@@ -231,7 +231,7 @@ onMounted(() => {
         <legend>关联记录 <small>可选</small></legend>
         <div class="context-types">
           <label v-for="option in [['none', '不关联'], ['journey', '一段旅程'], ['decision', '一个决定'], ['recovery', '一次恢复']]" :key="option[0]">
-            <input v-model="contextType" type="radio" name="future-context" :value="option[0]" />
+            <input v-model="contextType" type="radio" name="future-context" :data-testid="'future-context-' + option[0]" :value="option[0]" />
             <span>{{ option[1] }}</span>
           </label>
         </div>
