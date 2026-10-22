@@ -1526,9 +1526,30 @@ export class PublicController {
         content: source,
         letter,
       });
-      return { item: this.store.decorateLetter(queued.letter), jobId: queued.job.id, status: queued.job.status };
+      return {
+        item: { ...this.store.decorateLetter(queued.letter), sourceDiaryId: await this.sourceDiaryIdFor(queued.letter, userId) },
+        jobId: queued.job.id,
+        status: queued.job.status,
+      };
     }
-    return { item: this.store.decorateLetter(letter) };
+    return { item: { ...this.store.decorateLetter(letter), sourceDiaryId: await this.sourceDiaryIdFor(letter, userId) } };
+  }
+
+  /**
+   * The diary entry a letter was written for, as the id that entry currently has.
+   *
+   * The diary row for the source mood when one exists, otherwise the mood itself (the diary list
+   * projects it under the mood id). Returning the mood id alone is not enough: a diary row created for
+   * that mood carries a different id, and the link would land on "没有找到这篇日记".
+   */
+  private async sourceDiaryIdFor(letter: any, caller: string): Promise<string | undefined> {
+    if (!letter?.sourceMoodId) return undefined;
+    const rows = DIRECT_DB_MODELS.Diary
+      ? await this.store.diariesDb.listForUser(caller)
+      : this.store.diaries.filter((item) => item.userId === caller);
+    const linked =
+      rows.find((row) => row.moodId === letter.sourceMoodId) ?? rows.find((row) => row.letterId === letter.id);
+    return linked?.id ?? letter.sourceMoodId;
   }
 
   @Get('letters')
@@ -1555,7 +1576,8 @@ export class PublicController {
       ? await this.store.lettersDb.get(id)
       : this.store.letters.find((item) => item.id === id);
     if (letter && letter.userId !== caller) throw new NotFoundException('回信不存在');
-    return { item: letter ? this.store.decorateLetter(letter) : undefined };
+    if (!letter) return { item: undefined };
+    return { item: { ...this.store.decorateLetter(letter), sourceDiaryId: await this.sourceDiaryIdFor(letter, caller) } };
   }
 
   @Patch('letters/:id/read')
