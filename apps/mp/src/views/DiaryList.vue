@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import LoadErrorBanner from '../components/LoadErrorBanner.vue';
@@ -15,6 +15,21 @@ const hasLetter = ref('');
 const filterOpen = ref(false);
 const monthOpen = ref(false);
 const loadError = ref('');
+
+/**
+ * The two tabs the design shows that this product can actually honour.
+ *
+ * The mock has 全部 / 仅自己 / 有回信, but every diary entry is private by construction - the public
+ * ones are posts, not diaries - so a 仅自己 tab could never narrow the list. A tab that always returns
+ * everything is a dead control, so it is not rendered; the list is private and the page says so in the
+ * row meta instead.
+ */
+const activeTab = computed<'all' | 'letter'>(() => (hasLetter.value === 'true' ? 'letter' : 'all'));
+
+function selectTab(tab: 'all' | 'letter') {
+  hasLetter.value = tab === 'letter' ? 'true' : '';
+  load();
+}
 
 /**
  * Guards against a slow earlier response overwriting a newer filter's result: switching filters twice
@@ -80,22 +95,48 @@ function openDiary(diary: any) {
   router.push(`/pages/diary/detail?id=${encodeURIComponent(diary.id)}`);
 }
 
-function openLetter(diary: any) {
-  if (diary.letterId) router.push(`/pages/letter/detail?id=${encodeURIComponent(diary.letterId)}`);
-  else router.push('/pages/letter/today');
-}
-
-function diaryDate(value: string) {
+function timeOf(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return { day: '—', time: '时间未知' };
-  }
-
-  return {
-    day: `${String(date.getMonth() + 1).padStart(2, '0')} / ${String(date.getDate()).padStart(2, '0')}`,
-    time: date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
-  };
+  if (Number.isNaN(date.getTime())) return '时间未知';
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
+
+/** `今天 · 10月11日` / `昨天 · 10月10日` / `10月7日`, the headings the design uses. */
+function dayLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '时间未记录';
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  const stamp = `${date.getMonth() + 1}月${date.getDate()}日`;
+  if (days === 0) return `今天 · ${stamp}`;
+  if (days === 1) return `昨天 · ${stamp}`;
+  return stamp;
+}
+
+/**
+ * Grouped by calendar day rather than by month: the design's rhythm is "what happened on this day",
+ * and a month heading over rows that each repeat their own date said the same thing twice.
+ */
+const dayGroups = computed(() => {
+  const groups: Array<{ key: string; label: string; items: Array<{ diary: any; index: number }> }> = [];
+  const byKey = new Map<string, (typeof groups)[number]>();
+  diaries.value.forEach((diary, index) => {
+    const date = new Date(diary.createdAt);
+    const key = Number.isNaN(date.getTime())
+      ? 'unknown'
+      : `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, label: dayLabel(diary.createdAt), items: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.items.push({ diary, index });
+  });
+  return groups;
+});
+
+const hasFilter = computed(() => Boolean(emotion.value || hasLetter.value));
 
 onMounted(async () => {
   // The list is the page; the month filter is an extra. Both start together so neither can block the
@@ -105,80 +146,70 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="page goodnight-page rest-page list-page diary-list-page" :class="{ 'is-empty': !diaries.length }">
-    <header class="rest-topbar">
-      <button class="back-icon" data-testid="front-diary-back" @click="router.back()">‹</button>
-      <h1>我的日记</h1>
-      <span class="diary-header-spacer" aria-hidden="true"></span>
+  <section class="page goodnight-page rest-page diary-list-page">
+    <header class="diary-bar">
+      <button class="diary-back" data-testid="front-diary-back" aria-label="返回" @click="router.back()">‹</button>
+      <h1 class="diary-bar-title">日记</h1>
+      <button class="diary-write" type="button" data-testid="btn-new-diary" @click="router.push('/pages/mood/create')">写日记</button>
     </header>
 
     <!--
-      The V2 list is a plain date-grouped text list: date, emotion, body. The old header carried two
-      lines of mood copy and every row carried a decorative mark and a separate letter button, which is
-      the "thick card, big envelope" the design brief names as the V1 problem. The letter state moved
-      into the row's own meta line, so the row stays one tappable unit and no control was lost.
+      The design's tabs are text with an underline, not pills: this page is a reading list and the
+      filter should not be the loudest thing on it. The month and the emotion filter keep their own
+      small text controls on the same row so both capabilities survive.
     -->
-    <div class="diary-controls">
-      <button class="diary-month-control" data-testid="filter-diary-month" @click="monthOpen = true">
-        <span>{{ month }}</span>
-        <span class="diary-control-chevron" aria-hidden="true">⌄</span>
+    <div class="diary-tabs" role="tablist" aria-label="日记筛选">
+      <button
+        type="button"
+        role="tab"
+        class="diary-tab"
+        :class="{ active: activeTab === 'all' }"
+        :aria-selected="activeTab === 'all'"
+        data-testid="diary-tab-all"
+        @click="selectTab('all')"
+      >全部</button>
+      <button
+        type="button"
+        role="tab"
+        class="diary-tab"
+        :class="{ active: activeTab === 'letter' }"
+        :aria-selected="activeTab === 'letter'"
+        data-testid="diary-tab-letter"
+        @click="selectTab('letter')"
+      >有回信</button>
+      <span class="diary-tabs-spacer" />
+      <button class="diary-quiet" type="button" data-testid="filter-diary-month" @click="monthOpen = true">
+        {{ month }} <span aria-hidden="true">⌄</span>
       </button>
-      <button class="diary-filter-control" data-testid="btn-diary-filter" @click="filterOpen = true">
-        筛选
+      <button class="diary-quiet" type="button" data-testid="btn-diary-filter" @click="filterOpen = true">
+        筛选<span v-if="emotion"> · {{ emotion }}</span>
       </button>
     </div>
 
     <LoadErrorBanner :message="loadError" retry-label="重新加载日记" @retry="load" />
 
     <div class="diary-timeline">
-      <article
-        v-for="(diary, index) in diaries"
-        :key="diary.id"
-        class="diary-card"
-        :data-testid="index === 0 ? 'diary-card-first' : `diary-card-${diary.id}`"
-      >
-        <button class="diary-main" @click="openDiary(diary)">
-          <span class="diary-entry-copy">
-            <span class="diary-entry-heading">
-              <span class="diary-entry-date">{{ diaryDate(diary.createdAt).day }}</span>
-              <span class="tag">{{ diary.emotionLabel || diary.emotion || '心情' }}</span>
-            </span>
-            <strong>{{ diary.content }}</strong>
-            <small>
-              {{ diaryDate(diary.createdAt).time }}
-              <template v-if="diary.hasLetter">· 已有回信</template>
-              <template v-else>· 暂无回信</template>
-            </small>
-          </span>
-        </button>
-        <!--
-          The letter entry only appears when this diary's own letter id is known. The API's manual
-          diary rows carry `hasLetter` without a `letterId`, and jumping to /pages/letter/today in
-          that case would open the *newest* letter and present it as this entry's reply - a wrong
-          answer rather than a missing feature. The row's meta line already states whether a reply
-          exists, so hiding the button loses no information.
-        -->
-        <button
-          v-if="diary.letterId"
-          class="diary-letter-action"
-          :data-testid="index === 0 ? 'diary-letter-first' : `diary-letter-${diary.id}`"
-          @click="openLetter(diary)"
+      <section v-for="group in dayGroups" :key="group.key" class="diary-day">
+        <h2 class="diary-day-label">{{ group.label }}</h2>
+        <article
+          v-for="entry in group.items"
+          :key="entry.diary.id"
+          class="diary-row"
+          :data-testid="entry.index === 0 ? 'diary-card-first' : `diary-card-${entry.diary.id}`"
+          @click="openDiary(entry.diary)"
         >
-          查看回信
-        </button>
-      </article>
-      <article v-if="!loadError && !diaries.length" class="empty-card" data-testid="diary-empty-state">
-        <div class="empty-diary-copy">
-          <strong>{{ emotion || hasLetter ? '没有符合筛选的日记' : `${month} 还没有日记` }}</strong>
-          <p>{{ emotion || hasLetter ? '可以调整筛选条件，或写下一篇新的日记。' : '写下一点今天的心情，它会在这里长成记录。' }}</p>
-        </div>
+          <time class="diary-row-time">{{ timeOf(entry.diary.createdAt) }}</time>
+          <p class="diary-row-body">{{ entry.diary.content }}</p>
+          <small class="diary-row-meta">
+            仅自己<template v-if="entry.diary.emotionLabel || entry.diary.emotion"> · {{ entry.diary.emotionLabel || entry.diary.emotion }}</template><template v-if="entry.diary.hasLetter"> · 有回信</template>
+          </small>
+        </article>
+      </section>
+      <article v-if="!loadError && !diaries.length" class="diary-empty" data-testid="diary-empty-state">
+        <strong>{{ hasFilter ? '没有符合筛选的日记' : `${month} 还没有日记` }}</strong>
+        <p>{{ hasFilter ? '可以调整筛选条件，或写下一篇新的日记。' : '写下一点今天的心情，它会在这里长成记录。' }}</p>
       </article>
     </div>
-
-    <button class="primary diary-write-cta" data-testid="btn-new-diary" @click="router.push('/pages/mood/create')">
-      <span aria-hidden="true">✎</span>
-      写新日记
-    </button>
 
     <div class="sheet-mask" v-if="monthOpen">
       <div class="sheet menu-sheet">
@@ -212,141 +243,141 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* The empty result is an honest state of the persisted diary query.  This
-   local treatment gives it the same calm reading rhythm as the supplied
-   diary reference without rendering sample diary entries or illustrations. */
-.diary-list-page.is-empty {
-  gap: 9px;
-  padding-bottom: calc(148px + env(safe-area-inset-bottom));
-}
-
-.diary-list-page.is-empty .rest-topbar {
-  height: 74px;
-  min-height: 74px;
-  margin-top: 0;
-}
-
-.diary-list-page.is-empty .rest-topbar h1 {
-  font-size: 23px;
-  letter-spacing: 0.06em;
-}
-
-.diary-list-page.is-empty .diary-intro {
-  min-height: 48px;
-  max-width: 270px;
-  margin-top: -17px;
-}
-
-.diary-list-page.is-empty .diary-intro p {
-  font-size: 14px;
-  line-height: 1.62;
-  letter-spacing: 0.04em;
-}
-
-.diary-list-page.is-empty .diary-intro > span {
-  margin-right: 8px;
-  color: #849a5c;
-  font-size: 19px;
-}
-
-.diary-list-page.is-empty .diary-controls {
-  min-height: 48px;
-  gap: 10px;
-  padding-top: 0;
-}
-
-.diary-list-page.is-empty .diary-month-control,
-.diary-list-page.is-empty .diary-filter-control {
-  min-height: 48px;
-  height: 48px;
-  border-color: rgba(183, 171, 128, 0.28);
-  border-radius: 24px;
-  background: rgba(255, 253, 246, 0.94);
-  box-shadow: 0 8px 20px rgba(92, 90, 64, 0.06);
-}
-
-.diary-list-page.is-empty .diary-month-control {
-  flex: 0 0 148px;
-  width: 148px;
-}
-
-.diary-list-page.is-empty .diary-filter-control {
-  flex: 0 0 98px;
-  width: 98px;
-}
-
-.diary-list-page.is-empty .diary-timeline {
-  gap: 12px;
-}
-
-/* The empty state is a statement, not an illustration: a hairline panel with the reason and the next
-   step. It used to carry a foliage cutout, a warm gradient and a 24px radius, which is the same
-   decoration the list rows no longer have. */
-.diary-list-page.is-empty .empty-card {
+/* 设计图 30_DiaryList.png: a date-grouped reading list on white. Rows are separated by hairlines, the
+   filters are text, and there is no card, chip or bottom CTA anywhere on the page. */
+.diary-list-page {
   display: block;
-  margin: 16px 20px;
-  padding: 18px;
-  border: 1px solid #e8eaed;
-  border-radius: 10px;
+  min-height: 100vh;
+  padding: 0 20px calc(40px + env(safe-area-inset-bottom));
   background: #ffffff;
-  box-shadow: none;
-}
-
-.diary-list-page.is-empty .empty-card strong {
-  display: block;
   color: #242a32;
-  font-size: 14px;
-  font-weight: 600;
 }
 
-.diary-list-page.is-empty .empty-card p {
-  margin: 6px 0 0;
-  color: #7a838e;
-  font-size: 12.5px;
-  line-height: 1.6;
+.diary-list-page * { box-sizing: border-box; }
+
+.diary-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  margin: 0 -20px;
+  padding: 6px 20px;
+  border-bottom: 1px solid #f0f1f3;
 }
 
-.empty-diary-copy {
-  display: grid;
-  min-width: 0;
-  gap: 7px;
+.diary-back {
+  width: 26px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #242a32;
+  font-size: 24px;
+  line-height: 1;
 }
 
-.diary-list-page.is-empty .empty-card strong {
-  color: #46623c;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.35;
+.diary-bar-title {
+  flex: 1;
+  margin: 0;
+  color: #242a32;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
 }
 
-.diary-list-page.is-empty .empty-card p {
-  color: #6e7c68;
+.diary-write {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #275f56;
   font-size: 13px;
-  line-height: 1.62;
+  font-weight: 600;
 }
 
-.diary-list-page.is-empty .diary-write-cta {
-  bottom: calc(64px + env(safe-area-inset-bottom));
-  width: min(400px, calc(100vw - 32px));
-  min-height: 48px;
-  border-radius: 25px;
+.diary-tabs {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e8eaed;
 }
 
-@media (max-width: 374px) {
-  .diary-list-page.is-empty .diary-month-control {
-    flex-basis: 148px;
-  }
-
-  .diary-list-page.is-empty .diary-filter-control {
-    flex-basis: 82px;
-  }
-
-  .diary-list-page.is-empty .empty-card {
-    grid-template-columns: 54px minmax(0, 1fr);
-    gap: 12px;
-    min-height: 142px;
-    padding-inline: 15px;
-  }
-
+.diary-tab {
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #7e8690;
+  font-size: 13px;
 }
+
+.diary-tab.active {
+  border-bottom-color: #275f56;
+  color: #275f56;
+  font-weight: 650;
+}
+
+.diary-tabs-spacer { flex: 1; }
+
+.diary-quiet {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #8b939c;
+  font-size: 12px;
+}
+
+.diary-timeline { margin-top: 4px; }
+
+.diary-day-label {
+  margin: 22px 0 2px;
+  color: #242a32;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.diary-row {
+  display: block;
+  padding: 14px 0;
+  border-bottom: 1px solid #ebedf0;
+  cursor: pointer;
+}
+
+.diary-day:last-child .diary-row:last-child { border-bottom: 0; }
+
+.diary-row-time {
+  display: block;
+  color: #8b939c;
+  font-size: 11.5px;
+}
+
+.diary-row-body {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 7px 0 0;
+  color: #333c44;
+  font-size: 14.5px;
+  line-height: 1.7;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.diary-row-meta {
+  display: block;
+  margin-top: 6px;
+  color: #8b939c;
+  font-size: 11.5px;
+}
+
+.diary-empty {
+  margin: 40px 0 0;
+  color: #6c747d;
+  text-align: center;
+}
+
+.diary-empty strong { display: block; color: #242a32; font-size: 15px; }
+.diary-empty p { margin: 8px 0 0; font-size: 12.5px; line-height: 1.7; }
 </style>

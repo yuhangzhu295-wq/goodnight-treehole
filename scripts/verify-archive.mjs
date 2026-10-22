@@ -39,13 +39,16 @@ await withSession(async (session) => {
   await settleList();
   const seeded = JSON.parse(await rowsOf(ev, 'archive-diary-') || '[]');
   if (!seeded.length) {
+    const seedLog = [];
     for (const text of ['归档甲_猫咪', '归档乙_雨天']) {
-      await navigateTo(session, '/pages/mood/create', { ready: '[data-testid=input-mood-content]' });
-      await typeInto(session, 'input-mood-content', text);
-      await ev("(function(){document.querySelector('[data-testid=btn-submit-mood]').click();return 1;})()", false);
+      const reachedComposer = await navigateTo(session, '/pages/mood/create', { ready: '[data-testid=input-mood-content]' });
+      const typed = await typeInto(session, 'input-mood-content', text);
+      const submitted = await ev("(function(){var e=document.querySelector('[data-testid=btn-submit-mood]');if(!e)return 'no-button';e.click();return 'ok';})()", false);
       await sleep(4500);
+      seedLog.push({ reachedComposer, typed: typed.ok, submitted, path: await ev('location.pathname', false) });
     }
     await navigateTo(session, '/pages/archive/index', { ready: '[data-testid=archive-tab-diary]' });
+    record('the run had records, or wrote two of them', seedLog.every((entry) => entry.typed && entry.submitted === 'ok') ? 'PASS' : 'FAIL', JSON.stringify(seedLog));
   }
 
   const tabs = JSON.parse(await ev(`(function(){

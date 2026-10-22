@@ -25,3 +25,17 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 echo "[stack] listening check done"
+
+# A listening port is not a ready database. After an unclean shutdown (this VM gets killed when the
+# host runs out of memory) postgres replays WAL and answers "FATAL: the database system is starting
+# up" for minutes while the port is already open. Callers that only check the port then start reading
+# the API's 500s as product failures. Wait for pg_isready instead.
+for _ in $(seq 1 120); do
+  if wsl.exe -e bash -lc "docker exec goodnight-treehole-postgres-1 pg_isready -U goodnight -d goodnight_treehole" >/dev/null 2>&1; then
+    echo "[stack] postgres accepting queries"
+    exit 0
+  fi
+  sleep 2
+done
+echo "[stack] WARNING: postgres is listening but not accepting queries yet (crash recovery can take minutes)" >&2
+exit 1

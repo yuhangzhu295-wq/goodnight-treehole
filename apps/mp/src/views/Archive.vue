@@ -254,8 +254,6 @@ onMounted(load);
       >
     </header>
 
-    <p class="archive-lead">日记、回信和旅程归档都在这里；每一行都是真实保存过的内容。</p>
-
     <div class="archive-tabs" role="tablist" aria-label="内容分类">
       <button
         v-for="tab in tabs"
@@ -294,10 +292,12 @@ onMounted(load);
         <article v-for="entry in group.entries" :key="entry.item.id" class="archive-row">
           <button class="archive-row-main" :data-testid="entry.index === 0 ? 'archive-diary-first' : `archive-diary-${entry.item.id}`" @click="openDiary(entry.item)">
             <span class="archive-row-icon" aria-hidden="true">▤</span>
-            <span class="archive-row-copy"><strong>{{ diaryPreview(entry.item) }}</strong><small>{{ entry.item.emotionLabel ?? entry.item.emotion ?? '心情记录' }} · {{ dateLabel(entry.item.createdAt) }}</small></span>
+            <span class="archive-row-copy">
+              <strong>{{ diaryPreview(entry.item) }}</strong>
+              <small>{{ entry.item.emotionLabel ?? entry.item.emotion ?? '心情记录' }} · {{ dateLabel(entry.item.createdAt) }}<template v-if="entry.item.hasLetter"> · 有回信</template></small>
+            </span>
             <AppIcon name="chevron-right" :size="18" class="archive-row-chevron" />
           </button>
-          <button v-if="entry.item.hasLetter" class="archive-row-chip" :data-testid="entry.index === 0 ? 'archive-diary-letter-first' : undefined" @click="openLetter(entry.item)">树洞回信 {{ entry.item.letterId ? '1 条' : '' }} ›</button>
         </article>
       </section>
       <article v-if="!filteredDiaries.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的日记` : '这个时间范围里还没有私密日记' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '写下的内容会在这里按真实时间出现。' }}</p></article>
@@ -408,8 +408,7 @@ onMounted(load);
 
 .archive-footnote { margin: 18px 0 0; color: var(--gn-muted); font-size: 12px; text-align: center; }
 
-/* The page's own subtitle, as content under the bar instead of inside it. */
-.archive-lead { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--gn-muted); }
+/* The design has no subtitle under the bar: the rows are the page. */
 
 /* Content-type chips: bare pills, the active one tinted leaf — not a bordered card. */
 .archive-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
@@ -438,7 +437,7 @@ onMounted(load);
 .archive-row-copy p { display: -webkit-box; overflow: hidden; margin: 0; color: var(--gn-muted); font-size: 13px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .archive-row-copy small { color: var(--gn-muted); font-size: 13px; line-height: 1.5; }
 .archive-row-chevron { flex: 0 0 auto; color: var(--gn-muted); }
-.archive-row-chip { align-self: center; flex: 0 0 auto; min-height: 28px; margin-left: 4px; padding: 4px 10px; border: 1px solid var(--gn-line); border-radius: var(--gn-radius-pill); background: transparent; box-shadow: none; color: var(--gn-leaf); font-size: 11px; white-space: nowrap; }
+/* A row is title + meta + chevron, separated by hairlines; no pill lives inside a row. */
 .archive-row-actions { align-self: center; flex: 0 0 auto; min-width: 34px; min-height: 34px; padding: 4px; border: 0; background: transparent; box-shadow: none; color: var(--gn-muted); font-size: 16px; line-height: 1; cursor: pointer; }
 
 /* Empty state: centred muted text, no dashed card. */

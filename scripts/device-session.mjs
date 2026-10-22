@@ -102,14 +102,33 @@ export async function launchApp(waitMs = 8000) {
   } catch (error) {
     startOutput = String(error?.stdout ?? error?.message ?? '');
   }
-  // `adb install -r` on this emulator intermittently leaves the activity unregistered: the package is
-  // installed but `am start` answers "Activity class ... does not exist", so the app can never come up
-  // and every later read fails. That is not a product state and no amount of waiting fixes it - say
-  // what to do instead of timing out with "the app is not running".
+  // "Activity class ... does not exist" has two causes on this shared emulator: a registration broken
+  // by `adb install -r`, and the package being disabled for the user. Another project's automation on
+  // this same AVD disables packages periodically (`enabled=3`, DISABLED_USER), which used to be
+  // misreported as a broken install. Enabling is cheap and idempotent, so try it unconditionally
+  // before concluding the install is broken, and keep the observed state in the error.
   if (/does not exist|Error type 3/i.test(startOutput)) {
+    adb('shell', 'pm', 'enable', PACKAGE);
+    try {
+      startOutput = adb('shell', 'am', 'start', '-n', `${PACKAGE}/.MainActivity`);
+    } catch (error) {
+      startOutput = String(error?.stdout ?? error?.message ?? '');
+    }
+    if (!/does not exist|Error type 3/i.test(startOutput)) {
+      console.log('[device-session] the package had been disabled for this user; re-enabled it');
+    }
+  }
+  if (/does not exist|Error type 3/i.test(startOutput)) {
+    const state = (() => {
+      try {
+        return adb('shell', 'dumpsys', 'package', PACKAGE).split('\n').filter((line) => /User 0:|enabled=/.test(line)).join(' | ').slice(0, 240);
+      } catch {
+        return 'unavailable';
+      }
+    })();
     throw new Error(
-      'the installed package has no launchable activity (adb install -r broke the registration); ' +
-        'run: adb uninstall com.goodnight.treehole && adb install apps/mp/android/app/build/outputs/apk/debug/app-debug.apk',
+      'the package will not launch and re-enabling it did not help; state: ' +
+        `${state}; run: adb uninstall com.goodnight.treehole && adb install apps/mp/android/app/build/outputs/apk/debug/app-debug.apk`,
     );
   }
   const deadline = Date.now() + waitMs;
@@ -117,6 +136,23 @@ export async function launchApp(waitMs = 8000) {
   while (!pid && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 1000));
     pid = appPid();
+  }
+  // `am start` can report success and the process still never appear: the package was disabled in the
+  // same breath, or the process was killed right after fork. One re-enable + retry distinguishes that
+  // from a genuinely dead app.
+  if (!pid) {
+    adb('shell', 'pm', 'enable', PACKAGE);
+    try {
+      adb('shell', 'am', 'start', '-n', `${PACKAGE}/.MainActivity`);
+    } catch {
+      /* the pid check below is the verdict */
+    }
+    const retryDeadline = Date.now() + waitMs;
+    while (!pid && Date.now() < retryDeadline) {
+      await new Promise((r) => setTimeout(r, 1000));
+      pid = appPid();
+    }
+    if (pid) console.log('[device-session] the app needed a second start; it is running now');
   }
   return pid;
 }

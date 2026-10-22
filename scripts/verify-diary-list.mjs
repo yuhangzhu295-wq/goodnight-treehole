@@ -38,22 +38,41 @@ await withSession(async (session) => {
 
   // 2. the list shows it with a real date
   await go(ev, '/pages/diary/index');
+  // Self-test hook: a structural assertion that cannot be made to fail is not evidence. Each value
+  // removes exactly one thing the assertion below claims to check, and the run must then report FAIL.
+  const sabotage = process.env.DIARY_LIST_SABOTAGE ?? '';
+  if (sabotage === 'no-day-heading') {
+    await ev("(function(){document.querySelectorAll('.diary-day-label').forEach(function(e){e.remove();});return 1;})()", false);
+  } else if (sabotage === 'no-time') {
+    await ev("(function(){document.querySelectorAll('.diary-row-time').forEach(function(e){e.remove();});return 1;})()", false);
+  } else if (sabotage === 'public-meta') {
+    await ev("(function(){document.querySelectorAll('.diary-row-meta').forEach(function(e){e.textContent='公开 · 工作';});return 1;})()", false);
+  }
   const listed = JSON.parse(await ev(`(function(){
     var cards = Array.from(document.querySelectorAll('[data-testid^=diary-card-]'));
     var hit = cards.filter(function(e){return (e.innerText||'').indexOf(${JSON.stringify(MARKER)})>=0;});
     var first = cards[0];
-    var dateEl = first ? first.querySelector('.diary-entry-date') : null;
+    var timeEl = first ? first.querySelector('.diary-row-time') : null;
+    var metaEl = first ? first.querySelector('.diary-row-meta') : null;
+    var days = Array.from(document.querySelectorAll('.diary-day-label')).map(function(e){return (e.innerText||'').trim();});
     return JSON.stringify({
       count: cards.length,
       found: hit.length>0,
-      date: dateEl ? (dateEl.innerText||'').trim() : null,
+      time: timeEl ? (timeEl.innerText||'').trim() : null,
+      meta: metaEl ? (metaEl.innerText||'').replace(/\\s+/g,' ').trim() : null,
+      days: days,
       err: (document.querySelector('.load-error')||{}).innerText || null,
       empty: !!document.querySelector('[data-testid=diary-empty-state]')
     });
   })()`, false) || '{}');
-  record('the new diary is listed with a date',
-    listed.found && /^\d{2}\s*\/\s*\d{2}$/.test(listed.date ?? '') && !listed.err && !listed.empty ? 'PASS' : 'FAIL',
+  // The row's own timestamp is a clock time; the calendar date lives in the day heading above it.
+  record('the new diary is listed under a day heading with a time',
+    listed.found && /^\d{2}:\d{2}$/.test(listed.time ?? '')
+      && (listed.days ?? []).some((d) => /^(今天|昨天) · \d{1,2}月\d{1,2}日$|^\d{1,2}月\d{1,2}日$/.test(d))
+      && !listed.err && !listed.empty ? 'PASS' : 'FAIL',
     JSON.stringify(listed));
+  record('the row states it is private',
+    String(listed.meta ?? '').startsWith('仅自己') ? 'PASS' : 'FAIL', JSON.stringify({ meta: listed.meta }));
 
   // 3. a private entry must not reach the public square
   await go(ev, '/pages/square/index');
@@ -77,8 +96,8 @@ await withSession(async (session) => {
   await go(ev, '/pages/diary/index');
   const letterRow = JSON.parse(await ev(`(function(){
     var cards = Array.from(document.querySelectorAll('[data-testid^=diary-card-]'));
-    var withLetter = cards.filter(function(e){return (e.innerText||'').indexOf('已有回信')>=0;});
-    return JSON.stringify({count: cards.length, withLetter: withLetter.length, firstHasLetter: cards[0] ? (cards[0].innerText||'').indexOf('已有回信')>=0 : null});
+    var withLetter = cards.filter(function(e){return (e.innerText||'').indexOf('有回信')>=0;});
+    return JSON.stringify({count: cards.length, withLetter: withLetter.length, firstHasLetter: cards[0] ? (cards[0].innerText||'').indexOf('有回信')>=0 : null});
   })()`, false) || '{}');
   record('saving a letter produces a diary entry marked as having a reply',
     saveState.hasButton && /已保存|保存到日记/.test(afterSave ?? '') && letterRow.withLetter > 0 ? 'PASS' : 'FAIL',

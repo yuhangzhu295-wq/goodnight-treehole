@@ -10,14 +10,33 @@ const results = [];
 const record = (n, v, note) => { results.push(v); console.log(`${v === 'PASS' ? 'PASS ' : 'FAIL '} ${n}${note ? ' — ' + note : ''}`); };
 const MARKER = `详情验证_${Date.now()}`;
 
+const waitFor = async (ev, expression, timeoutMs = 8000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (Number(await ev(expression, false)) === 1) return true;
+    await sleep(300);
+  }
+  return false;
+};
+
+/** Clicks only if the control is on screen; returns 0 instead of throwing when a precondition failed. */
+const click = async (ev, selector) =>
+  Number(await ev(`(function(){var e=document.querySelector(${JSON.stringify(selector)});if(!e)return 0;e.click();return 1;})()`, false));
+
 const openFirstDiary = async (ev) => {
-  await ev("(function(){var c=document.querySelector('[data-testid=diary-card-first] button');if(!c)return 0;c.click();return 1;})()", false);
-  await sleep(3000);
+  // The row itself is the tap target: the design's rows are a whole-line reading list, so there is no
+  // inner button to press any more.
+  const clicked = await ev("(function(){var c=document.querySelector('[data-testid=diary-card-first]');if(!c)return 0;c.click();return 1;})()", false);
+  if (Number(clicked) !== 1) return false;
+  // The detail page renders its menu button only once the record has loaded, so a fixed sleep would
+  // race the request and the caller would read a page that is still loading.
+  return waitFor(ev, "location.pathname==='/pages/diary/detail' && (document.querySelector('[data-testid=diary-detail-menu]')||document.querySelector('[data-testid=diary-detail-missing]')||document.querySelector('.load-error')) ? 1 : 0");
 };
 
 const openMenu = async (ev) => {
-  await ev("(function(){var b=document.querySelector('[data-testid=diary-detail-menu]');if(!b)return 0;b.click();return 1;})()", false);
-  await sleep(600);
+  const clicked = await ev("(function(){var b=document.querySelector('[data-testid=diary-detail-menu]');if(!b)return 0;b.click();return 1;})()", false);
+  if (Number(clicked) !== 1) return false;
+  return waitFor(ev, "document.querySelector('[data-testid=diary-detail-menu-sheet]')?1:0", 4000);
 };
 
 await withSession(async (session) => {
@@ -47,35 +66,54 @@ await withSession(async (session) => {
       && detail.visibility === '可见范围：仅自己' && detail.menu && !detail.error ? 'PASS' : 'FAIL',
     JSON.stringify({ listed, path: detail.path, id: detail.id, meta: detail.meta, bodyLen: String(detail.body ?? '').length, visibility: detail.visibility }));
 
-  // 2. the reply row exists only when the diary points at its own letter, and it opens that letter
-  if (detail.hasLetterRow) {
-    await ev("(function(){document.querySelector('[data-testid=diary-detail-letter]').click();return 1;})()", false);
-    await sleep(3500);
+  // 2. the reply row exists only when the diary points at its own letter, and it opens that letter.
+  //    The association has to be exercised on a diary that really has a reply, so this makes one first
+  //    instead of hoping the newest row happens to be one - the earlier version passed by accident when
+  //    the first row had no letter and failed to prove anything at all.
+  await navigateTo(session, '/pages/letter/index', { ready: '[data-testid=btn-letter-save]' });
+  await click(ev, '[data-testid=btn-letter-save]');
+  await sleep(4000);
+  await navigateTo(session, '/pages/diary/index', { ready: '[data-testid=diary-card-first]' });
+  const openedLettered = await ev(`(function(){
+    var cards = Array.from(document.querySelectorAll('[data-testid^=diary-card-]'));
+    var i = cards.findIndex(function(e){return (e.innerText||'').indexOf('有回信')>=0;});
+    if (i < 0) return -1;
+    cards[i].click();
+    return i;
+  })()`, false);
+  if (Number(openedLettered) >= 0) {
+    await waitFor(ev, "location.pathname==='/pages/diary/detail' && (document.querySelector('[data-testid=diary-detail-menu]')||document.querySelector('.load-error')) ? 1 : 0");
+    const letterRowShown = Number(await ev("(function(){return document.querySelector('[data-testid=diary-detail-letter]')?1:0;})()", false));
+    if (letterRowShown === 1) await click(ev, '[data-testid=diary-detail-letter]');
+    await waitFor(ev, "location.pathname==='/pages/letter/detail' ? 1 : 0");
+    await sleep(1200);
     const letterPage = JSON.parse(await ev(`(function(){
       return JSON.stringify({
         path: location.pathname,
         id: new URLSearchParams(location.search).get('id'),
-        bodyLen: ((document.querySelector('.letter-content')||{}).innerText || '').length,
+        bodyLen: ((document.querySelector('[data-testid=letter-detail-body]')||{}).innerText || '').length,
         error: (document.querySelector('.load-error')||{}).innerText || null
       });
     })()`, false) || '{}');
     record('the reply row opens that diary’s own letter',
-      letterPage.path === '/pages/letter/detail' && !!letterPage.id && letterPage.bodyLen > 0 && !letterPage.error ? 'PASS' : 'FAIL',
-      JSON.stringify(letterPage));
+      letterRowShown === 1 && letterPage.path === '/pages/letter/detail' && !!letterPage.id && letterPage.bodyLen > 0 && !letterPage.error ? 'PASS' : 'FAIL',
+      JSON.stringify({ rowIndex: openedLettered, letterRowShown, ...letterPage }));
   } else {
-    record('the reply row opens that diary’s own letter', 'PASS', 'this diary has no letter target, so the row is correctly absent');
+    record('the reply row opens that diary’s own letter', 'FAIL', 'saving a letter produced no diary row marked 有回信');
   }
 
   // 3. the menu opens and can be dismissed without side effects
   await navigateTo(session, '/pages/diary/index', { ready: '[data-testid=diary-card-first]' });
-  await openFirstDiary(ev);
-  await openMenu(ev);
-  const menuShown = await ev("(function(){return document.querySelector('[data-testid=diary-detail-menu-sheet]')?1:0;})()", false);
-  await ev("(function(){document.querySelector('[data-testid=diary-detail-menu-close]').click();return 1;})()", false);
-  await sleep(500);
+  const reachedDetail = await openFirstDiary(ev);
+  const menuOpened = reachedDetail ? await openMenu(ev) : false;
+  const menuShown = menuOpened ? 1 : 0;
+  if (menuOpened) {
+    await ev("(function(){document.querySelector('[data-testid=diary-detail-menu-close]').click();return 1;})()", false);
+    await sleep(500);
+  }
   const menuClosed = await ev("(function(){return document.querySelector('[data-testid=diary-detail-menu-sheet]')?1:0;})()", false);
-  record('the more menu opens and closes without side effects', Number(menuShown) === 1 && Number(menuClosed) === 0 ? 'PASS' : 'FAIL',
-    JSON.stringify({ menuShown, menuClosed }));
+  record('the more menu opens and closes without side effects', menuShown === 1 && Number(menuClosed) === 0 ? 'PASS' : 'FAIL',
+    JSON.stringify({ reachedDetail, menuShown, menuClosed }));
 
   // 4. a mood-derived entry: the page must not offer a delete it cannot honour. The diary row is gone
   //    but the private mood is still there, so the list projects it again - the old button deleted a
@@ -97,7 +135,7 @@ await withSession(async (session) => {
       offered: !!document.querySelector('[data-testid=diary-detail-delete]')
     });
   })()`, false) || '{}');
-  await ev("(function(){document.querySelector('[data-testid=diary-detail-menu-close]').click();return 1;})()", false);
+  if (projectedMenu.explained) await click(ev, '[data-testid=diary-detail-menu-close]');
   await sleep(400);
   record('a mood-derived entry explains itself instead of offering a delete that cannot work',
     Number(firstIsNew) === 1 && projectedMenu.explained === true && projectedMenu.offered === false ? 'PASS' : 'FAIL',
@@ -112,21 +150,21 @@ await withSession(async (session) => {
   const firstRow = String(await ev("(function(){var c=document.querySelector('[data-testid=diary-card-first]');return c?(c.innerText||'').replace(/\\s+/g,' ').slice(0,24):null;})()", false) ?? '');
   await openFirstDiary(ev);
   await openMenu(ev);
-  const offered = await ev("(function(){return document.querySelector('[data-testid=diary-detail-delete]')?1:0;})()", false);
-  await ev("(function(){document.querySelector('[data-testid=diary-detail-delete]').click();return 1;})()", false);
+  const offered = Number(await ev("(function(){return document.querySelector('[data-testid=diary-detail-delete]')?1:0;})()", false));
+  if (offered === 1) await click(ev, '[data-testid=diary-detail-delete]');
   await sleep(500);
-  const confirmShown = await ev("(function(){return document.querySelector('[data-testid=diary-detail-delete-confirm]')?1:0;})()", false);
-  await ev("(function(){document.querySelector('[data-testid=diary-detail-delete-cancel]').click();return 1;})()", false);
+  const confirmShown = Number(await ev("(function(){return document.querySelector('[data-testid=diary-detail-delete-confirm]')?1:0;})()", false));
+  if (confirmShown === 1) await click(ev, '[data-testid=diary-detail-delete-cancel]');
   await sleep(400);
-  const stillThere = await ev("(function(){return document.querySelector('[data-testid=diary-detail-body]')?1:0;})()", false);
+  const stillThere = Number(await ev("(function(){return document.querySelector('[data-testid=diary-detail-body]')?1:0;})()", false));
   record('a real diary row offers delete, and cancelling keeps it',
-    Number(offered) === 1 && Number(confirmShown) === 1 && Number(stillThere) === 1 ? 'PASS' : 'FAIL',
+    offered === 1 && confirmShown === 1 && stillThere === 1 ? 'PASS' : 'FAIL',
     JSON.stringify({ firstRow, offered, confirmShown, stillThere }));
 
-  await openMenu(ev);
-  await ev("(function(){document.querySelector('[data-testid=diary-detail-delete]').click();return 1;})()", false);
+  const reopened = await openMenu(ev);
+  const deleteOffered = reopened ? await click(ev, '[data-testid=diary-detail-delete]') : 0;
   await sleep(500);
-  await ev("(function(){document.querySelector('[data-testid=diary-detail-delete-confirm-button]').click();return 1;})()", false);
+  const confirmed = deleteOffered === 1 ? await click(ev, '[data-testid=diary-detail-delete-confirm-button]') : 0;
   await sleep(4000);
   const afterDeletePath = await ev('location.pathname', false);
   await navigateTo(session, '/pages/diary/index', { ready: '[data-testid=diary-card-first]' });
@@ -134,8 +172,8 @@ await withSession(async (session) => {
     return (document.body.innerText||'').indexOf(${JSON.stringify(firstRow)}) >= 0 ? 0 : 1;
   })()`, false);
   record('confirming the deletion removes that diary row from the list',
-    afterDeletePath === '/pages/diary/index' && Number(gone) === 1 ? 'PASS' : 'FAIL',
-    JSON.stringify({ afterDeletePath, gone, row: firstRow }));
+    confirmed === 1 && afterDeletePath === '/pages/diary/index' && Number(gone) === 1 ? 'PASS' : 'FAIL',
+    JSON.stringify({ confirmed, afterDeletePath, gone, row: firstRow }));
 });
 await requireStackAtEnd();
 const failed = results.filter((r) => r === 'FAIL');

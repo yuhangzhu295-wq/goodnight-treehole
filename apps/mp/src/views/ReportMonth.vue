@@ -271,8 +271,7 @@ onMounted(async () => {
     <section v-if="quote" class="report-section" data-testid="report-quote">
       <h2 class="report-section-title">你留下的话</h2>
       <blockquote class="report-quote">
-        <p>{{ quote.content }}</p>
-        <cite>{{ dayLabel(quote.date) }}</cite>
+        <p>“{{ quote.content }}”</p>
       </blockquote>
     </section>
 
@@ -306,9 +305,12 @@ onMounted(async () => {
     </section>
     <p v-else class="report-muted" data-testid="report-analysis-off">长期旅程分析已关闭；上面这些记录不受影响。</p>
 
+    <!-- The design ends on the date list. These two are real capabilities (a share image and a longer
+         advice pass), so they stay - as quiet text under the facts instead of two filled buttons that
+         compete with the page's actual content. -->
     <div class="report-actions">
-      <button class="primary" data-testid="btn-report-poster" :disabled="summaryLoading || !report.summary" @click="makeShareImage"><span aria-hidden="true">▧</span>生成分享图</button>
-      <button data-testid="btn-report-advice" :disabled="adviceLoading || !report.analysisAllowed" @click="loadAdvice"><span aria-hidden="true">♧</span>{{ adviceLoading ? '正在生成建议' : '查看温柔建议' }}</button>
+      <button type="button" data-testid="btn-report-poster" :disabled="summaryLoading || !report.summary" @click="makeShareImage">生成分享图</button>
+      <button type="button" data-testid="btn-report-advice" :disabled="adviceLoading || !report.analysisAllowed" @click="loadAdvice">{{ adviceLoading ? '正在生成建议' : '查看温柔建议' }}</button>
     </div>
 
     <div v-if="monthOpen" class="sheet-mask">
@@ -524,14 +526,6 @@ onMounted(async () => {
   white-space: pre-wrap;
 }
 
-.report-quote cite {
-  display: block;
-  margin-top: 8px;
-  color: #9aa1a9;
-  font-size: 11px;
-  font-style: normal;
-}
-
 .report-empty,
 .report-muted {
   margin: 10px 0 0;
@@ -548,25 +542,24 @@ onMounted(async () => {
 }
 
 .report-page .report-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 26px 0 0;
-  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 30px 0 0;
+  padding: 18px 0 0;
+  border-top: 1px solid #ebedf0;
 }
 
 .report-page .report-actions button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 44px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #275f56;
   font-size: 12.5px;
+  font-weight: 600;
 }
 
-.report-page .report-actions button > span { font-size: 14px; }
+.report-page .report-actions button:disabled { color: #b3b9c0; }
 
 .report-loading {
   display: flex;

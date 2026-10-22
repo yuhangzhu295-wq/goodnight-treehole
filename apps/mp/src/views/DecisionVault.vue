@@ -58,10 +58,10 @@ type DecisionTab = 'all' | DecisionStatus;
 const activeTab = ref<DecisionTab>('all');
 const TAB_LABELS: Record<DecisionTab, string> = {
   all: '全部',
-  draft: '待设冷静',
+  draft: '考虑中',
   cooling: '冷静中',
-  ready: '待确认',
-  decided: '已完成',
+  ready: '冷静结束',
+  decided: '已决定',
   // Archived records live in their own section rather than a tab, so this label is never shown.
   archived: '已归档',
 };
@@ -74,6 +74,19 @@ const statusTabs = computed(() => {
 });
 const visibleItems = computed(() =>
   activeTab.value === 'all' ? activeItems.value : activeItems.value.filter((item) => item.status === activeTab.value),
+);
+
+/**
+ * The design's three named groups. A status tab narrows `visibleItems` first, so filtering to one
+ * status leaves exactly one group; the unfiltered view shows all three at once, which is the layout
+ * the design draws.
+ */
+const groupedSections = computed(() =>
+  [
+    { key: 'considering', title: '考虑中的事', items: visibleItems.value.filter((item) => item.status === 'draft' || item.status === 'ready') },
+    { key: 'cooling', title: '冷静中的事', items: visibleItems.value.filter((item) => item.status === 'cooling') },
+    { key: 'decided', title: '以前做过的决定', items: visibleItems.value.filter((item) => item.status === 'decided') },
+  ].filter((group) => group.items.length),
 );
 
 /** Purely presentational: which leading icon a record draws for its real status. */
@@ -89,8 +102,27 @@ function reasonOf(item: DecisionItem) {
   return item.criteria.find((part) => !part.startsWith('情绪强度:')) ?? '给自己一点时间，再回来看看。';
 }
 
-function intensityOf(item: DecisionItem) {
-  return item.criteria.find((part) => part.startsWith('情绪强度:'))?.replace('情绪强度:', '') ?? '';
+/** `今天` / `昨天` / `10月7日`, the day form the design's meta line uses. */
+function shortDay(value?: string) {
+  const date = new Date(value ?? '');
+  if (Number.isNaN(date.getTime())) return '某天';
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  if (days === 0) return '今天';
+  if (days === 1) return '昨天';
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+/**
+ * The row's one meta line, in the design's voice: when it was written and what state it is in. The
+ * separate intensity chip and countdown pill said the same thing in two more places.
+ */
+function rowMeta(item: DecisionItem) {
+  if (item.status === 'draft') return `记录于${shortDay(item.createdAt)} · 还没有作决定`;
+  if (item.status === 'cooling') return `记录于${shortDay(item.createdAt)} · ${cooldownText(item)}`;
+  if (item.status === 'ready') return '冷静时间已结束 · 等你确认';
+  if (item.status === 'decided') return `上次更新 · ${shortDay(item.reviewedAt ?? item.createdAt)}`;
+  return '';
 }
 
 function cooldownText(item: DecisionItem) {
@@ -102,11 +134,6 @@ function cooldownText(item: DecisionItem) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return `还有约 ${hours} 小时${rest ? ` ${rest} 分钟` : ''}`;
-}
-
-function formatMoment(value?: string) {
-  if (!value) return '';
-  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
 function prepareAnswers() {
@@ -234,8 +261,6 @@ onBeforeUnmount(() => window.clearInterval(timer));
       <h1 class="decision-bar-title">重要决定</h1>
     </header>
 
-    <p class="decision-lead">记录正在考虑的决定，设一段冷静时间后再回来确认。</p>
-
     <section class="decision-content">
       <!--
         The composer is an action you open, not the page. It used to fill the first screen, so a
@@ -298,6 +323,12 @@ onBeforeUnmount(() => window.clearInterval(timer));
             {{ composerOpen ? '收起' : '＋ 新增决定' }}
           </button>
         </div>
+        <!--
+          The design's tabs are text with an underline, and its list is organised into three named
+          groups (考虑中 / 冷静中 / 以前做过的决定) rather than one flat stream. Both are kept: the tabs
+          narrow to one status, and the list is always grouped, so the composite view the design shows
+          is what 全部 renders.
+        -->
         <div class="status-tabs" role="tablist" aria-label="决定状态">
           <button
             v-for="tab in statusTabs"
@@ -314,35 +345,34 @@ onBeforeUnmount(() => window.clearInterval(timer));
           </button>
         </div>
         <div class="saved-list">
-          <article
-            v-for="item in visibleItems"
-            :key="item.id"
-            class="saved-item"
-            :data-status="item.status"
-            :data-testid="'decision-item-' + item.id"
-          >
-            <span class="item-icon" aria-hidden="true"><AppIcon :name="statusIcon[item.status]" :size="18" /></span>
-            <div class="saved-copy">
-              <strong class="item-question">{{ item.question }}</strong>
-              <span class="item-reason">{{ reasonOf(item) }}</span>
-              <span v-if="intensityOf(item)" class="item-meta">记录时强度 {{ intensityOf(item) }}</span>
-              <span v-if="item.status === 'cooling'" class="status-pill">冷静中 · {{ cooldownText(item) }}</span>
-              <span v-else-if="item.status === 'draft'" class="status-pill">等待设置冷静时间</span>
-              <template v-else-if="item.status === 'ready'">
-                <span class="status-pill ready">冷静期已过 · 待确认</span>
-                <textarea v-model="answers[item.id].decision" maxlength="400" placeholder="记录你当前的决定…" />
-                <textarea v-model="answers[item.id].outcome" maxlength="800" placeholder="后续结果或补充说明（可选）" />
-                <button class="item-action" type="button" :disabled="busyId === item.id" @click="decide(item)">确认这个决定</button>
-              </template>
-              <template v-else-if="item.status === 'decided'">
-                <span class="status-pill decided">已完成决定 · {{ formatMoment(item.reviewedAt) }}</span>
-                <p class="own-decision">{{ item.decision }}</p>
-                <textarea v-model="answers[item.id].outcome" maxlength="800" placeholder="后来发生了什么？可在归档前补充。" />
-                <button class="item-action ghost" type="button" :disabled="busyId === item.id" @click="archive(item)">保存结果并归档</button>
-              </template>
-              <button v-if="item.status === 'draft'" class="item-action" type="button" :disabled="busyId === item.id" @click="resumeDraft(item)">开始 24 小时冷静期</button>
-            </div>
-          </article>
+          <section v-for="group in groupedSections" :key="group.key" class="decision-group">
+            <h3 class="decision-group-title">{{ group.title }}</h3>
+            <article
+              v-for="item in group.items"
+              :key="item.id"
+              class="saved-item"
+              :data-status="item.status"
+              :data-testid="'decision-item-' + item.id"
+            >
+              <span class="item-icon" aria-hidden="true"><AppIcon :name="statusIcon[item.status]" :size="18" /></span>
+              <div class="saved-copy">
+                <strong class="item-question">{{ item.question }}</strong>
+                <span class="item-reason">{{ reasonOf(item) }}</span>
+                <span class="item-meta">{{ rowMeta(item) }}</span>
+                <template v-if="item.status === 'ready'">
+                  <textarea v-model="answers[item.id].decision" maxlength="400" placeholder="记录你当前的决定…" />
+                  <textarea v-model="answers[item.id].outcome" maxlength="800" placeholder="后续结果或补充说明（可选）" />
+                  <button class="item-action" type="button" :disabled="busyId === item.id" @click="decide(item)">确认这个决定</button>
+                </template>
+                <template v-else-if="item.status === 'decided'">
+                  <p class="own-decision">{{ item.decision }}</p>
+                  <textarea v-model="answers[item.id].outcome" maxlength="800" placeholder="后来发生了什么？可在归档前补充。" />
+                  <button class="item-action ghost" type="button" :disabled="busyId === item.id" @click="archive(item)">保存结果并归档</button>
+                </template>
+                <button v-if="item.status === 'draft'" class="item-action" type="button" :disabled="busyId === item.id" @click="resumeDraft(item)">开始 24 小时冷静期</button>
+              </div>
+            </article>
+          </section>
         </div>
       </section>
 
@@ -369,7 +399,10 @@ onBeforeUnmount(() => window.clearInterval(timer));
         </article>
       </details>
 
-      <p class="boundary-note">提供冷静期缓冲与记录辅助，不替代法律、医疗或财务专业建议，不代作决定。</p>
+      <div class="boundary-note" data-testid="decision-boundary">
+        <p>应用只保存思考过程，决定始终由你自己作出。</p>
+        <small>提供冷静期缓冲与记录辅助，不替代法律、医疗或财务专业建议。</small>
+      </div>
     </section>
   </main>
 </template>
@@ -423,14 +456,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
   color: var(--gn-ink);
 }
 
-/* The page's own subtitle, as content under the bar instead of inside it. */
-.decision-lead {
-  margin: 14px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gn-muted);
-}
-
+/* The design puts no subtitle under the bar: the list is the page. */
 .decision-content {
   display: flex;
   flex-direction: column;
@@ -502,12 +528,14 @@ onBeforeUnmount(() => window.clearInterval(timer));
   font-weight: 600;
 }
 
-/* Lifecycle tabs over the real statuses, so a returning user can find the record they want. */
+/* Lifecycle tabs over the real statuses, as text with an underline - the design's form, not chips. */
 .status-tabs {
   display: flex;
-  gap: 6px;
-  margin: 12px 0 4px;
+  gap: 18px;
+  margin: 10px 0 0;
+  padding-bottom: 2px;
   overflow-x: auto;
+  border-bottom: 1px solid var(--gn-line);
   scrollbar-width: none;
 }
 
@@ -517,21 +545,18 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
 .status-tab {
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  padding: 7px 11px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
+  min-height: 38px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  box-shadow: none;
   color: var(--gn-muted);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .status-tab.active {
-  border-color: var(--gn-leaf);
-  background: var(--gn-leaf-soft);
+  border-bottom-color: var(--gn-leaf);
   color: var(--gn-leaf-deep);
   font-weight: 650;
 }
@@ -762,7 +787,19 @@ onBeforeUnmount(() => window.clearInterval(timer));
 .saved-list {
   display: flex;
   flex-direction: column;
-  margin-top: 10px;
+}
+
+.decision-group {
+  display: block;
+}
+
+/* The group names the state once; the rows below do not repeat it as a pill. */
+.decision-group-title {
+  margin: 20px 0 0;
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 /* A record is an icon tile plus its copy, closed by a hairline. */
@@ -822,27 +859,6 @@ onBeforeUnmount(() => window.clearInterval(timer));
 .item-meta {
   font-size: 12px;
   color: var(--gn-muted);
-}
-
-.status-pill {
-  align-self: flex-start;
-  border-radius: 999px;
-  background: var(--gn-paper-warm);
-  padding: 3px 9px;
-  color: var(--gn-muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.status-pill.ready {
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
-  font-weight: 600;
-}
-
-.status-pill.decided {
-  background: var(--gn-paper-warm);
-  color: var(--gn-ink-soft);
 }
 
 .saved-copy textarea {
@@ -929,6 +945,20 @@ onBeforeUnmount(() => window.clearInterval(timer));
   font-size: 12px;
   line-height: 1.6;
   text-align: left;
+}
+
+.boundary-note p {
+  margin: 0;
+  color: var(--gn-ink-soft);
+  font-size: 12.5px;
+}
+
+.boundary-note small {
+  display: block;
+  margin-top: 5px;
+  color: var(--gn-muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .sr-only {

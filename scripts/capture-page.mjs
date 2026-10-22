@@ -17,8 +17,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { withSession, ADB } from './device-session.mjs';
+import { ensureReverse } from './input-helpers.mjs';
 
-const OUT = 'artifacts/ui-v2/r2';
+// The app reaches the API through `adb reverse tcp:3000`; that tunnel disappears whenever the adb
+// server or the device restarts, and the page then renders its load-error banner. A capture taken in
+// that state photographs a broken tunnel, not the page.
+ensureReverse();
+
+/**
+ * Anchored to this file, not to the process working directory: invoked from anywhere else, the
+ * relative path wrote the PNG into that other tree, so the review read a screenshot from a previous
+ * run while the text in the log came from the current one.
+ */
+const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+const OUT = path.join(REPO_ROOT, 'artifacts/ui-v2/r2');
 /**
  * Git Bash rewrites an argument that starts with `/` into a Windows path, so
  * `/pages/decision/index` arrives as `C:/Program Files/Git/pages/decision/index`. Passing

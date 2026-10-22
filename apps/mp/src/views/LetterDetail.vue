@@ -230,7 +230,11 @@ const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(lette
   text-align: left;
 }
 
-.detail-row:first-of-type { border-top: 1px solid #ebedf0; margin-top: 8px; }
+/* The design puts a hairline between the two action rows and nowhere else: no rule above the first
+   row, none under the last one. */
+.detail-row:first-of-type { margin-top: 8px; }
+
+.detail-row:last-of-type { border-bottom: 0; }
 
 .detail-row-icon {
   display: flex;
