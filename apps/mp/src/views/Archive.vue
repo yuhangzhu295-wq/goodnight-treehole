@@ -11,6 +11,8 @@ type TimeScope = 'all' | 'week' | 'month';
 const router = useRouter();
 const activeTab = ref<ArchiveTab>('diary');
 const scope = ref<TimeScope>('all');
+/** Text filter for the loaded rows. It filters what is already here - there is no server search. */
+const query = ref('');
 const diaries = ref<any[]>([]);
 const posts = ref<any[]>([]);
 const letters = ref<any[]>([]);
@@ -40,10 +42,19 @@ function isInScope(item: any) {
   return timestamp >= Date.now() - days * 86_400_000;
 }
 
-const filteredDiaries = computed(() => diaries.value.filter(isInScope));
-const filteredPosts = computed(() => posts.value.filter(isInScope));
-const filteredLetters = computed(() => letters.value.filter(isInScope));
-const filteredJourneys = computed(() => journeys.value.filter((item) => isInScope(item.journey)));
+const filteredDiaries = computed(() => diaries.value.filter((item) => isInScope(item) && matchesQuery([item.content, item.emotionLabel, item.emotion])));
+const filteredPosts = computed(() => posts.value.filter((item) => isInScope(item) && matchesQuery([item.content, item.text, item.emotion])));
+const filteredLetters = computed(() => letters.value.filter((item) => isInScope(item) && matchesQuery([item.title, item.content])));
+const filteredJourneys = computed(() =>
+  journeys.value.filter((item) => isInScope(item.journey) && matchesQuery([item.journey?.title, ...(Array.isArray(item.happened) ? item.happened : [])])),
+);
+
+/** Case-insensitive "contains" over the fields a row actually shows. Empty query matches everything. */
+function matchesQuery(fields: unknown[]) {
+  const needle = query.value.trim().toLowerCase();
+  if (!needle) return true;
+  return fields.some((field) => String(field ?? '').toLowerCase().includes(needle));
+}
 
 type MonthEntry = { item: any; index: number };
 type MonthGroup = { key: string; label: string; entries: MonthEntry[] };
@@ -226,10 +237,18 @@ onMounted(load);
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <h1 class="archive-bar-title">日记与回信</h1>
+      <h1 class="archive-bar-title">归档</h1>
+      <input
+        v-model="query"
+        class="archive-search"
+        type="search"
+        data-testid="archive-search"
+        placeholder="搜索标题或内容"
+        aria-label="搜索归档内容"
+      >
     </header>
 
-    <p class="archive-lead">把你写下的话，和树洞回答你的话，都留在这里。</p>
+    <p class="archive-lead">日记、回信和旅程归档都在这里；每一行都是真实保存过的内容。</p>
 
     <div class="archive-tabs" role="tablist" aria-label="内容分类">
       <button
@@ -312,13 +331,14 @@ onMounted(load);
         <article v-for="entry in group.entries" :key="entry.item.journey.id" class="archive-row">
           <button class="archive-row-main" :data-testid="entry.index === 0 ? 'archive-journey-first' : `archive-journey-${entry.item.journey.id}`" @click="openJourney(entry.item)">
             <span class="archive-row-icon" aria-hidden="true">⌁</span>
-            <span class="archive-row-copy"><strong>{{ entry.item.journey.title }}</strong><p>{{ journeyPreview(entry.item) }}</p><small>{{ entry.item.journey.status === 'completed' ? '已完成' : '已归档' }} · {{ entry.item.actionStats.completed }} 次完成 · {{ entry.item.actionStats.adjusted }} 次调整 · {{ dateLabel(entry.item.endedAt) }}</small></span>
+            <span class="archive-row-copy"><strong>{{ entry.item.journey.title }}</strong><p>{{ journeyPreview(entry.item) }}</p><small>{{ entry.item.journey.status === 'archived' ? '已经归档' : `最后更新 · ${dateLabel(entry.item.endedAt)}` }}</small></span>
             <AppIcon name="chevron-right" :size="18" class="archive-row-chevron" />
           </button>
           <button class="archive-row-actions" :data-testid="entry.index === 0 ? 'archive-journey-actions-first' : undefined" aria-label="归档操作" @click="openActions(entry.item)">···</button>
         </article>
       </section>
       <article v-if="!filteredJourneys.length" class="archive-empty"><strong>这个时间范围里还没有旅程归档</strong><p>完成或手动归档后的 Journey 会在这里完整回看。</p></article>
+      <p v-else class="archive-footnote" data-testid="archive-journey-footnote">这里只显示实际已归档的旅程</p>
     </div>
 
     <div v-if="selectedJourney" class="sheet-mask archive-overlay" data-testid="archive-detail-sheet">
@@ -362,6 +382,25 @@ onMounted(load);
 .archive-bar { display: flex; align-items: center; gap: 8px; min-height: 56px; margin: 0 -16px; padding: 8px 16px; border-bottom: 1px solid var(--gn-line); }
 .back-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; background: transparent; color: var(--gn-ink); cursor: pointer; flex-shrink: 0; }
 .archive-bar-title { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.25; color: var(--gn-ink); }
+
+/* The design's header carries a search affordance; this one filters the rows already loaded, so it
+   does something real instead of being an icon that does nothing. */
+.archive-search {
+  flex: 1;
+  min-width: 0;
+  max-width: 150px;
+  margin-left: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--gn-ink);
+  font-size: 12.5px;
+}
+
+.archive-search::placeholder { color: var(--gn-muted); }
+
+.archive-footnote { margin: 18px 0 0; color: var(--gn-muted); font-size: 12px; text-align: center; }
 
 /* The page's own subtitle, as content under the bar instead of inside it. */
 .archive-lead { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--gn-muted); }
