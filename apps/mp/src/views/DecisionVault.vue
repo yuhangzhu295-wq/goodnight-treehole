@@ -33,6 +33,49 @@ let timer = 0;
 const activeItems = computed(() => items.value.filter((item) => item.status !== 'archived'));
 const archivedItems = computed(() => items.value.filter((item) => item.status === 'archived'));
 
+/**
+ * Whether the composer is open. Closed by default: the list is the page, and a returning user should
+ * see their decisions before a blank form.
+ */
+const composerOpen = ref(false);
+function toggleComposer() {
+  composerOpen.value = !composerOpen.value;
+}
+/**
+ * Tapping the summary opens the panel without going through the button, so `composerOpen` has to
+ * follow the element itself. Without this the label drifted: open by summary, tap the button, and
+ * the panel stayed open while the button offered to close it.
+ */
+function onComposerToggle(event: Event) {
+  composerOpen.value = (event.target as HTMLDetailsElement).open;
+}
+
+/**
+ * The lifecycle stages, in the order a decision moves through them. `all` is not a real status - it
+ * is the unfiltered view, listed first because it is what a returning user wants.
+ */
+type DecisionTab = 'all' | DecisionStatus;
+const activeTab = ref<DecisionTab>('all');
+const TAB_LABELS: Record<DecisionTab, string> = {
+  all: '全部',
+  draft: '待设冷静',
+  cooling: '冷静中',
+  ready: '待确认',
+  decided: '已完成',
+  // Archived records live in their own section rather than a tab, so this label is never shown.
+  archived: '已归档',
+};
+const statusTabs = computed(() => {
+  const count = (key: DecisionTab) =>
+    key === 'all' ? activeItems.value.length : activeItems.value.filter((item) => item.status === key).length;
+  return (['all', 'draft', 'cooling', 'ready', 'decided'] as DecisionTab[])
+    .filter((key) => key === 'all' || count(key) > 0)
+    .map((key) => ({ key, label: TAB_LABELS[key], count: count(key) }));
+});
+const visibleItems = computed(() =>
+  activeTab.value === 'all' ? activeItems.value : activeItems.value.filter((item) => item.status === activeTab.value),
+);
+
 /** Purely presentational: which leading icon a record draws for its real status. */
 const statusIcon: Record<DecisionStatus, string> = {
   draft: 'bookmark',
@@ -80,7 +123,7 @@ async function load() {
     items.value = result.items ?? [];
     prepareAnswers();
   } catch (cause: any) {
-    error.value = cause?.message ?? '决定保险箱暂时没有打开';
+    error.value = cause?.message ?? '决定记录暂时没有打开';
   } finally {
     loading.value = false;
   }
@@ -108,6 +151,8 @@ async function saveForLater() {
     });
     Object.assign(draft, { question: '', reason: '', intensity: 8, hours: 24 });
     notice.value = '已经放进冷静箱。到时间后，我们只回来问你是否还这样想。';
+    // Close on success so the record the user just created is what they see next, not an empty form.
+    composerOpen.value = false;
     await load();
   } catch (cause: any) {
     error.value = cause?.message ?? '这件事暂时没有保存成功';
@@ -186,22 +231,32 @@ onBeforeUnmount(() => window.clearInterval(timer));
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <h1 class="decision-bar-title">决定保险箱</h1>
+      <h1 class="decision-bar-title">重要决定</h1>
     </header>
 
-    <p class="decision-lead">暂存重要决定，设置冷静期后再行确认</p>
+    <p class="decision-lead">记录正在考虑的决定，设一段冷静时间后再回来确认。</p>
 
-    <section class="vault-content">
-      <form class="decision-composer" @submit.prevent="saveForLater">
+    <section class="decision-content">
+      <!--
+        The composer is an action you open, not the page. It used to fill the first screen, so a
+        returning user with records had to scroll past a form to reach them. `open` keeps it collapsed
+        until asked for, and `open` is also what the "新增决定" button toggles.
+      -->
+      <details class="decision-composer-wrap" :open="composerOpen" data-testid="decision-composer" @toggle="onComposerToggle">
+        <summary class="composer-summary">
+          <span class="composer-summary-title">新增决定</span>
+          <span class="composer-summary-hint">写下正在考虑的事，设一段冷静时间</span>
+        </summary>
+        <form class="decision-composer" @submit.prevent="saveForLater">
         <h2 class="composer-heading">暂存决定</h2>
         <label class="quote-field">
           <span class="sr-only">想做的决定</span>
-          <textarea v-model="draft.question" maxlength="400" placeholder="记录你正在考虑的决定或冲动想法…" />
+          <textarea v-model="draft.question" data-testid="decision-question" maxlength="400" placeholder="记录你正在考虑的决定或冲动想法…" />
         </label>
 
         <label class="line-field">
           <span class="field-icon" aria-hidden="true">◈</span>
-          <span class="field-body"><strong>为什么现在想做</strong><input v-model="draft.reason" maxlength="400" placeholder="当前最担心什么，或最想确认什么？" /></span>
+          <span class="field-body"><strong>为什么现在想做</strong><input v-model="draft.reason" data-testid="decision-reason" maxlength="400" placeholder="当前最担心什么，或最想确认什么？" /></span>
         </label>
 
         <div class="line-field intensity-row">
@@ -222,7 +277,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
         <p class="return-note"><AppIcon name="clock" :size="16" /> {{ draft.hours }} 小时后，可重新确认该决定。</p>
         <div class="composer-actions">
-          <button class="primary-action" type="submit" :disabled="busyId === 'create'">
+          <button class="primary-action" type="submit" data-testid="decision-submit" :disabled="busyId === 'create'">
             {{ busyId === 'create' ? '正在保存…' : '存入冷静箱' }}
           </button>
           <button class="secondary-action" type="button" @click="draft.question = draft.question ? `${draft.question}\n我能先做的更小一步是：` : '我能先做的更小一步是：'">
@@ -230,16 +285,42 @@ onBeforeUnmount(() => window.clearInterval(timer));
           </button>
         </div>
       </form>
+      </details>
 
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
       <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
       <p v-if="loading" class="loading">正在打开冷静箱…</p>
 
       <section v-if="activeItems.length" class="saved-section">
-        <h2 class="section-title">冷静箱记录</h2>
-        <p class="section-desc">冷静期结束后可重新评估并记录决定。</p>
+        <div class="list-head">
+          <h2 class="section-title">我的决定</h2>
+          <button class="add-trigger" type="button" data-testid="decision-add" @click="toggleComposer">
+            {{ composerOpen ? '收起' : '＋ 新增决定' }}
+          </button>
+        </div>
+        <div class="status-tabs" role="tablist" aria-label="决定状态">
+          <button
+            v-for="tab in statusTabs"
+            :key="tab.key"
+            type="button"
+            role="tab"
+            class="status-tab"
+            :class="{ active: activeTab === tab.key }"
+            :aria-selected="activeTab === tab.key"
+            :data-testid="'decision-tab-' + tab.key"
+            @click="activeTab = tab.key"
+          >
+            {{ tab.label }} <b>{{ tab.count }}</b>
+          </button>
+        </div>
         <div class="saved-list">
-          <article v-for="item in activeItems" :key="item.id" class="saved-item" :data-status="item.status">
+          <article
+            v-for="item in visibleItems"
+            :key="item.id"
+            class="saved-item"
+            :data-status="item.status"
+            :data-testid="'decision-item-' + item.id"
+          >
             <span class="item-icon" aria-hidden="true"><AppIcon :name="statusIcon[item.status]" :size="18" /></span>
             <div class="saved-copy">
               <strong class="item-question">{{ item.question }}</strong>
@@ -263,6 +344,20 @@ onBeforeUnmount(() => window.clearInterval(timer));
             </div>
           </article>
         </div>
+      </section>
+
+      <!--
+        With no records the page used to show nothing at all below the folded composer, so a new user saw a
+        page with no way in. The empty state opens the composer instead.
+        `!error` matters: a failed load leaves `items` empty too, and saying "还没有决定记录" then asserts
+        something the page does not know. On failure the banner above is the whole message.
+      -->
+      <section v-if="!activeItems.length && !loading && !error" class="saved-section empty-state" data-testid="decision-empty">
+        <h2 class="section-title">还没有决定记录</h2>
+        <p>把正在考虑的事写下来，设一段冷静时间，再回来确认。</p>
+        <button class="add-trigger" type="button" data-testid="decision-empty-add" @click="composerOpen = true">
+          ＋ 写下第一个决定
+        </button>
       </section>
 
       <details v-if="archivedItems.length" class="archive-section">
@@ -336,12 +431,49 @@ onBeforeUnmount(() => window.clearInterval(timer));
   color: var(--gn-muted);
 }
 
-.vault-content {
+.decision-content {
   display: flex;
   flex-direction: column;
 }
 
 /* Sections are bare blocks closed by a hairline, not bordered cards. */
+/*
+ * The composer is folded by default: a summary line, opened on demand. It used to be a full form
+ * occupying the first screen ahead of the records.
+ */
+.decision-composer-wrap {
+  padding: 14px 0 4px;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.composer-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 40px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.composer-summary::-webkit-details-marker {
+  display: none;
+}
+
+.composer-summary-title {
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.composer-summary-hint {
+  color: var(--gn-muted);
+  font-size: 12px;
+}
+
+.decision-composer-wrap[open] .composer-summary {
+  margin-bottom: 6px;
+}
+
 .decision-composer,
 .saved-section,
 .archive-section {
@@ -349,6 +481,76 @@ onBeforeUnmount(() => window.clearInterval(timer));
   flex-direction: column;
   padding: 18px 0 16px;
   border-bottom: 1px solid var(--gn-line);
+}
+
+/* The list header carries the add action, so the composer stays folded until it is wanted. */
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.add-trigger {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-leaf-deep);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Lifecycle tabs over the real statuses, so a returning user can find the record they want. */
+.status-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.status-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.status-tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper);
+  color: var(--gn-muted);
+  font-size: 12.5px;
+}
+
+.status-tab.active {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 650;
+}
+
+.status-tab b {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.empty-state {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--gn-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .composer-heading,

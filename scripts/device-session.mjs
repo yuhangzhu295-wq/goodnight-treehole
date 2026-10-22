@@ -28,17 +28,25 @@ export function appPid() {
 /**
  * True when the app's window is the one in front.
  *
- * `dumpsys window` prints several `mCurrentFocus` lines (one per display), and the package name also
- * appears in unrelated lines - so `output.includes(package)` reports the app as foreground while
- * another app actually holds the focus, and the script then reads that app's page as ours. Only the
- * first mCurrentFocus line is the real answer.
+ * `dumpsys window` prints a "WINDOW MANAGER LAST ANR" snapshot *before* the live state, and that
+ * snapshot carries its own `mCurrentFocus` line. Once any app has ANR'd, the first focus line names
+ * the app that crashed rather than the app in front - reading it made every session conclude the
+ * foreground had been stolen and keep relaunching while the real focus was already correct.
+ * `dumpsys window displays` emits only the live display contents, so it has exactly one such line.
  */
 export function isForeground() {
   try {
-    const out = adb('shell', 'dumpsys', 'window');
-    const focusLines = out.split(/\r?\n/).filter((l) => l.includes('mCurrentFocus'));
-    const first = focusLines[0] ?? '';
-    return first.includes(PACKAGE);
+    let focus = adb('shell', 'dumpsys', 'window', 'displays')
+      .split(/\r?\n/)
+      .find((line) => line.includes('mCurrentFocus'));
+    if (!focus) {
+      // Older builds may not answer the `displays` form; the live section is the last one printed.
+      const lines = adb('shell', 'dumpsys', 'window')
+        .split(/\r?\n/)
+        .filter((line) => line.includes('mCurrentFocus'));
+      focus = lines[lines.length - 1];
+    }
+    return (focus ?? '').includes(PACKAGE);
   } catch {
     return false;
   }
@@ -210,6 +218,14 @@ export async function withSession(fn, { relaunch = true } = {}) {
       await new Promise((res) => ws.addEventListener('open', res, { once: true }));
     }
     const r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
+    // A page-side exception arrives as a normal reply with `exceptionDetails` and no value. Returning
+    // null there made a broken probe indistinguishable from "the element is not there" - a capture
+    // that silently produced nothing looked like an empty page. Surface it instead.
+    const details = r?.result?.exceptionDetails;
+    if (details) {
+      const description = details.exception?.description ?? details.text ?? 'evaluation failed';
+      throw new Error(`page exception: ${String(description).split('\n')[0]}`);
+    }
     return r?.result?.result?.value ?? null;
   };
 

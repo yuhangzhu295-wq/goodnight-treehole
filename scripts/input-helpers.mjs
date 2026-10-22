@@ -14,7 +14,16 @@
 import { execFileSync } from 'node:child_process';
 import { ADB } from './device-session.mjs';
 
-/** Waits for a control to exist and be measurable, rather than assuming navigation finished. */
+/**
+ * Waits for a control to exist and be *tappable*, rather than assuming navigation finished.
+ *
+ * Two things make "measurable" not the same as "tappable":
+ *  - A control inside a collapsed `<details>` still has a layout box (Chrome hides it with
+ *    `content-visibility`, not `display: none`), so a size check passes and the tap then lands on the
+ *    summary instead - the field never takes focus and the run reports a product bug that isn't one.
+ *  - A control below the fold has a box but its centre is outside the viewport, so the synthetic tap
+ *    goes nowhere. Scrolling it to the middle first makes the coordinates real.
+ */
 export async function waitForControl(session, testId, timeoutMs = 20000) {
   const { ev } = session;
   const deadline = Date.now() + timeoutMs;
@@ -23,6 +32,10 @@ export async function waitForControl(session, testId, timeoutMs = 20000) {
       `(function(){
         var e=document.querySelector('[data-testid="${testId}"]');
         if(!e) return null;
+        var d=e.closest('details');
+        if(d && !d.open) return null;
+        if(e.checkVisibility && !e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return null;
+        e.scrollIntoView({block:'center'});
         var r=e.getBoundingClientRect();
         if(r.width<=0||r.height<=0) return null;
         return [Math.round(r.left+r.width/2), Math.round(r.top+r.height/2)];

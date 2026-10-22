@@ -208,7 +208,8 @@ peer-detail 的"多个单独边框卡"（已是连续正文三段式）。
 
 **顺带发现采集工具的一个静默失败**：`capture-page.mjs` 的页面状态表达式写在模板字符串里，
 `	
-` 被 Node 先解释，浏览器收到真实控制字符→正则被截断→SyntaxError→`ev` 返回 null，
+
+` 被 Node 先解释，浏览器收到真实控制字符→正则被截断→SyntaxError→`ev` 返回 null，
 脚本输出一条没有 `len`/`text`/`errs` 的记录——**看起来就像"这页是空的"**。已用 `String.raw` 修好。
 这意味着此前某些"空页"结论的证据强度要打折扣。
 
@@ -218,3 +219,63 @@ peer-detail 的"多个单独边框卡"（已是连续正文三段式）。
 
 **未修**：`capture-all-ui`/`capture-ui-v2-pages`/`measure-page-layout`/`probe-device-api`
 和三个 seed 脚本仍自己开连接（一次性工具，未迁移）。
+
+## 第七轮：输入能力（P0），先修"验收不了"这件事
+
+用户点名 P0：Vue 的 `v-model` 根本收不到脚本输入，所以此前所有"输入后提交"的验收都没有真的验证过输入。
+
+- **根因**：旧 `fill` 设 `.value` + `dispatchEvent('input')` 只改 DOM，不进 Vue。计数器仍显示
+  `0/1000`，而页面看起来"填好了"。改为 CDP `Input.insertText`（走光标，等同真实键盘）。
+- **矩阵** `scripts/verify-input-matrix.mjs` 7/7：中英标点多行到达 Vue、提交 body 与输入一致、
+  空输入被拒且不写库、超长截到 1000、双击只写一行、回读 API、清空后重进仍为空。
+- **抓到一个真缺陷**：MoodCreate 的 `submit` 只在按钮上加 `:disabled`，入口没有检查 `submitting`。
+  双击时第二个请求照样发出，同一条心情写了两行。修法是在入口加守卫，不是加 `await` 或延时。
+  **反向证明**：去掉守卫，矩阵报 2 行；加回守卫，报 1 行。
+
+## 第八轮：tool 族两页
+
+- `tool-decompose` 4/4：输入到达 Vue、任务带正确文本、结束于真实结果**或带来源标注的降级提示**、
+  保存写入 diary 行。降级分支也断言，否则"AI 不可用"会被当成通过。
+- `tool-breakdown` 别名路由 2/2：渲染同一组控件、接受输入。
+
+## 第九轮：StableSelf 两段式
+
+结构从五段碎块收成两段（"对自己的提醒"含稳定描述+现实提醒；"支持办法"含锚点+联系人），
+联系人从独立 section 折进 `field-group`。`scripts/verify-stable-self.mjs` 4/4：两字段输入、
+提交带文本、回读 API。回读用的凭据必须与读取在**同一个页面内表达式**里取用——跨调用取到的凭据
+在 App 重启后属于另一个身份，会读成"写丢失"。
+
+## 第十轮：DecisionVault，以及三个"我的仪器在骗我"
+
+页面结构：标题改"重要决定"，列表前置，composer 折进 `<details>`，加状态 Tab（只显示 count>0 的）
+与空态，9 个 testid。`scripts/verify-decision-vault.mjs` **7/7**。两个真缺陷 + 三个仪器缺陷：
+
+1. **真缺陷：两扇门不同步**。`<details :open="composerOpen">` 被 summary 原生展开时 `open`
+   变了但 ref 没变，按钮文案于是说谎（面板开着、按钮还写"＋ 新增决定"）。加 `@toggle` 同步。
+   **反向证明**：去掉 `@toggle` 重建重装，用例报
+   `[{"open":true,"label":"＋新增决定"},{"open":true,"label":"收起"}]`；恢复后 7/7。
+2. **真缺陷：加载失败被渲染成"你还没有记录"**。空态条件是 `!items.length && !loading`，
+   500 时 items 也是空，页面就断言了一件它不知道的事。加 `!error`。
+   **反向证明来自事故现场**：一次 API 500 的实跑里，明明有 3 条记录，页面却出现了
+   `decision-empty-add`（"写下第一个决定"）。
+3. **仪器：`isForeground` 读的是 ANR 快照**。`dumpsys window` 开头有一段
+   "WINDOW MANAGER LAST ANR"，里面自带 `mCurrentFocus`。任何 App 出过一次 ANR 后，
+   第一行永远是那个崩掉的 App —— 于是每个会话都以为前台被抢、反复重启，而真前台一直是对的。
+   改用 `dumpsys window displays`（只有实时段）。
+4. **仪器：折叠面板里的控件"可测但不可点"**。Chrome 用 `content-visibility` 藏 `<details>` 内容，
+   所以 `getBoundingClientRect` 有尺寸、`offsetParent` 非空，点击却落在 summary 上，
+   字段永远不聚焦 —— 报告出来是"产品缺陷"。`waitForControl` 改为先看 `closest('details').open`
+   + `checkVisibility()`，再 `scrollIntoView({block:'center'})` 后取坐标（顺带修好折叠线以下的控件）。
+5. **仪器：`ev` 把页面异常吞成 null**。页面里抛错与"元素不存在"返回值一样，静默的探针等于
+   一次什么都没测的空跑。现在 `exceptionDetails` 直接抛。
+
+**另一个必须记住的事实**：本项目点 anchor 导航是**整页加载**（点击前设的 `window.__x` 点击后消失），
+所以任何 window 级 hook 都会被"挂载被测页面"的那次导航冲掉；要拦请求只能用
+`Page.addScriptToEvaluateOnNewDocument`。
+
+**环境**：容器三个全 Up，但 15432/16379 又不可达（WSL2 转发失效，不是数据库挂了）。
+`scripts/stack-up.sh` 重新 up 后恢复。新增 `scripts/preflight-api.mjs`：栈不健康时以 **exit 2**
+退出并打印 `STACK DOWN`，与产品失败（exit 1）分开——否则一次断库会被写成五条"字段没聚焦"。
+
+**状态未变**：39 个独立视图里本轮只完成了 decision-vault 一页的七轴验收；
+`codeReviewApproved` 仍为 0，独立审查尚未覆盖本轮改动。
