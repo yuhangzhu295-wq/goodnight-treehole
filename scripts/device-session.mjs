@@ -16,12 +16,34 @@ export const PACKAGE = 'com.goodnight.treehole';
 
 const adb = (...args) => execFileSync(ADB, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-/** The app's pid, or '' when it is not running. `pidof` exits non-zero in that case. */
+/**
+ * The app's pid, or '' when it is genuinely not running.
+ *
+ * `pidof` exits non-zero with *no* stderr when nothing matches, which is the real "not running" case.
+ * An adb transport failure also throws, but its stderr says so - and reporting that as "the app died"
+ * makes the caller relaunch a perfectly healthy app, destroying the page it was about to read. So a
+ * transport failure is retried once and then falls back to the last pid that was actually seen.
+ */
+let lastKnownPid = '';
+
 export function appPid() {
   try {
-    return adb('shell', 'pidof', PACKAGE);
-  } catch {
-    return '';
+    const pid = adb('shell', 'pidof', PACKAGE);
+    lastKnownPid = pid;
+    return pid;
+  } catch (error) {
+    const stderr = String(error?.stderr ?? '').trim();
+    if (!stderr) {
+      lastKnownPid = '';
+      return '';
+    }
+    try {
+      const pid = adb('shell', 'pidof', PACKAGE);
+      lastKnownPid = pid;
+      return pid;
+    } catch {
+      return lastKnownPid;
+    }
   }
 }
 
@@ -74,7 +96,22 @@ export async function ensureForeground(attempts = 4) {
 export async function launchApp(waitMs = 8000) {
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
   adb('shell', 'wm', 'dismiss-keyguard');
-  adb('shell', 'am', 'start', '-n', `${PACKAGE}/.MainActivity`);
+  let startOutput = '';
+  try {
+    startOutput = adb('shell', 'am', 'start', '-n', `${PACKAGE}/.MainActivity`);
+  } catch (error) {
+    startOutput = String(error?.stdout ?? error?.message ?? '');
+  }
+  // `adb install -r` on this emulator intermittently leaves the activity unregistered: the package is
+  // installed but `am start` answers "Activity class ... does not exist", so the app can never come up
+  // and every later read fails. That is not a product state and no amount of waiting fixes it - say
+  // what to do instead of timing out with "the app is not running".
+  if (/does not exist|Error type 3/i.test(startOutput)) {
+    throw new Error(
+      'the installed package has no launchable activity (adb install -r broke the registration); ' +
+        'run: adb uninstall com.goodnight.treehole && adb install apps/mp/android/app/build/outputs/apk/debug/app-debug.apk',
+    );
+  }
   const deadline = Date.now() + waitMs;
   let pid = appPid();
   while (!pid && Date.now() < deadline) {
@@ -203,6 +240,30 @@ export async function withSession(fn, { relaunch = true } = {}) {
    * wrong application's content as this page's state, which is a silent wrong answer rather than an
    * error. Re-asserting before each read makes that impossible.
    */
+  /**
+   * Waits until the WebView has a document to evaluate against.
+   *
+   * After a relaunch the page is `about:blank` for a moment: `document.body` is null, so a script that
+   * immediately calls `document.body.appendChild(...)` throws inside the page and the whole run dies
+   * with "Cannot read properties of null". Waiting for a real document turns that into a short delay.
+   */
+  const waitForDocument = async (timeoutMs = 20000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const r = await call('Runtime.evaluate', {
+          expression: "document.body && location.href.indexOf('about:blank') !== 0 ? 1 : 0",
+          returnByValue: true,
+        });
+        if (r?.result?.result?.value === 1) return true;
+      } catch {
+        // The renderer is still coming up; try again.
+      }
+      await new Promise((res) => setTimeout(res, 500));
+    }
+    return false;
+  };
+
   const ev = async (expression, awaitPromise = true) => {
     await ensureForeground();
     // A dead app leaves the forwarded socket in place, so a read would hang for the full timeout and
@@ -217,6 +278,7 @@ export async function withSession(fn, { relaunch = true } = {}) {
       ws.addEventListener('message', onMessage);
       await new Promise((res) => ws.addEventListener('open', res, { once: true }));
     }
+    if (!(await waitForDocument())) throw new Error('the WebView never produced a document to read');
     const r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
     // A page-side exception arrives as a normal reply with `exceptionDetails` and no value. Returning
     // null there made a broken probe indistinguishable from "the element is not there" - a capture

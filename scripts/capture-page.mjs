@@ -78,6 +78,18 @@ const result = await withSession(async ({ call, ev }) => {
   }
   await sleep(waitMs);
 
+  // The URL changes before the router has painted the new page, so a capture taken right after the
+  // path matches can photograph the *previous* screen and file it under this route - which is worse
+  // than no capture at all when the picture goes to a visual reviewer. Wait for the text to stop
+  // changing before shooting.
+  let lastText = null;
+  for (let i = 0; i < 10; i += 1) {
+    const text = await ev("(document.body && document.body.innerText ? document.body.innerText.replace(/\\s+/g,' ').trim() : '')", false);
+    if (text && text === lastText) break;
+    lastText = text;
+    await sleep(600);
+  }
+
   // String.raw: this expression is browser code, and `\t`/`\n`/`\r` inside it must reach the browser
   // as the two characters backslash-t. In an ordinary template literal Node interprets them first and
   // the browser receives real control characters, which truncate the character class and make the

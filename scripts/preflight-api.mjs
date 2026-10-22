@@ -34,18 +34,29 @@ function heal() {
   }
 }
 
-export async function requireStack({ attempts = 3, waitMs = 2000, allowHeal = true } = {}) {
+/** Polls the health URL for up to `budgetMs`, returning '' once it answers 200. */
+async function pollUntilHealthy(budgetMs, intervalMs = 2000) {
+  const deadline = Date.now() + budgetMs;
   let last = await probe();
+  while (last && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    last = await probe();
+  }
+  return last;
+}
+
+export async function requireStack({ allowHeal = true } = {}) {
+  // A 500 here is usually postgres still starting up, not a dead stack. Give it a few seconds before
+  // touching anything: restarting containers that are mid-initialisation makes the outage longer.
+  let last = await pollUntilHealthy(8000);
   if (!last) return;
   if (allowHeal) {
     console.log(`[preflight] stack not serving (${last}); bringing it up once`);
     heal();
-    last = await probe();
-    if (!last) return;
-  }
-  for (let i = 1; i < attempts; i += 1) {
-    await new Promise((r) => setTimeout(r, waitMs));
-    last = await probe();
+    // Postgres accepts TCP before it accepts queries, so the API keeps answering 500 for a while after
+    // the port opens. The budget has to cover that, or the run reports "STACK DOWN" during a restart
+    // that was already working.
+    last = await pollUntilHealthy(60000);
     if (!last) return;
   }
   console.error(`STACK DOWN: ${HEALTH_URL} -> ${last}`);
