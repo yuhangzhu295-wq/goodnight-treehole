@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `f210840`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `aa121eb`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -187,3 +187,34 @@ peer-detail 的"多个单独边框卡"（已是连续正文三段式）。
 
 **环境**：本轮 GitHub 443 三次不可达（重试后成功）；数据库又断 2 次；
 第二个模拟器又被拉起一次（已 kill）；App 两次需 uninstall+install 才恢复。
+
+
+## 第六轮：环境问题根治（四个"机器不稳"全是代码/配置缺陷）
+
+用户两次要求"必须修复环境问题"。逐一定位后，四个被归因为"机器不稳定"的现象**没有一个是机器的问题**：
+
+1. **Node 用 IPv6 拨只监听 IPv4 的端口**。`.env` 的 `DATABASE_URL` 写 `localhost:15432`，
+   Node 先解析到 `::1`，而 WSL2 docker-proxy 只听 IPv4。`127.0.0.1:15432` 通、`localhost:15432`
+   不通。已 pinned 到 127.0.0.1 并在 `.env.example` 注明（`.env` 被 gitignore）。
+   **这是绝大多数"INFRASTRUCTURE_FAILURE"和"数据库又断了"的真相。**
+2. **API 在数据库未就绪时永久放弃**。Prisma 惰性连接，首次查询抛错后服务带着 500 跑着，
+   直到有人手工重启。`waitForDatabase`（90s 带进度）+ `restart-api.ps1` 延长等待。
+   反向证明：去掉等待→数据库停止时 API 起不来（000）；恢复→数据库回来后 API 自行 200。
+3. **测试 runner 探测失败即退出**。改为先用 recovery override 拉栈再重探 6 次。
+   实测：`docker compose stop postgres` 后跑 spec，runner 自己拉起来并 PASS。
+4. **"前台被抢"实为 socket 失效**。24 秒 8 次采样前台稳定、12 次 CDP 调用全成功；
+   真正杀死连接的是 App 被 force-stop/重装（本项目 `adb install -r` 后 activity 注册会坏）。
+   `scripts/device-session.mjs` 统一持有连接并在失败时重连。
+
+**顺带发现采集工具的一个静默失败**：`capture-page.mjs` 的页面状态表达式写在模板字符串里，
+`	
+` 被 Node 先解释，浏览器收到真实控制字符→正则被截断→SyntaxError→`ev` 返回 null，
+脚本输出一条没有 `len`/`text`/`errs` 的记录——**看起来就像"这页是空的"**。已用 `String.raw` 修好。
+这意味着此前某些"空页"结论的证据强度要打折扣。
+
+**新增工具**：`scripts/stack-up.sh`（唯一正确的启动方式）、`scripts/stack-health.sh`
+（分层诊断：端口/API/WSL/设备，不盲目全重启）。健康检查立刻发挥价值：它报告"API 挂但容器
+全 Up"，直接指向原因 1。
+
+**未修**：`capture-all-ui`/`capture-ui-v2-pages`/`measure-page-layout`/`probe-device-api`
+和三个 seed 脚本仍自己开连接（一次性工具，未迁移）。
