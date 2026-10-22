@@ -170,3 +170,32 @@ export function ensureReverse() {
     return false;
   }
 }
+
+/**
+ * Navigates by clicking an anchor, then *proves* the page changed before returning.
+ *
+ * A click can be lost while the app is still booting or right after a submit, and the script then
+ * polls for a selector that belongs to a page it never opened - every later assertion reads the wrong
+ * screen and reports a product defect. Verifying `location.pathname` (and optionally that the page's
+ * own marker rendered) turns that into a retry, and into `false` when it truly cannot get there.
+ */
+export async function navigateTo(session, route, { ready, timeoutMs = 20000 } = {}) {
+  const { ev } = session;
+  const expectedPath = String(route).split('?')[0];
+  const deadline = Date.now() + timeoutMs;
+  for (let attempt = 0; attempt < 4 && Date.now() < deadline; attempt += 1) {
+    await ev(
+      `(function(){var a=document.createElement('a');a.href=${JSON.stringify(route)};a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()`,
+      false,
+    );
+    for (let i = 0; i < 8; i += 1) {
+      await new Promise((r) => setTimeout(r, 400));
+      const path = await ev('location.pathname', false);
+      if (path !== expectedPath) continue;
+      if (!ready) return true;
+      const found = await ev(`(function(){return document.querySelector(${JSON.stringify(ready)})?1:0;})()`, false);
+      if (Number(found) === 1) return true;
+    }
+  }
+  return false;
+}

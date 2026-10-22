@@ -19,13 +19,28 @@ import path from 'node:path';
 import { withSession, ADB } from './device-session.mjs';
 
 const OUT = 'artifacts/ui-v2/r2';
-const route = process.argv[2];
-const slug = process.argv[3] ?? route.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+/**
+ * Git Bash rewrites an argument that starts with `/` into a Windows path, so
+ * `/pages/decision/index` arrives as `C:/Program Files/Git/pages/decision/index`. Passing
+ * MSYS_NO_PATHCONV=1 avoids it, but a silently rewritten route used to make the capture photograph
+ * whatever page was already open, so the argument is repaired here as well.
+ */
+function normalizeRoute(value) {
+  if (!value) return value;
+  const mangled = /^[A-Za-z]:[\\/](?:.*[\\/])?(pages[\\/].*)$/.exec(value);
+  return mangled ? `/${mangled[1].replace(/\\/g, '/')}` : value;
+}
+
+const route = normalizeRoute(process.argv[2]);
+const slug = process.argv[3] ?? String(route).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
 const waitMs = Number(process.argv[4] ?? 3000);
 
 if (!route) {
   console.error('usage: node scripts/capture-page.mjs <route> [slug] [waitMs]');
   process.exit(1);
+}
+if (route !== process.argv[2]) {
+  console.error(`note: repaired the route argument from "${process.argv[2]}" to "${route}" (Git Bash path conversion)`);
 }
 const ctl = async (fn) => { try { return await fn(); } catch (e) { return { __error: String(e && e.message) }; } };
 
@@ -46,7 +61,21 @@ const result = await withSession(async ({ call, ev }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Navigate with a real anchor click: pushState alone leaves the router's internal state behind.
-  await ev(`(function(){var a=document.createElement('a');a.href=${JSON.stringify(route)};a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()`, false);
+  //
+  // A single click can be lost - the app is sometimes still booting when the script attaches, and the
+  // click then lands on a document that is about to be replaced. The capture used to sleep and shoot
+  // whatever was on screen, so a failed navigation produced a picture of the *previous* page filed
+  // under the requested route. Verify the path and retry instead.
+  const expectedPath = route.split('?')[0];
+  let navigated = false;
+  for (let attempt = 0; attempt < 4 && !navigated; attempt += 1) {
+    await ev(`(function(){var a=document.createElement('a');a.href=${JSON.stringify(route)};a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()`, false);
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(400);
+      const path = await ev('location.pathname', false);
+      if (path === expectedPath) { navigated = true; break; }
+    }
+  }
   await sleep(waitMs);
 
   // String.raw: this expression is browser code, and `\t`/`\n`/`\r` inside it must reach the browser
@@ -71,7 +100,7 @@ const result = await withSession(async ({ call, ev }) => {
     file = path.join(OUT, `${slug}.png`);
     fs.writeFileSync(file, Buffer.from(shot.result.data, 'base64'));
   }
-  return { state, file };
+  return { state, file, navigated };
 });
 
 let parsed = {};
@@ -82,4 +111,7 @@ try {
   // is the honest result of a capture whose page state could not be read.
   parsed = {};
 }
-console.log(JSON.stringify({ route, slug, file: result.file, ...parsed }, null, 1));
+if (!result.navigated) {
+  console.error(`WARNING: the page never reached ${route}; the screenshot shows whatever was on screen.`);
+}
+console.log(JSON.stringify({ route, slug, navigated: result.navigated, file: result.file, ...parsed }, null, 1));

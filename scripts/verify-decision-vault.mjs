@@ -4,7 +4,7 @@
 // and it is the state where the composer used to be unreachable.
 import { withSession } from './device-session.mjs';
 import { typeInto, hookPostBodies, postedBodies, ensureReverse } from './input-helpers.mjs';
-import { requireStack } from './preflight-api.mjs';
+import { requireStack, requireStackAtEnd } from './preflight-api.mjs';
 await requireStack();
 ensureReverse();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -154,6 +154,7 @@ await withSession(async (session) => {
     JSON.stringify(failState));
   if (injectedId) await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: injectedId });
 });
+await requireStackAtEnd();
 const failed = results.filter((r) => r === 'FAIL');
 console.log(`\n${results.length - failed.length}/${results.length} decision cases passed`);
 process.exit(failed.length ? 1 : 0);

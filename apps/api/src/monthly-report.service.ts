@@ -12,6 +12,12 @@ type MonthlyRecord = {
   content: string;
   createdAt: string;
   moodId?: string;
+  /**
+   * Whether the text is the user's own writing. A diary row created by saving a generated letter, or
+   * by saving a tool result, carries AI text - quoting that under "你留下的话" would attribute the
+   * model's words to the user.
+   */
+  authoredByUser: boolean;
 };
 
 type DailyPoint = {
@@ -33,6 +39,8 @@ type MonthlyStatistics = {
   keywords: string[];
   keywordCounts: Array<{ keyword: string; count: number }>;
   recovery: MonthlyRecoveryFacts;
+  /** A line the user actually wrote this month, verbatim, for the "你留下的话" block. */
+  quote: { content: string; date: string } | null;
 };
 
 type LifeFunctionFact = {
@@ -43,6 +51,20 @@ type LifeFunctionFact = {
   partialCount: number;
   noCount: number;
   state: 'unrecorded' | 'returning' | 'adjusting' | 'steady';
+};
+
+/**
+ * One real action from the month, as the report lists it.
+ *
+ * The month view is a fact sheet, not a narrative: "这个月做过的事" has to name the actual actions with
+ * the date they were touched and what became of them, so the page never has to paraphrase counts into
+ * a sentence the data cannot support.
+ */
+type RecentActionFact = {
+  title: string;
+  /** Calendar day in the month, `YYYY-MM-DD`. */
+  date: string;
+  status: 'completed' | 'adapted' | 'missed' | 'open';
 };
 
 type MonthlyRecoveryFacts = {
@@ -62,6 +84,7 @@ type MonthlyRecoveryFacts = {
   mostHelpfulAction?: string;
   mostStuckAction?: string;
   lifeFunctions: LifeFunctionFact[];
+  recentActions: RecentActionFact[];
 };
 
 type ReportMetadata = {
@@ -152,6 +175,10 @@ export class MonthlyReportService {
         content: item.content,
         createdAt: new Date(item.createdAt).toISOString(),
         moodId: item.moodId ?? undefined,
+        // `source` is 'manual' for a diary the user wrote, and 'tool-*' when a tool result was saved.
+        // Testing for the absence of a source excluded every user-written diary, which is how the
+        // quote ended up null while four records existed.
+        authoredByUser: !item.letterId && !String(item.source ?? '').startsWith('tool-'),
       }));
     const diaryMoodIds = new Set(diaries.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
     const moodRows = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
@@ -168,6 +195,7 @@ export class MonthlyReportService {
         content: item.content,
         createdAt: new Date(item.createdAt).toISOString(),
         moodId: item.id,
+        authoredByUser: true,
       }));
     return [...diaries, ...unlinkedMoods];
   }
@@ -195,6 +223,7 @@ export class MonthlyReportService {
         peerExperienceCount: 0,
         decisionCount: 0,
         lifeFunctions: [],
+        recentActions: [],
       };
     }
     const dbJourneys = await this.batch1Persistence.getJourneysForMonth(userId);
@@ -282,6 +311,24 @@ export class MonthlyReportService {
             : 'steady';
       return { key, label, recordedCount: values.length, yesCount, partialCount, noCount, state } as LifeFunctionFact;
     });
+    // Newest first: the page shows "这个月做过的事" as a short, honest list of real rows, so the most
+    // recent edits are the ones worth the space. `updatedAt` is the day the action actually moved.
+    const recentActions: RecentActionFact[] = actions
+      .slice()
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .slice(0, 6)
+      .map((item) => ({
+        title: item.title,
+        date: String(item.updatedAt ?? item.createdAt).slice(0, 10),
+        status:
+          item.status === 'completed'
+            ? 'completed'
+            : item.parentActionId || item.adaptationReason
+              ? 'adapted'
+              : item.status === 'skipped' || item.status === 'paused'
+                ? 'missed'
+                : 'open',
+      }));
     return {
       journeyCount: journeys.length,
       completedJourneyCount: journeys.filter((item) => item.status === 'completed').length,
@@ -302,6 +349,7 @@ export class MonthlyReportService {
       mostHelpfulAction: completedActions[0]?.title,
       mostStuckAction: stuckAction?.title,
       lifeFunctions,
+      recentActions,
     };
   }
 
@@ -353,6 +401,20 @@ export class MonthlyReportService {
       .slice(0, 5);
     const keywords = keywordCounts.map((item) => item.keyword);
     const topEmotionEntry = Object.entries(distribution).sort((left, right) => right[1] - left[1])[0];
+    // The quote is the user's own words, not a generated line: the newest record *they* wrote. Taking
+    // the longest record instead would surface the same long entry every month, and taking the newest
+    // record without this filter quoted a saved letter - the model's text presented as theirs.
+    const quoteRecord = records
+      .filter((item) => item.authoredByUser)
+      .slice()
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+      .find((item) => String(item.content ?? '').trim().length >= 4);
+    const quote = quoteRecord
+      ? {
+          content: String(quoteRecord.content).trim().split(/\r?\n/)[0].slice(0, 80),
+          date: String(quoteRecord.createdAt).slice(0, 10),
+        }
+      : null;
     return {
       month,
       recordDays: byDay.size,
@@ -365,6 +427,7 @@ export class MonthlyReportService {
       emotionDistribution: distribution,
       keywords,
       keywordCounts,
+      quote,
       recovery: await this.recoveryFactsFor(userId, month),
     };
   }

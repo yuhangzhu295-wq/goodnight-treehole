@@ -52,9 +52,25 @@ function richParagraphs(value?: string) {
 
 const summaryParagraphs = computed(() => richParagraphs(report.value?.summary));
 const adviceParagraphs = computed(() => richParagraphs(advice.value?.content));
+
+/** The month the report actually describes; the query string is only a request. */
+const activeMonth = computed(() => String(report.value?.month ?? month.value));
+
 const monthLabel = computed(() => {
-  const [year, selectedMonth] = String(report.value?.month ?? month.value).split('-');
+  const [year, selectedMonth] = activeMonth.value.split('-');
   return year && selectedMonth ? `${year} 年 ${Number(selectedMonth)} 月` : month.value;
+});
+
+/**
+ * The heading doubles as the month picker, which is why it is not a static "月度回顾": the design
+ * shows "10月回顾", and the only control that changes the month is this one, so it is the heading.
+ */
+const monthHeading = computed(() => {
+  const [year, selectedMonth] = activeMonth.value.split('-');
+  if (!year || !selectedMonth) return '月度回顾';
+  return String(new Date().getFullYear()) === year
+    ? `${Number(selectedMonth)}月回顾`
+    : `${year}年${Number(selectedMonth)}月回顾`;
 });
 
 const recovery = computed(() => report.value?.recovery ?? {
@@ -69,50 +85,59 @@ const recovery = computed(() => report.value?.recovery ?? {
   peerExperienceCount: 0,
   decisionCount: 0,
   lifeFunctions: [],
+  recentActions: [],
 });
 
-const hardestMoment = computed(() => recovery.value.mostStuckAction || (report.value?.topEmotion === '暂无' ? '还在慢慢记录' : `${report.value.topEmotion}最多`));
-const helpfulAction = computed(() => recovery.value.mostHelpfulAction || '本月还没有标记完成的行动');
-const lifeStateLabel: Record<string, string> = {
-  unrecorded: '还没有记录',
-  returning: '有在回来',
-  adjusting: '仍在调整',
-  steady: '持续照顾',
-};
-const lifeRows = computed(() => Array.isArray(recovery.value.lifeFunctions)
-  ? recovery.value.lifeFunctions.map((item: any) => ({
-      ...item,
-      stateLabel: lifeStateLabel[String(item.state)] ?? '如实记录',
-      width: `${Math.max(10, Math.min(100, ((Number(item.yesCount) * 2 + Number(item.partialCount)) / Math.max(1, Number(item.recordedCount) * 2)) * 100))}%`,
-    }))
-  : []);
+/**
+ * The three numbers the design leads with: records written, actions that reached a result, and life
+ * areas with any record at all. All three are counts of real rows - no index, no score.
+ */
+const totals = computed(() => ({
+  records: Number(report.value?.totalRecords ?? 0),
+  actions: Number(recovery.value.completedActionCount ?? 0),
+  life: (Array.isArray(recovery.value.lifeFunctions) ? recovery.value.lifeFunctions : [])
+    .filter((item: any) => String(item.state) !== 'unrecorded').length,
+}));
 
-const trendPoints = computed(() => {
+const recentActions = computed<any[]>(() => (Array.isArray(recovery.value.recentActions) ? recovery.value.recentActions : []));
+const quote = computed<{ content: string; date: string } | null>(() => report.value?.quote ?? null);
+
+/** Days with at least one record, newest first - the design's "按日期查看". */
+const dayRows = computed(() => {
   const points = Array.isArray(report.value?.dailyTrend) ? report.value.dailyTrend : [];
-  const lastDay = Math.max(1, points.length);
   return points
-    .filter((point: any) => point?.score !== null && point?.score !== undefined && Number.isFinite(Number(point.score)))
-    .map((point: any) => {
-      const score = Math.max(1, Math.min(4, Number(point.score)));
-      return {
-        day: Number(point.day),
-        score,
-        x: 22 + ((Math.max(1, Number(point.day)) - 1) / Math.max(1, lastDay - 1)) * 278,
-        y: 94 - ((score - 1) / 3) * 66,
-      };
-    });
+    .filter((point: any) => Number(point?.count) > 0)
+    .map((point: any) => ({
+      day: Number(point.day),
+      date: `${activeMonth.value}-${String(point.day).padStart(2, '0')}`,
+      count: Number(point.count),
+    }))
+    .sort((left: { day: number }, right: { day: number }) => right.day - left.day);
 });
 
-const trendPolyline = computed(() => trendPoints.value.map((point: { x: number; y: number }) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
-const trendTickDays = computed(() => {
-  const count = Array.isArray(report.value?.dailyTrend) ? report.value.dailyTrend.length : 30;
-  return [1, Math.max(1, Math.round(count * 0.33)), Math.max(1, Math.round(count * 0.66)), count];
-});
+const actionStatusLabel: Record<string, string> = {
+  completed: '已完成',
+  adapted: '已调整',
+  missed: '未完成',
+  open: '待行动',
+};
+
+/** `2026-10-09` -> `10月9日`, the form the design uses. */
+function dayLabel(value?: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''));
+  return match ? `${Number(match[2])}月${Number(match[3])}日` : '';
+}
 
 async function loadMonths() {
   const result = await api.get<any>('/api/v1/reports/monthly/months');
   availableMonths.value = Array.isArray(result.items) ? result.items : [];
-  if (availableMonths.value.length && !availableMonths.value.includes(month.value)) month.value = availableMonths.value[0];
+  if (!availableMonths.value.length) return;
+  if (availableMonths.value.includes(month.value)) return;
+  // A deep link that names a month must open that month. Falling back to the newest one silently
+  // showed October for a URL that said 2020-01 - a wrong answer, and it also made "this month has no
+  // records" impossible to reach. Only an unspecified month defaults to the newest with data.
+  if (requestedMonth) availableMonths.value = [month.value, ...availableMonths.value];
+  else month.value = availableMonths.value[0];
 }
 
 async function load() {
@@ -205,67 +230,81 @@ onMounted(async () => {
     </header>
 
     <div class="report-lead">
-      <h2>{{ monthLabel }}回顾</h2>
+      <button class="report-heading" data-testid="filter-report-month" :aria-label="`${monthLabel}，切换月份`" @click="monthOpen = true">
+        <span>{{ monthHeading }}</span>
+        <span class="report-heading-caret" aria-hidden="true">⌄</span>
+      </button>
       <p>记录的是实际发生的事，不是情绪成绩。</p>
-      <button class="monthly-month" data-testid="filter-report-month" @click="monthOpen = true"><span data-visual-mask="time">{{ monthLabel }}</span>⌄</button>
     </div>
 
     <AiDegradationNotice :notice="aiNotice" />
-
-    <section class="monthly-brief" aria-label="本月旅程小结">
-      <h2>✦ 本月旅程小结</h2>
-      <div class="monthly-brief-grid">
-        <article><span>本月最容易卡住的</span><strong class="is-text">{{ hardestMoment }}</strong></article>
-        <article><span>你反复回来过</span><strong>{{ recovery.recoveryCheckinCount }}<em>次</em></strong></article>
-        <article><span>你尝试过现实行动</span><strong>{{ recovery.actionCount }}<em>个</em></strong></article>
-      </div>
-    </section>
-
-    <section class="monthly-story-grid" aria-label="这个月的真实经历">
-      <article class="monthly-story-card helpful-card">
-        <span>● 最有帮助</span>
-        <strong>{{ helpfulAction }}</strong>
-        <p>本月完成 {{ recovery.completedActionCount }} 个行动，调整过 {{ recovery.adaptedActionCount }} 次。</p>
-      </article>
-      <article class="monthly-story-card stuck-card">
-        <span>☁ 最容易卡住</span>
-        <strong>{{ recovery.mostStuckAction || '还在看见自己的节奏' }}</strong>
-        <p>{{ recovery.missedActionCount ? `有 ${recovery.missedActionCount} 次回访没有完成` : '没有把未完成当成失败' }}</p>
-      </article>
-    </section>
-
-    <article class="monthly-life-card">
-      <h2>⌁ 生活正在慢慢回来</h2>
-      <div v-if="lifeRows.length" class="monthly-life-list">
-        <div v-for="item in lifeRows" :key="item.key" class="monthly-life-row">
-          <span>{{ item.label }}</span><i><b :style="{ width: item.width }"></b></i><small>{{ item.stateLabel }}</small>
-        </div>
-      </div>
-      <p v-else class="monthly-empty">本月还没有生活恢复记录，先如实写下今天也可以。</p>
-    </article>
-
-    <article class="monthly-trend-card">
-      <div class="monthly-trend-heading"><div><h2>⌁ 这段时间的起伏</h2><p>来自本月真实记录，不给情绪打分。</p></div><span>{{ report.recordDays }} 天记录</span></div>
-      <div class="monthly-trend-plot" data-testid="report-trend-chart">
-        <svg viewBox="0 0 320 118" role="img" aria-label="根据真实日记记录生成的本月起伏">
-          <path class="trend-grid" d="M22 28H300M22 50H300M22 72H300M22 94H300" />
-          <polyline v-if="trendPolyline" class="trend-line" :points="trendPolyline" />
-          <circle v-for="point in trendPoints" :key="point.day" class="trend-point" :cx="point.x" :cy="point.y" r="4" />
-        </svg>
-        <div v-if="!trendPoints.length" class="trend-empty">本月还没有足够的记录来绘制起伏</div>
-        <div class="trend-axis"><span v-for="day in trendTickDays" :key="day">{{ month.split('-')[1] }}/{{ day }}</span></div>
-      </div>
-    </article>
-
-    <article class="monthly-ai-card">
-      <h2>这个月，你慢慢走过来了</h2>
-      <p v-if="summaryLoading">正在根据你允许的真实记录整理回顾…</p>
-      <p v-for="(paragraph, index) in summaryParagraphs.slice(0, 2)" :key="index">{{ paragraph }}</p>
-      <p v-if="!summaryLoading && !report.analysisAllowed" class="muted">长期旅程分析已关闭；你仍可以查看上面的真实记录。</p>
-      <p v-else-if="!summaryLoading && !summaryParagraphs.length" class="muted">本月回顾暂时不可用，稍后刷新可查看任务状态。</p>
-    </article>
-
     <LoadErrorBanner :message="loadError" retry-label="重新加载" @retry="load" />
+
+    <section class="report-counts" aria-label="本月数量">
+      <div class="report-count">
+        <strong data-testid="report-count-records">{{ totals.records }}</strong>
+        <span>记录</span>
+      </div>
+      <div class="report-count">
+        <strong data-testid="report-count-actions">{{ totals.actions }}</strong>
+        <span>行动结果</span>
+      </div>
+      <div class="report-count">
+        <strong data-testid="report-count-life">{{ totals.life }}</strong>
+        <span>生活状态</span>
+      </div>
+    </section>
+
+    <section v-if="recentActions.length" class="report-section" data-testid="report-actions">
+      <h2 class="report-section-title">这个月做过的事</h2>
+      <ul class="report-rows">
+        <li v-for="(item, index) in recentActions" :key="`${item.title}-${index}`" class="report-row" data-testid="report-action-row">
+          <span class="report-row-copy">
+            <strong>{{ item.title }}</strong>
+            <small>{{ dayLabel(item.date) }} · {{ actionStatusLabel[item.status] ?? '待行动' }}</small>
+          </span>
+          <span class="report-chev" aria-hidden="true">›</span>
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="quote" class="report-section" data-testid="report-quote">
+      <h2 class="report-section-title">你留下的话</h2>
+      <blockquote class="report-quote">
+        <p>{{ quote.content }}</p>
+        <cite>{{ dayLabel(quote.date) }}</cite>
+      </blockquote>
+    </section>
+
+    <section class="report-section" data-testid="report-days">
+      <div class="report-section-head">
+        <h2 class="report-section-title">按日期查看</h2>
+        <button class="report-more" type="button" data-testid="report-all-records" @click="router.push('/pages/diary/index')">全部记录 ›</button>
+      </div>
+      <ul v-if="dayRows.length" class="report-rows">
+        <li v-for="row in dayRows" :key="row.date" class="report-row" :data-testid="`report-day-${row.day}`">
+          <span class="report-row-copy">
+            <strong>{{ dayLabel(row.date) }}</strong>
+            <small>{{ row.count }} 条记录</small>
+          </span>
+          <span class="report-chev" aria-hidden="true">›</span>
+        </li>
+      </ul>
+      <p v-else class="report-empty" data-testid="report-days-empty">这个月还没有记录。先写下今天的一句也可以。</p>
+    </section>
+
+    <!--
+      The AI summary stays, after the facts and only when long-term analysis was allowed: it is a real
+      capability with its own consent switch, and removing it to look more like the mock would delete a
+      feature. Nothing above depends on it.
+    -->
+    <section v-if="report.analysisAllowed" class="report-section" data-testid="report-summary">
+      <h2 class="report-section-title">这个月，你慢慢走过来了</h2>
+      <p v-if="summaryLoading" class="report-muted">正在根据你允许的真实记录整理回顾…</p>
+      <p v-for="(paragraph, index) in summaryParagraphs.slice(0, 2)" :key="index" class="report-summary-text">{{ paragraph }}</p>
+      <p v-if="!summaryLoading && !summaryParagraphs.length" class="report-muted">本月回顾暂时不可用，稍后刷新可查看任务状态。</p>
+    </section>
+    <p v-else class="report-muted" data-testid="report-analysis-off">长期旅程分析已关闭；上面这些记录不受影响。</p>
 
     <div class="report-actions">
       <button class="primary" data-testid="btn-report-poster" :disabled="summaryLoading || !report.summary" @click="makeShareImage"><span aria-hidden="true">▧</span>生成分享图</button>
@@ -295,7 +334,7 @@ onMounted(async () => {
         <h2>给你的详细建议</h2>
         <p v-if="adviceLoading">正在生成建议…</p>
         <p v-for="(paragraph, index) in adviceParagraphs" :key="index">{{ paragraph }}</p>
-        <p v-if="!adviceLoading && !adviceParagraphs.length" class="muted">建议暂时未生成，请稍后再试。</p>
+        <p v-if="!adviceLoading && !adviceParagraphs.length" class="report-muted">建议暂时未生成，请稍后再试。</p>
         <button class="primary" data-testid="btn-report-advice-close" @click="advice = undefined">知道了</button>
       </div>
     </div>
@@ -305,201 +344,243 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Matches 设计图/32_ReportMonth.png: a white fact sheet. No card, no gradient, no chart - the month
+   report is a list of what happened, and anything that reads as a score is deliberately absent. */
 .report-page {
   display: block;
   min-height: 100vh;
-  padding: 0 12px calc(110px + env(safe-area-inset-bottom));
+  padding: 0 20px calc(110px + env(safe-area-inset-bottom));
   overflow-x: clip;
-  background: #f5efe2;
-  color: #394237;
+  background: #ffffff;
+  color: #242a32;
 }
 
 .report-page * { box-sizing: border-box; }
 
-.monthly-hero {
-  position: relative;
-  height: 145px;
-  margin: 0 -12px 10px;
-  overflow: hidden;
-  padding: 17px 24px;
-  background: linear-gradient(145deg, #33404b 0%, #5f6260 62%, #928879 100%);
-  color: #fffdf5;
-}
-
-.monthly-hero::after {
-  position: absolute;
-  top: -20px;
-  right: -15px;
-  width: 232px;
-  height: 160px;
-  opacity: .72;
-  background: url('../assets/goodnight/tree-top-cutout.png') top right / contain no-repeat;
-  filter: brightness(.7) saturate(.72) contrast(1.08);
-  content: '';
-  pointer-events: none;
-}
-
-.report-back {
-  position: relative;
-  z-index: 1;
-  width: 28px;
-  min-height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  box-shadow: none;
-  color: rgba(255,255,255,.88);
-  font-size: 28px;
-  line-height: 1;
-}
-
-.monthly-logo,
-.monthly-hero h1,
-.monthly-month { position: relative; z-index: 1; }
-.monthly-logo { margin: -25px 0 10px 30px; color: rgba(255,253,247,.87); font-size: 11px; font-weight: 700; }
-.monthly-hero h1 { margin: 0; font-family: var(--gn-font-display); font-size: 26px; font-weight: 700; letter-spacing: .04em; line-height: 1.22; }
-/* The hero that used white text was replaced by the light `.report-lead`; the selector kept its
-   near-white colour and became invisible on cream. This is the only way to switch months. */
-.monthly-month { display: inline-flex; min-height: 24px; margin-top: 8px; padding: 2px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--gn-muted); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
-
-.monthly-brief,
-.monthly-story-card,
-.monthly-life-card,
-.monthly-trend-card,
-.monthly-ai-card {
-  border: 1px solid rgba(128, 133, 107, .17);
-  border-radius: 17px;
-  background: rgba(255, 253, 247, .94);
-  box-shadow: 0 8px 20px rgba(80, 82, 61, .06);
-}
-
-.monthly-brief { padding: 12px 14px 11px; }
-.monthly-brief h2,
-.monthly-life-card h2,
-.monthly-trend-heading h2,
-.monthly-ai-card h2 { margin: 0; color: #536c39; font-size: 13px; font-weight: 700; }
-.monthly-brief-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 9px; }
-.monthly-brief-grid article { min-width: 0; padding: 0 9px; border-right: 1px solid rgba(122, 132, 102, .17); }
-.monthly-brief-grid article:first-child { padding-left: 0; }
-.monthly-brief-grid article:last-child { padding-right: 0; border-right: 0; }
-.monthly-brief-grid span { display: block; overflow: hidden; color: #747a6d; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
-.monthly-brief-grid strong { display: block; overflow: hidden; margin-top: 7px; color: #526d38; text-overflow: ellipsis; white-space: nowrap; font-family: var(--gn-font-body); font-size: 16px; line-height: 1.1; }
-/* The first column carries a phrase, not a number. One nowrap line ellipsized it to
-   "焦虑出现得…", which drops the word that makes the sentence mean anything; allow two lines. */
-.monthly-brief-grid strong.is-text { display: -webkit-box; white-space: normal; line-height: 1.15; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.monthly-brief-grid strong em { margin-left: 2px; font-size: 10px; font-style: normal; }
-
-.monthly-story-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
-.monthly-story-card { position: relative; min-height: 104px; padding: 12px; overflow: hidden; }
-.monthly-story-card::after { position: absolute; right: -8px; bottom: -25px; color: rgba(129, 151, 89, .18); font-size: 76px; content: '❧'; }
-.monthly-story-card > * { position: relative; z-index: 1; }
-.monthly-story-card span { display: block; color: #71834e; font-size: 10px; }
-.monthly-story-card strong { display: -webkit-box; overflow: hidden; margin-top: 9px; color: #536b3c; font-size: 15px; line-height: 1.34; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.monthly-story-card p { display: -webkit-box; overflow: hidden; margin: 6px 0 0; color: #74796c; font-size: 9px; line-height: 1.42; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.stuck-card { background: rgba(252, 249, 239, .96); }
-
-.monthly-life-card { margin-top: 9px; padding: 12px 14px; }
-.monthly-life-list { display: grid; gap: 8px; margin-top: 11px; }
-.monthly-life-row { display: grid; grid-template-columns: 86px minmax(0, 1fr) 52px; align-items: center; gap: 7px; color: #6e7769; font-size: 10px; }
-.monthly-life-row i { display: block; height: 7px; overflow: hidden; border-radius: 999px; background: #e6e7dc; }
-.monthly-life-row b { display: block; height: 100%; border-radius: inherit; background: #829b58; }
-.monthly-life-row small { color: #748455; font-size: 9px; text-align: right; }
-.monthly-empty { margin: 10px 0 0; color: #80867b; font-size: 11px; }
-
-.monthly-trend-card { margin-top: 9px; padding: 12px 14px 10px; }
-.monthly-trend-heading { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
-.monthly-trend-heading p { margin: 4px 0 0; color: #82877d; font-size: 9px; }
-.monthly-trend-heading > span { color: #7d9060; font-size: 9px; white-space: nowrap; }
-.monthly-trend-plot { position: relative; min-height: 104px; margin-top: 8px; }
-.monthly-trend-plot svg { display: block; width: 100%; height: 82px; overflow: visible; }
-.trend-grid { fill: none; stroke: rgba(117, 137, 88, .17); stroke-dasharray: 3 3; }
-.trend-line { fill: none; stroke: #789254; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
-.trend-point { fill: #fffdf7; stroke: #759052; stroke-width: 2; }
-.trend-axis { display: flex; justify-content: space-between; padding: 0 8px; color: #8a8e83; font-size: 9px; }
-.trend-empty { position: absolute; top: 30px; right: 0; left: 0; color: #81877d; text-align: center; font-size: 11px; }
-
-.monthly-ai-card { margin-top: 9px; padding: 13px 15px; }
-.monthly-ai-card p { margin: 7px 0 0; color: #626a5e; font-size: 11px; line-height: 1.65; }
-.monthly-ai-card .muted { color: #848b80; }
-.error-text { margin: 9px 4px; color: #b75a51; font-size: 11px; }
-
-.report-page .report-actions { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; width: auto; margin: 10px 0 0; padding: 0; transform: none; }
-.report-page .report-actions button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 38px; padding: 7px 9px; border-radius: 999px; font-size: 11px; }
-.report-page .report-actions button > span { font-size: 14px; }
-
-@media (max-width: 374px) {
-  .monthly-hero h1 { font-size: 24px; }
-  .monthly-brief-grid article { padding-right: 6px; padding-left: 6px; }
-  .monthly-brief-grid strong { font-size: 14px; }
-  .monthly-life-row { grid-template-columns: 78px minmax(0, 1fr) 46px; gap: 5px; }
-}
-
-/* --- V2 shell, matching 设计图/32_ReportMonth.png ------------------------------------------
-   The design's bar and lead replace the decorative hero. These rules must sit inside the style
-   block, before the closing tag: appended after it they never load at all. The page keeps every
-   real section below (the mock shows a simpler report, and deleting real sections to match it is
-   not allowed). */
-
 .report-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 56px;
-  margin: 0 -16px 14px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--gn-line);
+  gap: 8px;
+  min-height: 58px;
+  margin: 0 -20px;
+  padding: 6px 20px;
+  border-bottom: 1px solid #f0f1f3;
+}
+
+.report-back {
+  width: 26px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #242a32;
+  font-size: 24px;
+  line-height: 1;
 }
 
 .report-bar-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--gn-ink);
+  color: #242a32;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
 }
 
-/* The design's bar carries a bare chevron, not a bordered button. */
-.report-page .report-back {
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
+.report-lead { padding: 18px 0 0; }
+
+/* The heading is the month picker; it keeps the design's type scale rather than looking like a field. */
+.report-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
-  color: var(--gn-ink);
+  color: #242a32;
   font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  line-height: 1.3;
 }
 
-.report-lead h2 {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.3;
-  color: var(--gn-ink);
-}
+.report-heading-caret { color: #9aa1a9; font-size: 15px; font-weight: 400; }
 
 .report-lead p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--gn-muted);
+  margin: 7px 0 0;
+  color: #6c747d;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
-.report-page .monthly-month {
-  margin-top: 12px;
+/* Three numbers separated by hairlines, as in the design - no boxes around them. */
+.report-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 22px 0 4px;
 }
 
-/* Cards become bare blocks closed by a hairline, the language the rest of the V2 set uses. */
-.report-page .monthly-brief,
-.report-page .monthly-story-card,
-.report-page .monthly-life-card,
-.report-page .monthly-trend-card {
+.report-count {
+  padding: 4px 0;
+  border-right: 1px solid #e6e9ed;
+  text-align: center;
+}
+
+.report-count:last-child { border-right: 0; }
+
+.report-count strong {
+  display: block;
+  color: #242a32;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.report-count span {
+  display: block;
+  margin-top: 6px;
+  color: #8b939c;
+  font-size: 11px;
+}
+
+.report-section { margin-top: 26px; }
+
+.report-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-section-title {
+  margin: 0;
+  color: #242a32;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.report-more {
+  padding: 2px 0;
   border: 0;
-  border-radius: 0;
-  border-top: 1px solid var(--gn-line);
   background: transparent;
-  box-shadow: none;
-  padding: 18px 0 0;
+  color: #275f56;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-rows {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  padding: 12px 0;
+  border-bottom: 1px solid #ebedf0;
+}
+
+.report-row:last-child { border-bottom: 0; }
+
+.report-row-copy {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.report-row-copy strong {
+  display: block;
+  color: #242a32;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.report-row-copy small {
+  display: block;
+  margin-top: 5px;
+  color: #8b939c;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.report-chev { flex: 0 0 auto; color: #aab0b8; font-size: 20px; }
+
+/* The quote keeps a single left rule - the only ornament in the design, and it marks "these are your
+   words" rather than decorating the page. */
+.report-quote {
+  margin: 10px 0 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid #cfe0d8;
+}
+
+.report-quote p {
+  margin: 0;
+  color: #333c44;
+  font-size: 15px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.report-quote cite {
+  display: block;
+  margin-top: 8px;
+  color: #9aa1a9;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.report-empty,
+.report-muted {
+  margin: 10px 0 0;
+  color: #8b939c;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.report-summary-text {
+  margin: 8px 0 0;
+  color: #3d4650;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.report-page .report-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 26px 0 0;
+  padding: 0;
+}
+
+.report-page .report-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+.report-page .report-actions button > span { font-size: 14px; }
+
+.report-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b939c;
+  font-size: 13px;
+}
+
+.report-poster-preview { display: block; width: 100%; max-width: 320px; margin: 0 auto 12px; }
+
+@media (max-width: 374px) {
+  .report-page { padding-right: 16px; padding-left: 16px; }
+  .report-count strong { font-size: 24px; }
+  .report-heading { font-size: 20px; }
 }
 </style>
