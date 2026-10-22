@@ -1,0 +1,5 @@
+[
+  { "selector": "peer-detail-back", "expect": {} },
+  { "selector": "peer-detail-request", "expect": { "text": "请求匿名交流" } },
+  { "selector": "peer-detail-request-close", "setup": "peer-detail-request", "expect": {} }
+]

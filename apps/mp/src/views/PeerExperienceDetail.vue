@@ -56,7 +56,7 @@ onMounted(load);
 <template>
   <section class="goodnight-page peer-detail-page">
     <header class="peer-header">
-      <button class="back-btn" aria-label="返回同路经历" type="button" @click="router.back()">‹</button>
+      <button class="back-btn" data-testid="peer-detail-back" aria-label="返回同路经历" type="button" @click="router.back()">‹</button>
       <div class="header-titles">
         <h1 class="peer-title">匿名经历</h1>
         <p class="peer-subtitle">{{ detail?.experience?.domain || '同路记录' }} · 阶段回顾</p>
@@ -136,7 +136,7 @@ onMounted(load);
           <strong>想向 TA 递出匿名提问？</strong>
           <p>写下你想知道的问题，对方确认后可开启最长 72 小时的匿名交流。</p>
         </div>
-        <button class="btn-primary" type="button" @click="requestOpen = true">请求匿名交流</button>
+        <button class="btn-primary" data-testid="peer-detail-request" type="button" @click="requestOpen = true">请求匿名交流</button>
       </section>
 
       <div
@@ -153,7 +153,7 @@ onMounted(load);
               <span class="dialog-tag">匿名同行</span>
               <h2 id="peer-request-title">递出匿名请求</h2>
             </div>
-            <button class="close-btn" type="button" aria-label="关闭请求面板" @click="requestOpen = false">×</button>
+            <button class="close-btn" data-testid="peer-detail-request-close" type="button" aria-label="关闭请求面板" @click="requestOpen = false">×</button>
           </div>
           <p class="dialog-desc">全程不会展示昵称、联系方式或任何可识别身份信息。</p>
 
@@ -169,6 +169,7 @@ onMounted(load);
 
           <button
             class="btn-primary"
+            data-testid="peer-detail-request-submit"
             :disabled="requesting || !requestReason.trim()"
             type="button"
             @click="requestConversation"
