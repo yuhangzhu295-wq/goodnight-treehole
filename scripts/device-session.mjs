@@ -25,6 +25,43 @@ export function appPid() {
   }
 }
 
+/**
+ * True when the app's window is the one in front.
+ *
+ * `dumpsys window` prints several `mCurrentFocus` lines (one per display), and the package name also
+ * appears in unrelated lines - so `output.includes(package)` reports the app as foreground while
+ * another app actually holds the focus, and the script then reads that app's page as ours. Only the
+ * first mCurrentFocus line is the real answer.
+ */
+export function isForeground() {
+  try {
+    const out = adb('shell', 'dumpsys', 'window');
+    const focusLines = out.split(/\r?\n/).filter((l) => l.includes('mCurrentFocus'));
+    const first = focusLines[0] ?? '';
+    return first.includes(PACKAGE);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Brings the app back to the front, without assuming it is gone.
+ *
+ * A covered WebView still answers CDP but reports the *other* app's page, so a script that only
+ * re-attaches on a dead socket will happily click through the wrong application. This is called
+ * before reading a page's state, not just when a call fails.
+ */
+export async function ensureForeground(attempts = 4) {
+  for (let i = 0; i < attempts; i += 1) {
+    if (isForeground()) return true;
+    adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
+    adb('shell', 'wm', 'dismiss-keyguard');
+    adb('shell', 'am', 'start', '-n', `${PACKAGE}/.MainActivity`);
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return isForeground();
+}
+
 /** Brings the app to the foreground and returns its pid, or '' if it will not start. */
 export async function launchApp(waitMs = 8000) {
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
@@ -46,6 +83,7 @@ export async function launchApp(waitMs = 8000) {
  * being reinstalled underneath it instead of dying on a dead socket.
  */
 export async function withSession(fn, { relaunch = true } = {}) {
+  await ensureForeground();
   let pid = appPid();
   if (!pid) {
     if (!relaunch) throw new Error('the app is not running');
@@ -116,7 +154,16 @@ export async function withSession(fn, { relaunch = true } = {}) {
     }
   };
 
+  /**
+   * Reads the page, guaranteeing the app is in front first.
+   *
+   * The foreground check matters more than it looks: a covered WebView keeps answering CDP, so a
+   * read taken while another app is in front returns *that* app's page. The script then reports the
+   * wrong application's content as this page's state, which is a silent wrong answer rather than an
+   * error. Re-asserting before each read makes that impossible.
+   */
   const ev = async (expression, awaitPromise = true) => {
+    await ensureForeground();
     const r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
     return r?.result?.result?.value ?? null;
   };

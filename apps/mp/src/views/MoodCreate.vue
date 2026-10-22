@@ -107,6 +107,10 @@ function validate() {
 }
 
 async function submit() {
+  // Re-entrancy guard at the entry, not just a disabled attribute: a second tap while the first
+  // request is still in flight used to start a second POST, and the same mood was written twice.
+  // (Verified by the input matrix: two clicks produced two rows.)
+  if (submitting.value) return;
   error.value = validate();
   if (error.value) return;
   submitting.value = true;
