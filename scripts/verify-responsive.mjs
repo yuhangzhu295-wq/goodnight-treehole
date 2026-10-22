@@ -7,10 +7,39 @@ const ADB = process.env.ADB_PATH ?? [process.env.LOCALAPPDATA, 'Android', 'Sdk',
 const CDP = 9333;
 const route = process.argv[2] ?? '/pages/square/index';
 const adb = (...a) => execFileSync(ADB, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+/** The emulator's foreground is shared with other projects; without this the app can be gone. */
+function ensureForeground() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const focus = adb('shell', 'dumpsys', 'window');
+    if (focus.includes('com.goodnight.treehole')) return true;
+    adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
+    adb('shell', 'wm', 'dismiss-keyguard');
+    adb('shell', 'am', 'start', '-n', 'com.goodnight.treehole/.MainActivity');
+    execFileSync(process.execPath, ['-e', 'setTimeout(()=>{}, 1500)']);
+  }
+  return adb('shell', 'dumpsys', 'window').includes('com.goodnight.treehole');
+}
+if (!ensureForeground()) { console.error('ABORT: another app holds the foreground'); process.exit(2); }
 adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
 adb('shell', 'wm', 'dismiss-keyguard');
 adb('shell', 'am', 'start', '-n', 'com.goodnight.treehole/.MainActivity');
-const pid = adb('shell', 'pidof', 'com.goodnight.treehole');
+// `pidof` exits non-zero when the app is not running, which execFileSync turns into a throw. Start
+// the app and wait rather than failing the whole run.
+let pid = '';
+try {
+  pid = adb('shell', 'pidof', 'com.goodnight.treehole');
+} catch {
+  pid = '';
+}
+if (!pid) {
+  await new Promise((r) => setTimeout(r, 6000));
+  try {
+    pid = adb('shell', 'pidof', 'com.goodnight.treehole');
+  } catch {
+    pid = '';
+  }
+}
+if (!pid) { console.error('ABORT: the app is not running'); process.exit(2); }
 adb('forward', '--remove-all');
 adb('forward', `tcp:${CDP}`, `localabstract:webview_devtools_remote_${pid}`);
 const list = await (await fetch(`http://127.0.0.1:${CDP}/json`)).json();
@@ -59,7 +88,15 @@ const probe = async (label) => {
 const results = {};
 for (const width of [360, 390, 430]) {
   await call('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 2, mobile: true });
-  await sleep(1200);
+  await sleep(1500);
+  // Wait for the feed before measuring: a row count of 0 means "not loaded yet" as often as it means
+  // "no data", and measuring too early reports the first as the second.
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    const has = await ev("(function(){return document.querySelectorAll('.post-row').length > 0})()", false);
+    if (has) break;
+    await sleep(900);
+  }
   results[width] = await probe(`width ${width}:`);
 }
 // Large-font: the OS setting a reader would actually use.

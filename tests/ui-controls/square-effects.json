@@ -1,0 +1,14 @@
+[
+  {
+    "selector": "filter-jiaolv",
+    "expect": {
+      "apiRead": "/api/v1/posts?mood=anxious",
+      "pick": "b => b.items.length",
+      "assert": "positive"
+    }
+  },
+  {
+    "selector": "btn-square-reply-first",
+    "expect": { "url": "/pages/post/detail" }
+  }
+]

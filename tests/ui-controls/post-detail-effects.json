@@ -1,0 +1,10 @@
+[
+  {
+    "selector": "btn-favorite",
+    "expect": {
+      "apiRead": "/api/v1/posts",
+      "toggle": true,
+      "pick": "b => Number(b.items.find(p => p.id === 'post_seed_weiqu').favoritedByCurrentUser === true)"
+    }
+  }
+]
