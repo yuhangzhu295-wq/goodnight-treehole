@@ -7,9 +7,8 @@
 // Usage: node scripts/verify-control-effects.mjs <route> <cases.json>
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { withSession, ADB } from './device-session.mjs';
 
-const ADB = process.env.ADB_PATH ?? [process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe'].join('/');
-const CDP = 9333;
 const route = process.argv[2];
 const casesFile = process.argv[3];
 if (!route || !casesFile) {
@@ -17,37 +16,19 @@ if (!route || !casesFile) {
   process.exit(1);
 }
 const cases = JSON.parse(readFileSync(casesFile, 'utf8'));
-const adb = (...a) => execFileSync(ADB, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
-adb('shell', 'wm', 'dismiss-keyguard');
-adb('shell', 'am', 'start', '-n', 'com.goodnight.treehole/.MainActivity');
-let pid = '';
-try { pid = adb('shell', 'pidof', 'com.goodnight.treehole'); } catch { pid = ''; }
-if (!pid) { console.error('ABORT: the app is not running'); process.exit(2); }
-adb('forward', '--remove-all');
-adb('forward', `tcp:${CDP}`, `localabstract:webview_devtools_remote_${pid}`);
-adb('reverse', 'tcp:3000', 'tcp:3000');
+// The app reaches the API over `adb reverse`; without it every page renders its error state and the
+// "before" and "after" reads would compare two failures.
+try {
+  execFileSync(ADB, ['reverse', 'tcp:3000', 'tcp:3000'], { stdio: 'ignore' });
+} catch {
+  // The page itself will show it if it matters.
+}
 
-const list = await (await fetch(`http://127.0.0.1:${CDP}/json`)).json();
-const target = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
-if (!target) { console.error('ABORT: no CDP page target'); process.exit(2); }
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-let seq = 0;
-const waiters = new Map();
-ws.addEventListener('message', (e) => {
-  const m = JSON.parse(e.data);
-  const f = waiters.get(m.id);
-  if (f) { waiters.delete(m.id); f(m); }
-});
-await new Promise((r) => ws.addEventListener('open', r, { once: true }));
-const call = (me, p) => new Promise((res) => { const id = ++seq; waiters.set(id, res); ws.send(JSON.stringify({ id, method: me, params: p || {} })); });
-const ev = async (x, ap = true) => {
-  const r = await call('Runtime.evaluate', { expression: x, awaitPromise: ap, returnByValue: true });
-  return r?.result?.result?.value ?? null;
-};
-await call('Runtime.enable');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+await withSession(async ({ call, ev }) => {
+await call('Runtime.enable');
 
 const go = async () => {
   await ev(`(function(){var a=document.createElement('a');a.href=${JSON.stringify(route)};a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()`, false);
@@ -174,4 +155,4 @@ for (const c of cases) {
 }
 const failed = results.filter((r) => !r.verdict.startsWith('PASS'));
 console.log(`\n${results.length - failed.length}/${results.length} controls had their expected effect`);
-ws.close();
+});

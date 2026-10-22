@@ -8,9 +8,8 @@
 // cases.json: [{ "selector": "...", "expect": { "url": "...", "api": "...", "text": "..." }, "setup": "..." }]
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { withSession, ADB } from './device-session.mjs';
 
-const ADB = process.env.ADB_PATH ?? [process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe'].join('/');
-const CDP = 9333;
 const route = process.argv[2];
 const casesFile = process.argv[3];
 if (!route || !casesFile) {
@@ -18,28 +17,19 @@ if (!route || !casesFile) {
   process.exit(1);
 }
 const cases = JSON.parse(readFileSync(casesFile, 'utf8'));
-const adb = (...a) => execFileSync(ADB, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
-adb('shell', 'wm', 'dismiss-keyguard');
-adb('shell', 'am', 'start', '-n', 'com.goodnight.treehole/.MainActivity');
-const pid = adb('shell', 'pidof', 'com.goodnight.treehole');
-adb('forward', '--remove-all');
-adb('forward', `tcp:${CDP}`, `localabstract:webview_devtools_remote_${pid}`);
-const list = await (await fetch(`http://127.0.0.1:${CDP}/json`)).json();
-const t = list.find((x) => x.type === 'page');
-const ws = new WebSocket(t.webSocketDebuggerUrl);
-let n = 0;
-const w = new Map();
-ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); const f = w.get(m.id); if (f) { w.delete(m.id); f(m); } });
-await new Promise((r) => ws.addEventListener('open', r, { once: true }));
-const call = (me, p) => new Promise((res) => { const id = ++n; w.set(id, res); ws.send(JSON.stringify({ id, method: me, params: p || {} })); });
-const ev = async (x, ap = true) => {
-  const r = await call('Runtime.evaluate', { expression: x, awaitPromise: ap, returnByValue: true });
-  return r?.result?.result?.value ?? r?.result?.exceptionDetails?.text ?? null;
-};
-await call('Runtime.enable');
+// The app reaches the API over `adb reverse`; without it every page renders its error state and the
+// run would report working controls against a broken page.
+try {
+  execFileSync(ADB, ['reverse', 'tcp:3000', 'tcp:3000'], { stdio: 'ignore' });
+} catch {
+  // The page itself will show it if it matters.
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+await withSession(async ({ call, ev }) => {
+await call('Runtime.enable');
 
 const go = async () => {
   await ev(`(function(){var a=document.createElement('a');a.href=${JSON.stringify(route)};a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()`, false);
@@ -145,4 +135,4 @@ for (const c of cases) {
 const failed = results.filter((r) => r.verdict.startsWith('FAIL'));
 console.log(`\n${results.length - failed.length}/${results.length} controls behaved as expected`);
 if (failed.length) console.log('failed: ' + failed.map((r) => r.selector).join(', '));
-ws.close();
+});
