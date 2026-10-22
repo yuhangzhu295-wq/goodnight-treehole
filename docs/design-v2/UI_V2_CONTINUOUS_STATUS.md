@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `6e22747`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `f210840`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -168,3 +168,22 @@ PeerRequests（三态生命周期 tab、去重复面板、补 testid、accept �
 **环境**：本轮又出现第二个模拟器被拉起（emulator-5556）导致 adb 报 "more than one
 device"，已 kill；App 两次因 `install -r` 后组件注册损坏而无法启动，改为
 uninstall + install 后正常。
+
+
+## 第五轮：peer 族三页 + 两个审计误判
+
+- **peer-network**：实测发现推荐 tab 把同一段故事渲染了 6 遍（库里多条经历逐字相同，
+  而去重按 experience id）。改为按 title 去重并显示"另有 N 位同行者留下过相同的经历"，
+  文本 400+ → 140 字；推荐参考从竞争性色块降为正文下一行低调文字。
+  首版按 `experience.content` 去重**完全无效**（该字段在网络视图返回空）——部署干净≠生效。
+- **peer-requests**：三态生命周期 tab（待回应/已接受/已结束）+ 每 tab 空态；
+  删除与"已接受"tab 职责重复的旧面板；补 4 个 testid；accept 按钮效果已验证
+  （点击跳到边界确认页）。
+- **peer-detail**：结构已符合"经历全文/后来/是否申请交流"三段式，审计该项**不成立**；
+  补 4 个 testid，3/3 控件通过。
+
+**两个审计误判已证伪并记录**：peer-wait 的"重大状态疑点"（两页是独立组件、状态不同）、
+peer-detail 的"多个单独边框卡"（已是连续正文三段式）。
+
+**环境**：本轮 GitHub 443 三次不可达（重试后成功）；数据库又断 2 次；
+第二个模拟器又被拉起一次（已 kill）；App 两次需 uninstall+install 才恢复。
