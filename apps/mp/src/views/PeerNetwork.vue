@@ -56,15 +56,32 @@ const enabling = ref(false);
 const currentTab = ref<'recommended' | 'latest' | 'requests'>('recommended');
 
 // Deduplicate matches to ensure no duplicate cards appear
+/**
+ * One card per distinct story, not per row.
+ *
+ * Several stored experiences are word-for-word identical, so deduplicating by id alone rendered the
+ * same story four times in a row - which is what makes a feed look machine-generated. The duplicate
+ * count is kept so the page can say "另有 N 位同行者留下过相同的经历" instead of pretending there is only
+ * one. (The first attempt keyed on `experience.content`, which this list returns empty; the title is
+ * the field that actually identifies the story here.)
+ */
 const uniqueMatches = computed(() => {
   const seen = new Set<string>();
-  const list: PeerMatch[] = [];
+  const list: Array<PeerMatch & { duplicateCount: number }> = [];
   for (const match of item.value?.matches ?? []) {
     const expId = match.experience?.id ?? match.id;
-    if (!seen.has(expId)) {
-      seen.add(expId);
-      list.push(match);
+    if (list.some((m) => m.experience?.id === expId)) continue;
+    // The network view's matches carry the experience's title but not its body (`content` arrives
+    // empty), so deduplicating on the body alone silently did nothing. The title is what identifies
+    // the story in this list, so that is what the key uses.
+    const title = (match.experience?.title ?? '').trim();
+    const twin = title ? list.find((m) => (m.experience?.title ?? '').trim() === title) : undefined;
+    if (twin) {
+      twin.duplicateCount += 1;
+      continue;
     }
+    seen.add(expId);
+    list.push({ ...match, duplicateCount: 1 });
   }
   return list;
 });
@@ -335,10 +352,15 @@ onMounted(() => {
             {{ match.experience.content }}
           </p>
 
-          <div v-if="match.reasons && match.reasons.length > 0" class="reason-strip">
-            <span class="reason-tag">推荐参考</span>
-            <span class="reason-text">{{ match.reasons.join(' · ') }}</span>
-          </div>
+          <!-- The match rationale is one quiet line under the story. It used to be a labelled strip
+               that competed with the body for attention, which the audit called out: the reason a post
+               was recommended matters less than what the peer actually wrote. -->
+          <p v-if="match.reasons && match.reasons.length > 0" class="reason-line">
+            {{ match.reasons.join(' · ') }}
+          </p>
+          <p v-if="match.duplicateCount > 1" class="duplicate-note">
+            另有 {{ match.duplicateCount - 1 }} 位同行者留下过相同的经历
+          </p>
 
           <div class="story-bottom">
             <span class="progress-meta">
@@ -797,21 +819,18 @@ onMounted(() => {
   color: #58616B;
 }
 
-.reason-strip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: #F7F8FA;
-  font-size: 11px;
+/* The rationale and the duplicate count are supporting detail: small, quiet, below the story. */
+.reason-line {
+  margin: 8px 0 0;
+  color: #88909a;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 
-.reason-tag {
-  color: #757D87;
-  font-weight: 500;
-  flex-shrink: 0;
+.duplicate-note {
+  margin: 4px 0 0;
+  color: #9aa1a8;
+  font-size: 11px;
 }
 
 .reason-text {
