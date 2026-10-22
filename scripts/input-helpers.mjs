@@ -112,9 +112,12 @@ export async function hookPostBodies(session) {
       window.fetch = function () {
         var a = arguments;
         try {
-          if (a[1] && String(a[1].method).toUpperCase() === 'POST') {
-            var key = String(a[0]);
-            (window.__postedBodies[key] = window.__postedBodies[key] || []).push(String(a[1].body));
+          // Any verb: a form may PUT or PATCH, and a POST-only probe silently misses those and
+          // reports "nothing was submitted" when the request did go out.
+          var method = a[1] && a[1].method ? String(a[1].method).toUpperCase() : 'GET';
+          if (method !== 'GET') {
+            var key = method + ' ' + String(a[0]);
+            (window.__postedBodies[key] = window.__postedBodies[key] || []).push(String(a[1] ? a[1].body : ''));
           }
         } catch (e) { /* never break the app for a probe */ }
         return f.apply(this, a);

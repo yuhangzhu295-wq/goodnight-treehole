@@ -159,23 +159,31 @@ onMounted(load);
       <h1 class="stable-bar-title">清醒时候的我</h1>
     </header>
 
-    <div class="stable-lead">
-      <h2>清醒时候的提醒</h2>
-      <p>记录状态良好时的习惯与支持锚点，供低谷期参考</p>
-    </div>
+    <p class="stable-lead">记录状态良好时你对自己的了解，供低谷期参考。这都是你自己写下的判断。</p>
 
     <p v-if="loading" class="state-note">正在读取你的提醒卡…</p>
     <form v-else class="stable-form" @submit.prevent="save">
       <section class="stable-section">
-        <h2 class="section-title">我想变成什么样的人</h2>
+        <h2 class="section-title">对自己的提醒</h2>
+        <label class="field-label">状态稳定时的我，是什么样子</label>
         <textarea
           v-model="profile.stableDescription"
+          data-testid="stable-description"
           maxlength="500"
           placeholder="不是理想模板，只写你状态比较稳定时的样子。"
         ></textarea>
+        <label class="field-label">一句把我拉回现实的话</label>
+        <textarea
+          v-model="profile.realityReminder"
+          data-testid="reality-reminder"
+          maxlength="500"
+          placeholder="写一句你清醒时愿意对难受的自己说的话。"
+        ></textarea>
       </section>
+
       <section class="stable-section">
-        <h2 class="section-title">当我快失控时，请先提醒我</h2>
+        <h2 class="section-title">支持办法</h2>
+        <label class="field-label">快失控时，可以先做的事</label>
         <div class="option-rows">
           <button
             v-for="item in anchors"
@@ -183,6 +191,7 @@ onMounted(load);
             type="button"
             class="option-row"
             :class="{ selected: profile.stabilityAnchors.includes(item) }"
+            :data-testid="'anchor-' + item"
             @click="toggle('stabilityAnchors', item)"
           >
             <span class="option-check" aria-hidden="true">{{
@@ -226,8 +235,8 @@ onMounted(load);
       </section>
 
       <p class="trust-note">这只是你自己记录过的判断，不是 AI 对你的结论。</p>
-      <section class="stable-section">
-        <h2 class="section-title">对我重要的人和事</h2>
+      <div class="field-group">
+        <label class="field-label">对我重要的人和事</label>
         <div class="option-rows">
           <button
             v-for="contact in contacts"
@@ -277,7 +286,7 @@ onMounted(load);
             @keydown.enter.prevent="add('contactPeople')"
           /><button type="button" @click="add('contactPeople')">添加</button>
         </div>
-      </section>
+      </div>
       <details class="daily-outline">
         <summary>补充我稳定时的日常轮廓</summary>
         <label>睡眠通常是什么样<input v-model="profile.sleepPattern" maxlength="300" /></label>
@@ -306,14 +315,6 @@ onMounted(load);
           </button>
         </div>
       </details>
-      <section class="stable-section">
-        <h2 class="section-title">一句把我拉回现实的话</h2>
-        <textarea
-          v-model="profile.realityReminder"
-          maxlength="500"
-          placeholder="写一句你清醒时愿意对难受的自己说的话。"
-        ></textarea>
-      </section>
       <small v-if="currentId" class="version-note">最近保存：{{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
       <div class="stable-cta">
         <p v-if="needsConsent" class="consent-prompt" role="status">{{ needsConsent }}</p>

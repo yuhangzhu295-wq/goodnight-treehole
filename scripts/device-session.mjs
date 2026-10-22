@@ -116,6 +116,32 @@ export async function withSession(fn, { relaunch = true } = {}) {
     ws.addEventListener('error', rej, { once: true });
   });
 
+  /**
+   * Confirm the socket actually round-trips before handing it to the caller.
+   *
+   * A freshly cold-started app accepts the WebSocket connection before its renderer is ready, and the
+   * first `send` then gets no reply at all - the caller sees a 15s timeout on its first read and the
+   * whole run dies. One cheap round-trip here turns that into a retry.
+   */
+  for (let i = 0; i < 3; i += 1) {
+    try {
+      await call('Runtime.evaluate', { expression: '1', returnByValue: true });
+      break;
+    } catch {
+      if (i === 2) break;
+      try {
+        ws.close();
+      } catch {
+        // Already closed.
+      }
+      ws.removeEventListener('message', onMessage);
+      await new Promise((r) => setTimeout(r, 2500));
+      ws = await attach();
+      ws.addEventListener('message', onMessage);
+      await new Promise((res) => ws.addEventListener('open', res, { once: true }));
+    }
+  }
+
   const call = async (method, params) => {
     try {
       return await new Promise((res, rej) => {
@@ -136,8 +162,15 @@ export async function withSession(fn, { relaunch = true } = {}) {
         // Already closed.
       }
       ws.removeEventListener('message', onMessage);
-      const next = appPid();
-      if (!next || next === pid) throw error;
+      // The app may have died (this machine's emulator kills it under memory pressure). Relaunch it
+      // rather than failing the run: a capture that survives a restart is worth far more than one that
+      // aborts, and the relaunch is observable in the log.
+      let next = appPid();
+      if (!next) {
+        console.log('[device-session] the app died; relaunching');
+        next = await launchApp();
+      }
+      if (!next) throw new Error(`${method} failed and the app would not restart: ${error.message}`);
       pid = next;
       ws = await attach();
       ws.addEventListener('message', onMessage);
@@ -164,6 +197,18 @@ export async function withSession(fn, { relaunch = true } = {}) {
    */
   const ev = async (expression, awaitPromise = true) => {
     await ensureForeground();
+    // A dead app leaves the forwarded socket in place, so a read would hang for the full timeout and
+    // report "Runtime.evaluate timed out" - which says nothing about the real cause. Relaunch it and
+    // let the next read land on the fresh instance instead.
+    if (!appPid()) {
+      console.log('[device-session] the app died before a read; relaunching');
+      const restarted = await launchApp();
+      if (!restarted) throw new Error('the app is no longer running and would not restart');
+      pid = restarted;
+      ws = await attach();
+      ws.addEventListener('message', onMessage);
+      await new Promise((res) => ws.addEventListener('open', res, { once: true }));
+    }
     const r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
     return r?.result?.result?.value ?? null;
   };
