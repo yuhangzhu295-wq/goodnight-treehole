@@ -1803,7 +1803,41 @@ export class StoreService implements OnModuleInit {
     }
   }
 
+  /**
+   * Wait for the database to accept a query, with a bounded backoff.
+   *
+   * Boot order on this machine is not guaranteed: the API process can come up while the PostgreSQL
+   * container (or the WSL2 proxy in front of it) is still starting. Prisma connects lazily, so the
+   * failure shows up at the first query - in `onModuleInit` - and the server then runs with every
+   * route returning 500 until someone restarts it. Retrying here turns that into a few seconds of
+   * extra boot time.
+   */
+  /**
+   * @param attempts 90 x 1s. A stopped container is brought back by scripts/stack-up.sh or the test
+   *   runner, and that takes tens of seconds; the common case (a container restart) needs a handful.
+   */
+  private async waitForDatabase(attempts = 90, delayMs = 1000) {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        await this.prisma.$queryRaw`SELECT 1`;
+        if (i > 0) console.log(`[prisma] database reachable after ${i + 1} attempt(s)`);
+        return;
+      } catch (error) {
+        if (i === attempts - 1) throw error;
+        if (i === 0) console.log('[prisma] database not reachable yet; waiting…');
+        if (i > 0 && i % 15 === 0) console.log(`[prisma] still waiting for the database (${i}s)`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
   async onModuleInit() {
+    // The API starts before the database is necessarily listening - a container restart, or this
+    // machine's WSL2 proxy taking a moment after the container comes up. The first query used to throw
+    // immediately and the process stayed up serving 500s until something restarted it by hand. Wait
+    // for the connection instead: the API is useless without the database, so a short bounded wait at
+    // boot is cheaper than a half-alive server.
+    await this.waitForDatabase();
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     this.data = persisted ?? this.loadLegacyStore();
     // The flush no longer writes the posts table once Post is registered, so any post this snapshot

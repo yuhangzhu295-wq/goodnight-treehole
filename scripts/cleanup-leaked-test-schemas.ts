@@ -31,7 +31,7 @@ const envValues = loadEnvFile(path.join(repoRoot, '.env'));
 const rawDatabaseUrl =
   process.env.DATABASE_URL ||
   envValues.DATABASE_URL ||
-  'postgresql://goodnight:goodnight@localhost:15432/goodnight_treehole?schema=public';
+  'postgresql://goodnight:goodnight@127.0.0.1:15432/goodnight_treehole?schema=public';
 
 const parsedUrl = new URL(rawDatabaseUrl);
 const host = parsedUrl.hostname || '127.0.0.1';

@@ -1,4 +1,4 @@
-import { spawn, spawnSync, ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, execFileSync, ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -230,22 +230,51 @@ async function main() {
   }
 
   console.log('[test-runner] Preflight checking infrastructure services...');
-  const pgAlive = await probeTcp(dbHost, dbPort);
+  // A failed probe used to abort the whole run. It fails for two very different reasons - the
+  // container really is down, or the WSL2 proxy has not published the port yet after a restart - and
+  // only the first is worth failing for. So: bring the stack up with the recovery override (the only
+  // invocation that publishes 15432/16379), then re-probe a few times before giving up.
+  const bringUpStack = () => {
+    try {
+      execFileSync(
+        'wsl.exe',
+        [
+          '-e',
+          'bash',
+          '-lc',
+          'cd /mnt/c/Users/zyu33/Projects/goodnight-treehole && docker compose -f docker-compose.yml -f docker-compose.recovery.yml up -d postgres redis',
+        ],
+        { stdio: 'ignore', timeout: 120_000 },
+      );
+    } catch {
+      // Reported by the re-probe below, with the actual target, rather than as a shell error.
+    }
+  };
+  const probeWithRetry = async (host: string, port: number, attempts = 6) => {
+    for (let i = 0; i < attempts; i += 1) {
+      if (await probeTcp(host, port)) return true;
+      if (i === 0) bringUpStack();
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    return false;
+  };
+
+  const pgAlive = await probeWithRetry(dbHost, dbPort);
   if (!pgAlive) {
     console.error(
       `[INFRASTRUCTURE_FAILURE] Cannot connect to PostgreSQL at ${dbHost}:${dbPort}.\n` +
         `Target: ${dbHost}:${dbPort}\n` +
-        'Docker/WSL2 container may be stopped. Ensure recovery containers are running on ports 15432/16379.\n',
+        'The stack was brought up and re-probed six times. Check that the WSL2 Docker engine is running and that the recovery override publishes 15432/16379 (scripts/stack-up.sh does both).\n',
     );
     process.exit(2);
   }
 
-  const redisAlive = await probeTcp(redisHost, redisPort);
+  const redisAlive = await probeWithRetry(redisHost, redisPort);
   if (!redisAlive) {
     console.error(
       `[INFRASTRUCTURE_FAILURE] Cannot connect to Redis at ${redisHost}:${redisPort}.\n` +
         `Target: ${redisHost}:${redisPort}\n` +
-        'Docker/WSL2 container may be stopped. Ensure recovery containers are running on ports 15432/16379.\n',
+        'The stack was brought up and re-probed six times. Check that the WSL2 Docker engine is running.\n',
     );
     process.exit(2);
   }

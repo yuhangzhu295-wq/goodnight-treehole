@@ -22,7 +22,9 @@ Start-Process -FilePath $tsx -ArgumentList 'src\main.ts' `
   -RedirectStandardOutput $log -RedirectStandardError $errLog -WindowStyle Hidden
 
 $ok = $false
-foreach ($i in 1..60) {
+# The API waits up to 90s for the database before serving, so this has to wait longer than that:
+# the port opens only after the database is reachable.
+foreach ($i in 1..70) {
   Start-Sleep -Seconds 2
   $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
   if ($c) { $ok = $true; break }
