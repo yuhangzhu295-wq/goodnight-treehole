@@ -118,6 +118,12 @@ for (const c of cases) {
   await go();
   if (c.fill) await fill(c.fill.selector, c.fill.value);
   const before = c.expect.apiDelta ? await apiRead(c.expect.apiRead) : null;
+  // A control that lives on another tab only exists after that tab is selected.
+  if (c.tab) {
+    await waitFor(c.tab, 15000);
+    await click(c.tab);
+    await sleep(1400);
+  }
   // A control inside a sheet or dialog only exists after its trigger is clicked.
   if (c.setup) {
     await waitFor(c.setup, 15000);

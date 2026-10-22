@@ -113,6 +113,12 @@ for (const c of cases) {
     if (c.prefill.click) await click(c.prefill.click);
     await waitFor(c.prefill.waitFor ?? c.selector, c.prefill.timeoutMs);
   }
+  // A control that lives on another tab only exists after that tab is selected.
+  if (c.tab) {
+    await waitFor(c.tab, 15000);
+    await click(c.tab);
+    await sleep(1400);
+  }
   if (c.setup) {
     await click(c.setup);
     await sleep(1100);

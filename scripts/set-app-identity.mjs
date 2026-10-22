@@ -36,7 +36,7 @@ const ev = async (x, ap = true) => {
 await call('Runtime.enable');
 
 // A fresh, valid session for the walkthrough account.
-const APP = 'user_anon_4c115912';
+const APP = process.env.APP_USER ?? 'user_anon_4c115912';
 await prisma.user.upsert({
   where: { id: APP },
   create: { id: APP, openid: `openid_${APP}`, anonymousCode: `anon_${APP}`, nickname: `测试_${APP}` },

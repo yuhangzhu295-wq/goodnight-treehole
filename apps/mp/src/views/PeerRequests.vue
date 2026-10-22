@@ -12,6 +12,35 @@ const busyId = ref('');
 const error = ref('');
 const pending = computed(() => items.value.filter((item) => item.status === 'requested'));
 const accepted = computed(() => items.value.filter((item) => item.status === 'connected'));
+/**
+ * Requests that reached an end: declined, blocked, or a conversation that has closed. The page used
+ * to show only the two live states, so a request the reader had already answered vanished with no
+ * record of what they did - the design asks for the lifecycle, not just the inbox.
+ */
+const closed = computed(() =>
+  items.value.filter((item) => ['declined', 'blocked', 'closed', 'expired', 'graduated'].includes(item.status)),
+);
+/** Which lifecycle stage the reader is looking at. */
+type RequestTab = 'pending' | 'accepted' | 'closed';
+const TABS: RequestTab[] = ['pending', 'accepted', 'closed'];
+const TAB_LABELS: Record<RequestTab, string> = { pending: '待回应', accepted: '已接受', closed: '已结束' };
+const EMPTY_TITLES: Record<RequestTab, string> = {
+  pending: '暂无待回应的请求',
+  accepted: '暂无待确认边界的同行',
+  closed: '还没有已结束的请求',
+};
+const TAB_HINTS: Record<RequestTab, string> = {
+  pending: '有人阅读了你留下的后来记录，希望与你开启限时匿名交流。',
+  accepted: '你已同意交流，确认匿名边界后即可开启会话。',
+  closed: '这些请求已经有了结果：你拒绝了、屏蔽了，或会话已经结束。',
+};
+const tab = ref<RequestTab>('pending');
+const tabCounts = computed(() => ({
+  pending: pending.value.length,
+  accepted: accepted.value.length,
+  closed: closed.value.length,
+}));
+const visible = computed(() => (tab.value === 'pending' ? pending.value : tab.value === 'accepted' ? accepted.value : closed.value));
 
 async function load() {
   loading.value = true;
@@ -57,18 +86,28 @@ onMounted(load);
       </div>
     </header>
 
-    <div class="segmented-control" role="tablist">
-      <button type="button" class="active">收到的请求 <b>{{ pending.length }}</b></button>
-      <button type="button" @click="router.push('/pages/peers/index')">推荐经历</button>
+    <div class="segmented-control" role="tablist" aria-label="请求状态">
+      <button
+        v-for="key in TABS"
+        :key="key"
+        type="button"
+        role="tab"
+        :aria-selected="tab === key"
+        :class="{ active: tab === key }"
+        :data-testid="'peer-request-tab-' + key"
+        @click="tab = key"
+      >
+        {{ TAB_LABELS[key] }} <b>{{ tabCounts[key] }}</b>
+      </button>
     </div>
+    <p class="tab-hint">{{ TAB_HINTS[tab] }}</p>
 
     <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
     <p v-if="loading" class="state-note">正在读取请求…</p>
 
     <template v-else>
-      <section v-if="pending.length" class="request-section">
-        <p class="request-intro">有人阅读了你留下的后来记录，希望与你开启限时匿名交流。</p>
-        <article v-for="item in pending" :key="item.id" class="request-item">
+      <section v-if="visible.length" class="request-section">
+        <article v-for="item in visible" :key="item.id" class="request-item">
           <div class="request-identity">
             <div class="avatar-box">
               <span class="avatar-text">求</span>
@@ -88,20 +127,33 @@ onMounted(load);
 
           <div class="request-actions">
             <button
+              v-if="tab === 'pending'"
               :disabled="busyId === item.id"
               class="btn-accept"
+              :data-testid="'peer-request-accept-' + item.id"
               type="button"
               @click="respond(item, 'connected')"
             >
               我愿意聊聊
             </button>
             <button
+              v-if="tab === 'pending'"
               :disabled="busyId === item.id"
               class="btn-decline"
+              :data-testid="'peer-request-decline-' + item.id"
               type="button"
               @click="respond(item, 'declined')"
             >
               这次先不了
+            </button>
+            <button
+              v-else-if="tab === 'accepted'"
+              class="btn-text"
+              :data-testid="'peer-request-consent-' + item.id"
+              type="button"
+              @click="openConsent(item)"
+            >
+              确认同行边界
             </button>
             <button
               :disabled="busyId === item.id"
@@ -115,35 +167,13 @@ onMounted(load);
         </article>
       </section>
 
-      <section v-else class="empty-panel">
-        <span class="empty-glyph" aria-hidden="true">▤</span>
-        <h2>暂无新的同行请求</h2>
-        <p>当有人阅读你留下的后来记录并希望交流时，请求会显示在这里。</p>
-      </section>
-
-      <section v-if="accepted.length" class="accepted-panel">
-        <div class="panel-heading">
-          <h2>待确认边界的同行</h2>
-          <p>你已同意交流，请确认匿名边界规则以开启会话。</p>
-        </div>
-        <div class="accepted-list">
-          <button
-            v-for="item in accepted"
-            :key="item.id"
-            class="accepted-row"
-            type="button"
-            @click="openConsent(item)"
-          >
-            <div class="avatar-box avatar-box--small">
-              <span class="avatar-text">同</span>
-            </div>
-            <div class="accepted-info">
-              <strong class="accepted-title">{{ item.experience?.title || '匿名经历同行' }}</strong>
-              <small class="accepted-desc">{{ item.experience?.domain || '同行交流' }} · 点击确认规则</small>
-            </div>
-            <span class="row-arrow" aria-hidden="true">›</span>
-          </button>
-        </div>
+      <section v-else class="empty-panel" :data-testid="'peer-request-empty-' + tab">
+        <h2>{{ EMPTY_TITLES[tab] }}</h2>
+        <p>
+          <template v-if="tab === 'pending'">当有人阅读你留下的后来记录并希望交流时，请求会显示在这里。</template>
+          <template v-else-if="tab === 'accepted'">你接受一个请求后，它会出现在这里等待边界确认。</template>
+          <template v-else>你拒绝、屏蔽或结束的请求会留在这里，方便回看。</template>
+        </p>
       </section>
     </template>
   </section>
@@ -183,14 +213,23 @@ onMounted(load);
   color: var(--gn-muted);
 }
 
+/* Three lifecycle stages now, not two: the grid has to follow. */
 .segmented-control {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 2px;
   padding: 3px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+/* One line explaining what the current stage means, instead of the per-section intro copy. */
+.tab-hint {
+  margin: 10px 0 0;
+  color: #7a838e;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .segmented-control button {
@@ -228,14 +267,6 @@ onMounted(load);
   gap: 10px;
 }
 
-.request-intro {
-  margin: 0;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--gn-muted);
-  line-height: 1.5;
-}
-
 .request-item {
   display: flex;
   flex-direction: column;
@@ -262,18 +293,6 @@ onMounted(load);
   background: var(--gn-leaf-soft);
   color: var(--gn-leaf-deep);
   flex-shrink: 0;
-}
-
-.avatar-box--small {
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
-}
-
-.avatar-text {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
 }
 
 .identity-info {
@@ -392,11 +411,6 @@ onMounted(load);
   text-align: center;
 }
 
-.empty-glyph {
-  font-size: 24px;
-  color: var(--gn-muted);
-}
-
 .empty-panel h2 {
   margin: 0;
   font-size: 16px;
@@ -412,82 +426,4 @@ onMounted(load);
   line-height: 1.5;
 }
 
-.accepted-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-}
-
-.panel-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.panel-heading h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--gn-ink);
-}
-
-.panel-heading p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--gn-muted);
-  line-height: 1.4;
-}
-
-.accepted-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.accepted-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.accepted-row:active {
-  background: var(--gn-paper);
-}
-
-.accepted-info {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.accepted-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gn-ink);
-  line-height: 1.3;
-}
-
-.accepted-desc {
-  font-size: 11px;
-  color: var(--gn-muted);
-  margin-top: 1px;
-}
-
-.row-arrow {
-  color: var(--gn-muted);
-  font-size: 18px;
-  line-height: 1;
-}
 </style>

@@ -1,0 +1,7 @@
+[
+  { "selector": "peer-request-tab-pending", "expect": {} },
+  { "selector": "peer-request-tab-accepted", "expect": {} },
+  { "selector": "peer-request-tab-closed", "expect": { "text": "还没有已结束的请求" } },
+  { "selector": "peer-request-accept-peer_match_1792524192636_2ea87231", "tab": "peer-request-tab-pending", "expect": {} },
+  { "selector": "peer-request-decline-peer_match_1792524192636_2ea87231", "tab": "peer-request-tab-pending", "expect": {} }
+]
