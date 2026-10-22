@@ -70,24 +70,7 @@ onMounted(load);
     <p v-if="loading" class="state-note">正在确认这段同行…</p>
 
     <section v-else class="consent-panel">
-      <div class="participant-strip">
-        <div class="participant-box">
-          <div class="avatar-box">
-            <span class="avatar-text">我</span>
-          </div>
-          <span class="participant-label">我</span>
-        </div>
-        <span class="connection-line">匿名同行</span>
-        <div class="participant-box">
-          <div class="avatar-box">
-            <span class="avatar-text">同</span>
-          </div>
-          <span class="participant-label">同路人</span>
-        </div>
-      </div>
-
-      <h2 class="panel-title">开启对话前的四项边界</h2>
-      <p class="panel-desc">你将以匿名身份进入限时会话。彼此不会显示头像、昵称或联系方式。</p>
+      <h2 class="panel-title">开启对话前的边界</h2>
 
       <ul class="boundary-rules">
         <li>
@@ -131,6 +114,7 @@ onMounted(load);
       <div class="consent-actions">
         <button
           class="btn-primary"
+          data-testid="peer-consent-confirm"
           :disabled="busy || !match"
           type="button"
           @click="consent"
@@ -139,6 +123,7 @@ onMounted(load);
         </button>
         <button
           class="btn-secondary"
+          data-testid="peer-consent-decline"
           :disabled="busy"
           type="button"
           @click="router.back()"
@@ -228,61 +213,17 @@ onMounted(load);
   background: var(--gn-paper);
 }
 
-.participant-strip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 12px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-}
-
-.participant-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.avatar-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 18px;
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
-}
-
-.avatar-text {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.participant-label {
-  font-size: 11px;
-  color: var(--gn-muted);
-}
-
-.connection-line {
-  padding: 2px 8px;
-  border-radius: var(--gn-radius-small);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper);
-  color: var(--gn-leaf-deep);
-  font-size: 11px;
-  font-weight: 500;
-}
-
+/*
+ * The rules are the page. The two-avatar strip that used to sit above them was decoration - it showed
+ * the reader a picture of themselves and a picture of the peer, on a screen whose whole point is that
+ * neither is visible. The boundary list is left-aligned and compact so the CTA stays above the fold.
+ */
 .panel-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--gn-ink);
-  text-align: center;
+  font-size: 15px;
+  font-weight: 650;
+  color: #242a32;
+  text-align: left;
 }
 
 .panel-desc {
@@ -293,16 +234,18 @@ onMounted(load);
   text-align: center;
 }
 
+/* A compact list on white with hairline separators - the same treatment as the other V2 lists, so the
+   rules read as a checklist rather than as a decorated card. */
 .boundary-rules {
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 0;
+  margin: 12px 0 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #ffffff;
   overflow: hidden;
 }
 
