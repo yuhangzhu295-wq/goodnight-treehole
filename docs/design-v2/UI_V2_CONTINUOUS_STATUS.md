@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **HEAD `0d8f2a7`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
+- **HEAD `6e22747`**（分支 `codex/ui-v2-native-redesign`），已推送，PR #2 OPEN 未合并。
 - **资料已读取并索引**：V2 交付包 137 文件（39 设计图 / 39 逐页提示词 / 45 HTML 原型 / 8 状态图 /
   DOCX）、审计包（`C:\Users\zyu33\Downloads\审计` 是 Word 文档，433 段 + 52 表 + 82 图）。
 - **基线已核定**：真实 54 路由 / 39 独立视图；8 组共用组件；审计 52 页 = 30 P1 + 22 P2。
@@ -146,5 +146,25 @@
    .env 指向 15432，该映射只在 docker-compose.recovery.yml；正确启动方式已写入状态文档）。
    模拟器前台被 CozyFocus 持续抢占导致 CDP 多次中断。
 
-**下一步 READY**：按审查代理的点名清单，先补 360/390/430 三档宽度与字体放大的实测
-（`scripts/verify-responsive.mjs` 已就绪但未跑通），再逐页补控件点击的 API 效果断言。
+## 第四轮：审查点名的两项验收已闭环
+
+1. **响应式：20/20 页面在 360/390/430 三档宽度 + 大字体下全部 PASS**
+   （`scripts/verify-responsive-all.mjs`，量横向溢出/控件裁切/主操作遮挡/tabbar 压内容）。
+2. **控件效果断言：17 个控件跨 4 页**（`scripts/verify-control-effects.mjs`，
+   点击前后读 API 真实值比对）。已验证：广场情绪筛选返回非空结果集、回应按钮导航、
+   回信收藏翻转 `favoritedByCurrentUser`、隐私对话框打开/跳转/导出、日记页 9/9、
+   同行请求 accept 跳到边界确认页。
+
+**仍未闭环**：
+- 需要打字的控件无效果断言（`fill` 无法驱动该 WebView 里的 Vue `v-model`，
+  已尝试 prototype setter / 原生 setter / 键盘事件三种方式均无效；如实记录而非伪装）。
+- 抱抱按钮的效果无法断言（API 按用户幂等，二次抱抱不改变计数）。
+- 剩余 P1 页面：peer-network、peer-detail、me-diaries、me-month-report、
+  diary-detail、letter-detail、stable-self、decision-vault、future-self 细节等。
+
+**本轮新改页面**：PeerConsent（去头像装饰、边界紧凑化、补 testid，2/2 控件）、
+PeerRequests（三态生命周期 tab、去重复面板、补 testid、accept 效果已验证，4/5 控件）。
+
+**环境**：本轮又出现第二个模拟器被拉起（emulator-5556）导致 adb 报 "more than one
+device"，已 kill；App 两次因 `install -r` 后组件注册损坏而无法启动，改为
+uninstall + install 后正常。
