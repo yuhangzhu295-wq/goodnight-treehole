@@ -13,7 +13,7 @@ const QUEUE = repoFile('docs/design-v2/UI_V2_MASTER_QUEUE.json');
 /** page -> what ran, and the reviewer's verdict on a named screenshot (null = not reviewed). */
 const EVIDENCE = {
   DiaryList: { script: 'verify-diary-list.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/diary-list-v6.png', visual: 'PASS' },
-  DiaryDetail: { script: 'verify-diary-detail.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/diary-detail.png', visual: null },
+  DiaryDetail: { script: 'verify-diary-detail.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/diary-detail-v4.png', visual: null },
   LetterDetail: { script: 'verify-letter-detail.mjs', passed: 5, total: 5, shot: 'artifacts/ui-v2/r2/letter-detail-v4.png', visual: 'PASS' },
   ReportMonth: { script: 'verify-month-report.mjs', passed: 8, total: 8, shot: 'artifacts/ui-v2/r2/report-month-v5.png', visual: 'PASS' },
   DecisionVault: { script: 'verify-decision-vault.mjs', passed: 7, total: 7, shot: 'artifacts/ui-v2/r2/decision-vault-v8.png', visual: 'PASS' },
@@ -23,6 +23,19 @@ const EVIDENCE = {
   },
   StableSelf: { script: 'verify-stable-self.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/stable-self-bottom-v3.png', visual: 'PASS' },
   ToolDecompose: { script: 'verify-tool-decompose.mjs', passed: 4, total: 4, shot: null, visual: null },
+};
+
+/**
+ * Pages whose diff an independent reviewer read and approved, with the range it read. The reviewer
+ * was asked for the seven properties that matter here (fake data, deleted capability, loosened
+ * consent, failures disguised as empty states, weakened assertions, style hacks, Vue races) and
+ * returned APPROVE with no findings, plus two non-blocking observations recorded in the queue note.
+ */
+const CODE_REVIEW = {
+  range: '6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures',
+  verdict: 'APPROVE',
+  pages: ['DiaryList', 'DiaryDetail', 'LetterDetail', 'ReportMonth', 'DecisionVault', 'StableSelf', 'Archive'],
+  note: 'two non-blocking observations: verify-stable-self leaves the test identity\'s allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass',
 };
 
 const queue = JSON.parse(readFileSync(QUEUE, 'utf8'));
@@ -44,7 +57,8 @@ for (const task of queue.tasks ?? []) {
   task.interactionTested = green ? 'yes' : 'no';
   task.businessVerified = green ? 'yes' : 'no';
   task.visualApproved = evidence.visual === 'PASS' ? 'yes' : 'no';
-  // codeReviewApproved stays as it is: nothing in this run reviewed the diffs.
+  // Only pages the reviewer actually read get the code-review axis; nothing else sets it.
+  task.codeReviewApproved = CODE_REVIEW.pages.includes(task.page) && CODE_REVIEW.verdict === 'APPROVE' ? 'yes' : task.codeReviewApproved;
   task.done = ['implemented', 'rendered', 'interactionTested', 'businessVerified', 'visualApproved', 'codeReviewApproved']
     .every((axis) => yes(task[axis])) ? 'yes' : 'no';
   task.status = task.done === 'yes' ? 'DONE' : 'WAITING_REVIEW';
@@ -53,14 +67,18 @@ for (const task of queue.tasks ?? []) {
     result: `${evidence.passed}/${evidence.total}`,
     screenshot: evidence.shot,
     visualVerdict: evidence.visual,
-    codeReview: 'not run on this branch',
+    codeReview: CODE_REVIEW.pages.includes(task.page)
+      ? `${CODE_REVIEW.verdict} on ${CODE_REVIEW.range}${CODE_REVIEW.note ? `; ${CODE_REVIEW.note}` : ''}`
+      : 'not run on this branch',
     ...(evidence.note ? { note: evidence.note } : {}),
     recordedAt: new Date().toISOString(),
     head,
   };
-  task.nextAction = task.done
+  task.nextAction = task.done === 'yes'
     ? 'none'
-    : 'independent code review of the diff for this page, then re-check the axes';
+    : task.visualApproved !== 'yes'
+      ? 'visual review of this page (reviewer quota was exhausted on the last attempt)'
+      : 're-check the remaining axes';
   touched += 1;
 }
 

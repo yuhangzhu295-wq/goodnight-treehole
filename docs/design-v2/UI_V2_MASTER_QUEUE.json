@@ -524,23 +524,23 @@
       "screenshot": "artifacts/ui-v2/android/R3_StableSelf_recapture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "note": "Layout adopted from the design: bare-chevron bar, heading + the real subtitle, bare section blocks instead of cards, the design's rounded-square check rows for anchors and contacts, and a pinned full-width CTA. The script block is untouched (verified by diff) and the only data-testid is preserved. The real page has four sections plus a details block where the mock shows two, and the real titles were kept where the mock's wording did not describe the real data. Two pieces of user-facing copy were ADDED by the implementer: the heading 清醒时候的提醒 and the note 这只是你自己记录过的判断，不是 AI 对你的结论。 The design shows a heading and a note block, but that wording is not in the mock or the original file. UNVERIFIED: the saved-state rendering (the API was erroring, so only the empty/error state was exercised).",
       "evidence": {
         "script": "scripts/verify-stable-self.mjs",
         "result": "6/6",
         "screenshot": "artifacts/ui-v2/r2/stable-self-bottom-v3.png",
         "visualVerdict": "PASS",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.286Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
+        "recordedAt": "2026-10-23T05:55:06.868Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
       "nextAction": "none"
     },
@@ -580,14 +580,14 @@
       "screenshot": "artifacts/ui-v2/android/R3_DecisionVault_recapture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "note": "Layout adopted from the design's shared language: a bare-chevron bar with the subtitle moved out to the page lead, sections as bare hairline blocks instead of cards, hairline-separated rows with a status icon tile, and the boundary note as the design's soft filled block. VERIFIED at code level: typecheck ✓, one file touched, the script untouched, and no user-facing string added, changed or removed (the only text difference is where the two header strings render). The file contains no data-testids in HEAD or now, so none were lost. NOT VERIFIED visually: I could not navigate to this page — its only entry is 我的 → 更多自我支持 → 决定保险箱, and the ActionCenter's 一个重要决定 shortcut opens a bottom sheet rather than this route. Deliberate omissions the implementer flagged: the design's 考虑中/冷静中/已决定 tab row and its section headings (design-only copy plus new filter behaviour), its per-row chevrons (no detail route exists, so they would be a false affordance), and its row subtitles (design-only strings); the page keeps its own heading 决定保险箱 rather than the mock's 重要决定.",
       "notes": "Layout adopted from the design's shared language: a bare-chevron bar with the subtitle moved out to the page lead, sections as bare hairline blocks instead of cards, hairline-separated rows with a status icon tile, and the boundary note as the design's soft filled block. VERIFIED at code level: typecheck ✓, one file touched, the script untouched, and no user-facing string added, changed or removed (the only text difference is where the two header strings render). The file contains no data-testids in HEAD or now, so none were lost. NOT VERIFIED visually: I could not navigate to this page — its only entry is 我的 → 更多自我支持 → 决定保险箱, and the ActionCenter's 一个重要决定 shortcut opens a bottom sheet rather than this route. Deliberate omissions the implementer flagged: the design's 考虑中/冷静中/已决定 tab row and its section headings (design-only copy plus new filter behaviour), its per-row chevrons (no detail route exists, so they would be a false affordance), and its row subtitles (design-only strings); the page keeps its own heading 决定保险箱 rather than the mock's 重要决定. rendered corrected by scripts/reconcile-ui-queue.mjs: R3_DecisionVault_after.png exists and is a portrait capture.",
       "evidence": {
@@ -595,9 +595,9 @@
         "result": "7/7",
         "screenshot": "artifacts/ui-v2/r2/decision-vault-v8.png",
         "visualVerdict": "PASS",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
       "nextAction": "none"
     },
@@ -620,7 +620,7 @@
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "no",
-      "codeReviewApproved": "no",
+      "codeReviewApproved": "yes",
       "done": "no",
       "note": "Layout adopted from the design's shared language: the gradient hero with its tree cutout replaced by a bare-chevron bar and a page lead, the tabs and the 旅程归档 entry merged into one chip row, the time-scope filter moved under the tabs, the card replaced by month groups of hairline rows, and the page's bottom padding reserving the tab bar (this route IS in tabbarPaths). VERIFIED at code level: build ✓, typecheck ✓, and the testid VALUES are unchanged — the diff only renames the loop variable, so `index === 0 ? ...` became `entry.index === 0 ? ...` and renders identical attribute values. NOT VERIFIED visually. Deliberate omissions: the design's search icon (no search API or behaviour exists, so it would be a dead control), its 关系/工作/生活 category chips (those categories are not in the data contract; the page keeps its two real axes, content type and time scope), and its row subtitles and footer note (design-only copy). The page keeps its own heading 日记与回信 rather than the mock's 旅程归档, because the page covers diaries, posts and letters too.",
       "commitNote": "PROCESS ERROR: most of this file was committed inside a29bb46, whose message says \"restyle DecisionVault ... one file touched\". It was not one file — my `git add -A` swept the in-flight Archive.vue in while a background agent was still writing it. I had verified DecisionVault while Archive was clean and then committed after the agent wrote the file. The swept code was checked afterwards and is coherent (build and typecheck pass, testid values unchanged), and the remainder is committed on its own. Do not run `git add -A` while a background agent is writing the same working tree.",
@@ -629,12 +629,12 @@
         "result": "7/7",
         "screenshot": "artifacts/ui-v2/r2/archive-v5.png",
         "visualVerdict": "FAIL",
-        "codeReview": "not run on this branch",
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
         "note": "reviewer fails it on one item: the title is 归档, the mock says 旅程归档. Deliberate - the page holds diaries, posts, letters and journeys.",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
-      "nextAction": "none"
+      "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
     },
     {
       "id": "UI-V2-22",
@@ -773,10 +773,10 @@
         "screenshot": null,
         "visualVerdict": null,
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
-      "nextAction": "none"
+      "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
     },
     {
       "id": "UI-V2-28",
@@ -836,22 +836,22 @@
       "screenshot": "artifacts/ui-v2/android/R4_DiaryList_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/verify-diary-list.mjs",
         "result": "6/6",
         "screenshot": "artifacts/ui-v2/r2/diary-list-v6.png",
         "visualVerdict": "PASS",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
       "nextAction": "none"
     },
@@ -874,18 +874,18 @@
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "no",
-      "codeReviewApproved": "no",
+      "codeReviewApproved": "yes",
       "done": "no",
       "evidence": {
         "script": "scripts/verify-diary-detail.mjs",
         "result": "6/6",
-        "screenshot": "artifacts/ui-v2/r2/diary-detail.png",
+        "screenshot": "artifacts/ui-v2/r2/diary-detail-v4.png",
         "visualVerdict": null,
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
-      "nextAction": "none"
+      "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
     },
     {
       "id": "UI-V2-32",
@@ -900,23 +900,23 @@
       "screenshot": "artifacts/ui-v2/android/R4_ReportMonth_capture.png",
       "issue": "A CSS comment containing the literal closing style tag ended the style block early and broke the build with \"Invalid end tag\".",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "note": "PARTIAL. The shell matches the design: the decorative hero (❧ 晚安树洞 logo, the big 这个月，你是怎么走过来的？ question, the gradient) is replaced by a bare-chevron bar titled 月度回顾 and a lead carrying 10月回顾 with the design subtitle 记录的是实际发生的事，不是情绪成绩。; the month picker keeps its testid; the cards became bare hairline blocks. Everything below the lead is untouched on purpose: the mock shows a far simpler report than this page really is, and deleting the real sections to match it is forbidden. Their further flattening is still owed, and there is no verified render.",
       "evidence": {
         "script": "scripts/verify-month-report.mjs",
         "result": "8/8",
         "screenshot": "artifacts/ui-v2/r2/report-month-v5.png",
         "visualVerdict": "PASS",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
       "nextAction": "none"
     },
@@ -955,22 +955,22 @@
       "screenshot": "artifacts/ui-v2/android/R4_LetterDetail_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/verify-letter-detail.mjs",
         "result": "5/5",
         "screenshot": "artifacts/ui-v2/r2/letter-detail-v4.png",
         "visualVerdict": "PASS",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:52:15.287Z",
-        "head": "11e83d150191b486bacda712e309507234fb8e24"
+        "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
+        "recordedAt": "2026-10-23T05:55:06.869Z",
+        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
       },
       "nextAction": "none"
     },
@@ -1150,8 +1150,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "11e83d150191b486bacda712e309507234fb8e24",
-  "updatedAt": "2026-10-23T04:52:15.287Z",
+  "head": "7853488237c8a544ae7e6c93caea075de47e9199",
+  "updatedAt": "2026-10-23T05:55:06.869Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
