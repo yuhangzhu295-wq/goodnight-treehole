@@ -118,6 +118,12 @@ for (const suite of selected) {
   }
   const last = results[results.length - 1];
   console.log(`${last.verdict.padEnd(5)} ${suite.name.padEnd(20)} ${last.detail}`);
+  // The selector alone says nothing about why it failed; the child printed the reason next to it.
+  if (last.verdict !== 'PASS') {
+    for (const line of output.split('\n')) {
+      if (/^FAIL/.test(line.trim()) || /\[nav\]/.test(line)) console.log(`      ${line.trim()}`);
+    }
+  }
 }
 
 const bad = results.filter((r) => r.verdict !== 'PASS');

@@ -81,8 +81,9 @@ if (runArg > -1) {
     'peer-consent': 'PeerConsent',
   };
   // Pages whose markup changed in this round: an older visual verdict was about a page that no
-  // longer exists, so it is withdrawn here rather than carried over.
-  const REWORKED = new Set(['PostDetail']);
+  // longer exists, so it is withdrawn here rather than carried over. The queue had `visualApproved:
+  // yes` on four of these from a pre-V2 round, which would have read as a verdict on the new layout.
+  const REWORKED = new Set(['PostDetail', 'LetterToday', 'ToolIndex', 'Square', 'MoodCreate']);
   const byPage = new Map();
   for (const line of lines) {
     const match = /^(PASS|FAIL|ERROR)\s+(\S+)\s+(.*)$/.exec(line.trim());

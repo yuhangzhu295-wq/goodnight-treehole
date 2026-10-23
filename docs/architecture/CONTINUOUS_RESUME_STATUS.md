@@ -3,8 +3,71 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-> **Current state: 2026-10-18.** The section immediately below is the live record. Everything after
-> it is the 2026-10-15 record, kept for history; its HEAD, CI run ids and suite counts are stale.
+> **Session saved 2026-10-23 for a shutdown.** Read this block first; the 2026-10-18 record below it is
+> the previous round and its HEAD/CI ids are stale.
+
+## State at shutdown (2026-10-23)
+
+- **Branch `codex/ui-v2-native-redesign`**, HEAD `4bb040c` (plus one uncommitted runner edit that this
+  save commits), pushed to origin. Working tree clean after that commit.
+- **Seven pages DONE on all seven axes:** DiaryList, DiaryDetail, LetterDetail, ReportMonth,
+  DecisionVault, StableSelf. (Archive is deliberately failed on the 归档/旅程归档 title deviation.)
+- **Five pages functionally green and WAITING_REVIEW:** Square, MoodCreate, PostDetail, LetterToday,
+  ToolIndex. Implemented, rendered, interaction-tested, business-verified; **visual and code-review
+  axes are not approved**.
+- **Visual review is blocked, not skipped.** Since 18:30 UTC+8 every reviewer path returns
+  `401 Authorization Required` from the subagent gateway — `final-gate`, `reviewer-glm` and a plain
+  `general-purpose` agent all fail identically. Retried at 19:50, still 401. Do not fill the visual
+  axis in from the main agent.
+- **Control suites: 15 suites, 14 green.** The one red is `peer-detail-request-submit`; see the open
+  defect below. Run them with:
+  `node scripts/run-control-suites.mjs` (fixtures included) or `--only name,name` for iteration —
+  **`--only` skips the fixtures, so seed first** with `node scripts/seed-peer-incoming-request.mjs`
+  and `node scripts/seed-diary.mjs --if-empty ...`.
+
+### Open defect: `peer-detail-request-submit` fails only in full runs
+
+It passes every standalone run, including immediately after a full-run failure, with the same fixture
+ids. Ruled out so far: a stale fixture (the match is still `suggested` right after the failure), a slow
+navigation (the runner now polls the URL for 6s), a slow sheet render (it now waits 10s for the control
+after `setup`). Three fixes have been tried and none reproduced away, so the next step is to **read the
+failure's own line** — the runner now prints the child's `FAIL` lines under a red suite — and then, if
+that says "control not found", check whether the app's identity changed mid-run
+(`Preferences.get('goodnight-identity-user-id')` vs the seeded `ownerUserId` in
+`artifacts/ui-v2/fixtures/peer-fixtures.json`).
+
+### What this round actually changed
+
+- **Instrument:** the control suites had been navigating nowhere. `verify-controls.mjs` read its route
+  from `argv[2]` and Git Bash rewrote `/pages/...` into `C:/Program Files/Git/pages/...`; the WebView
+  refused it and every control of the intended page was reported missing (or passed without navigating
+  when the app happened to be on the right page). Every control number recorded before this round is
+  void. The repair is one shared function, `scripts/cli-route.mjs`, used by all five route-taking
+  scripts. Also fixed: `verify-control-effects` filled before the form rendered and reloaded the page
+  inside `apiRead`; both suites now set `process.exitCode`; `run-control-suites.mjs` runs all suites
+  with the routes and fixtures they need.
+- **API:** the legacy full flush upserted every `User` row in snapshot order while peer writes take
+  `FOR UPDATE` in sorted order — two writers could each hold one user and wait for the other, and
+  Postgres aborted one with `40P01` (a bare 500 to the client). Reproduced twice while a background AI
+  job was flushing. The flush now takes the same sorted locks first.
+- **Pages:** PostDetail (the reply label was invented from the row index), LetterToday (letter layout,
+  with 原始记录 opening the diary the letter answers), ToolIndex (three groups, last row no longer
+  under the tab bar). Each has a screenshot in `artifacts/ui-v2/r2/` and a control suite.
+- **Environment:** WSL no longer drops the stack (detached keep-alive re-created by `stack-up.sh` plus
+  a scheduled task); the other project's capture scripts no longer leave this package disabled (EXIT
+  trap in all four).
+
+### Next actions, in order
+
+1. Re-run `node scripts/run-control-suites.mjs` and use the newly printed FAIL lines to close
+   `peer-detail-request-submit`.
+2. When the reviewer gateway answers again, send Square / MoodCreate / PostDetail / LetterToday /
+   ToolIndex for visual review, then code review, and only then set their axes.
+3. Continue the queue at `ToolDecompose` (27) → `ToolRun` (28) → `MeProfile` (29) → `LetterList` (33) →
+   `FavoriteList` (35) → `PrivacySettings` (36) → `DataPolicy` (37) → `FeedbackHelp` (38) →
+   `HelpFaqs` (39), then the batch-1/2/3 pages.
+4. Still untouched: the 12-domain end-to-end matrix, the persistence and security gates
+   (`PERSISTENCE_BATCH3_STABLE=false`), and CI on this HEAD.
 
 ## Current state (2026-10-18)
 
