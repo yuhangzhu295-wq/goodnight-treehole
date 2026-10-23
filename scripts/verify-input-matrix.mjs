@@ -11,12 +11,13 @@ import { typeInto, clearField, hookPostBodies, postedBodies, ensureReverse } fro
 
 // clearField is used by the cancel/re-enter case below.
 import { PrismaClient } from '@prisma/client';
+import { repoFile } from './repo-root.mjs';
 
 const route = process.argv[2] ?? '/pages/mood/create';
 const FIELD = 'input-mood-content';
 const SUBMIT = 'btn-submit-mood';
 
-const env = readFileSync('.env', 'utf8');
+const env = readFileSync(repoFile('.env'), 'utf8');
 const dbUrl = env.match(/^DATABASE_URL="?([^"\n]+)"?$/m)[1];
 const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 

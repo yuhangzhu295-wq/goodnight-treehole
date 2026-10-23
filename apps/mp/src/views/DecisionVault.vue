@@ -305,30 +305,31 @@ onBeforeUnmount(() => window.clearInterval(timer));
       <p v-if="loading" class="loading">正在打开冷静箱…</p>
 
       <section v-if="activeItems.length" class="saved-section">
-        <div class="list-head">
-          <button class="add-trigger" type="button" data-testid="decision-add" @click="toggleComposer">
-            {{ composerOpen ? '收起' : '＋ 新增决定' }}
-          </button>
-        </div>
         <!--
           The design's tabs are text with an underline, and its list is organised into three named
           groups (考虑中 / 冷静中 / 以前做过的决定) rather than one flat stream. Both are kept: the tabs
           narrow to one status, and the list is always grouped, so the composite view the design shows
-          is what 全部 renders.
+          is what 全部 renders. The add action shares the tab row instead of taking a row of its own,
+          which is what used to push the first group below the fold.
         -->
-        <div class="status-tabs" role="tablist" aria-label="决定状态">
-          <button
-            v-for="tab in statusTabs"
-            :key="tab.key"
-            type="button"
-            role="tab"
-            class="status-tab"
-            :class="{ active: activeTab === tab.key }"
-            :aria-selected="activeTab === tab.key"
-            :data-testid="'decision-tab-' + tab.key"
-            @click="activeTab = tab.key"
-          >
-            {{ tab.label }} <b>{{ tab.count }}</b>
+        <div class="tabs-row">
+          <div class="status-tabs" role="tablist" aria-label="决定状态">
+            <button
+              v-for="tab in statusTabs"
+              :key="tab.key"
+              type="button"
+              role="tab"
+              class="status-tab"
+              :class="{ active: activeTab === tab.key }"
+              :aria-selected="activeTab === tab.key"
+              :data-testid="'decision-tab-' + tab.key"
+              @click="activeTab = tab.key"
+            >
+              {{ tab.label }} <b>{{ tab.count }}</b>
+            </button>
+          </div>
+          <button class="add-trigger" type="button" data-testid="decision-add" @click="toggleComposer">
+            {{ composerOpen ? '收起' : '＋ 新增' }}
           </button>
         </div>
         <div class="saved-list">
@@ -402,8 +403,9 @@ onBeforeUnmount(() => window.clearInterval(timer));
   margin: 0 auto;
   min-height: 100vh;
   overflow-x: hidden;
-  /* /pages/decision/index carries no floating tab bar, so the page only reserves the safe area. */
-  padding: 12px 16px calc(32px + env(safe-area-inset-bottom));
+  /* /pages/decision/index carries no floating tab bar, so the page only reserves the safe area.
+     No top padding: the design puts the tabs directly under the bar's hairline. */
+  padding: 0 16px calc(32px + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
@@ -461,37 +463,45 @@ onBeforeUnmount(() => window.clearInterval(timer));
 .archive-section {
   display: flex;
   flex-direction: column;
-  padding: 18px 0 16px;
+  padding: 0 0 16px;
   border-bottom: 1px solid var(--gn-line);
 }
 
-/* The list header carries only the add action: the page title already says what the list is. */
-.list-head {
+/* The add action rides the tab row, so the tabs sit directly under the bar. */
+/* The rule under the tabs spans the screen, as the design's does, so the row bleeds past the page
+   inset and pads its own contents back in. */
+.tabs-row {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .add-trigger {
-  min-height: 34px;
-  padding: 7px 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
+  flex: 0 0 auto;
+  min-height: 0;
+  margin-bottom: 4px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--gn-leaf-deep);
   font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Lifecycle tabs over the real statuses, as text with an underline - the design's form, not chips. */
 .status-tabs {
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 18px;
-  margin: 10px 0 0;
   padding-bottom: 2px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--gn-line);
   scrollbar-width: none;
 }
 
@@ -501,8 +511,8 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
 .status-tab {
   flex: 0 0 auto;
-  min-height: 38px;
-  padding: 6px 0;
+  min-height: 34px;
+  padding: 4px 0 6px;
   border: 0;
   /* The shared button rule rounds buttons, which bows the underline into an arc. */
   border-radius: 0;
@@ -785,12 +795,8 @@ onBeforeUnmount(() => window.clearInterval(timer));
   color: var(--gn-ink-soft);
 }
 
-/* The two states that are still waiting on the user carry the leaf colour. */
-.saved-item[data-status='cooling'] .item-icon,
-.saved-item[data-status='ready'] .item-icon {
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
-}
+/* The design's tiles are all the same quiet grey: the state is in the meta line and the group
+   heading, and tinting the icon added an emphasis the mock does not have. */
 
 .saved-copy {
   display: flex;

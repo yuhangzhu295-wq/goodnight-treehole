@@ -159,12 +159,15 @@ onMounted(load);
       <h1 class="stable-bar-title">清醒时候的我</h1>
     </header>
 
-    <p class="stable-lead">记录状态良好时你对自己的了解，供低谷期参考。这都是你自己写下的判断。</p>
+    <div class="stable-lead">
+      <h2 class="stable-heading">清醒时候的提醒</h2>
+      <p>留给情绪波动时的自己，内容由你决定。</p>
+    </div>
 
     <p v-if="loading" class="state-note">正在读取你的提醒卡…</p>
     <form v-else class="stable-form" @submit.prevent="save">
       <section class="stable-section">
-        <h2 class="section-title">对自己的提醒</h2>
+        <h2 class="section-title">我想提醒自己</h2>
         <label class="field-label">状态稳定时的我，是什么样子</label>
         <textarea
           v-model="profile.stableDescription"
@@ -182,7 +185,7 @@ onMounted(load);
       </section>
 
       <section class="stable-section">
-        <h2 class="section-title">支持办法</h2>
+        <h2 class="section-title">对我有用的做法</h2>
         <label class="field-label">快失控时，可以先做的事</label>
         <div class="option-rows">
           <button
@@ -234,7 +237,6 @@ onMounted(load);
         </div>
       </section>
 
-      <p class="trust-note">这只是你自己记录过的判断，不是 AI 对你的结论。</p>
       <div class="field-group">
         <label class="field-label">对我重要的人和事</label>
         <div class="option-rows">
@@ -315,13 +317,14 @@ onMounted(load);
           </button>
         </div>
       </details>
+      <p class="trust-note">这只是你自己记录过的判断，不是 AI 对你的结论。</p>
       <small v-if="currentId" class="version-note">最近保存：{{ new Date(updatedAt).toLocaleString('zh-CN') }}</small>
       <div class="stable-cta">
         <p v-if="needsConsent" class="consent-prompt" role="status">{{ needsConsent }}</p>
         <p v-else-if="error" class="error-note" role="alert">{{ error }}</p>
         <p v-if="saved" class="saved-note" role="status">{{ saved }}</p>
         <button class="stable-save" data-testid="stable-self-save" :disabled="saving" type="submit">
-          {{ saving ? '正在保存…' : '保存稳定参考卡' }}
+          {{ saving ? '正在保存…' : '保存记录' }}
         </button>
       </div>
     </form>
@@ -380,6 +383,11 @@ onMounted(load);
   font-weight: 700;
   line-height: 1.3;
   color: var(--gn-ink);
+}
+
+/* The design's page heading and its one-line subtitle, under the bar. */
+.stable-lead {
+  margin: 16px 0 0;
 }
 
 .stable-lead h2 {
@@ -595,18 +603,15 @@ onMounted(load);
   cursor: pointer;
 }
 
-/* Fixed rather than sticky: .goodnight-page sets overflow-x: hidden, so the page is its own
-   scroll container and a sticky child has no scrollport to stick to. */
+/* In the flow, at the end of the form, as the design draws it. It used to be `position: fixed`,
+   which floated the save bar over the middle of the list while scrolling - the reviewer saw the
+   first practice row cut in half behind it. */
 .stable-cta {
-  position: fixed;
-  right: 0;
-  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
-  left: 0;
-  z-index: 20;
   display: grid;
   gap: 8px;
   justify-items: center;
-  padding: 12px 16px;
+  margin-top: 20px;
+  padding: 16px 0 0;
   border-top: 1px solid var(--gn-line);
   background: var(--gn-bg);
 }

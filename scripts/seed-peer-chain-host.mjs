@@ -7,9 +7,10 @@
 import { readFileSync } from 'node:fs';
 import crypto from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
+import { repoFile } from './repo-root.mjs';
 
 const WEB = 'http://127.0.0.1:3000';
-const env = readFileSync('.env', 'utf8');
+const env = readFileSync(repoFile('.env'), 'utf8');
 const url = env.match(/^DATABASE_URL="?([^"\n]+)"?$/m)[1];
 const prisma = new PrismaClient({ datasources: { db: { url } } });
 

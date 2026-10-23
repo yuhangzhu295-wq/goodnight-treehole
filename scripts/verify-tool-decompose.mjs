@@ -8,8 +8,9 @@ import { readFileSync } from 'node:fs';
 import { withSession } from './device-session.mjs';
 import { typeInto, hookPostBodies, postedBodies, ensureReverse } from './input-helpers.mjs';
 import { PrismaClient } from '@prisma/client';
+import { repoFile } from './repo-root.mjs';
 
-const env = readFileSync('.env', 'utf8');
+const env = readFileSync(repoFile('.env'), 'utf8');
 const prisma = new PrismaClient({ datasources: { db: { url: env.match(/^DATABASE_URL="?([^"\n]+)"?$/m)[1] } } });
 ensureReverse();
 

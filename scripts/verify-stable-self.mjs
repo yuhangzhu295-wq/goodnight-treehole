@@ -1,9 +1,11 @@
 // StableSelf: type into the two free-text fields, save, and confirm the API holds what was typed.
 // The audit's concern was "保存/权限失败是否导致空白或重复提交".
 import { readFileSync } from 'node:fs';
+import { PrismaClient } from '@prisma/client';
 import { withSession } from './device-session.mjs';
 import { typeInto, hookPostBodies, postedBodies, ensureReverse } from './input-helpers.mjs';
-const env = readFileSync('.env', 'utf8');
+import { repoFile } from './repo-root.mjs';
+const env = readFileSync(repoFile('.env'), 'utf8');
 const prisma = new PrismaClient({ datasources: { db: { url: env.match(/^DATABASE_URL="?([^"\n]+)"?$/m)[1] } } });
 ensureReverse();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -25,7 +27,34 @@ await withSession(async (session) => {
   const t2 = await typeInto(session, 'reality-reminder', '先把手机放到客厅，只留闹钟。');
   record('typing reaches Vue (reality reminder)', t2.ok && t2.domLength === 14 ? 'PASS' : 'FAIL', t2.reason ?? `len=${t2.domLength}`);
 
-  // 3. save sends the typed text
+  // 3. save sends the typed text. The write is gated on allowRecoveryData - the product's own rule -
+  //    and the API refuses it without that switch, so the switch is opened first. Leaving it to the
+  //    read-back step made this script report a body-only "PASS" for a save the server had rejected,
+  //    and then fail on a read-back of a row that was never written.
+  // A freshly installed app mints its credential on first use; reading Preferences before that
+  // completes yields an empty header, and every request below then fails 401 - which the read-back
+  // used to report as "no field", i.e. as if the save had silently not persisted.
+  const credential = await (async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const value = String(await ev(
+        "(async()=>{var p=window.Capacitor.Plugins.Preferences;var cr=await p.get({key:'goodnight-identity-credential'});return (cr&&cr.value)||'';})()",
+        true,
+      ) ?? '');
+      if (value) return value;
+      await sleep(300);
+    }
+    return '';
+  })();
+  record('the app holds an identity credential', credential ? 'PASS' : 'FAIL', credential ? 'present' : 'missing');
+  const consentStatus = await ev(
+    "(async()=>{" +
+    "  var r=await fetch('http://127.0.0.1:3000/api/v1/settings/privacy',{method:'PATCH',headers:{'content-type':'application/json','x-goodnight-user-id':" + JSON.stringify(credential) + "},body:JSON.stringify({allowRecoveryData:true})});" +
+    "  return r.status;" +
+    "})()",
+    true,
+  );
+  record('the recovery-data switch opens before saving', Number(consentStatus) === 200 ? 'PASS' : 'FAIL', `status=${consentStatus}`);
+  await sleep(500);
   await hookPostBodies(session);
   await ev("(function(){var e=document.querySelector('[data-testid=stable-self-save]');e.click();return 1;})()", false);
   await sleep(4000);
@@ -49,7 +78,7 @@ await withSession(async (session) => {
     "  var H={'content-type':'application/json','x-goodnight-user-id':cred};" +
     "  await fetch('http://127.0.0.1:3000/api/v1/settings/privacy',{method:'PATCH',headers:H,body:JSON.stringify({allowRecoveryData:true})});" +
     "  var r=await fetch('http://127.0.0.1:3000/api/v1/me/stable-self',{headers:H});" +
-    "  if(r.status===403) return 'gated(403)';" +
+    "  if(r.status!==200) return 'get('+r.status+')';" +
     "  var b=await r.json();" +
     "  var item=b.item||{};" +
     "  var desc=item.profile?item.profile.stableDescription:item.stableDescription;" +
