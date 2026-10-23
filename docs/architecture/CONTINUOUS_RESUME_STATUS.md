@@ -132,6 +132,7 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | route aliases | `verify-route-aliases` 7/7 | n/a |
 | input matrix | `verify-input-matrix` 7/7 | n/a |
 | square controls | `verify-square-controls` 17 manifest entries, all found | n/a |
+| square | `verify-square-sort` 5/5 (API order for 最新/热门 plus the device rendering the server's hot order) | verdict pending on `square-v3.png` |
 | responsive | `verify-responsive-all` 20/20 pages at 360/390/430 and large font (was 19/20: TonightHome's 更多 chip sat at x=289..363 in a 360 viewport and could not be tapped; the chips scroll now and 更多 is pinned) | n/a |
 | identity isolation | `verify-device-credential-ownership` - the device sees its own record, another identity does not | n/a |
 | mood ownership | `verify-mood-owner` - the mood belongs to the session that created it | n/a |
@@ -190,9 +191,10 @@ contract → minimal UI change → targeted tests → real emulator screenshot �
 regression → commit/push.
 
 **A note for the next session about `Square`:** its design (`22_Square.png`) is a flat list with
-`最新/热门` tabs, and the API's `GET /api/v1/posts` takes only `emotion`/`mood` — there is **no sort
-parameter**, so a `热门` tab has no backend today. Either add a real `sort` parameter or leave the tab
-out; do not ship a tab that only reorders the fetched page and calls itself 热门.
+`最新/热门` tabs. That used to be impossible - `GET /api/v1/posts` had no sort parameter, so a 热门 tab
+could only reorder the page it had already fetched. `sort=latest|hot` exists now and orders in SQL by
+the `hugCount`/`replyCount` counters with time as the tiebreaker; the page sends it and
+`scripts/verify-square-sort.mjs` proves both the API order and that the device renders it.
 
 ## Product defects fixed on this branch (not UI)
 
