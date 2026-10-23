@@ -28,6 +28,12 @@ await withSession(async (session) => {
   // 1. open the composer. With no records there is no list header, so the entry point is the
   //    empty-state button (or the summary); with records it is the "新增决定" button.
   await go();
+  // A restart underneath the page can leave it on the loading state even after `go()` saw the
+  // container; the entry control is what step 1 actually needs, so wait for that and retry once.
+  if (!Number(await ev("(function(){return document.querySelector('[data-testid=decision-add],[data-testid=decision-empty-add]')?1:0;})()", false))) {
+    await sleep(1500);
+    await go();
+  }
   const opened = await ev(`(function(){
     // Read the details' own state. A control inside a collapsed <details> still reports a layout box,
     // so "has a rect" is not the same as "is open" - that mistake made the script skip the click and
@@ -67,7 +73,8 @@ await withSession(async (session) => {
     var items = Array.from(document.querySelectorAll('[data-testid^=decision-item-]'));
     var hit = items.filter(function(e){return (e.innerText||'').indexOf(${JSON.stringify(MARKER)})>=0;});
     var d = document.querySelector('[data-testid=decision-composer]');
-    return JSON.stringify({count:items.length, found:hit.length>0, firstStatus:items[0]?items[0].getAttribute('data-status'):null, composerOpen: d?d.open:null});
+    // The composer is a plain section now (it used to be a <details>), so its presence is the state.
+    return JSON.stringify({count:items.length, found:hit.length>0, firstStatus:items[0]?items[0].getAttribute('data-status'):null, composerOpen: !!d});
   })()`, false);
   const l = JSON.parse(listed || '{}');
   record('the created decision appears in the list', l.found && l.composerOpen === false ? 'PASS' : 'FAIL',
@@ -99,23 +106,26 @@ await withSession(async (session) => {
   record('status tabs count and filter the real records', tabList.length >= 2 && countMatches && filterOk ? 'PASS' : 'FAIL',
     `${JSON.stringify(tabList.map((t) => t.text))} all=${allCount} items=${l.count} filtered=${JSON.stringify(f)}`);
 
-  // 5. the summary and the button are two doors to the same panel, so the label has to follow the
-  //    panel. Opening by summary used to leave the button still offering to open it.
+  // 5. one door, one label. The composer used to be a <details> whose summary opened the same panel
+  //    as the button, and the two could disagree about whether it was open; the button owns it now,
+  //    so the label has to follow the panel it toggles.
   const sync = [];
   const readSync = async () => JSON.parse(await ev(`(function(){
     var d=document.querySelector('[data-testid=decision-composer]');
     var b=document.querySelector('[data-testid=decision-add]');
-    return JSON.stringify({open: d?d.open:null, label: b?(b.innerText||'').replace(/\\s+/g,'').trim():null});
+    return JSON.stringify({open: !!d, label: b?(b.innerText||'').replace(/\\s+/g,'').trim():null});
   })()`, false) || '{}');
-  await ev("(function(){document.querySelector('[data-testid=decision-composer] > summary').click();return 1;})()", false);
+  sync.push(await readSync());
+  await ev("(function(){document.querySelector('[data-testid=decision-add]').click();return 1;})()", false);
   await sleep(600);
   sync.push(await readSync());
   await ev("(function(){document.querySelector('[data-testid=decision-add]').click();return 1;})()", false);
   await sleep(600);
   sync.push(await readSync());
-  const syncOk = sync[0].open === true && /收起/.test(sync[0].label ?? '')
-    && sync[1].open === false && /新增/.test(sync[1].label ?? '');
-  record('the button label follows the panel whichever door opened it', syncOk ? 'PASS' : 'FAIL', JSON.stringify(sync));
+  const syncOk = sync[0].open === false && /新增/.test(sync[0].label ?? '')
+    && sync[1].open === true && /收起/.test(sync[1].label ?? '')
+    && sync[2].open === false && /新增/.test(sync[2].label ?? '');
+  record('the add button and its label agree about whether the composer is open', syncOk ? 'PASS' : 'FAIL', JSON.stringify(sync));
 
   // 6. A failed load must not be reported as "you have no records". The page used to render the empty
   //    state whenever the item list was empty, including after a 500 - which asserts something it does

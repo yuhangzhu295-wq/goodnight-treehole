@@ -542,17 +542,20 @@ onMounted(async () => {
 }
 
 .report-page .report-actions {
+  /* One per line: side by side, the two labels ran into each other. */
   display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   margin: 30px 0 0;
   padding: 18px 0 0;
   border-top: 1px solid #ebedf0;
 }
 
 .report-page .report-actions button {
-  /* The shared button rule makes buttons flex items that can shrink; inside a flex row a Chinese
-     label then collapses to one character per line. Keep the label on one line. */
+  /* The shared button rule makes buttons flex items that can shrink; a Chinese label then collapses
+     to one character per line or overlaps its neighbour. Pin the size and the alignment. */
+  display: block;
   flex: 0 0 auto;
   width: auto;
   min-width: 0;
@@ -564,6 +567,8 @@ onMounted(async () => {
   color: #275f56;
   font-size: 12.5px;
   font-weight: 600;
+  line-height: 1.5;
+  text-align: left;
   white-space: nowrap;
 }
 

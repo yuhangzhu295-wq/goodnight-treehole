@@ -406,9 +406,9 @@ onMounted(load);
 
 /* The design has no subtitle under the bar: the rows are the page. */
 
-/* Content-type chips: bare pills, the active one tinted leaf — not a bordered card. */
+/* Content-type chips: the design draws small rounded rectangles, not fully round pills. */
 .archive-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
-.archive-tabs button { min-height: 34px; padding: 6px 12px; border: 1px solid var(--gn-line); border-radius: var(--gn-radius-pill); background: transparent; box-shadow: none; color: var(--gn-ink-soft); font-size: 12px; white-space: nowrap; }
+.archive-tabs button { min-height: 34px; padding: 6px 12px; border: 1px solid var(--gn-line); border-radius: 8px; background: transparent; box-shadow: none; color: var(--gn-ink-soft); font-size: 12px; white-space: nowrap; }
 .archive-tabs button.active { border-color: var(--gn-leaf); background: var(--gn-leaf-soft); color: var(--gn-leaf); font-weight: 700; }
 .archive-tabs .archive-journey-entry { display: inline-flex; align-items: center; gap: 4px; }
 .archive-journey-entry small { color: inherit; font-size: 11px; opacity: .75; }

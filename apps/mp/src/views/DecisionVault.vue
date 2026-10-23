@@ -41,14 +41,6 @@ const composerOpen = ref(false);
 function toggleComposer() {
   composerOpen.value = !composerOpen.value;
 }
-/**
- * Tapping the summary opens the panel without going through the button, so `composerOpen` has to
- * follow the element itself. Without this the label drifted: open by summary, tap the button, and
- * the panel stayed open while the button offered to close it.
- */
-function onComposerToggle(event: Event) {
-  composerOpen.value = (event.target as HTMLDetailsElement).open;
-}
 
 /**
  * The lifecycle stages, in the order a decision moves through them. `all` is not a real status - it
@@ -263,15 +255,11 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
     <section class="decision-content">
       <!--
-        The composer is an action you open, not the page. It used to fill the first screen, so a
-        returning user with records had to scroll past a form to reach them. `open` keeps it collapsed
-        until asked for, and `open` is also what the "新增决定" button toggles.
+        One door to the composer, not two. It used to be a folded <details> whose summary opened the
+        same panel as the "新增决定" button, which put an extra row above the list and let the two
+        labels disagree about whether the panel was open. The button owns it now.
       -->
-      <details class="decision-composer-wrap" :open="composerOpen" data-testid="decision-composer" @toggle="onComposerToggle">
-        <summary class="composer-summary">
-          <span class="composer-summary-title">新增决定</span>
-          <span class="composer-summary-hint">写下正在考虑的事，设一段冷静时间</span>
-        </summary>
+      <section v-if="composerOpen" class="decision-composer-wrap" data-testid="decision-composer">
         <form class="decision-composer" @submit.prevent="saveForLater">
         <h2 class="composer-heading">暂存决定</h2>
         <label class="quote-field">
@@ -310,7 +298,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
           </button>
         </div>
       </form>
-      </details>
+      </section>
 
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
       <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
@@ -462,41 +450,10 @@ onBeforeUnmount(() => window.clearInterval(timer));
 }
 
 /* Sections are bare blocks closed by a hairline, not bordered cards. */
-/*
- * The composer is folded by default: a summary line, opened on demand. It used to be a full form
- * occupying the first screen ahead of the records.
- */
+/* The composer is an action the list header opens, not a row of its own above the list. */
 .decision-composer-wrap {
   padding: 14px 0 4px;
   border-bottom: 1px solid var(--gn-line);
-}
-
-.composer-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-height: 40px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.composer-summary::-webkit-details-marker {
-  display: none;
-}
-
-.composer-summary-title {
-  color: var(--gn-ink);
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.composer-summary-hint {
-  color: var(--gn-muted);
-  font-size: 12px;
-}
-
-.decision-composer-wrap[open] .composer-summary {
-  margin-bottom: 6px;
 }
 
 .decision-composer,
