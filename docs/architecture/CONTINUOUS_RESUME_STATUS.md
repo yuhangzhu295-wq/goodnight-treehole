@@ -144,9 +144,11 @@ window. Square and MoodCreate are implemented and functionally green but have no
 Archive/DiaryDetail-style follow-ups cannot be re-reviewed either. Everything else that needs no
 reviewer (scripts, functional gates, responsive sweep) is unblocked.
 
-**Local-only commit.** `31c2b9d` (control-case prefix selectors) is committed but **not pushed**:
-github.com:443 was unreachable for four attempts over ~6 minutes. Check
-`git rev-parse HEAD origin/codex/ui-v2-native-redesign` before assuming the branch is in sync.
+**Push status.** github.com:443 was unreachable for about six minutes during this session; the
+commits made in that window (`31c2b9d`, `3009d58`) are now pushed - `HEAD` and
+`origin/codex/ui-v2-native-redesign` both point at `c055d9b`. Re-check
+`git rev-parse HEAD origin/<branch>` before assuming sync, because the failure is intermittent and
+silent until the next fetch.
 | identity isolation | `verify-device-credential-ownership` - the device sees its own record, another identity does not | n/a |
 | mood ownership | `verify-mood-owner` - the mood belongs to the session that created it | n/a |
 
