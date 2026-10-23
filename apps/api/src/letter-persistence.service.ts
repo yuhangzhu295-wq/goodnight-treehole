@@ -146,6 +146,36 @@ export class LetterPersistenceService {
   }
 
   /**
+   * Marks the letter saved and creates its diary entry as one unit.
+   *
+   * These were two separate writes: if the diary insert failed, the letter stayed flagged as saved with
+   * no diary behind it, and the reader saw 已收藏 with nothing to open. The update runs first inside the
+   * transaction, so a letter that does not belong to the caller cannot leave a diary behind either.
+   */
+  async saveToDiaryAtomically(
+    letterId: string,
+    userId: string,
+    diary: { id: string; emotion: string; content: string; createdAt: Date },
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.letter.updateMany({ where: { id: letterId, userId }, data: { savedToDiary: true } });
+      if (updated.count === 0) return { saved: false };
+      await tx.diary.create({
+        data: {
+          id: diary.id,
+          userId,
+          letterId,
+          emotion: diary.emotion,
+          content: diary.content,
+          hasLetter: true,
+          createdAt: diary.createdAt,
+        },
+      });
+      return { saved: true };
+    });
+  }
+
+  /**
    * Applies an AI completion to the letter, mirroring what the in-memory path wrote.
    *
    * `style` and `content` are only carried when the job actually produced text: a failed job

@@ -1727,13 +1727,6 @@ export class PublicController {
       ? await this.store.lettersDb.findOwned(id, userId)
       : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
-    // The flag has to reach the row, not just the object returned to this caller: without it the page
-    // showed 已收藏 until the next read and then 收藏 again, and any cleanup that treats "not saved"
-    // as disposable would delete a letter the reader had kept.
-    if (DIRECT_DB_MODELS.Letter) {
-      await this.store.lettersDb.markSavedToDiary(id, userId);
-    }
-    letter.savedToDiary = true;
     const savedDiary = {
       id: `diary_${Date.now()}`,
       userId: letter.userId,
@@ -1743,6 +1736,22 @@ export class PublicController {
       hasLetter: true,
       createdAt: new Date().toISOString(),
     };
+    if (DIRECT_DB_MODELS.Letter && DIRECT_DB_MODELS.Diary) {
+      // One transaction: the flag and the diary entry either both land or neither does. Split across
+      // two writes, a failed insert left the letter marked saved with no diary behind it, and the flag
+      // has to reach the row rather than just the object returned to this caller - otherwise the page
+      // showed 已收藏 until the next read and then 收藏 again.
+      const result = await this.store.lettersDb.saveToDiaryAtomically(id, userId, {
+        id: savedDiary.id,
+        emotion: savedDiary.emotion,
+        content: savedDiary.content,
+        createdAt: new Date(savedDiary.createdAt),
+      });
+      if (!result.saved) throw new NotFoundException('回信不存在');
+      letter.savedToDiary = true;
+      return { item: letter };
+    }
+    letter.savedToDiary = true;
     if (DIRECT_DB_MODELS.Diary) {
       await this.store.diariesDb.create({ ...savedDiary, createdAt: new Date(savedDiary.createdAt) });
     } else {

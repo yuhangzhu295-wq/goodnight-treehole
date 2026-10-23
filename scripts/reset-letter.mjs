@@ -1,15 +1,19 @@
-// Drop the app identity's generated letters so the next read regenerates one from the newest mood.
+// Recycle the letter this fixture generated, so the next read creates one from the newest mood.
 //
 // A letter only carries a source (`sourceMoodId`, and therefore the 原始记录 row) when it was created
-// after the mood it answers. The identity's first letter is usually created the moment the page is
-// opened - before any diary exists - so it has no source, and 原始记录 could never be exercised.
+// after the mood it answers. A letter that already exists keeps whatever source it had - usually none,
+// because the first one is generated the moment the page is opened, before any diary exists.
 //
-// The identity is the anonymous account the app bootstraps on this device, and the URL guard below keeps
-// this on the local development database; the rows it removes are letters that same fixture generated.
-// Saved diaries are not touched.
+// Deleting letters by user id would remove letters a reader had saved, so this only ever removes ids it
+// wrote down itself: `artifacts/ui-v2/fixtures/letter-fixture.json` records the id of the letter this
+// script generated. Anything else on the identity is left alone. The URL guard keeps it on the local
+// development database.
+//
+// Exit codes: 0 = a sourced letter is ready, 2 = could not read the identity/credential or the database
+// is not local, 3 = no sourced letter is available (the page's 原始记录 case cannot run).
 //
 // Usage: node scripts/reset-letter.mjs
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { repoFile } from './repo-root.mjs';
 import { withSession } from './device-session.mjs';
@@ -24,72 +28,64 @@ if (!/@(?:127\.0\.0\.1|localhost)[:/]/.test(url)) {
   process.exit(2);
 }
 
-const userId = await withSession(async ({ call, ev }) => {
-  await call('Runtime.enable');
-  const value = await ev(
-    `(async function(){
-      try {
-        var p = window.Capacitor.Plugins.Preferences;
-        var u = await p.get({ key: 'goodnight-identity-user-id' });
-        return u.value || '';
-      } catch (e) { return ''; }
-    })()`,
-    true,
-  );
-  return String(value ?? '');
-});
-if (!userId) {
-  console.error('could not read the app identity from the device');
-  process.exit(2);
-}
+const fixtureDir = repoFile('artifacts/ui-v2/fixtures');
+const fixtureFile = `${fixtureDir}/letter-fixture.json`;
+const previous = existsSync(fixtureFile) ? JSON.parse(readFileSync(fixtureFile, 'utf8')) : null;
 
-const credential = await withSession(async ({ call, ev }) => {
+const identity = await withSession(async ({ call, ev }) => {
   await call('Runtime.enable');
-  return String(
-    (await ev(
+  const read = (key) =>
+    ev(
       `(async function(){
         try {
           var p = window.Capacitor.Plugins.Preferences;
-          var c = await p.get({ key: 'goodnight-identity-credential' });
-          return c.value || '';
+          var v = await p.get({ key: ${JSON.stringify(key)} });
+          return v.value || '';
         } catch (e) { return ''; }
       })()`,
       true,
-    )) ?? '',
-  );
+    );
+  return { userId: String((await read('goodnight-identity-user-id')) ?? ''), credential: String((await read('goodnight-identity-credential')) ?? '') };
 });
-
-if (!credential) {
-  console.error('could not read the app credential from the device; nothing deleted');
+if (!identity.userId || !identity.credential) {
+  console.error('could not read the app identity and credential from the device; nothing deleted');
   process.exit(2);
 }
 
+// Only the ids this fixture recorded, and only while they still belong to the same identity.
+const owned = (previous?.letterIds ?? []).filter((id) => typeof id === 'string' && id.length > 0);
 const prisma = new PrismaClient({ datasources: { db: { url } } });
-// Every letter of this identity. It is the anonymous account the app bootstrapped on this device, not a
-// person's account, and the URL guard above keeps this on the local database. Keeping a previously
-// saved letter would leave the fixture with a letter that has no source, so 原始记录 could not be
-// exercised - and the row this script deletes is the one the fixture itself generated.
-const { count } = await prisma.letter.deleteMany({ where: { userId } });
+const removed = owned.length
+  ? (await prisma.letter.deleteMany({ where: { id: { in: owned }, userId: identity.userId } })).count
+  : 0;
 await prisma.$disconnect();
 
-// Generate it now rather than leaving the first page view to do it: the generation is an AI job that
-// can take a minute, and a suite that opens the page while it runs sees the empty state and reports
-// every control as missing.
-let ready = false;
-if (credential) {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const res = await fetch('http://127.0.0.1:3000/api/v1/letters/today', { headers: { 'x-goodnight-user-id': credential } });
-    const body = await res.json().catch(() => ({}));
-    if (body?.item?.content) {
-      ready = true;
-      break;
-    }
-    await new Promise((r) => setTimeout(r, 3000));
+// Ask for a letter and wait for it: generation is an AI job, and a suite that opens the page while it
+// runs sees the empty state and reports every control as missing.
+let letter = null;
+for (let attempt = 0; attempt < 40; attempt += 1) {
+  const res = await fetch('http://127.0.0.1:3000/api/v1/letters/today', { headers: { 'x-goodnight-user-id': identity.credential } });
+  const body = await res.json().catch(() => ({}));
+  if (body?.item?.content) {
+    letter = body.item;
+    break;
   }
+  await new Promise((r) => setTimeout(r, 3000));
 }
-console.log(
-  `deleted ${count} letter(s) for ${userId}; ` +
-    `${ready ? 'a new one is generated' : 'generation did not finish in time'}`,
+
+mkdirSync(fixtureDir, { recursive: true });
+writeFileSync(
+  fixtureFile,
+  `${JSON.stringify({ ownerUserId: identity.userId, letterIds: letter ? [letter.id] : (previous?.letterIds ?? []) }, null, 2)}\n`,
 );
-// A fixture that is not ready must fail, or the suite tests the empty state and calls it a page.
-if (!ready) process.exitCode = 2;
+
+const sourced = Boolean(letter?.sourceDiaryId);
+console.log(
+  `recycled ${removed} letter(s) this fixture had generated for ${identity.userId}; ` +
+    `${letter ? `current letter ${letter.id}` : 'no letter was generated'}` +
+    `${sourced ? ' has a source' : ' has no source'}`,
+);
+if (!sourced) {
+  console.error('no sourced letter is available: the 原始记录 case cannot run on this identity');
+  process.exitCode = 3;
+}

@@ -57,7 +57,7 @@ if (!selected.length) {
  * run: `diary-list` opens the first row, and a fresh install (a deploy uninstalls the package, so the
  * app gets a new anonymous identity) has no rows at all - which reads as a broken list page.
  */
-function runFixture(label, script, args, { required = true } = {}) {
+function runFixture(label, script, args, { required = true, blockedExitCodes = [] } = {}) {
   try {
     const output = execFileSync(process.execPath, [repoFile('scripts', script), ...args], {
       encoding: 'utf8',
@@ -65,17 +65,25 @@ function runFixture(label, script, args, { required = true } = {}) {
     });
     const last = output.trim().split('\n').filter(Boolean).slice(-1)[0] ?? '';
     console.log(`fixture ${label.padEnd(6)} ${last}`);
+    return 'ok';
   } catch (error) {
     const text = String(`${error.stdout ?? ''}${error.stderr ?? ''}` || error.message || error).trim();
     const tail = text.split('\n').filter(Boolean).slice(-3).join(' / ') || 'no output';
+    // A documented exit code means "the precondition cannot be built here": a blocked suite, not a
+    // failure of the page and not a pass.
+    if (blockedExitCodes.includes(error.status)) {
+      console.warn(`fixture ${label} blocked (exit ${error.status}): ${tail}`);
+      return 'blocked';
+    }
     // A letter is produced by an AI job, so its fixture can legitimately be slow or unavailable. The
-    // suites that do not read it must still run, and letter-today fails on its own if the page has no
-    // letter. The diary and peer fixtures are deterministic and abort the run when they fail.
+    // suites that do not read it must still run. The diary and peer fixtures are deterministic and
+    // abort the run when they fail.
     if (required) {
       console.error(`fixture ${label} failed (exit ${error.status ?? '?'}): ${tail}`);
       process.exit(2);
     }
     console.warn(`fixture ${label} unavailable (exit ${error.status ?? '?'}): ${tail}`);
+    return 'unavailable';
   }
 }
 
@@ -83,6 +91,8 @@ function runFixture(label, script, args, { required = true } = {}) {
 // previous run had consumed, and the decline case then failed on an empty list rather than on its own
 // behaviour. Use `--no-fixtures` when iterating on a page whose data is already in place.
 const skipFixtures = process.argv.includes('--no-fixtures');
+/** 'ok' | 'blocked' | 'unavailable' | null (fixtures skipped). */
+let letterFixture = null;
 if (!skipFixtures) {
   runFixture('diary', 'seed-diary.mjs', [
     '--if-empty',
@@ -91,7 +101,7 @@ if (!skipFixtures) {
     '下次想试试先说结论，再补细节。',
   ]);
   // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
-  runFixture('letter', 'reset-letter.mjs', [], { required: false });
+  letterFixture = runFixture('letter', 'reset-letter.mjs', [], { required: false, blockedExitCodes: [3] });
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
 }
 
@@ -107,6 +117,14 @@ if (missingFixture.length) {
 
 const results = [];
 for (const suite of selected) {
+  // One case in letter-today opens the diary the letter answers, which only exists when the letter was
+  // generated from a mood. When the fixture cannot produce that, the suite is reported as blocked
+  // instead of being run against a page that legitimately has no 原始记录 row.
+  if (suite.name === 'letter-today' && letterFixture === 'blocked') {
+    results.push({ suite: suite.name, verdict: 'BLOCK', detail: 'no sourced letter available on this identity' });
+    console.log(`BLOCK ${suite.name.padEnd(20)} no sourced letter available on this identity`);
+    continue;
+  }
   const runner = suite.runner === 'effects' ? 'verify-control-effects.mjs' : 'verify-controls.mjs';
   const cases = `tests/ui-controls/${suite.cases}`;
   let output = '';

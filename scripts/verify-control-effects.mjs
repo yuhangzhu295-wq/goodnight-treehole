@@ -96,6 +96,20 @@ const appCredential = async () =>
   ev("(async()=>{var p=window.Capacitor.Plugins.Preferences;var r=await p.get({key:'goodnight-identity-credential'});return (r&&r.value)||''})()");
 let credential = await appCredential();
 
+/**
+ * Calls the API from the page with the app's credential, for a case that needs a known starting state.
+ *
+ * `becomes: 1` alone would pass on a post that was already favourited - the click could do nothing and
+ * the final state would still be 1. `setupApi` puts the state where the case expects it first.
+ */
+const apiCall = async (method, path) => {
+  credential = (await appCredential()) || credential;
+  return ev(`(async()=>{
+    var r = await fetch('http://127.0.0.1:3000${path}', { method: ${JSON.stringify(method)}, headers: { 'x-goodnight-user-id': ${JSON.stringify(credential || '')} } });
+    return r.status;
+  })()`);
+};
+
 const apiRead = async (path) => {
   // No navigation here. `apiRead` used to call `go()` first, which reloaded the page immediately
   // after the click it was supposed to measure - a write still in flight is aborted by that reload,
@@ -128,6 +142,10 @@ for (const c of cases) {
   // A reversible control (`toggle`) needs the same before/after read as a counted one; without
   // `apiDelta` the runner never read the API and a click that changed nothing passed.
   const readsApi = Boolean(c.expect.apiDelta || c.expect.toggle || typeof c.expect.becomes === 'number');
+  for (const call of c.expect.setupApi ?? []) {
+    const status = await apiCall(call.method, call.path);
+    if (Number(status) >= 400) console.log(`      setupApi ${call.method} ${call.path} -> ${status}`);
+  }
   const before = readsApi ? await apiRead(c.expect.apiRead) : null;
   // A control that lives on another tab only exists after that tab is selected.
   if (c.tab) {
