@@ -13,7 +13,10 @@ const QUEUE = repoFile('docs/design-v2/UI_V2_MASTER_QUEUE.json');
 /** page -> what ran, and the reviewer's verdict on a named screenshot (null = not reviewed). */
 const EVIDENCE = {
   DiaryList: { script: 'verify-diary-list.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/diary-list-v6.png', visual: 'PASS' },
-  DiaryDetail: { script: 'verify-diary-detail.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/diary-detail-v4.png', visual: null },
+  DiaryDetail: {
+    script: 'verify-diary-detail.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/diary-detail-v4.png', visual: 'PASS',
+    note: 'three accepted P2 polish items from the reviewer: the bar hairline is inset rather than full-bleed, the bar padding is wider than the mock, and the body rhythm is ~30% tighter',
+  },
   LetterDetail: { script: 'verify-letter-detail.mjs', passed: 5, total: 5, shot: 'artifacts/ui-v2/r2/letter-detail-v4.png', visual: 'PASS' },
   ReportMonth: { script: 'verify-month-report.mjs', passed: 8, total: 8, shot: 'artifacts/ui-v2/r2/report-month-v5.png', visual: 'PASS' },
   DecisionVault: { script: 'verify-decision-vault.mjs', passed: 7, total: 7, shot: 'artifacts/ui-v2/r2/decision-vault-v8.png', visual: 'PASS' },

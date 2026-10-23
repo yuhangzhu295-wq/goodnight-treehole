@@ -539,8 +539,8 @@
         "screenshot": "artifacts/ui-v2/r2/stable-self-bottom-v3.png",
         "visualVerdict": "PASS",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
-        "recordedAt": "2026-10-23T05:55:06.868Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "none"
     },
@@ -596,8 +596,8 @@
         "screenshot": "artifacts/ui-v2/r2/decision-vault-v8.png",
         "visualVerdict": "PASS",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "none"
     },
@@ -631,8 +631,8 @@
         "visualVerdict": "FAIL",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
         "note": "reviewer fails it on one item: the title is 归档, the mock says 旅程归档. Deliberate - the page holds diaries, posts, letters and journeys.",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
     },
@@ -773,8 +773,8 @@
         "screenshot": null,
         "visualVerdict": null,
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
     },
@@ -850,8 +850,8 @@
         "screenshot": "artifacts/ui-v2/r2/diary-list-v6.png",
         "visualVerdict": "PASS",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "none"
     },
@@ -868,24 +868,25 @@
       "screenshot": "artifacts/ui-v2/android/R4_DiaryDetail_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "yes",
-      "done": "no",
+      "done": "yes",
       "evidence": {
         "script": "scripts/verify-diary-detail.mjs",
         "result": "6/6",
         "screenshot": "artifacts/ui-v2/r2/diary-detail-v4.png",
-        "visualVerdict": null,
+        "visualVerdict": "PASS",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "note": "three accepted P2 polish items from the reviewer: the bar hairline is inset rather than full-bleed, the bar padding is wider than the mock, and the body rhythm is ~30% tighter",
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
-      "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-32",
@@ -915,8 +916,8 @@
         "screenshot": "artifacts/ui-v2/r2/report-month-v5.png",
         "visualVerdict": "PASS",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "none"
     },
@@ -969,8 +970,8 @@
         "screenshot": "artifacts/ui-v2/r2/letter-detail-v4.png",
         "visualVerdict": "PASS",
         "codeReview": "APPROVE on 6a51a9e..HEAD -- apps/mp/src/views + the verify-*.mjs fixtures; two non-blocking observations: verify-stable-self leaves the test identity's allowRecoveryData on (the identity is script-created), and verify-archive slices its needle by code unit, which fails toward a false FAIL rather than a false pass",
-        "recordedAt": "2026-10-23T05:55:06.869Z",
-        "head": "7853488237c8a544ae7e6c93caea075de47e9199"
+        "recordedAt": "2026-10-23T06:55:18.588Z",
+        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
       },
       "nextAction": "none"
     },
@@ -1150,8 +1151,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "7853488237c8a544ae7e6c93caea075de47e9199",
-  "updatedAt": "2026-10-23T05:55:06.869Z",
+  "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397",
+  "updatedAt": "2026-10-23T06:55:18.588Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
