@@ -140,15 +140,19 @@ async function submit() {
   <section class="page goodnight-page mood-create-page">
     <header class="compact-topbar">
       <button class="back-icon" data-testid="front-mood-back" aria-label="返回" @click="safeBack">‹</button>
-      <h1>写下心情</h1>
+      <h1>写一段话</h1>
       <span class="topbar-spacer" aria-hidden="true"></span>
     </header>
 
+    <p class="mood-lead">写下现在的想法，你可以选择是否公开。</p>
+
     <section class="write-card">
-      <textarea v-model="form.content" data-testid="input-mood-content" maxlength="1000" placeholder="此刻的你，想说些什么呢？&#10;开心的、难过的、烦恼的，都可以告诉树洞哦～" />
+      <textarea v-model="form.content" data-testid="input-mood-content" maxlength="1000" placeholder="比如：今天开会的时候，我还是有点紧张……" />
       <span class="counter">{{ countText }}</span>
     </section>
 
+    <!-- The design calls this 话题; this product stores an emotion, and the monthly report and the
+         letter are built from that value, so the heading keeps saying what the choice really is. -->
     <section class="panel-card">
       <h2>选择心情</h2>
       <div class="emotion-grid">
@@ -159,13 +163,17 @@ async function submit() {
     </section>
 
     <section class="panel-card">
-      <h2>谁可以看见</h2>
-      <div class="visibility-grid">
-        <button data-testid="mood-visibility-private" class="visibility-card" :class="{ active: form.visibility === 'PRIVATE' }" @click="form.visibility = 'PRIVATE'">
-          <span class="round-icon">◐</span><strong>仅自己可见</strong><small>只进入我的日记与情绪月报</small>
+      <h2>可见范围</h2>
+      <div class="visibility-rows">
+        <button data-testid="mood-visibility-private" class="visibility-row" :class="{ active: form.visibility === 'PRIVATE' }" @click="form.visibility = 'PRIVATE'">
+          <span class="radio-dot" aria-hidden="true" />
+          <span class="visibility-copy"><strong>仅自己可见</strong><small>默认选项 · 不会公开</small></span>
+          <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PRIVATE' ? '✓' : '' }}</span>
         </button>
-        <button data-testid="mood-visibility-public" class="visibility-card" :class="{ active: form.visibility === 'PUBLIC' }" @click="form.visibility = 'PUBLIC'">
-          <span class="round-icon">♡</span><strong>匿名发布到广场</strong><small>审核后可获得 AI 与真人回应</small>
+        <button data-testid="mood-visibility-public" class="visibility-row" :class="{ active: form.visibility === 'PUBLIC' }" @click="form.visibility = 'PUBLIC'">
+          <span class="radio-dot" aria-hidden="true" />
+          <span class="visibility-copy"><strong>申请公开</strong><small>提交后进入真实审核流程</small></span>
+          <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PUBLIC' ? '✓' : '' }}</span>
         </button>
       </div>
     </section>
@@ -207,7 +215,7 @@ async function submit() {
 
     <!-- 本页没有可重试的加载函数（错误来自校验/上传/发布），仅展示错误提示。 -->
     <LoadErrorBanner :message="error" />
-    <button class="submit-bar" data-testid="btn-submit-mood" :disabled="submitting" @click="submit">{{ submitting ? '正在发布…' : '发布心情' }}</button>
+    <button class="submit-bar" data-testid="btn-submit-mood" :disabled="submitting" @click="submit">{{ submitting ? '正在保存…' : '保存这段话' }}</button>
   </section>
 </template>
 
@@ -230,6 +238,14 @@ async function submit() {
   font-size: 17px;
   font-weight: 650;
   text-align: center;
+}
+
+/* The design's one-line subtitle under the bar. */
+.mood-lead {
+  margin: 14px 0 0;
+  color: #6c747d;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 /*
@@ -380,28 +396,82 @@ async function submit() {
 .mood-create-page .emotion-choice:nth-child(5) .face { background-image: url("../assets/goodnight/tool-baby-letter-cutout.png"); }
 .mood-create-page .emotion-choice:nth-child(6) .face { background-image: url("../assets/goodnight/tool-icon-sleep.png"); }
 
-/* The cards grow to hold the full privacy sentence. They used to be pinned at 50px so the first
-   viewport stayed short, which was only affordable while the sentence was ellipsised. */
-.mood-create-page .visibility-card {
-  grid-template-columns: 32px minmax(0, 1fr);
-  min-height: 62px;
-  padding: 6px 8px;
-  gap: 4px 7px;
+/* The design's visibility choice is two full-width rows - radio, name, consequence, check - not two
+   side-by-side cards. The consequence line stays a full sentence on its own line: it is the whole
+   privacy difference between the two options, so it is never truncated. */
+.mood-create-page .visibility-rows {
+  display: flex;
+  flex-direction: column;
 }
 
-.mood-create-page .round-icon {
-  width: 28px;
-  height: 28px;
+.mood-create-page .visibility-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #e8eaed;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
 }
 
-.mood-create-page .visibility-card small {
-  /* Two full lines, not an ellipsis. These two strings are the whole privacy consequence -
-     "only my diary and monthly report" versus "after review, AI and real people can reply" - so
-     truncating them means the user picks a visibility without being able to read what it does. */
-  font-size: 10px;
-  line-height: 1.2;
-  overflow: visible;
+.mood-create-page .visibility-row:last-child {
+  border-bottom: 0;
+}
+
+.mood-create-page .radio-dot {
+  display: grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1.5px solid #c9ced6;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.mood-create-page .visibility-row.active .radio-dot {
+  border-color: #275f56;
+}
+
+.mood-create-page .visibility-row.active .radio-dot::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #275f56;
+}
+
+.mood-create-page .visibility-copy {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.mood-create-page .visibility-copy strong {
+  display: block;
+  color: #242a32;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.mood-create-page .visibility-copy small {
+  display: block;
+  margin-top: 3px;
+  color: #8b939c;
+  font-size: 11.5px;
+  line-height: 1.4;
   white-space: normal;
   word-break: break-word;
+}
+
+.mood-create-page .visibility-check {
+  flex: 0 0 auto;
+  color: #275f56;
+  font-size: 16px;
 }
 </style>
