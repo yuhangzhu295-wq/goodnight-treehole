@@ -53,14 +53,13 @@ if (!identity.userId || !identity.credential) {
 }
 
 const prisma = new PrismaClient({ datasources: { db: { url } } });
-// What exists before this run, so the id the API returns afterwards can be attributed: a letter that
-// was already there is the reader's, not this fixture's, and is never recorded or deleted.
-const pre = await prisma.letter.findFirst({
-  where: { userId: identity.userId },
-  orderBy: { createdAt: 'desc' },
-  select: { id: true },
-});
-const preId = pre?.id ?? '';
+// Every letter that exists before this run. The id the API returns afterwards is attributed by this
+// set, not by "different from the latest": after a recorded letter is deleted, `letters/today` can
+// return an older letter that was already there, and calling that one "generated here" would let the
+// next run delete it.
+const preIds = new Set(
+  (await prisma.letter.findMany({ where: { userId: identity.userId }, select: { id: true } })).map((row) => row.id),
+);
 
 // Only the ids this fixture recorded, and only while they still belong to the same identity and have
 // not been kept by a reader since. A saved or favourited letter is user data: deleting it would null the
@@ -94,10 +93,10 @@ for (let attempt = 0; attempt < 40; attempt += 1) {
   await new Promise((r) => setTimeout(r, 3000));
 }
 
-// Record the id only when this run produced it. `letters/today` also returns a letter that already
-// existed, and recording that one would let the next run delete a reader's letter.
-const generatedHere = Boolean(letter && letter.id !== preId);
-const recordedIds = generatedHere ? [letter.id] : (previous?.letterIds ?? []).filter((id) => id !== preId);
+// Record the id only when it is not one of the letters that existed before this run. Anything the
+// identity already had is the reader's, and recording it would let the next run delete it.
+const generatedHere = Boolean(letter && !preIds.has(letter.id));
+const recordedIds = generatedHere ? [letter.id] : [];
 mkdirSync(fixtureDir, { recursive: true });
 writeFileSync(
   fixtureFile,
