@@ -116,7 +116,7 @@ Branch `codex/ui-v2-native-redesign`. Queue: `docs/design-v2/UI_V2_MASTER_QUEUE.
 `docs/design-v2/UI_V2_ISSUES.md` (15 entries, all with the `UI2-` prefix — the numbers are namespaced
 because the repo already had a product-audit `ISSUE-001..027` series).
 
-Position as of `10d4965` (2026-10-23). "Green" below means a script ran on a real APK on
+Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a real APK on
 `emulator-5554` against the real API and PostgreSQL, not that a build succeeded.
 
 | page | functional script | visual verdict |
@@ -126,29 +126,40 @@ Position as of `10d4965` (2026-10-23). "Green" below means a script ran on a rea
 | LetterDetail | `verify-letter-detail` 5/5 | **PASS** |
 | ReportMonth | `verify-month-report` 8/8 | **PASS** |
 | DecisionVault | `verify-decision-vault` 7/7 | **PASS** |
+| StableSelf | `verify-stable-self` 6/6 | **PASS** |
 | Archive | `verify-archive` 7/7 | FAIL on one item: the title says 归档, the mock says 旅程归档. Deliberate - the page holds diaries, posts, letters and journeys, so the mock's title would misdescribe three of its four tabs |
-| StableSelf | `verify-stable-self` 6/6 | verdict pending on `stable-self-v4.png` |
 | ToolDecompose / breakdown aliases | 4/4 and 2/2 | not reviewed |
 | route aliases | `verify-route-aliases` 7/7 | n/a |
 | input matrix | `verify-input-matrix` 7/7 | n/a |
+| square controls | `verify-square-controls` 17 manifest entries, all found | n/a |
+| responsive | `verify-responsive` PASS at 360/390/430 and large font | n/a |
+| identity isolation | `verify-device-credential-ownership` - the device sees its own record, another identity does not | n/a |
+| mood ownership | `verify-mood-owner` - the mood belongs to the session that created it | n/a |
 
 `codeReviewApproved` is still **no** for every page: the visual verdicts above come from an
-independent reviewer, but no code-review pass over these diffs has been recorded.
+independent reviewer, but no code-review pass over these diffs has been recorded. That is the single
+axis keeping five visually-approved pages out of DONE.
 
-**Not started or not finished:** the remaining P2 pages (Square, MoodCreate, PostDetail, LetterToday,
-ToolIndex, ToolRun, LetterList, FavoriteList, FeedbackHelp, HelpFaqs, and the rest of the 39-view
-baseline), the 12-domain end-to-end matrix, the persistence and security gates
-(`PERSISTENCE_BATCH3_STABLE=false`), and CI on this HEAD.
+**Not started or not finished:** 31 queue pages (Square, MoodCreate, PostDetail, LetterToday,
+ToolIndex, ToolRun, LetterList, FavoriteList, FeedbackHelp, HelpFaqs, TonightHome, PeerNetwork,
+ActionCenter, Me, JourneyDetail, PeerExperienceDetail, PeerRequests, PeerMatchWaiting, PeerConsent,
+PeerConversation, PeerGraduation, RealityHandoff, SafetySupport, NotificationCenter, FutureSelf,
+Recovery, SupportPlan, MemoryCenter, MeProfile, PrivacySettings, DataPolicy), the 12-domain
+end-to-end matrix, the persistence and security gates (`PERSISTENCE_BATCH3_STABLE=false`), and CI on
+this HEAD.
 
 **Instrument fixes that were needed before any of the above could be trusted** — each of these had
 been reporting an environment or fixture problem as a product defect:
 - `capture-page.mjs` wrote its PNG through a path relative to the caller's cwd, so a capture started
   from another directory left the previous PNG in place while printing the current page's text. A
   reviewer then compared the design against a screenshot from an earlier run. It is anchored on the
-  script now, heals the stack before navigating, restores `adb reverse`, and warns when the page it
-  photographed rendered an error banner.
+  script now, heals the stack before navigating, restores `adb reverse`, warns when the page it
+  photographed rendered an error, and has `CAPTURE_SCROLL=bottom` / `CAPTURE_FULL=1` modes for pages
+  whose primary action sits below the fold.
 - `device-session.mjs` treated "Activity class does not exist" as a broken install. On this AVD it is
   usually `enabled=3` (DISABLED_USER) set by the other project's automation; see environment fact 3.
+  It also retries the attach and re-attaches once when a read loses the socket, so a run survives one
+  restart.
 - `verify-stable-self.mjs` used `PrismaClient` without importing it (it could never run), and opened
   the recovery-data consent only after saving, so it asserted a request body the server had refused
   with 403.
@@ -156,6 +167,12 @@ been reporting an environment or fixture problem as a product defect:
   produced a real substring because a decorative glyph sat in front of the title.
 - `verify-letter-detail.mjs` assumed the account already had letters; it now writes one mood through
   the composer first.
+- Five scripts read `.env` and three read `tests/` or `artifacts/` through relative paths; all are
+  anchored on `scripts/repo-root.mjs` now.
+
+**Known flake:** `verify-route-aliases` compares what each alias rendered at the moment it looked, so
+a route that is still loading fails the group. It passed 7/7 on a re-run; treat a single-route
+mismatch as a load race first and re-run before calling it a routing defect.
 
 Follow the per-page loop in each page's `逐页提示词/NN_*.md`: read the design → preserve the data
 contract → minimal UI change → targeted tests → real emulator screenshot → visual-judge → fix →
