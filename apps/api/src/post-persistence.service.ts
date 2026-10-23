@@ -29,14 +29,23 @@ export class PostPersistenceService {
     return this.prisma.post.findUnique({ where: { id } });
   }
 
-  async listPublished(filter?: { emotion?: string }) {
+  /**
+   * `latest` is the publication order the feed has always used; `hot` is what the community actually
+   * responded to. The counters are real columns, so this is an order-by rather than a client-side
+   * re-sort of one page pretending to be a ranking. Ties break on the next counter and finally on
+   * time, so two requests for the same feed agree on the order.
+   */
+  async listPublished(filter?: { emotion?: string; sort?: 'latest' | 'hot' }) {
     return this.prisma.post.findMany({
       where: {
         status: 'active',
         reviewStatus: 'published',
         ...(filter?.emotion ? { emotion: filter.emotion } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy:
+        filter?.sort === 'hot'
+          ? [{ hugCount: 'desc' }, { replyCount: 'desc' }, { createdAt: 'desc' }]
+          : { createdAt: 'desc' },
     });
   }
 

@@ -301,9 +301,17 @@ export class PublicController {
   ) {}
 
   @Get('posts')
-  async posts(@Query('emotion') emotion?: string, @Query('mood') mood?: string) {
-    const items = await this.store.publicPosts(mood ?? emotion);
-    return { items, total: items.length };
+  async posts(
+    @Query('emotion') emotion?: string,
+    @Query('mood') mood?: string,
+    @Query('sort') sort?: string,
+  ) {
+    // Only two orders exist and both are real: publication order, and the order the community's own
+    // responses produce. An unknown value falls back to the default instead of erroring, so an older
+    // client that sends something else keeps working.
+    const order = sort === 'hot' ? 'hot' : 'latest';
+    const items = await this.store.publicPosts(mood ?? emotion, order);
+    return { items, total: items.length, sort: order };
   }
 
   @Get('debug/fingerprint')

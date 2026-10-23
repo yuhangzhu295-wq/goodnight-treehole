@@ -7464,7 +7464,7 @@ export class StoreService implements OnModuleInit {
     return item;
   }
 
-  async publicPosts(emotion?: string) {
+  async publicPosts(emotion?: string, sort?: 'latest' | 'hot') {
     const normalized = normalizeStoreEmotion(emotion);
     const normalizedValue = String(normalized);
     // The feed is readable without an identity. Only a request that carries one has hides to apply;
@@ -7484,7 +7484,9 @@ export class StoreService implements OnModuleInit {
       // '全部' is the "no filter" token the UI sends, not an emotion; filtering by it would return
       // the empty feed the client showed before this branch read the table.
       const wantsEmotion = Boolean(emotion) && normalizedValue !== '全部';
-      const published = await this.postsDb.listPublished(wantsEmotion ? { emotion: normalized } : undefined);
+      const published = await this.postsDb.listPublished(
+        wantsEmotion || sort ? { ...(wantsEmotion ? { emotion: normalized } : {}), ...(sort ? { sort } : {}) } : undefined,
+      );
       const favouriteIds = viewer ? await this.favoritesDb.postIdsForUser(viewer) : new Set<string>();
       return published
         .filter((post) => !hiddenPostIds.has(post.id))

@@ -3,12 +3,10 @@ import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { copyText } from '../clipboard';
-import { useDeviceClock } from '../composables/useDeviceClock';
 import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const route = useRoute();
-const { timeLabel } = useDeviceClock();
 
 const active = ref('');
 const posts = ref<any[]>([]);
@@ -70,13 +68,27 @@ function emotionMark(emotion: string) {
  */
 let loadSeq = 0;
 
+/**
+ * The design's two feed orders. Both are real server-side orders: `latest` is publication order and
+ * `hot` ranks by the hugs and replies the community actually left, which is why the tabs exist at all.
+ */
+const sort = ref<'latest' | 'hot'>('latest');
+
+function selectSort(next: 'latest' | 'hot') {
+  if (sort.value === next) return;
+  sort.value = next;
+  void load();
+}
+
 async function load() {
   const ticket = ++loadSeq;
   loading.value = true;
   loadError.value = '';
   try {
-    const query = active.value ? `?mood=${encodeURIComponent(active.value)}` : '';
-    const res = await api.get<any>(`/api/v1/posts${query}`);
+    const params = new URLSearchParams();
+    if (active.value) params.set('mood', active.value);
+    params.set('sort', sort.value);
+    const res = await api.get<any>(`/api/v1/posts?${params.toString()}`);
     if (ticket !== loadSeq) return;
     posts.value = res.items ?? [];
   } catch (cause) {
@@ -145,16 +157,36 @@ onMounted(() => {
 
 <template>
   <section class="page goodnight-page square-page">
-    <header class="front-hero square-hero">
-      <div class="status-row">
-        <span>{{ timeLabel }}</span>
-        <span aria-hidden="true"></span>
-      </div>
-      <div class="hero-copy">
-        <h1>广场</h1>
-        <p>公开内容经过审核后才能被其他人看到</p>
-      </div>
+    <!-- The design's header is a bare chevron and the page title. The V1 hero drew its own status
+         bar with a live clock inside the app, which is decoration, not chrome. -->
+    <header class="square-bar">
+      <button class="square-back" type="button" aria-label="返回" @click="router.back()">‹</button>
+      <h1 class="square-bar-title">广场</h1>
     </header>
+
+    <!-- Two real orders: publication time, and what the community actually responded to. -->
+    <div class="square-sorts" role="tablist" aria-label="内容排序">
+      <button
+        type="button"
+        role="tab"
+        class="square-sort"
+        :class="{ active: sort === 'latest' }"
+        :aria-selected="sort === 'latest'"
+        data-testid="square-sort-latest"
+        @click="selectSort('latest')"
+      >最新</button>
+      <button
+        type="button"
+        role="tab"
+        class="square-sort"
+        :class="{ active: sort === 'hot' }"
+        :aria-selected="sort === 'hot'"
+        data-testid="square-sort-hot"
+        @click="selectSort('hot')"
+      >热门</button>
+    </div>
+
+    <p class="square-notice">公开内容经过审核后才能被其他人看到</p>
 
     <div class="mood-filter-row" aria-label="心情筛选">
       <button
@@ -238,12 +270,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* The handset owns the status area; do not render a second, product-level
-   clock beneath it. Keeping its layout slot avoids shifting live content. */
-.square-page .status-row {
-  visibility: hidden;
-}
-
 /* V2 广场 is a plain feed: white paper, near-black ink, one hairline between rows, and the accent
    colour reserved for the primary action. The previous version put a full mascot cutout in the
    header and a second illustration inside every row, which measured at 21% ink against the
@@ -253,20 +279,63 @@ onMounted(() => {
   color: #242a32;
 }
 
-.square-hero {
-  background: #ffffff;
+/* The bar is a chevron and the title, closed by a full-bleed hairline. */
+.square-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0;
   border-bottom: 1px solid #e8eaed;
 }
 
-.square-hero .hero-copy h1 {
+.square-back {
+  width: 26px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #242a32;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.square-bar-title {
+  margin: 0;
   color: #242a32;
   font-size: 21px;
   font-weight: 700;
   letter-spacing: -0.4px;
 }
 
-.square-hero .hero-copy p {
-  margin-top: 3px;
+/* The design's tabs: text with an underline, not pills. */
+.square-sorts {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.square-sort {
+  min-height: 40px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #7e8690;
+  font-size: 14px;
+}
+
+.square-sort.active {
+  border-bottom-color: #275f56;
+  color: #275f56;
+  font-weight: 650;
+}
+
+.square-notice {
+  margin: 14px 0 0;
   color: #7a838e;
   font-size: 12px;
   line-height: 1.5;
