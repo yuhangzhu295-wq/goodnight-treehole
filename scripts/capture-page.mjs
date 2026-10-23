@@ -120,6 +120,13 @@ const result = await withSession(async ({ call, ev }) => {
     false,
   );
 
+  // CAPTURE_SCROLL=bottom photographs the end of the document in a normal viewport. The stitched
+  // full-page mode repeats the page's top inside very tall documents, which a reviewer read as a
+  // second header rather than as a stitching artefact.
+  if (process.env.CAPTURE_SCROLL === 'bottom') {
+    await ev("(function(){window.scrollTo(0, document.body.scrollHeight); return 1;})()", false);
+    await new Promise((r) => setTimeout(r, 700));
+  }
   // CAPTURE_FULL=1 photographs the whole document, not just the first screen. A page whose primary
   // action sits below the fold otherwise reaches the reviewer as a screenshot with no save button on
   // it, and "cannot confirm the button moved" reads as a failed fix.
