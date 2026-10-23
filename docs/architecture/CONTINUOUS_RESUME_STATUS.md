@@ -136,9 +136,20 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | identity isolation | `verify-device-credential-ownership` - the device sees its own record, another identity does not | n/a |
 | mood ownership | `verify-mood-owner` - the mood belongs to the session that created it | n/a |
 
-`codeReviewApproved` is still **no** for every page: the visual verdicts above come from an
-independent reviewer, but no code-review pass over these diffs has been recorded. That is the single
-axis keeping five visually-approved pages out of DONE.
+`codeReviewApproved` is **yes** for the six page views above: an independent reviewer read
+`git diff 6a51a9e..HEAD` and returned APPROVE with no findings, after checking for fake data, deleted
+capability without a replacement, loosened consent, failures disguised as empty states, weakened
+assertions, style hacks and Vue races. Five pages are therefore DONE on all seven axes; DiaryDetail
+still lacks a visual verdict and Archive is failed on the title deviation.
+
+**Control-level coverage** (`verify-controls.mjs <route> tests/ui-controls/<file>.json`, run
+2026-10-23 on the same device): diary-list 9/9, future-self 7/7, letter-today 4/4, mood-create 5/5,
+mood-create-effects 1/1, peer-consent 2/2, privacy-effects 3/3, safety-support 3/3,
+square-effects 2/2, tool-run 7/7. Two groups are **not** fully verified: `peer-detail` 1/3 and
+`peer-requests` 3/5 - their case files name a hardcoded `peer_match_1792524192636_2ea87231`, which
+does not exist for a fresh identity, so the accept/decline and request-sheet controls were skipped
+rather than exercised. Seeding a pending peer match (or making those cases target whatever pending
+request exists) is the next step for those two pages.
 
 **Not started or not finished:** 31 queue pages (Square, MoodCreate, PostDetail, LetterToday,
 ToolIndex, ToolRun, LetterList, FavoriteList, FeedbackHelp, HelpFaqs, TonightHome, PeerNetwork,
