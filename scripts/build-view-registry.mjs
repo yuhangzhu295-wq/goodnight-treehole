@@ -4,9 +4,10 @@
 // The registry is derived from the router and the audit mapping, so it can be re-derived after any
 // route change instead of drifting from the code.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { repoFile } from './repo-root.mjs';
 
 const router = readFileSync('apps/mp/src/router.ts', 'utf8');
-const pages = JSON.parse(readFileSync('artifacts/v2-source/audit-pages.json', 'utf8'));
+const pages = JSON.parse(readFileSync(repoFile('artifacts/v2-source/audit-pages.json'), 'utf8'));
 
 const routes = [...router.matchAll(/\{ path: '(\/pages[^']+)', component: (\w+)/g)].map((m) => ({
   path: m[1],

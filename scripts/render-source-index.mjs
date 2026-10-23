@@ -1,9 +1,10 @@
 // Render the full 52-row mapping table into the source index, so the document is complete rather
 // than pointing at the JSON. Re-run after any re-extraction.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { repoFile } from './repo-root.mjs';
 
 const DOC = 'docs/design-v2/UI_V2_SOURCE_INDEX.md';
-const pages = JSON.parse(readFileSync('artifacts/v2-source/audit-pages.json', 'utf8'));
+const pages = JSON.parse(readFileSync(repoFile('artifacts/v2-source/audit-pages.json'), 'utf8'));
 
 const rows = pages
   .map((p) => `| ${p.slug} | \`${p.route}\` | ${p.design || '—'} | ${p.relation || '—'} | ${p.priority} |`)

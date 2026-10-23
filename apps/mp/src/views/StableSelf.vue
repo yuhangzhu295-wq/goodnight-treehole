@@ -472,9 +472,8 @@ onMounted(load);
   cursor: pointer;
 }
 
-.option-row:last-child {
-  border-bottom: 0;
-}
+/* Every row keeps its closing hairline, including the last one: the design ends the list with a rule
+   under the final row rather than leaving it open. */
 
 .option-check {
   display: grid;
@@ -611,14 +610,14 @@ onMounted(load);
 
 /* In the flow, at the end of the form, as the design draws it. It used to be `position: fixed`,
    which floated the save bar over the middle of the list while scrolling - the reviewer saw the
-   first practice row cut in half behind it. */
+   first practice row cut in half behind it. No rule above it: the design separates the button from
+   the content with whitespace. */
 .stable-cta {
   display: grid;
   gap: 8px;
   justify-items: center;
   margin-top: 20px;
-  padding: 16px 0 0;
-  border-top: 1px solid var(--gn-line);
+  padding: 0;
   background: var(--gn-bg);
 }
 

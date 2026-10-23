@@ -3,6 +3,7 @@
 // contract, so each entry is clicked and its result checked against the expected outcome.
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { repoFile } from './repo-root.mjs';
 
 const ADB = process.env.ADB_PATH ?? [process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe'].join('/');
 const CDP = 9333;
@@ -29,7 +30,7 @@ const ev = async (x, awaitP = true) => {
 await call('Runtime.enable');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const manifest = JSON.parse(readFileSync('tests/interaction-manifest.front.json', 'utf8'))
+const manifest = JSON.parse(readFileSync(repoFile('tests/interaction-manifest.front.json'), 'utf8'))
   .filter((m) => m.page === 'front-square');
 console.log('manifest entries for front-square:', manifest.length);
 
