@@ -18,10 +18,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { withSession, ADB } from './device-session.mjs';
 import { ensureReverse } from './input-helpers.mjs';
+import { requireStack, requireStackAtEnd } from './preflight-api.mjs';
 
 // The app reaches the API through `adb reverse tcp:3000`; that tunnel disappears whenever the adb
 // server or the device restarts, and the page then renders its load-error banner. A capture taken in
 // that state photographs a broken tunnel, not the page.
+await requireStack();
 ensureReverse();
 
 /**
@@ -138,4 +140,10 @@ try {
 if (!result.navigated) {
   console.error(`WARNING: the page never reached ${route}; the screenshot shows whatever was on screen.`);
 }
+// A PNG taken while the API was down shows the load-error banner, and a reviewer would read that as
+// the page's design. Fail loudly instead of handing over a photograph of an outage.
+if (Array.isArray(parsed.errs) && parsed.errs.length) {
+  console.error(`WARNING: the page rendered an error: ${parsed.errs.join(' / ')}`);
+}
+await requireStackAtEnd();
 console.log(JSON.stringify({ route, slug, navigated: result.navigated, file: result.file, ...parsed }, null, 1));

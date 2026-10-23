@@ -172,12 +172,26 @@ export async function withSession(fn, { relaunch = true } = {}) {
     if (!pid) throw new Error('the app is not running and would not start');
   }
   const attach = async () => {
-    adb('forward', '--remove-all');
-    adb('forward', `tcp:${CDP_PORT}`, `localabstract:webview_devtools_remote_${pid}`);
-    const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json();
-    const target = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
-    if (!target) throw new Error('no CDP page target');
-    return new WebSocket(target.webSocketDebuggerUrl);
+    // Attaching races the app's own startup: the devtools socket is published a moment after the
+    // process appears, and a restart between the pid read and the fetch closes it again. Retrying here
+    // is what makes a run survive the emulator restarting the app underneath it.
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const currentPid = appPid() || pid;
+      if (currentPid) pid = currentPid;
+      try {
+        adb('forward', '--remove-all');
+        adb('forward', `tcp:${CDP_PORT}`, `localabstract:webview_devtools_remote_${pid}`);
+        const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json();
+        const target = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+        if (!target) throw new Error('no CDP page target');
+        return new WebSocket(target.webSocketDebuggerUrl);
+      } catch (cause) {
+        lastError = cause;
+        await new Promise((res) => setTimeout(res, 800));
+      }
+    }
+    throw lastError;
   };
 
   let ws = await attach();
@@ -315,7 +329,26 @@ export async function withSession(fn, { relaunch = true } = {}) {
       await new Promise((res) => ws.addEventListener('open', res, { once: true }));
     }
     if (!(await waitForDocument())) throw new Error('the WebView never produced a document to read');
-    const r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
+    let r;
+    try {
+      r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
+    } catch (cause) {
+      // The socket dies when the app is restarted underneath us - on this shared emulator that
+      // happens mid-run, not just between runs. One re-attach keeps a long script from dying on a
+      // restart it did not cause; a second failure is real and propagates.
+      const text = String(cause?.cause?.code ?? cause?.code ?? cause?.message ?? '');
+      if (!/UND_ERR_SOCKET|ECONNRESET|closed/i.test(text)) throw cause;
+      console.log('[device-session] the socket closed mid-read; re-attaching once');
+      const restarted = appPid() || (await launchApp());
+      if (!restarted) throw cause;
+      pid = restarted;
+      try { ws.close(); } catch { /* already gone */ }
+      ws = await attach();
+      ws.addEventListener('message', onMessage);
+      await new Promise((res) => ws.addEventListener('open', res, { once: true }));
+      if (!(await waitForDocument())) throw cause;
+      r = await call('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
+    }
     // A page-side exception arrives as a normal reply with `exceptionDetails` and no value. Returning
     // null there made a broken probe indistinguishable from "the element is not there" - a capture
     // that silently produced nothing looked like an empty page. Surface it instead.
