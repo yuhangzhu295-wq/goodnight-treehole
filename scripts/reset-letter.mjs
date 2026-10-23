@@ -52,12 +52,33 @@ if (!identity.userId || !identity.credential) {
   process.exit(2);
 }
 
-// Only the ids this fixture recorded, and only while they still belong to the same identity.
-const owned = (previous?.letterIds ?? []).filter((id) => typeof id === 'string' && id.length > 0);
 const prisma = new PrismaClient({ datasources: { db: { url } } });
-const removed = owned.length
-  ? (await prisma.letter.deleteMany({ where: { id: { in: owned }, userId: identity.userId } })).count
-  : 0;
+// What exists before this run, so the id the API returns afterwards can be attributed: a letter that
+// was already there is the reader's, not this fixture's, and is never recorded or deleted.
+const pre = await prisma.letter.findFirst({
+  where: { userId: identity.userId },
+  orderBy: { createdAt: 'desc' },
+  select: { id: true },
+});
+const preId = pre?.id ?? '';
+
+// Only the ids this fixture recorded, and only while they still belong to the same identity and have
+// not been kept by a reader since. A saved or favourited letter is user data: deleting it would null the
+// diary's `letterId`.
+const owned = (previous?.letterIds ?? []).filter((id) => typeof id === 'string' && id.length > 0);
+let removed = 0;
+if (owned.length) {
+  const kept = await prisma.letter.findMany({
+    where: { id: { in: owned }, userId: identity.userId, OR: [{ savedToDiary: true }, { favorite: true }] },
+    select: { id: true },
+  });
+  const keptIds = new Set(kept.map((row) => row.id));
+  const deletable = owned.filter((id) => !keptIds.has(id));
+  if (deletable.length) {
+    removed = (await prisma.letter.deleteMany({ where: { id: { in: deletable }, userId: identity.userId } })).count;
+  }
+  if (keptIds.size) console.log(`kept ${keptIds.size} letter(s) the reader had saved or favourited`);
+}
 await prisma.$disconnect();
 
 // Ask for a letter and wait for it: generation is an AI job, and a suite that opens the page while it
@@ -73,17 +94,22 @@ for (let attempt = 0; attempt < 40; attempt += 1) {
   await new Promise((r) => setTimeout(r, 3000));
 }
 
+// Record the id only when this run produced it. `letters/today` also returns a letter that already
+// existed, and recording that one would let the next run delete a reader's letter.
+const generatedHere = Boolean(letter && letter.id !== preId);
+const recordedIds = generatedHere ? [letter.id] : (previous?.letterIds ?? []).filter((id) => id !== preId);
 mkdirSync(fixtureDir, { recursive: true });
 writeFileSync(
   fixtureFile,
-  `${JSON.stringify({ ownerUserId: identity.userId, letterIds: letter ? [letter.id] : (previous?.letterIds ?? []) }, null, 2)}\n`,
+  `${JSON.stringify({ ownerUserId: identity.userId, letterIds: recordedIds }, null, 2)}\n`,
 );
 
 const sourced = Boolean(letter?.sourceDiaryId);
 console.log(
   `recycled ${removed} letter(s) this fixture had generated for ${identity.userId}; ` +
     `${letter ? `current letter ${letter.id}` : 'no letter was generated'}` +
-    `${sourced ? ' has a source' : ' has no source'}`,
+    `${sourced ? ' has a source' : ' has no source'}` +
+    `${generatedHere ? '' : ' (not recorded: it existed before this run)'}`,
 );
 if (!sourced) {
   console.error('no sourced letter is available: the 原始记录 case cannot run on this identity');
