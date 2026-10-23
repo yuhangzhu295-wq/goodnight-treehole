@@ -54,8 +54,6 @@ record(
   `status=${unknown.status} sort=${unknown.body.sort}`,
 );
 
-const failed = results.filter((ok) => !ok).length;
-
 // The API order is only half of it: the page has to actually ask for it. Click 热门 on the device and
 // read the order it renders, then compare it with the API's hot order.
 const { withSession } = await import('./device-session.mjs');
