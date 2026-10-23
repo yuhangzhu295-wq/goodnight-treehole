@@ -183,7 +183,10 @@ for (const c of cases) {
   }
   if (c.setup) {
     await click(c.setup);
-    await sleep(1100);
+    // A sheet renders on the next frame, and under load that can be later than a fixed sleep. Probing
+    // once at 1.1s reported "control not found" for a control that was about to appear - the failure
+    // peer-detail-request-submit produced in full runs and never in a standalone run.
+    await waitForSelector(selectorExpression(c.selector), 10000);
   }
   const before = await probe(c.selector);
   const found = before && JSON.parse(before).found;

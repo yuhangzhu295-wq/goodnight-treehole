@@ -136,6 +136,7 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | mood-create | `verify-controls` 5/5 + effects 1/1 | **WAITING_REVIEW** - reviewer gateway 401 |
 | post-detail | `verify-controls` 7/7 + effects 1/1, responsive clean at 360/390/430 + large font | **WAITING_REVIEW** - reviewer gateway 401 |
 | letter-today | `verify-controls` 6/6 (menu, regenerate, save, poster, 原始记录, back), responsive clean | **WAITING_REVIEW** - reviewer gateway 401 |
+| tool-index | `verify-controls` 9/9 (every tool row navigates to its own route), responsive clean | **WAITING_REVIEW** - reviewer gateway 401 |
 | design package | `verify-design-package`: 39 images, all 780x1688, no numbering gaps, no empty files | n/a |
 | responsive | `verify-responsive-all` 20/20 pages at 360/390/430 and large font (was 19/20: TonightHome's 更多 chip sat at x=289..363 in a 360 viewport and could not be tapped; the chips scroll now and 更多 is pinned) | n/a |
 
