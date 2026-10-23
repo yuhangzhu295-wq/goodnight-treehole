@@ -24,7 +24,7 @@ const fixtures = existsSync(fixturePath) ? JSON.parse(readFileSync(fixturePath, 
 const SUITES = [
   { name: 'diary-list', route: '/pages/diary/list', cases: 'diary-list.json', runner: 'controls' },
   { name: 'future-self', route: '/pages/future-self/index', cases: 'future-self.json', runner: 'controls' },
-  { name: 'letter-today', route: '/pages/letter/today', cases: 'letter-today.json', runner: 'controls' },
+  { name: 'letter-today', route: '/pages/letter/index', cases: 'letter-today.json', runner: 'controls' },
   { name: 'mood-create', route: '/pages/mood/create', cases: 'mood-create.json', runner: 'controls' },
   { name: 'mood-create-effects', route: '/pages/mood/create', cases: 'mood-create-effects.json', runner: 'effects' },
   { name: 'post-detail', route: '/pages/post/detail?id=post_seed_shimian', cases: 'post-detail.json', runner: 'controls' },
@@ -72,6 +72,8 @@ if (!only) {
     '轮到我发言时还是有点卡住，但把想说的写下来之后就没那么慌了。',
     '下次想试试先说结论，再补细节。',
   ]);
+  // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
+  runFixture('letter', 'reset-letter.mjs', []);
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
 }
 

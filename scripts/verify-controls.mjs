@@ -188,16 +188,23 @@ for (const c of cases) {
   const before = await probe(c.selector);
   const found = before && JSON.parse(before).found;
   const clickedTestId = found ? await testIdOf(c.selector) : '';
+  const urlBefore = await ev('location.pathname + location.search', false);
   let after = 'skipped';
   if (found) {
     after = await click(c.selector);
-    await sleep(1000);
+    // `settleMs` is for a control whose effect is a request (a poster render, a regeneration): the
+    // default one second is enough for a navigation and not for an API round trip.
+    await sleep(c.settleMs ?? 1000);
   }
   const url = await ev('location.pathname + location.search', false);
   const expect = c.expect ?? {};
   const problems = [];
   if (!found) problems.push('control not found');
   if (expect.url && !String(url).includes(expect.url)) problems.push(`url ${url}, expected ${expect.url}`);
+  // A back button has no fixed destination - it goes wherever history says, which on this runner is
+  // usually the previous case's page. "The URL changed" is the only honest assertion for it; asserting
+  // a particular page fails as soon as two cases in a row are on the same component.
+  if (expect.urlChanged && String(url) === String(urlBefore)) problems.push(`url did not change (${url})`);
   if (expect.text) {
     const has = await ev(`(function(){return (document.body.innerText||'').indexOf(${JSON.stringify(expect.text)})>=0})()`, false);
     if (!has) problems.push(`text "${expect.text}" not on page`);

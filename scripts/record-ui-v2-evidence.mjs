@@ -49,6 +49,93 @@ const sha = readFileSync(repoFile('.git/HEAD'), 'utf8').trim();
 let head = sha;
 if (sha.startsWith('ref: ')) head = readFileSync(repoFile('.git', sha.slice(5).trim()), 'utf8').trim();
 
+/**
+ * `--from-run <log>`: take the numbers from a `run-control-suites.mjs` log instead of the table above.
+ *
+ * The table is typed by hand, and a hand-typed result is exactly what this file is supposed to stop
+ * recording. This mode reads the per-suite `PASS/FAIL <name> <p>/<t>` lines that the runner printed,
+ * requires every suite that belongs to a page to be green, and leaves the visual axis alone.
+ */
+const runArg = process.argv.indexOf('--from-run');
+if (runArg > -1) {
+  const logPath = process.argv[runArg + 1];
+  if (!logPath) {
+    console.error('--from-run needs the log path printed by run-control-suites.mjs');
+    process.exit(2);
+  }
+  const lines = readFileSync(logPath, 'utf8').split('\n');
+  const SUITE_TO_PAGE = {
+    'diary-list': 'DiaryList',
+    'future-self': 'FutureSelf',
+    'letter-today': 'LetterToday',    'mood-create': 'MoodCreate',
+    'mood-create-effects': 'MoodCreate',
+    'post-detail': 'PostDetail',
+    'post-detail-effects': 'PostDetail',
+    'privacy-effects': 'PrivacySettings',
+    'safety-support': 'SafetySupport',
+    'square-effects': 'Square',
+    'tool-run': 'ToolRun',
+    'peer-requests': 'PeerRequests',
+    'peer-detail': 'PeerExperienceDetail',
+    'peer-consent': 'PeerConsent',
+  };
+  // Pages whose markup changed in this round: an older visual verdict was about a page that no
+  // longer exists, so it is withdrawn here rather than carried over.
+  const REWORKED = new Set(['PostDetail']);
+  const byPage = new Map();
+  for (const line of lines) {
+    const match = /^(PASS|FAIL|ERROR)\s+(\S+)\s+(.*)$/.exec(line.trim());
+    if (!match) continue;
+    const page = SUITE_TO_PAGE[match[2]];
+    if (!page) continue;
+    const counts = /(\d+)\/(\d+)/.exec(match[3]);
+    const entry = byPage.get(page) ?? { ok: true, parts: [], suites: [] };
+    entry.ok = entry.ok && match[1] === 'PASS' && counts && counts[1] === counts[2];
+    entry.parts.push(`${match[2]} ${counts ? `${counts[1]}/${counts[2]}` : match[3]}`);
+    entry.suites.push(match[2]);
+    byPage.set(page, entry);
+  }
+  if (!byPage.size) {
+    console.error(`no suite results found in ${logPath}; was the runner's output redirected there?`);
+    process.exit(2);
+  }
+  let updated = 0;
+  for (const task of queue.tasks ?? []) {
+    const entry = byPage.get(task.page);
+    if (!entry) continue;
+    task.implemented = 'yes';
+    task.rendered = 'yes';
+    task.interactionTested = entry.ok ? 'yes' : 'no';
+    task.businessVerified = entry.ok ? 'yes' : 'no';
+    if (REWORKED.has(task.page)) task.visualApproved = 'no';
+    task.codeReviewApproved = task.codeReviewApproved === 'yes' ? 'yes' : 'no';
+    task.done = ['implemented', 'rendered', 'interactionTested', 'businessVerified', 'visualApproved', 'codeReviewApproved']
+      .every((axis) => yes(task[axis])) ? 'yes' : 'no';
+    task.status = task.done === 'yes' ? 'DONE' : 'WAITING_REVIEW';
+    task.evidence = {
+      script: 'scripts/run-control-suites.mjs',
+      result: entry.parts.join(' + '),
+      screenshot: task.evidence?.screenshot ?? null,
+      visualVerdict: task.visualApproved === 'yes' ? 'PASS' : 'not reviewed on this layout',
+      codeReview: 'not run on this branch',
+      recordedAt: new Date().toISOString(),
+      head,
+    };
+    task.nextAction = task.done === 'yes'
+      ? 'none'
+      : task.visualApproved !== 'yes'
+        ? 'independent visual review of this page'
+        : 're-check the remaining axes';
+    updated += 1;
+  }
+  queue.updatedAt = new Date().toISOString();
+  queue.head = head;
+  writeFileSync(QUEUE, `${JSON.stringify(queue, null, 2)}\n`);
+  console.log(`recorded ${updated} pages from ${logPath} at ${head.slice(0, 7)}`);
+  for (const [page, entry] of byPage) console.log(`${page.padEnd(20)} ${entry.ok ? 'green' : 'RED'}  ${entry.parts.join(' + ')}`);
+  process.exit(0);
+}
+
 let touched = 0;
 for (const task of queue.tasks ?? []) {
   const evidence = EVIDENCE[task.page];

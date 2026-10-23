@@ -186,6 +186,14 @@ three pending requests, one accepted, one declined, one `suggested` match — an
 those pages are keyed by into `artifacts/ui-v2/fixtures/peer-fixtures.json`. It reads the app's identity
 off the device, because a deploy uninstalls the package and the app comes back as a new anonymous user.
 
+**Blocked: no independent visual verdict is obtainable right now.** At 18:35 on 2026-10-23 every
+reviewer path returned the same gateway error — `final-gate`, `reviewer-glm` and a plain
+`general-purpose` agent all answered `401 Authorization Required` from the subagent gateway. That is
+an infrastructure failure, not a quota one (the quota reset at 18:30 and the 401 replaced the quota
+message). PostDetail, Square and MoodCreate are therefore `WAITING_REVIEW`: implemented, rendered,
+interaction-tested and business-verified, with the visual and code-review axes **not** approved. The
+main agent may not fill those axes in itself; the pages stay not-done until a reviewer reads them.
+
 **Not started or not finished:** 31 queue pages (Square, MoodCreate, PostDetail, LetterToday,
 ToolIndex, ToolRun, LetterList, FavoriteList, FeedbackHelp, HelpFaqs, TonightHome, PeerNetwork,
 ActionCenter, Me, JourneyDetail, PeerExperienceDetail, PeerRequests, PeerMatchWaiting, PeerConsent,

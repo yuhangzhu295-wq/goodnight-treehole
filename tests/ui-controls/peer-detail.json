@@ -1,7 +1,7 @@
 [
  {
   "selector": "peer-detail-back",
-  "expect": { "gone": "[data-testid=\"peer-detail-back\"]" }
+  "expect": { "urlChanged": true }
  },
  {
   "selector": "peer-detail-request",

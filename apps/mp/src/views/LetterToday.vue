@@ -13,6 +13,8 @@ type Letter = {
   title?: string;
   content: string;
   sourceMoodId?: string;
+  /** The diary row this letter answers. The API resolves it per caller; it is what 原始记录 opens. */
+  sourceDiaryId?: string;
   savedToDiary?: boolean;
   /** The API returns this; the local type omitted it, so the source line could not use it. */
   createdAt?: string;
@@ -29,6 +31,8 @@ const aiStructured = ref<Record<string, any>>({});
 const aiNotice = ref('');
 const loading = ref(true);
 const loadError = ref('');
+/** The header's ⋯ menu: every tone and the poster live here so the page itself stays a letter. */
+const menuOpen = ref(false);
 
 const styles = [
   { key: 'warm', label: '温柔', icon: '♡', testId: 'btn-letter-warm' },
@@ -38,7 +42,6 @@ const styles = [
 ];
 
 const letterTitle = computed(() => letter.value?.title || '给现在的你');
-const savedText = computed(() => (letter.value?.savedToDiary ? '已保存' : '保存到日记'));
 /**
  * Where this letter came from.
  *
@@ -51,10 +54,23 @@ const letterIntro = computed(() => {
   if (!letter.value) return '';
   if (!letter.value.content) return '树洞正在根据你最近写下的心情生成回信。';
   const when = letter.value.createdAt
-    ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(letter.value.createdAt))
+    ? new Intl.DateTimeFormat('zh-CN', {
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date(letter.value.createdAt))
     : '';
-  return when ? `来自 ${when} 写下的一条心情记录` : '来自你最近写下的一条心情记录';
+  return when ? `来自 ${when} 写下的一条心情记录 · 仅自己可见` : '来自你最近写下的一条心情记录 · 仅自己可见';
 });
+
+/** The record this letter answers, when the API could resolve one. */
+function openSource() {
+  const id = letter.value?.sourceDiaryId;
+  if (!id) return;
+  router.push(`/pages/diary/detail?id=${encodeURIComponent(id)}`);
+}
 const signatureText = computed(() => {
   if (style.value === 'rational') return '今晚先处理可控的一小步。';
   if (style.value === 'light') return '先让心里的音量低一点。';
@@ -172,49 +188,38 @@ onMounted(load);
   <section class="page goodnight-page letter-page" v-if="letter">
     <header class="letter-topbar">
       <button class="back-icon" data-testid="letter-back" aria-label="返回" @click="safeBack">‹</button>
-      <h1>今日回信</h1>
-      <span class="visibility-note">仅自己可见</span>
+      <h1>今天的回信</h1>
+      <button class="more-icon" data-testid="letter-menu" aria-label="更多" @click="menuOpen = true">⋯</button>
     </header>
 
     <p class="letter-source">{{ letterIntro }}</p>
 
-    <div class="letter-style-tabs" aria-label="回信风格">
-      <button
-        v-for="item in styles"
-        :key="item.key"
-        :data-testid="item.testId"
-        :class="{ active: style === item.key }"
-        :disabled="Boolean(busyAction)"
-        @click="regenerate(item.key)"
-      >
-        <span>{{ item.icon }}</span>
-        <span>{{ item.label }}</span>
-      </button>
-    </div>
-
-    <article class="letter-card">
-      <h2>{{ letterTitle }}</h2>
+    <article class="letter-body">
+      <h2 class="letter-title">{{ letterTitle }}</h2>
       <p v-if="letter.content" class="letter-content">{{ letter.content }}</p>
-      <p v-else class="letter-content is-empty">这封回信还没有生成出来。换一种风格，或稍后再回来看看。</p>
+      <p v-else class="letter-content is-empty">这封回信还没有生成出来。换一种语气，或稍后再回来看看。</p>
       <p class="signature">{{ signatureText }}</p>
     </article>
 
     <AiDegradationNotice :notice="aiNotice" />
 
-    <div class="letter-actions">
-      <button data-testid="btn-letter-regenerate" @click="regenerate()">
-        <span>↻</span>
-        <span>{{ busyAction === style ? '正在换风格' : '换一种风格' }}</span>
+    <!--
+      The two rows the design puts under the letter. 原始记录 opens the diary entry the letter answers
+      (the API resolves that id per caller); 收藏 is the same save-to-diary the old action bar called.
+    -->
+    <section class="letter-rows">
+      <button v-if="letter.sourceDiaryId" class="letter-row" data-testid="letter-source-record" type="button" @click="openSource">
+        <span class="row-copy"><strong>原始记录</strong><small>查看这封回信回应的那件事</small></span>
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
-      <button data-testid="btn-letter-save" @click="saveToDiary">
-        <span>▣</span>
-        <span>{{ busyAction === 'diary' ? '正在保存' : savedText }}</span>
+      <button class="letter-row" data-testid="btn-letter-save" type="button" :disabled="busyAction === 'diary'" @click="saveToDiary">
+        <span class="row-copy">
+          <strong>{{ busyAction === 'diary' ? '正在保存' : letter.savedToDiary ? '已收藏' : '收藏' }}</strong>
+          <small>以后想再看时可以找回来</small>
+        </span>
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
-      <button data-testid="btn-letter-poster" @click="makeShareImage">
-        <span>⇧</span>
-        <span>{{ busyAction === 'share' ? '正在生成' : '分享图片' }}</span>
-      </button>
-    </div>
+    </section>
 
     <section class="advice-section">
       <h2>今日小建议</h2>
@@ -226,8 +231,7 @@ onMounted(load);
           :class="{ active: activeAdvice === item.key }"
           @click="chooseAdvice(item.key)"
         >
-          <span>{{ item.icon }}</span>
-          <span>{{ item.label }}</span>
+          {{ item.label }}
         </button>
       </div>
       <p class="advice-copy">{{ activeAdviceText }}</p>
@@ -235,12 +239,29 @@ onMounted(load);
 
     <p v-if="statusText" class="floating-status">{{ statusText }}</p>
 
+    <!-- Tone and poster live behind ⋯ so the page reads as one letter; every control still exists. -->
+    <div v-if="menuOpen" class="sheet-mask" data-state="letter-menu" @click.self="menuOpen = false">
+      <div class="sheet menu-sheet">
+        <h2>回信设置</h2>
+        <button
+          v-for="item in styles"
+          :key="item.key"
+          :data-testid="item.testId"
+          type="button"
+          :disabled="Boolean(busyAction)"
+          @click="menuOpen = false; regenerate(item.key)"
+        >换成{{ item.label }}的语气</button>
+        <button data-testid="btn-letter-regenerate" type="button" :disabled="Boolean(busyAction)" @click="menuOpen = false; regenerate()">重新生成</button>
+        <button data-testid="btn-letter-poster" type="button" :disabled="Boolean(busyAction)" @click="menuOpen = false; makeShareImage()">分享图片</button>
+        <button data-testid="letter-menu-cancel" type="button" @click="menuOpen = false">取消</button>
+      </div>
+    </div>
+
     <div v-if="shareOpen" class="modal share-modal" data-state="letter-share-preview" @click.self="shareOpen = false">
       <article class="share-card">
         <button class="card-more" data-testid="letter-share-close" aria-label="关闭" @click="shareOpen = false">×</button>
         <h2>今日回信分享图</h2>
         <div class="share-preview">
-          <div class="envelope-illustration small" aria-hidden="true"><span>♡</span></div>
           <strong>{{ letterTitle }}</strong>
           <p>{{ letter.content }}</p>
           <small>{{ shareUrl }}</small>
@@ -262,14 +283,23 @@ onMounted(load);
 <style scoped>
 /* The letter is the page: a plain top bar, the source line, then the body. The old version spent a
    hero, an envelope illustration and a second title above the text. */
+.letter-page.goodnight-page {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0 0 calc(32px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
+}
+
 .letter-topbar {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
-  gap: 10px;
   min-height: 52px;
-  margin: 0 -20px;
-  padding: 0 20px;
+  margin: 0 -18px;
+  padding: 0 18px;
   border-bottom: 1px solid #e8eaed;
   background: #ffffff;
 }
@@ -278,7 +308,7 @@ onMounted(load);
   color: #242a32;
   font-size: 17px;
   font-weight: 650;
-  text-align: center;
+  text-align: left;
 }
 
 .letter-topbar .back-icon {
@@ -291,10 +321,16 @@ onMounted(load);
   line-height: 1;
 }
 
-.letter-topbar .visibility-note {
-  color: #88909a;
-  font-size: 11px;
-  white-space: nowrap;
+.letter-topbar .more-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #39454c;
+  font-size: 18px;
+  line-height: 1;
 }
 
 /* Where the letter came from - one quiet line, not an illustrated block. */
@@ -305,56 +341,22 @@ onMounted(load);
   line-height: 1.6;
 }
 
-.letter-style-tabs {
-  display: flex;
-  gap: 6px;
-  margin: 14px 0 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
+.letter-body { margin-top: 14px; }
 
-.letter-style-tabs::-webkit-scrollbar { display: none; }
-
-.letter-style-tabs button {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  padding: 7px 11px;
-  border: 1px solid #e4e7ea;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #606a74;
-  font-size: 12px;
-}
-
-.letter-style-tabs button.active {
-  border-color: #c3dad0;
-  background: #eaf2ee;
-  color: #2b6358;
-  font-weight: 600;
-}
-
-.letter-card {
-  margin-top: 14px;
-  padding: 18px 16px;
-  border: 1px solid #e8eaed;
-  border-radius: 12px;
-  background: #ffffff;
-}
-
-.letter-card h2 {
-  margin: 0 0 12px;
+.letter-title {
+  margin: 0 0 14px;
   color: #242a32;
-  font-size: 15px;
-  font-weight: 650;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  line-height: 1.35;
 }
 
 .letter-content {
+  margin: 0;
   color: #333c44;
-  font-size: 14.5px;
-  line-height: 2.0;
+  font-size: 16px;
+  line-height: 1.85;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -365,35 +367,50 @@ onMounted(load);
   line-height: 1.7;
 }
 
-.letter-card .signature {
-  margin: 16px 0 0;
+.letter-body .signature {
+  margin: 18px 0 0;
   color: #88909a;
   font-size: 12px;
   text-align: right;
 }
 
-/* The actions stay as they are - they are the page's real business. */
-.letter-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
+/* The design's two rows - 原始记录 and 收藏 - one per line, separated by hairlines. */
+.letter-rows {
+  margin-top: 26px;
+  border-top: 1px solid #ebedf0;
 }
 
-.letter-actions button {
-  flex: 1;
+.letter-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 3px;
-  min-height: 52px;
-  padding: 9px 6px;
-  border: 1px solid #e4e7ea;
-  border-radius: 10px;
-  background: #ffffff;
-  color: #39454c;
-  font-size: 11.5px;
-  line-height: 1.2;
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #ebedf0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
 }
+
+.row-copy { flex: 1; min-width: 0; }
+
+.row-copy strong {
+  display: block;
+  color: #242a32;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.row-copy small {
+  display: block;
+  margin-top: 3px;
+  color: #8b939c;
+  font-size: 12px;
+}
+
+.row-chevron { flex: 0 0 auto; color: #c4cad0; font-size: 16px; }
 
 .advice-section h2 {
   margin: 20px 0 8px;
@@ -404,12 +421,12 @@ onMounted(load);
 
 .advice-row {
   display: flex;
+  /* Three suggestion chips at 12px do not fit one 375px row, and a scrolling row cut the last one at
+     the screen edge. Wrapping keeps all of them visible without removing any. */
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: visible;
 }
-
-.advice-row::-webkit-scrollbar { display: none; }
 
 .advice-row button {
   flex: 0 0 auto;

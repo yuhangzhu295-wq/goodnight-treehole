@@ -1,6 +1,31 @@
 [
-  { "selector": "letter-back", "expect": {} },
-  { "selector": "btn-letter-regenerate", "expect": {} },
-  { "selector": "btn-letter-save", "expect": {} },
-  { "selector": "btn-letter-poster", "expect": {} }
+ {
+  "selector": "letter-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "letter-menu",
+  "expect": { "present": "[data-testid=\"btn-letter-regenerate\"]" }
+ },
+ {
+  "selector": "btn-letter-regenerate",
+  "setup": "letter-menu",
+  "settleMs": 2000,
+  "expect": { "gone": "[data-state=\"letter-menu\"]" }
+ },
+ {
+  "selector": "btn-letter-save",
+  "settleMs": 2500,
+  "expect": { "text": "已收藏" }
+ },
+ {
+  "selector": "btn-letter-poster",
+  "setup": "letter-menu",
+  "settleMs": 9000,
+  "expect": { "present": "[data-testid=\"letter-share-close\"]" }
+ },
+ {
+  "selector": "letter-source-record",
+  "expect": { "url": "/pages/diary/detail" }
+ }
 ]
