@@ -132,8 +132,19 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | route aliases | `verify-route-aliases` 7/7 | n/a |
 | input matrix | `verify-input-matrix` 7/7 | n/a |
 | square controls | `verify-square-controls` 17 manifest entries, all found | n/a |
-| square | `verify-square-sort` 5/5 (API order for 最新/热门 plus the device rendering the server's hot order) | verdict pending on `square-v3.png` |
+| square | `verify-square-sort` 5/5 (API order for 最新/热门 plus the device rendering the server's hot order); controls 2/2 | **WAITING_REVIEW** - reviewer quota exhausted |
+| mood-create | `verify-controls` 5/5 + effects 1/1 | **WAITING_REVIEW** - reviewer quota exhausted |
 | responsive | `verify-responsive-all` 20/20 pages at 360/390/430 and large font (was 19/20: TonightHome's 更多 chip sat at x=289..363 in a 360 viewport and could not be tapped; the chips scroll now and 更多 is pinned) | n/a |
+
+**Reviewer availability (2026-10-23).** The reviewer models are rate-limited until **18:30 UTC+8**:
+`gpt-6-sol` returned `usage_limit_reached` and the general-purpose route returned 频率限制 for the same
+window. Square and MoodCreate are implemented and functionally green but have no visual verdict, and
+Archive/DiaryDetail-style follow-ups cannot be re-reviewed either. Everything else that needs no
+reviewer (scripts, functional gates, responsive sweep) is unblocked.
+
+**Local-only commit.** `31c2b9d` (control-case prefix selectors) is committed but **not pushed**:
+github.com:443 was unreachable for four attempts over ~6 minutes. Check
+`git rev-parse HEAD origin/codex/ui-v2-native-redesign` before assuming the branch is in sync.
 | identity isolation | `verify-device-credential-ownership` - the device sees its own record, another identity does not | n/a |
 | mood ownership | `verify-mood-owner` - the mood belongs to the session that created it | n/a |
 
