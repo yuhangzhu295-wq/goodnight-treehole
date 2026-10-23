@@ -3,8 +3,52 @@
 Per-task state so progress does not live only in a session context. `IMPLEMENTED` is **not** `DONE`:
 the columns are separate on purpose.
 
-> **Session saved 2026-10-23 for a shutdown.** Read this block first; the 2026-10-18 record below it is
-> the previous round and its HEAD/CI ids are stale.
+> **Live record, 2026-10-24.** The 2026-10-23 shutdown note below is superseded; its "visual review is
+> blocked" paragraph no longer applies — the reviewer gateway answers again.
+
+## Current state (2026-10-24)
+
+- **Branch `codex/ui-v2-native-redesign`**, HEAD `d50df68`, pushed, working tree clean.
+- **Seven pages DONE on all seven axes:** DiaryList, DiaryDetail, LetterDetail, ReportMonth,
+  DecisionVault, StableSelf. (Archive is deliberately failed on the 归档/旅程归档 title deviation.)
+- **Five pages visually APPROVED, code re-review pending:** Square, MoodCreate, PostDetail,
+  LetterToday, ToolIndex. An independent reviewer (third pass) returned PASS on all five after the P1s
+  below were fixed; the screenshots it judged are `artifacts/ui-v2/r2/{square,mood,post,letter,tool}-v8.png`.
+  Their `visualApproved` is `yes`, `codeReviewApproved` is `no`, so `done` is `no` — by design.
+- **Code review found eight blocking issues in this round; all eight are fixed** (see the commit). The
+  reviewer is re-reading the working tree; its verdict is the gate.
+- **Control suites: 15 suites, 13 green** on the last full run (`/tmp/controls-final10.log`). The two
+  reds are environment-bound, not product-bound:
+  - `tool-run` — `btn-tool-run-save` only exists after a successful AI job, and the local provider is
+    degraded (`AIJob`: 359 fallback, 76 failed). The other six cases pass.
+  - `peer-requests` — the decline case needs a second pending row after the accept case consumes one,
+    and the local VM restarted between the two attempts. The seed now tops up to four pending so a
+    retry still has rows; re-run it when the VM is stable.
+
+### Environment: the local VM restarts under load, and the API used to die with it
+
+Three separate causes, all now addressed:
+1. `ensure-stack.ps1` started the API against the distro's **IP**, which changes when the distro
+   restarts, leaving a pool of dead connections ("Can't reach database server at 172.31.188.221:5432"
+   mid-run). It now uses the forwarded port `127.0.0.1:15432`, which survives a distro restart.
+2. An AI job whose terminal write failed (Prisma `P1017`, "Server has closed the connection") rejected
+   a **floating promise** and exited the API. One lost write took every page down. The job path now
+   catches its own recording failure, and `main.ts` logs unhandled rejections instead of dying.
+3. The distro still restarts when the host is short of memory (measured 3.1 GB free of 15.6 GB with
+   the emulator at 1.7 GB and the VM at 2.9 GB). Both keep-alive scheduled tasks are registered
+   (`GoodnightTreeHoleWslKeepAlive` every minute, `GoodnightTreehole-WSL-Keepalive` every five), which
+   covers the idle case but not memory pressure. Expect a suite to fail occasionally and re-run it.
+
+### Next actions, in order
+
+1. Read the code reviewer's re-review; fix anything it still blocks, then the five pages above go DONE.
+2. Re-run `node scripts/run-control-suites.mjs` when the VM is stable; `tool-run` needs the AI provider
+   back (or a successful fallback job) to reach 15/15.
+3. Continue the queue at `ToolDecompose` (27) → `MeProfile` (29) → `LetterList` (33) → `FavoriteList`
+   (35) → `PrivacySettings` (36, partially covered by privacy-effects) → `DataPolicy` (37) →
+   `FeedbackHelp` (38) → `HelpFaqs` (39), then the batch-1/2/3 pages.
+4. Still untouched: the 12-domain end-to-end matrix, the persistence and security gates
+   (`PERSISTENCE_BATCH3_STABLE=false`), and CI on this HEAD.
 
 ## State at shutdown (2026-10-23)
 

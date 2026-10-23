@@ -235,20 +235,20 @@
       "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "note": "Reached from 同路 -> 最新 -> 查看后来记录. Real content, an honest empty state for 后来是这样走过来的, and no action shown without a matchId (opening it from a match is the path that carries one; not captured).",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
-        "result": "peer-detail 3/4",
+        "result": "peer-detail 4/4",
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.336Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes"
     },
@@ -268,20 +268,20 @@
       "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "yes",
-      "businessVerified": "yes",
+      "interactionTested": "no",
+      "businessVerified": "no",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "note": "Reached through its own PEER_REQUEST notification, with a live pending request. 我愿意聊聊 moves it into the 待确认边界的同行 panel and then into the boundary-confirmation page, so the accept -> consent -> waiting chain is verified end to end.",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
-        "result": "peer-requests 5/5",
+        "result": "peer-requests 4/5",
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes"
     },
@@ -336,8 +336,8 @@
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes"
     },
@@ -437,8 +437,8 @@
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes",
       "note": "Reached from 行动 -> 先缓一缓. The danger block, the three 可以先做的事 steps, both action rows and the footer disclaimer all render. Emergency links: 紧急医疗求助 120 opened the dialer with 120 pre-filled (R2_SafetySupport_dialer.png) - no call was placed, the dialer needs an explicit Call. 12356 was seen to bring the dialer to the front (topResumedActivity com.google.android.dialer/...MainActivityDialAlias) but its number was never captured on screen: the dialer was still blank on the first attempt and every retry afterwards lost the foreground to the other project's automation or found the app no longer on this page. Recorded as partial, not verified."
@@ -502,8 +502,8 @@
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes"
     },
@@ -696,19 +696,20 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "square-effects 2/2",
-        "screenshot": null,
-        "visualVerdict": "not reviewed on this layout",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "screenshot": "artifacts/ui-v2/r2/square-v8.png",
+        "visualVerdict": "PASS",
+        "codeReview": "re-review pending after eight blocking fixes",
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
+        "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent visual review of this page"
+      "nextAction": "independent code re-review (eight blocking fixes applied)"
     },
     {
       "id": "UI-V2-23",
@@ -728,19 +729,20 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "mood-create 5/5 + mood-create-effects 1/1",
-        "screenshot": null,
-        "visualVerdict": "not reviewed on this layout",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "screenshot": "artifacts/ui-v2/r2/mood-v8.png",
+        "visualVerdict": "PASS",
+        "codeReview": "re-review pending after eight blocking fixes",
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
+        "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent visual review of this page"
+      "nextAction": "independent code re-review (eight blocking fixes applied)"
     },
     {
       "id": "UI-V2-24",
@@ -760,19 +762,20 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "post-detail 7/7 + post-detail-effects 1/1",
-        "screenshot": null,
-        "visualVerdict": "not reviewed on this layout",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "screenshot": "artifacts/ui-v2/r2/post-v8.png",
+        "visualVerdict": "PASS",
+        "codeReview": "re-review pending after eight blocking fixes",
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
+        "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent visual review of this page"
+      "nextAction": "independent code re-review (eight blocking fixes applied)"
     },
     {
       "id": "UI-V2-25",
@@ -792,19 +795,20 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "letter-today 6/6",
-        "screenshot": null,
-        "visualVerdict": "not reviewed on this layout",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "screenshot": "artifacts/ui-v2/r2/letter-v8.png",
+        "visualVerdict": "PASS",
+        "codeReview": "re-review pending after eight blocking fixes",
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
+        "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent visual review of this page"
+      "nextAction": "independent code re-review (eight blocking fixes applied)"
     },
     {
       "id": "UI-V2-26",
@@ -824,19 +828,20 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "tool-index 9/9",
-        "screenshot": null,
-        "visualVerdict": "not reviewed on this layout",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "screenshot": "artifacts/ui-v2/r2/tool-v8.png",
+        "visualVerdict": "PASS",
+        "codeReview": "re-review pending after eight blocking fixes",
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
+        "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent visual review of this page"
+      "nextAction": "independent code re-review (eight blocking fixes applied)"
     },
     {
       "id": "UI-V2-27",
@@ -886,19 +891,19 @@
       "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "yes",
-      "businessVerified": "yes",
+      "interactionTested": "no",
+      "businessVerified": "no",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
-        "result": "tool-run 7/7",
+        "result": "tool-run 6/7",
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes"
     },
@@ -952,8 +957,8 @@
         "screenshot": "artifacts/ui-v2/r2/diary-list-v6.png",
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "none"
     },
@@ -1127,8 +1132,8 @@
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T12:01:58.337Z",
-        "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3"
+        "recordedAt": "2026-10-23T22:28:00.270Z",
+        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
       },
       "nextAction": "re-check the remaining axes"
     },
@@ -1263,8 +1268,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "4bb040c4ab24da8ea476f4d1ec75a9251ee4f8a3",
-  "updatedAt": "2026-10-23T12:01:58.337Z",
+  "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
+  "updatedAt": "2026-10-23T22:28:12.563Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
