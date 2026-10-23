@@ -108,6 +108,12 @@ async function selectFilter(key: string) {
   await load();
 }
 
+/** Back to where 广场 was opened from; a deep link has no history, and the tab bar is not here. */
+function safeBack() {
+  if (window.history.state?.back) router.back();
+  else router.push('/pages/tonight/index');
+}
+
 function openPost(post: any) {
   router.push(`/pages/post/detail?id=${post.id}`);
 }
@@ -160,8 +166,9 @@ onMounted(() => {
     <!-- The design's header is a bare chevron and the page title. The V1 hero drew its own status
          bar with a live clock inside the app, which is decoration, not chrome. -->
     <header class="square-bar">
-      <button class="square-back" type="button" aria-label="返回" @click="router.back()">‹</button>
+      <button class="square-back" type="button" data-testid="square-back" aria-label="返回" @click="safeBack">‹</button>
       <h1 class="square-bar-title">广场</h1>
+      <button class="square-write" type="button" data-testid="btn-write-mood" @click="router.push('/pages/post/create')">写心情</button>
     </header>
 
     <!-- Two real orders: publication time, and what the community actually responded to. -->
@@ -251,10 +258,6 @@ onMounted(() => {
       </div>
     </article>
 
-    <button class="write-fab" data-testid="btn-write-mood" @click="router.push('/pages/post/create')">
-      <span>写心情</span>
-    </button>
-
     <p v-if="statusText" class="floating-status">{{ statusText }}</p>
 
     <div v-if="menuPost" class="sheet-mask" data-state="square-more-menu" @click.self="menuPost = null">
@@ -293,6 +296,8 @@ onMounted(() => {
   width: 26px;
   height: 30px;
   padding: 0;
+  /* The chevron's own side bearing was the last 20-30 device px of the inset. */
+  text-align: left;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -341,11 +346,15 @@ onMounted(() => {
   line-height: 1.5;
 }
 
-.mood-filter-row {
+.square-page .mood-filter-row {
   display: flex;
   gap: 7px;
   overflow-x: auto;
-  padding: 12px 20px 4px;
+  /* The shared rule paints a warm cream band behind the chips (rgba(255, 252, 243, .82)) and pulls
+     it 15px past both edges. This page is white with hairlines, so the band is reset. */
+  margin: 0;
+  background: transparent;
+  padding: 12px 0 4px;
   scrollbar-width: none;
 }
 
@@ -397,7 +406,9 @@ onMounted(() => {
 }
 
 .post-row {
-  padding: 16px 20px 14px;
+  /* No horizontal padding: the bar, the sort tabs, the notice and the filter strip all sit on the
+     shell's 18px axis, and 20px here indented every avatar and body line 20px inside them. */
+  padding: 16px 0 14px;
   border-bottom: 1px solid #e8eaed;
 }
 
@@ -417,8 +428,10 @@ onMounted(() => {
   border-radius: 50%;
   background: #e7f0ee;
   color: #2b695c;
-  font-size: 13px;
+  /* Two-character emotion labels (失眠, 恋爱) at 13px touch the 34px circle's edges. */
+  font-size: 10.5px;
   font-weight: 680;
+  letter-spacing: -0.3px;
 }
 
 .post-avatar[data-emotion="焦虑"] { background: #f4f0e7; color: #8a6d33; }
@@ -488,50 +501,39 @@ onMounted(() => {
 }
 
 .plain-action {
-  min-height: 30px;
-  padding: 5px 9px;
-  border: 1px solid #e4e7ea;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #606a74;
-  font-size: 11.5px;
-  line-height: 1.2;
+  /* The design's row footer is inline text and a heart, not a pair of bordered pills. */
+  min-height: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #7e8690;
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 
 .plain-action:active {
   background: #f4f6f7;
 }
 
-/* The publish entry stays where it was; only its treatment follows the design's filled accent.
-   Width, height and radius are stated explicitly because the shared `.write-fab` rule in styles.scss
-   fixes a 92px circle - without overriding all three, the global values win on the ones left out and
-   the button renders as a round blob with the label wrapped onto two lines. */
-.write-fab {
-  position: fixed;
-  right: 18px;
-  bottom: calc(80px + env(safe-area-inset-bottom));
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  min-width: 96px;
-  height: 46px;
-  padding: 0 18px;
+/* 写心情 is a text action in the bar, not a floating button: the design has no floating action, and
+   the fixed 96px pill sat on top of the fourth row and covered its ⋯ / ♡ / 回应 controls. */
+.square-write {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 4px 0;
   border: 0;
-  border-radius: 10px;
-  background: #275f56;
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.2;
+  border-radius: 0;
+  background: transparent;
+  color: #275f56;
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
-  box-shadow: 0 8px 22px rgba(39, 95, 86, 0.22);
 }
 
 .floating-status {
   right: 20px;
-  bottom: calc(140px + env(safe-area-inset-bottom));
+  bottom: calc(96px + env(safe-area-inset-bottom));
   background: #275f56;
   color: #ffffff;
 }

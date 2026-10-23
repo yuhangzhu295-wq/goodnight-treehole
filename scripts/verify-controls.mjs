@@ -242,7 +242,7 @@ for (const c of cases) {
   }
   const verdict = problems.length ? `FAIL (${problems.join('; ')})` : 'PASS';
   results.push({ selector: c.selector, verdict, url });
-  console.log(`${verdict.startsWith('PASS') ? 'PASS ' : 'FAIL '} ${c.selector.padEnd(30)} ${after} -> ${url}`);
+  console.log(`${verdict.startsWith('PASS') ? 'PASS ' : 'FAIL '} ${c.selector.padEnd(30)} ${after} -> ${url}${verdict.startsWith('PASS') ? '' : ` | ${verdict}`}`);
 }
 const failed = results.filter((r) => r.verdict.startsWith('FAIL'));
 console.log(`\n${results.length - failed.length}/${results.length} controls behaved as expected`);

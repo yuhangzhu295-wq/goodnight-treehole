@@ -1727,6 +1727,12 @@ export class PublicController {
       ? await this.store.lettersDb.findOwned(id, userId)
       : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
+    // The flag has to reach the row, not just the object returned to this caller: without it the page
+    // showed 已收藏 until the next read and then 收藏 again, and any cleanup that treats "not saved"
+    // as disposable would delete a letter the reader had kept.
+    if (DIRECT_DB_MODELS.Letter) {
+      await this.store.lettersDb.markSavedToDiary(id, userId);
+    }
     letter.savedToDiary = true;
     const savedDiary = {
       id: `diary_${Date.now()}`,

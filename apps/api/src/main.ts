@@ -242,6 +242,13 @@ export async function createServer() {
 }
 
 if (process.env.NODE_ENV !== 'test') {
+  // A server must not exit because one background write failed. Prisma's P1017 ("Server has closed the
+  // connection") rejected a floating promise in the AI job path and took the whole API down; the device
+  // then reported every page as broken while the database was already back. Request handling has its own
+  // error path, so a stray rejection is logged and the process keeps serving.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[api] unhandled rejection:', reason);
+  });
   const app = await createServer();
   await app.listen(Number(process.env.API_PORT ?? 3000), '0.0.0.0');
   console.log(`API listening on http://localhost:${process.env.API_PORT ?? 3000}`);

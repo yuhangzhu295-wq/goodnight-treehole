@@ -109,11 +109,16 @@ Say "[ensure] WSL, PostgreSQL and Redis are answering real operations"
 if (-not $SkipApi) {
   $listening = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
   if (-not $listening) {
-    $ip = (& wsl.exe -e bash -lc 'hostname -I' 2>$null | Out-String).Trim().Split(' ')[0]
-    if (-not $ip) { Fail "could not read the distro address, so the API has nothing to point at" }
-    Say "[ensure] starting the API against $ip"
-    $env:DATABASE_URL = "postgresql://goodnight:goodnight@${ip}:5432/goodnight_treehole?schema=public"
-    $env:REDIS_URL = "redis://${ip}:6379"
+    # The forwarded port, not the distro's address: WSL assigns a new IP every time the distro
+    # restarts, and an API started against the old one keeps a pool of dead connections. Measured on
+    # 2026-10-24 - mid-run the API logged "Can't reach database server at 172.31.189.221:5432" while
+    # 127.0.0.1:15432 answered, and every page that reads the database started failing.
+    $ip = '127.0.0.1'
+    $dbPort = 15432
+    $redisPort = 16379
+    Say "[ensure] starting the API against ${ip}:${dbPort} (forwarded port)"
+    $env:DATABASE_URL = "postgresql://goodnight:goodnight@${ip}:${dbPort}/goodnight_treehole?schema=public"
+    $env:REDIS_URL = "redis://${ip}:${redisPort}"
     Start-Process -FilePath 'npx.cmd' -ArgumentList 'tsx','src/main.ts' `
       -WorkingDirectory (Join-Path $repo 'apps/api') -WindowStyle Hidden `
       -RedirectStandardOutput $apiLog -RedirectStandardError (Join-Path $artifacts 'api.err.log')

@@ -1,9 +1,37 @@
 [
-  { "selector": "front-post-back", "expect": {} },
-  { "selector": "detail-reply-count", "expect": {} },
-  { "selector": "btn-hug", "expect": {} },
-  { "selector": "btn-open-reply", "expect": {} },
-  { "selector": "reply-like-first", "expect": {} },
-  { "selector": "quick-hug-0", "expect": {} },
-  { "selector": "btn-open-more", "expect": {} }
+ {
+  "selector": "front-post-back",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "detail-reply-count",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "btn-hug",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "btn-open-reply",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "reply-like-first",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "quick-hug-0",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "btn-open-more",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ }
 ]

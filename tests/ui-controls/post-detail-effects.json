@@ -1,10 +1,11 @@
 [
-  {
-    "selector": "btn-favorite",
-    "expect": {
-      "apiRead": "/api/v1/posts",
-      "toggle": true,
-      "pick": "b => Number(b.items.find(p => p.id === 'post_seed_weiqu').favoritedByCurrentUser === true)"
-    }
-  }
+ {
+  "selector": "btn-favorite",
+  "expect": {
+   "apiRead": "/api/v1/posts",
+   "becomes": 1,
+   "pick": "b => Number(b.items.find(p => p.id === 'post_seed_shimian').favoritedByCurrentUser === true)"
+  },
+  "waitFor": "[data-testid=\"btn-favorite\"]"
+ }
 ]

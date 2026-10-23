@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 const router = useRouter();
+
+/** Back to wherever 工具 was opened from; the tab root is not always the entry point. */
+function safeBack() {
+  if (window.history.state?.back) router.back();
+  else router.push('/pages/tonight/index');
+}
 /**
  * Every tool the product has, with the group the design's three headings imply.
  *
@@ -52,8 +58,10 @@ function openTool(card: (typeof toolCards)[number]) {
 
 <template>
   <section class="page goodnight-page rest-page tool-page">
-    <header class="rest-topbar">
+    <header class="rest-topbar bleed-bar">
+      <button class="back-icon" data-testid="tool-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>情绪工具</h1>
+      <span aria-hidden="true"></span>
     </header>
 
     <p class="tool-lead">选择一种现在用得上的方式。</p>
@@ -94,19 +102,33 @@ function openTool(card: (typeof toolCards)[number]) {
   min-height: 0;
   /* The tab bar is fixed; 32px left the last row underneath it. */
   padding: 0 0 calc(96px + env(safe-area-inset-bottom));
-  overflow-x: hidden;
 }
 
 .tool-page .rest-topbar {
-  /* The shared bar is a three-column grid (back | centred title | action). This page is a tab root
-     with no back button, so the title takes the whole row and sits at the page's left edge. */
-  display: flex;
+  /* The shared `.rest-topbar` carries `margin-top: 16px`; on this page it left a blank band above the
+     bar that the other detail pages do not have. */
+  margin-top: 0;
+  /* back | title | spacer, the same shape as the other detail pages. */
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
   min-height: 52px;
-  margin: 0 -18px;
-  padding: 0 18px;
   border-bottom: 1px solid #e8eaed;
   background: #ffffff;
+}
+
+.tool-page .rest-topbar .back-icon {
+  place-items: center start;
+  /* Flush with the content axis; centred in its track the glyph sat 35 device px inside it. */
+  justify-self: start;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #39454c;
+  font-size: 24px;
+  line-height: 1;
 }
 
 .tool-page .rest-topbar h1 {
@@ -148,8 +170,6 @@ function openTool(card: (typeof toolCards)[number]) {
   text-align: left;
 }
 
-.tool-group .tool-row:last-child { border-bottom: 0; }
-
 .tool-row:active {
   background: #f7f8f9;
 }
@@ -185,6 +205,7 @@ function openTool(card: (typeof toolCards)[number]) {
 }
 
 .tool-row-chevron {
+  justify-self: end;
   color: #b6bcc2;
   font-size: 18px;
   line-height: 1;

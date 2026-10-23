@@ -1,20 +1,32 @@
 [
  {
   "selector": "peer-detail-back",
-  "expect": { "urlChanged": true }
+  "expect": {
+   "urlChanged": true
+  },
+  "waitFor": "[data-testid=\"peer-detail-request\"]"
  },
  {
   "selector": "peer-detail-request",
-  "expect": { "present": "[data-testid=\"peer-detail-request-close\"]" }
+  "expect": {
+   "present": "[data-testid=\"peer-detail-request-close\"]"
+  },
+  "waitFor": "[data-testid=\"peer-detail-request\"]"
  },
  {
   "selector": "peer-detail-request-close",
   "setup": "peer-detail-request",
-  "expect": { "gone": "[data-testid=\"peer-detail-request-close\"]" }
+  "expect": {
+   "gone": "[data-testid=\"peer-detail-request-close\"]"
+  },
+  "waitFor": "[data-testid=\"peer-detail-request\"]"
  },
  {
   "selector": "peer-detail-request-submit",
   "setup": "peer-detail-request",
-  "expect": { "url": "/pages/peer/wait" }
+  "expect": {
+   "url": "/pages/peer/wait"
+  },
+  "waitFor": "[data-testid=\"peer-detail-request\"]"
  }
 ]

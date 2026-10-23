@@ -68,17 +68,39 @@ function safeBack() {
   else router.push('/pages/square/index');
 }
 
+const loadError = ref('');
+const repliesError = ref('');
+
 async function load() {
   const id = postId();
+  loadError.value = '';
   try {
     const config = (await api.get<any>('/api/v1/config')).item;
     allowHumanReplies.value = config.allowHumanRepliesDefault !== false;
   } catch {
     allowHumanReplies.value = true;
   }
-  post.value = (await api.get<any>(`/api/v1/posts/${id}`)).item;
+  try {
+    post.value = (await api.get<any>(`/api/v1/posts/${id}`)).item;
+  } catch (cause: any) {
+    // A 404 is "this post is gone", which the empty state describes. Anything else is a failed read,
+    // and telling the reader it was deleted sends them looking for a post that still exists.
+    if (cause?.status === 404) {
+      post.value = undefined;
+      return;
+    }
+    loadError.value = cause?.message ?? '这条树洞暂时打不开';
+    return;
+  }
   allowHumanReplies.value = post.value.allowHumanReplies ?? allowHumanReplies.value;
-  replies.value = (await api.get<any>(`/api/v1/posts/${id}/replies`)).items;
+  try {
+    replies.value = (await api.get<any>(`/api/v1/posts/${id}/replies`)).items;
+    repliesError.value = '';
+  } catch (cause: any) {
+    // The post itself is readable; an empty list here would read as "no one replied yet".
+    replies.value = [];
+    repliesError.value = cause?.message ?? '回应暂时读取不到';
+  }
 }
 
 async function loadPresets() {
@@ -135,6 +157,21 @@ async function blockPost() {
   await router.replace('/pages/square/index');
 }
 
+/**
+ * Rows written before the fallback templates stopped prefixing the body with the style label.
+ *
+ * The label belongs to the reply's `style`, which is stored separately; showing it inside the text made
+ * every fallback reply read like a labelled AI field ("暖心陪伴：我听见你提到…"). New rows no longer
+ * carry it, and these four still do.
+ */
+const LEGACY_STYLE_PREFIX = /^(?:暖心陪伴|理性分析|轻松一点|清醒提醒|诗意疗愈)：/;
+function replyText(reply: { content?: unknown; style?: unknown }) {
+  const content = String(reply?.content ?? '');
+  // Only the AI templates prefixed the body with the style label; a person may have typed it, and their
+  // words are not ours to trim.
+  return String(reply?.style ?? '') === 'human' ? content : content.replace(LEGACY_STYLE_PREFIX, '');
+}
+
 function usePreset(index: number) {
   const text = presets.value[index]?.text;
   if (text) replyContent.value = text;
@@ -186,7 +223,7 @@ onMounted(async () => {
 
 <template>
   <section class="page goodnight-page detail-page" v-if="post">
-    <header class="detail-topbar">
+    <header class="detail-topbar bleed-bar">
       <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>一条动态</h1>
       <button class="more-icon" data-testid="btn-open-more" aria-label="更多" @click="showMore = true">⋯</button>
@@ -242,7 +279,7 @@ onMounted(async () => {
             position. The reply's own `style` is the composer's hint, not something a reader needs, and
             the design shows name + text only.
           -->
-          <p>{{ reply.content }}</p>
+          <p>{{ replyText(reply) }}</p>
         </div>
         <button
           :data-testid="index === 0 ? 'reply-like-first' : undefined"
@@ -252,7 +289,8 @@ onMounted(async () => {
           ♡ {{ reply.likeCount ?? 0 }}
         </button>
       </article>
-      <p v-if="!replies.length" class="reply-empty">还没有公开的回应。写下第一条，审核通过后会出现在这里。</p>
+      <p v-if="repliesError" class="reply-empty" data-testid="reply-load-error">{{ repliesError }}，可以下拉重试。</p>
+      <p v-else-if="!replies.length" class="reply-empty">还没有公开的回应。写下第一条，审核通过后会出现在这里。</p>
     </section>
 
     <section class="hug-section">
@@ -366,9 +404,10 @@ onMounted(async () => {
       <span aria-hidden="true"></span>
     </header>
     <article class="detail-card">
-      <h2>没有找到这条树洞</h2>
-      <p class="detail-content is-empty">它可能已经被删除或屏蔽。可以从广场重新打开一条。</p>
+      <h2>{{ loadError ? '这条树洞暂时打不开' : '没有找到这条树洞' }}</h2>
+      <p class="detail-content is-empty">{{ loadError || '它可能已经被删除或屏蔽。可以从广场重新打开一条。' }}</p>
       <div class="detail-actions">
+        <button v-if="loadError" class="primary" data-testid="detail-retry" @click="load">重新读取</button>
         <button class="primary" data-testid="detail-goto-square" @click="router.push('/pages/square/index')">回到树洞广场</button>
       </div>
     </article>
@@ -394,7 +433,6 @@ onMounted(async () => {
   /* `main.phone-shell` already insets every page by 18px; a second 20px here narrowed this column by
      38px a side while every other page used 18. The top bar takes the same 18px back out. */
   padding: 0 0 calc(112px + env(safe-area-inset-bottom));
-  overflow-x: hidden;
 }
 
 .reply-visibility-note {
@@ -415,8 +453,6 @@ onMounted(async () => {
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
   min-height: 52px;
-  margin: 0 -18px;
-  padding: 0 18px;
   border-bottom: 1px solid #e8eaed;
   background: #ffffff;
 }
@@ -429,6 +465,7 @@ onMounted(async () => {
 }
 
 .detail-topbar .more-icon {
+  justify-self: end;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -441,8 +478,14 @@ onMounted(async () => {
 }
 
 .detail-topbar .back-icon {
+  place-items: center start;
+  /* Flush with the content axis: centred in its 32px track the glyph sat 35 device px inside it. */
+  justify-self: start;
   width: 32px;
   height: 32px;
+  padding-left: 0;
+  /* The chevron's own side bearing was the last 20-30 device px of the inset. */
+  text-align: left;
   border: 0;
   background: none;
   color: #39454c;
@@ -529,7 +572,9 @@ onMounted(async () => {
 .detail-page .style-row.no-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  /* 6px/9px keeps all five tone chips on one line at 375px; 8px/11px pushed the fifth onto a line of
+     its own. */
+  gap: 6px;
   margin-top: 14px;
 }
 
@@ -537,7 +582,7 @@ onMounted(async () => {
   flex: 0 0 auto;
   width: auto;
   min-height: 0;
-  padding: 6px 11px;
+  padding: 6px 9px;
   border: 1px solid #e8eaed;
   border-radius: 999px;
   background: #ffffff;
@@ -576,12 +621,25 @@ onMounted(async () => {
 }
 
 .reply-avatar {
+  position: relative;
   flex: 0 0 auto;
   width: 34px;
   height: 34px;
-  border: 1px dashed #cfd6da;
   border-radius: 10px;
-  background: #f6f7f8;
+  background: #f2f4f5;
+}
+
+/* The dashed circle the design puts inside the tile, drawn rather than shipped as an asset. */
+.reply-avatar::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border: 1px dashed #c4cad0;
+  border-radius: 50%;
+  content: "";
+  transform: translate(-50%, -50%);
 }
 
 .reply-body { flex: 1; min-width: 0; }
@@ -602,6 +660,7 @@ onMounted(async () => {
 
 .detail-page .reply-like {
   flex: 0 0 auto;
+  align-self: flex-start;
   width: auto;
   min-height: 0;
   margin: 0;
@@ -651,6 +710,31 @@ onMounted(async () => {
   background: #ffffff;
   color: #6c747d;
   font-size: 12.5px;
+}
+
+/*
+ * The shared dock is a fixed three-column grid (input | 抱抱 | 收藏) with V1 olive and cream colours.
+ * This page renders two buttons, so the third track stayed empty and the bar stopped two-thirds of the
+ * way across, and the olive 抱抱 button is not the design's accent.
+ */
+.detail-page .reply-dock {
+  grid-template-columns: minmax(0, 1fr) 86px;
+  gap: 8px;
+  padding: 0 0 0 2px;
+}
+
+.detail-page .reply-dock .reply-input-button {
+  border: 1px solid #e4e7ea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #8b939c;
+}
+
+.detail-page .reply-dock .dock-main {
+  border: 0;
+  border-radius: 10px;
+  background: #275f56;
+  color: #ffffff;
 }
 
 /* Keep the real reply sheet at its functional height, but use the softer

@@ -2,7 +2,9 @@
  {
   "selector": "peer-request-tab-pending",
   "waitFor": "[data-testid^=\"peer-request-accept-\"]",
-  "expect": { "present": "[data-testid^=\"peer-request-accept-\"]" }
+  "expect": {
+   "present": "[data-testid^=\"peer-request-accept-\"]"
+  }
  },
  {
   "selector": "peer-request-tab-accepted",
@@ -24,7 +26,9 @@
   "selector": "peer-request-accept-*",
   "waitFor": "[data-testid^=\"peer-request-accept-\"]",
   "tab": "peer-request-tab-pending",
-  "expect": { "url": "/pages/peer/consent" }
+  "expect": {
+   "url": "/pages/peer/consent"
+  }
  },
  {
   "selector": "peer-request-decline-*",
@@ -33,6 +37,7 @@
   "expect": {
    "controlGone": true,
    "present": "[data-testid^=\"peer-request-accept-\"]"
-  }
+  },
+  "settleMs": 3500
  }
 ]

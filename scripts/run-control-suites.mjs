@@ -16,7 +16,12 @@ const onlyArg = process.argv.indexOf('--only');
 const only = onlyArg > -1 ? new Set(String(process.argv[onlyArg + 1] ?? '').split(',').filter(Boolean)) : null;
 
 const fixturePath = repoFile('artifacts/ui-v2/fixtures/peer-fixtures.json');
-const fixtures = existsSync(fixturePath) ? JSON.parse(readFileSync(fixturePath, 'utf8')) : null;
+/**
+ * Read lazily: the fixture phase rewrites this file before the suites run, and the routes it holds are
+ * ids generated per run. Reading it at module load meant peer-detail opened the previous run's match,
+ * whose status had already moved on, so the request PATCH failed and the case saw no navigation.
+ */
+const fixtures = () => (existsSync(fixturePath) ? JSON.parse(readFileSync(fixturePath, 'utf8')) : null);
 
 // `runner` names the script that understands the case file's shape, not the file's name:
 // `privacy-effects.json` asserts on text and url (verify-controls), `square-effects.json` asserts on
@@ -35,8 +40,8 @@ const SUITES = [
   { name: 'tool-run', route: '/pages/tool/run', cases: 'tool-run.json', runner: 'controls' },
   { name: 'tool-index', route: '/pages/tool/index', cases: 'tool-index.json', runner: 'controls' },
   { name: 'peer-requests', route: '/pages/peer/requests', cases: 'peer-requests.json', runner: 'controls' },
-  { name: 'peer-detail', route: fixtures?.detailRoute, cases: 'peer-detail.json', runner: 'controls' },
-  { name: 'peer-consent', route: fixtures?.consentRoute, cases: 'peer-consent.json', runner: 'controls' },
+  { name: 'peer-detail', route: () => fixtures()?.detailRoute, cases: 'peer-detail.json', runner: 'controls' },
+  { name: 'peer-consent', route: () => fixtures()?.consentRoute, cases: 'peer-consent.json', runner: 'controls' },
 ];
 
 const selected = SUITES.filter((suite) => !only || only.has(suite.name));
@@ -52,7 +57,7 @@ if (!selected.length) {
  * run: `diary-list` opens the first row, and a fresh install (a deploy uninstalls the package, so the
  * app gets a new anonymous identity) has no rows at all - which reads as a broken list page.
  */
-function runFixture(label, script, args) {
+function runFixture(label, script, args, { required = true } = {}) {
   try {
     const output = execFileSync(process.execPath, [repoFile('scripts', script), ...args], {
       encoding: 'utf8',
@@ -61,12 +66,24 @@ function runFixture(label, script, args) {
     const last = output.trim().split('\n').filter(Boolean).slice(-1)[0] ?? '';
     console.log(`fixture ${label.padEnd(6)} ${last}`);
   } catch (error) {
-    console.error(`fixture ${label} failed: ${String(error.stdout ?? error.message ?? error).trim().split('\n').slice(-1)[0]}`);
-    process.exit(2);
+    const text = String(`${error.stdout ?? ''}${error.stderr ?? ''}` || error.message || error).trim();
+    const tail = text.split('\n').filter(Boolean).slice(-3).join(' / ') || 'no output';
+    // A letter is produced by an AI job, so its fixture can legitimately be slow or unavailable. The
+    // suites that do not read it must still run, and letter-today fails on its own if the page has no
+    // letter. The diary and peer fixtures are deterministic and abort the run when they fail.
+    if (required) {
+      console.error(`fixture ${label} failed (exit ${error.status ?? '?'}): ${tail}`);
+      process.exit(2);
+    }
+    console.warn(`fixture ${label} unavailable (exit ${error.status ?? '?'}): ${tail}`);
   }
 }
 
-if (!only) {
+// `--only` selects suites, not fixtures: skipping the fixtures left the peer inbox with whatever the
+// previous run had consumed, and the decline case then failed on an empty list rather than on its own
+// behaviour. Use `--no-fixtures` when iterating on a page whose data is already in place.
+const skipFixtures = process.argv.includes('--no-fixtures');
+if (!skipFixtures) {
   runFixture('diary', 'seed-diary.mjs', [
     '--if-empty',
     '今天的会开得比想象中顺利',
@@ -74,12 +91,13 @@ if (!only) {
     '下次想试试先说结论，再补细节。',
   ]);
   // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
-  runFixture('letter', 'reset-letter.mjs', []);
+  runFixture('letter', 'reset-letter.mjs', [], { required: false });
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
 }
 
 // A peer route is generated per run, so a missing fixture is a setup problem, not a product failure.
-const missingFixture = selected.filter((suite) => !suite.route);
+const resolveRoute = (suite) => (typeof suite.route === 'function' ? suite.route() : suite.route);
+const missingFixture = selected.filter((suite) => !resolveRoute(suite));
 if (missingFixture.length) {
   console.error(
     `no route for: ${missingFixture.map((s) => s.name).join(', ')} - run node scripts/seed-peer-incoming-request.mjs first`,
@@ -93,14 +111,31 @@ for (const suite of selected) {
   const cases = `tests/ui-controls/${suite.cases}`;
   let output = '';
   let failedToRun = '';
-  try {
-    output = execFileSync(process.execPath, [repoFile('scripts', runner), suite.route, repoFile(cases)], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (error) {
-    output = `${error.stdout ?? ''}${error.stderr ?? ''}`;
-    if (!/controls (?:behaved|had their expected effect)/.test(output)) failedToRun = String(error.message ?? error).slice(0, 200);
+  let attempts = 0;
+  // One retry, recorded. These suites drive a device against a local VM that restarts under load: a
+  // page whose data request lands during a restart renders its error state, and the case then reports
+  // the control as missing. A second attempt on a suite that already passed standalone separates that
+  // from a real regression; both attempts stay in the log, and a suite that fails twice is red.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    attempts = attempt;
+    output = '';
+    failedToRun = '';
+    try {
+      output = execFileSync(process.execPath, [repoFile('scripts', runner), resolveRoute(suite), repoFile(cases)], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      output = `${error.stdout ?? ''}${error.stderr ?? ''}`;
+      if (!/controls (?:behaved|had their expected effect)/.test(output)) failedToRun = String(error.message ?? error).slice(0, 200);
+    }
+    const summaryNow = /(\d+)\/(\d+) controls (?:behaved as expected|had their expected effect)/.exec(output);
+    const failedNow = /failed: (.+)/.exec(output);
+    if (summaryNow && summaryNow[1] === summaryNow[2] && !failedNow) break;
+    if (attempt === 1) {
+      console.log(`      retrying ${suite.name} once (first attempt: ${failedNow ? failedNow[1] : failedToRun || 'no summary'})`);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
   }
   const summary = /(\d+)\/(\d+) controls (?:behaved as expected|had their expected effect)/.exec(output);
   const failed = /failed: (.+)/.exec(output);
@@ -113,7 +148,7 @@ for (const suite of selected) {
     results.push({
       suite: suite.name,
       verdict: ok ? 'PASS' : 'FAIL',
-      detail: `${passed}/${total}${failed ? ` - ${failed[1]}` : ''}${note ? ` - ${note[0]}` : ''}`,
+      detail: `${passed}/${total}${failed ? ` - ${failed[1]}` : ''}${attempts > 1 ? ` (passed on retry ${attempts})` : ''}${note ? ` - ${note[0]}` : ''}`,
     });
   }
   const last = results[results.length - 1];

@@ -8035,15 +8035,25 @@ export class StoreService implements OnModuleInit {
             durationMs,
           };
           const traces = [...(job.traceJson ?? []), traceEntry];
-          await this.batch1Persistence.updateJobTerminal({
-            id: job.id,
-            status: 'failed',
-            errorMessage,
-            durationMs,
-            completedAt,
-            traceJson: traces,
-          });
+          try {
+            await this.batch1Persistence.updateJobTerminal({
+              id: job.id,
+              status: 'failed',
+              errorMessage,
+              durationMs,
+              completedAt,
+              traceJson: traces,
+            });
+          } catch (recordError) {
+            // The job has already failed; failing to *record* that must not take the process down. A
+            // transient database disconnect here rejected this floating promise and exited the API
+            // (P1017 "Server has closed the connection"), which turned one lost write into every page
+            // on the device failing.
+            console.error('[ai-job] could not record the terminal state:', sanitizeProviderError(recordError));
+          }
         }
+      }).catch((error) => {
+        console.error('[ai-job] unexpected failure while running a job:', sanitizeProviderError(error));
       });
       return job;
     }
@@ -9206,11 +9216,11 @@ export class StoreService implements OnModuleInit {
     const structured = this.buildStructured(input);
     const action = structured.nextStep as string;
     const styleText: Record<AIStyle, string> = {
-      warm: `暖心陪伴：我听见你提到“${topic}”。这份${input.mood}不是矫情，它是在提醒你已经撑了一会儿。今晚先不用急着证明自己，先做一件很小的事：${action}。`,
-      rational: `理性分析：围绕“${topic}”，现在可以先分成三层看：事实是事情发生了，情绪是${structured.coreEmotion}，需要是${structured.realNeed}。下一步只保留一个动作：${action}。`,
-      light: `轻松一点：关于“${topic}”，先把脑内音量调低一点。你不用一口气处理完，先把最卡住的地方写出来，再给自己一个短暂停顿：${action}。`,
-      clear: `清醒提醒：你写下“${topic}”，说明这件事已经占用了能量。先别把它扩大成对自己的结论，今晚只处理可控部分：${action}。`,
-      poetic: `诗意疗愈：你把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+      warm: `我听见你提到“${topic}”。这份${input.mood}不是矫情，它是在提醒你已经撑了一会儿。今晚先不用急着证明自己，先做一件很小的事：${action}。`,
+      rational: `围绕“${topic}”，现在可以先分成三层看：事实是事情发生了，情绪是${structured.coreEmotion}，需要是${structured.realNeed}。下一步只保留一个动作：${action}。`,
+      light: `关于“${topic}”，先把脑内音量调低一点。你不用一口气处理完，先把最卡住的地方写出来，再给自己一个短暂停顿：${action}。`,
+      clear: `你写下“${topic}”，说明这件事已经占用了能量。先别把它扩大成对自己的结论，今晚只处理可控部分：${action}。`,
+      poetic: `你把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
     };
     const taskText: Partial<Record<AITaskType, string>> = {
       breakdown: `情绪拆解：触发事件可能是“${structured.trigger}”；核心情绪是“${structured.coreEmotion}”；真实需要是“${structured.realNeed}”；可以先做的一小步是“${action}”。`,

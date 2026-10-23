@@ -71,25 +71,45 @@ function openSource() {
   if (!id) return;
   router.push(`/pages/diary/detail?id=${encodeURIComponent(id)}`);
 }
+/** Letters written before the fallback templates stopped prefixing the body with the style label. */
+const LEGACY_STYLE_PREFIX = /^(?:暖心陪伴|理性分析|轻松一点|清醒提醒|诗意疗愈)：/;
+const letterBody = computed(() => String(letter.value?.content ?? '').replace(LEGACY_STYLE_PREFIX, ''));
+
 const signatureText = computed(() => {
   if (style.value === 'rational') return '今晚先处理可控的一小步。';
   if (style.value === 'light') return '先让心里的音量低一点。';
   if (style.value === 'poetic') return '愿这一页替你安放一点夜色。';
   return '今晚先把自己轻轻接住。';
 });
+/**
+ * The suggestions the API returned, and only those.
+ *
+ * This used to substitute three written-here strings when the job carried no advice, so the page showed
+ * invented suggestions as if the model had produced them. No advice now means no section.
+ */
 const adviceItems = computed(() => {
   const advice = Array.isArray(aiStructured.value.advice) ? aiStructured.value.advice : [];
-  const source = advice.length ? advice : ['把此刻写成一句话', '只做一个小动作', '给身体一点缓冲'];
   const icons = ['♨', '◷', '☾'];
-  return source.slice(0, 3).map((text: string, index: number) => ({
+  return advice.slice(0, 3).map((text: unknown, index: number) => ({
     key: `ai-${index}`,
     label: String(text).slice(0, 8),
     icon: icons[index] ?? '♧',
-    text,
+    text: String(text),
     testId: ['letter-advice-water', 'letter-advice-rest', 'letter-advice-sleep'][index] ?? `letter-advice-${index}`,
   }));
 });
-const activeAdviceText = computed(() => adviceItems.value.find((item) => item.key === activeAdvice.value)?.text ?? adviceItems.value[0]?.text ?? '');
+const activeAdviceItem = computed(() => adviceItems.value.find((item) => item.key === activeAdvice.value) ?? adviceItems.value[0]);
+const activeAdviceText = computed(() => activeAdviceItem.value?.text ?? '');
+/**
+ * The paragraph under the chips only earns its space when it says something the chip does not: the
+ * chip label is the first eight characters of the same sentence, so for the short fallback suggestions
+ * the page printed the identical string twice in a row.
+ */
+const activeAdviceDetail = computed(() => {
+  const item = activeAdviceItem.value;
+  if (!item) return '';
+  return item.text.trim() === item.label.trim() ? '' : item.text;
+});
 
 function safeBack() {
   if (window.history.state?.back) router.back();
@@ -122,6 +142,9 @@ async function load() {
       statusText.value = '正在生成今日回信';
       const completed = await waitForAiJob(res.jobId);
       aiNotice.value = aiDegradationNotice(completed);
+      // The first generation's structured payload is where the suggestions live; dropping it hid a
+      // real result behind an empty section.
+      aiStructured.value = completed.structured ?? {};
       const refreshed = await api.get<{ item: Letter }>('/api/v1/letters/today');
       letter.value = refreshed.item;
       style.value = refreshed.item.style || style.value;
@@ -186,7 +209,7 @@ onMounted(load);
 
 <template>
   <section class="page goodnight-page letter-page" v-if="letter">
-    <header class="letter-topbar">
+    <header class="letter-topbar bleed-bar">
       <button class="back-icon" data-testid="letter-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>今天的回信</h1>
       <button class="more-icon" data-testid="letter-menu" aria-label="更多" @click="menuOpen = true">⋯</button>
@@ -196,8 +219,13 @@ onMounted(load);
 
     <article class="letter-body">
       <h2 class="letter-title">{{ letterTitle }}</h2>
-      <p v-if="letter.content" class="letter-content">{{ letter.content }}</p>
-      <p v-else class="letter-content is-empty">这封回信还没有生成出来。换一种语气，或稍后再回来看看。</p>
+      <p v-if="letter.content" class="letter-content">{{ letterBody }}</p>
+      <template v-else>
+        <!-- A failed generation used to leave this branch with only "还没有生成出来": the error and
+             the retry button lived in the other branch, which never renders once an item exists. -->
+        <p class="letter-content is-empty">{{ loadError || '这封回信还没有生成出来。' }}</p>
+        <button class="letter-retry" data-testid="letter-retry" type="button" @click="load">重新读取</button>
+      </template>
       <p class="signature">{{ signatureText }}</p>
     </article>
 
@@ -209,10 +237,12 @@ onMounted(load);
     -->
     <section class="letter-rows">
       <button v-if="letter.sourceDiaryId" class="letter-row" data-testid="letter-source-record" type="button" @click="openSource">
+        <span class="row-icon" aria-hidden="true">▤</span>
         <span class="row-copy"><strong>原始记录</strong><small>查看这封回信回应的那件事</small></span>
         <span class="row-chevron" aria-hidden="true">›</span>
       </button>
       <button class="letter-row" data-testid="btn-letter-save" type="button" :disabled="busyAction === 'diary'" @click="saveToDiary">
+        <span class="row-icon" aria-hidden="true">♡</span>
         <span class="row-copy">
           <strong>{{ busyAction === 'diary' ? '正在保存' : letter.savedToDiary ? '已收藏' : '收藏' }}</strong>
           <small>以后想再看时可以找回来</small>
@@ -221,7 +251,7 @@ onMounted(load);
       </button>
     </section>
 
-    <section class="advice-section">
+    <section v-if="adviceItems.length" class="advice-section">
       <h2>今日小建议</h2>
       <div class="advice-row">
         <button
@@ -234,7 +264,7 @@ onMounted(load);
           {{ item.label }}
         </button>
       </div>
-      <p class="advice-copy">{{ activeAdviceText }}</p>
+      <p v-if="activeAdviceDetail" class="advice-copy">{{ activeAdviceDetail }}</p>
     </section>
 
     <p v-if="statusText" class="floating-status">{{ statusText }}</p>
@@ -272,6 +302,11 @@ onMounted(load);
   </section>
 
   <section v-else class="page goodnight-page letter-page">
+    <header class="letter-topbar bleed-bar">
+      <button class="back-icon" data-testid="letter-back" aria-label="返回" @click="safeBack">‹</button>
+      <h1>今天的回信</h1>
+      <span aria-hidden="true"></span>
+    </header>
     <article class="empty-card" v-if="loading">正在读取今天的回信...</article>
     <article class="empty-card" v-else>
       <p>{{ loadError || '今日回信暂时不可用。' }}</p>
@@ -290,7 +325,6 @@ onMounted(load);
   max-width: 100%;
   min-height: 0;
   padding: 0 0 calc(32px + env(safe-area-inset-bottom));
-  overflow-x: hidden;
 }
 
 .letter-topbar {
@@ -298,8 +332,6 @@ onMounted(load);
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
   min-height: 52px;
-  margin: 0 -18px;
-  padding: 0 18px;
   border-bottom: 1px solid #e8eaed;
   background: #ffffff;
 }
@@ -312,8 +344,13 @@ onMounted(load);
 }
 
 .letter-topbar .back-icon {
+  place-items: center start;
+  justify-self: start;
   width: 32px;
   height: 32px;
+  padding-left: 0;
+  /* The chevron's own side bearing was the last 20-30 device px of the inset. */
+  text-align: left;
   border: 0;
   background: none;
   color: #39454c;
@@ -322,6 +359,7 @@ onMounted(load);
 }
 
 .letter-topbar .more-icon {
+  justify-self: end;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -367,6 +405,16 @@ onMounted(load);
   line-height: 1.7;
 }
 
+.letter-retry {
+  margin-top: 12px;
+  padding: 8px 14px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #275f56;
+  font-size: 13px;
+}
+
 .letter-body .signature {
   margin: 18px 0 0;
   color: #88909a;
@@ -392,6 +440,18 @@ onMounted(load);
   border-radius: 0;
   background: transparent;
   text-align: left;
+}
+
+.row-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f2f4f5;
+  color: #7e8690;
+  font-size: 15px;
 }
 
 .row-copy { flex: 1; min-width: 0; }
@@ -587,7 +647,11 @@ onMounted(load);
 }
 
 .letter-page .advice-copy {
-  margin-top: 4px;
+  margin-top: 8px;
+  /* The shared rule paints this in V1 olive (#607452); the page's secondary copy is grey. */
+  color: #6c747d;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 /* The fixed navigation is part of the product chrome. Leave enough real

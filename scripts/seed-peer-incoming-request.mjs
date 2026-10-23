@@ -7,7 +7,7 @@
 // user and session rows that mint a credential for a second anonymous account.
 //
 // Target state, re-established on every run:
-//   * 3 requests in 待回应                  - the suite accepts one, declines one, and still needs a
+//   * 4 requests in 待回应                  - the suite accepts one, declines one, and still needs a
 //                                            row left over to prove the list reloaded rather than
 //                                            blanked
 //   * at least one request in 已结束          - a declined request, so that tab has a record
@@ -62,7 +62,10 @@ if (!APP_USER) {
 }
 
 const wantArg = process.argv.indexOf('--want');
-const WANT_PENDING = wantArg > -1 ? Number(process.argv[wantArg + 1]) : 3;
+// Four, not three: the control suite accepts one and declines one, and the runner retries a failed
+// suite once. Three left the retry with a single pending row, so its decline case found nothing and the
+// second attempt failed on the fixture rather than on the page.
+const WANT_PENDING = wantArg > -1 ? Number(process.argv[wantArg + 1]) : 4;
 if (!Number.isInteger(WANT_PENDING) || WANT_PENDING < 1) {
   console.error('--want must be a positive integer');
   process.exit(1);

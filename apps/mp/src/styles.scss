@@ -4000,6 +4000,25 @@ body {
   max-width: 100%;
 }
 
+/*
+ * A bar that spans the shell's 18px inset.
+ *
+ * The `max-width: 100%` above caps a child at its parent's content width, so `margin: 0 -18px` on a
+ * header shrinks it by 18px instead of extending it: the header's hairline stopped at x=985 while the
+ * row hairlines below it reached x=1032, and the header's action button sat 47 device px inside the
+ * right edge (measured on PostDetail, LetterToday and ToolIndex). Width plus a negative left margin
+ * is what actually spans the full width; the padding puts the content back on the 18px axis.
+ */
+.goodnight-page .bleed-bar {
+  box-sizing: border-box;
+  width: calc(100% + 36px);
+  max-width: none;
+  margin-left: -18px;
+  margin-right: -18px;
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
 .front-hero,
 .rest-hero,
 .me-hero,

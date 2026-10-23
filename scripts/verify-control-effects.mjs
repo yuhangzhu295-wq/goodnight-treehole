@@ -46,6 +46,17 @@ const waitFor = async (sel, timeoutMs = 12000) => {
   return false;
 };
 
+/** Waits for a raw CSS selector, for a case's `waitFor` (a page's own content signal). */
+const waitForSelector = async (css, timeoutMs = 20000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const has = await ev(`(function(){return Boolean(document.querySelector(${JSON.stringify(css)}))})()`, false);
+    if (has) return true;
+    await sleep(700);
+  }
+  return false;
+};
+
 const click = (sel) =>
   ev(`(function(){
     var e=document.querySelector('[data-testid="${sel}"]');
@@ -101,6 +112,7 @@ const apiRead = async (path) => {
 const results = [];
 for (const c of cases) {
   await go();
+  if (c.waitFor) await waitForSelector(c.waitFor, 20000);
   if (c.fill) {
     // The frame renders before the form does, and a fill that silently found nothing made the click
     // submit an empty composer: the server refused it, nothing was written, and the case reported
@@ -113,7 +125,10 @@ for (const c of cases) {
       continue;
     }
   }
-  const before = c.expect.apiDelta ? await apiRead(c.expect.apiRead) : null;
+  // A reversible control (`toggle`) needs the same before/after read as a counted one; without
+  // `apiDelta` the runner never read the API and a click that changed nothing passed.
+  const readsApi = Boolean(c.expect.apiDelta || c.expect.toggle || typeof c.expect.becomes === 'number');
+  const before = readsApi ? await apiRead(c.expect.apiRead) : null;
   // A control that lives on another tab only exists after that tab is selected.
   if (c.tab) {
     await waitFor(c.tab, 15000);
@@ -133,7 +148,7 @@ for (const c of cases) {
   // A write often navigates (publishing leaves the composer). Wait for the URL to settle before
   // reading the effect, or the read races the redirect and sees the pre-write state.
   await sleep(c.expect.settleAfterMs ?? 3000);
-  const after = c.expect.apiDelta ? await apiRead(c.expect.apiRead) : null;
+  const after = readsApi ? await apiRead(c.expect.apiRead) : null;
 
   let verdict = 'PASS';
   const notes = [];
@@ -142,7 +157,7 @@ for (const c of cases) {
     const url = await ev('location.pathname + location.search', false);
     if (!String(url).includes(c.expect.url)) { verdict = `FAIL (url ${url})`; notes.push(`expected ${c.expect.url}`); }
   }
-  if (c.expect.apiDelta && before && after) {
+  if (readsApi && before && after) {
     // `pick` is stored as a string in the cases file (a JSON file cannot hold a function), so it is
     // compiled here and run against the parsed body.
     const picker = new Function('b', `return (${c.expect.pick})(b)`);
@@ -154,6 +169,12 @@ for (const c of cases) {
     if (b === null || a === null) { notes.push(`could not read values (${b}/${a})`); if (verdict === 'PASS') verdict = 'INCONCLUSIVE'; }
     // `toggle: true` asserts the value flipped, which is what a reversible control (favourite, hide)
     // does; otherwise the exact delta is required.
+    // `becomes` is for an idempotent action (favourite, hide): the value has to end at the stated
+    // state, whether or not it was already there before the click.
+    else if (typeof c.expect.becomes === 'number') {
+      if (a !== c.expect.becomes) { verdict = `FAIL (ended at ${a}, expected ${c.expect.becomes})`; notes.push(`${b} -> ${a}`); }
+      else notes.push(`${b} -> ${a}`);
+    }
     else if (c.expect.toggle) {
       if (a === b) { verdict = `FAIL (unchanged ${b}, expected a flip)`; notes.push(`${b} -> ${a}`); }
       else notes.push(`${b} -> ${a} (flipped)`);
