@@ -6166,7 +6166,9 @@ export class StoreService implements OnModuleInit {
         if (scope === 'sent') {
           return match.userId === userId && match.status !== 'suggested';
         }
-        return isOwner && (match.status === 'requested' || awaitsConsent);
+        // Same shape as `listRequestsForOwner`: the inbox plus the owner's own decisions, so an
+        // answered request stays visible under 已结束 instead of vanishing when it is declined.
+        return isOwner && (match.status === 'requested' || match.status === 'declined' || match.status === 'blocked' || awaitsConsent);
       })
       .map((match) => {
         const conversation = this.peerConversations.find((item) => item.matchId === match.id);

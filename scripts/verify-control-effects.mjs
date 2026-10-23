@@ -8,8 +8,9 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { withSession, ADB } from './device-session.mjs';
+import { normalizeRoute } from './cli-route.mjs';
 
-const route = process.argv[2];
+const route = normalizeRoute(process.argv[2]);
 const casesFile = process.argv[3];
 if (!route || !casesFile) {
   console.error('usage: node scripts/verify-control-effects.mjs <route> <cases.json>');
@@ -85,7 +86,10 @@ const appCredential = async () =>
 let credential = await appCredential();
 
 const apiRead = async (path) => {
-  await go();
+  // No navigation here. `apiRead` used to call `go()` first, which reloaded the page immediately
+  // after the click it was supposed to measure - a write still in flight is aborted by that reload,
+  // and the read then reports the pre-write state. The fetch only needs *a* page context, not this
+  // route's.
   credential = (await appCredential()) || credential;
   return ev(`(async()=>{
     var r = await fetch('http://127.0.0.1:3000${path}', { headers: { 'x-goodnight-user-id': ${JSON.stringify(credential || '')} } });
@@ -97,7 +101,18 @@ const apiRead = async (path) => {
 const results = [];
 for (const c of cases) {
   await go();
-  if (c.fill) await fill(c.fill.selector, c.fill.value);
+  if (c.fill) {
+    // The frame renders before the form does, and a fill that silently found nothing made the click
+    // submit an empty composer: the server refused it, nothing was written, and the case reported
+    // "the control had no effect" about a control that never ran.
+    const present = await waitFor(c.fill.selector, 20000);
+    const filled = present ? await fill(c.fill.selector, c.fill.value) : 'not found';
+    if (!String(filled).startsWith('filled')) {
+      console.log(`FAIL (could not fill) ${c.selector} <- ${c.fill.selector}: ${filled}`);
+      results.push({ selector: c.selector, verdict: `FAIL (fill: ${filled})` });
+      continue;
+    }
+  }
   const before = c.expect.apiDelta ? await apiRead(c.expect.apiRead) : null;
   // A control that lives on another tab only exists after that tab is selected.
   if (c.tab) {
@@ -155,4 +170,7 @@ for (const c of cases) {
 }
 const failed = results.filter((r) => !r.verdict.startsWith('PASS'));
 console.log(`\n${results.length - failed.length}/${results.length} controls had their expected effect`);
+if (failed.length) console.log('failed: ' + failed.map((r) => r.selector).join(', '));
+// The exit code is the verdict, so a wrapper cannot read a failed run as a successful one.
+if (failed.length) process.exitCode = 1;
 });

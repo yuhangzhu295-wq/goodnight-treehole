@@ -19,6 +19,7 @@ import path from 'node:path';
 import { withSession, ADB } from './device-session.mjs';
 import { ensureReverse } from './input-helpers.mjs';
 import { requireStack, requireStackAtEnd } from './preflight-api.mjs';
+import { normalizeRoute } from './cli-route.mjs';
 
 // The app reaches the API through `adb reverse tcp:3000`; that tunnel disappears whenever the adb
 // server or the device restarts, and the page then renders its load-error banner. A capture taken in
@@ -37,14 +38,9 @@ const OUT = path.join(REPO_ROOT, 'artifacts/ui-v2/r2');
  * Git Bash rewrites an argument that starts with `/` into a Windows path, so
  * `/pages/decision/index` arrives as `C:/Program Files/Git/pages/decision/index`. Passing
  * MSYS_NO_PATHCONV=1 avoids it, but a silently rewritten route used to make the capture photograph
- * whatever page was already open, so the argument is repaired here as well.
+ * whatever page was already open, so the argument is repaired here as well. The repair lives in
+ * `cli-route.mjs`, because every script that takes a route needs the same one.
  */
-function normalizeRoute(value) {
-  if (!value) return value;
-  const mangled = /^[A-Za-z]:[\\/](?:.*[\\/])?(pages[\\/].*)$/.exec(value);
-  return mangled ? `/${mangled[1].replace(/\\/g, '/')}` : value;
-}
-
 const route = normalizeRoute(process.argv[2]);
 const slug = process.argv[3] ?? String(route).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
 const waitMs = Number(process.argv[4] ?? 3000);

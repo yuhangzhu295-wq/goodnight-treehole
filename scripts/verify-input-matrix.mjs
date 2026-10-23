@@ -12,8 +12,9 @@ import { typeInto, clearField, hookPostBodies, postedBodies, ensureReverse } fro
 // clearField is used by the cancel/re-enter case below.
 import { PrismaClient } from '@prisma/client';
 import { repoFile } from './repo-root.mjs';
+import { normalizeRoute } from './cli-route.mjs';
 
-const route = process.argv[2] ?? '/pages/mood/create';
+const route = normalizeRoute(process.argv[2] ?? '/pages/mood/create');
 const FIELD = 'input-mood-content';
 const SUBMIT = 'btn-submit-mood';
 

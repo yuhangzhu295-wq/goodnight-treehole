@@ -708,12 +708,24 @@ export class PeerPersistenceService {
     return rows.map(mapPeerMatchRow);
   }
 
+  /**
+   * The requests other people made on the owner's experiences.
+   *
+   * This is the inbox *and* its history. It used to return only `requested` and
+   * `connected`-without-a-conversation, which meant an answered request disappeared the moment the
+   * owner declined it: 同行请求's 已结束 tab promised "你拒绝、屏蔽或结束的请求会留在这里，方便回看"
+   * and could never show one. Declined and blocked rows are the owner's own decisions, so they stay.
+   *
+   * An active conversation is deliberately not part of this list — it belongs to 同行会话, and
+   * listing it here would put a live thread under a tab whose action is "确认同行边界".
+   */
   async listRequestsForOwner(ownerUserId: string): Promise<PeerMatchRecord[]> {
     const rows = await this.prisma.peerMatch.findMany({
       where: {
         peerExperience: { userId: ownerUserId },
         OR: [
           { status: 'requested' },
+          { status: { in: ['declined', 'blocked'] } },
           { status: 'connected', conversation: null },
         ],
       },
@@ -726,10 +738,10 @@ export class PeerPersistenceService {
    * The requests a user sent, carrying the conversation status.
    *
    * 同路人's 我的请求 tab is labelled "你发起的同路询问与回应状态", so it has to show what the user
-   * asked for and where it got to — including 会话中 and 结束. The received-side query
-   * (`listRequestsForOwner`) returns only pending items, so the tab showed other people's incoming
-   * requests under copy claiming they were the user's own, and nothing at all for a user who had
-   * actually sent one.
+   * asked for and where it got to — including 会话中 and 结束. It used to be served by the
+   * received-side query (`listRequestsForOwner`), so the tab showed other people's incoming requests
+   * under copy claiming they were the user's own, and nothing at all for a user who had actually
+   * sent one.
    */
   async listSentRequests(
     userId: string,

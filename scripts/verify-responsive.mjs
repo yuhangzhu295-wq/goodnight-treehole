@@ -2,10 +2,11 @@
 // A page that is fine at one width can clip, overflow, or hide its primary action at another, and
 // the only way to know is to resize the viewport and re-measure rather than to look once.
 import { execFileSync } from 'node:child_process';
+import { normalizeRoute } from './cli-route.mjs';
 
 const ADB = process.env.ADB_PATH ?? [process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe'].join('/');
 const CDP = 9333;
-const route = process.argv[2] ?? '/pages/square/index';
+const route = normalizeRoute(process.argv[2] ?? '/pages/square/index');
 const adb = (...a) => execFileSync(ADB, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 /** The emulator's foreground is shared with other projects; without this the app can be gone. */
 function ensureForeground() {

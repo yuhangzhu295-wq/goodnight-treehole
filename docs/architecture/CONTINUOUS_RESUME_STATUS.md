@@ -158,14 +158,33 @@ capability without a replacement, loosened consent, failures disguised as empty 
 assertions, style hacks and Vue races. Five pages are therefore DONE on all seven axes; DiaryDetail
 still lacks a visual verdict and Archive is failed on the title deviation.
 
-**Control-level coverage** (`verify-controls.mjs <route> tests/ui-controls/<file>.json`, run
-2026-10-23 on the same device): diary-list 9/9, future-self 7/7, letter-today 4/4, mood-create 5/5,
-mood-create-effects 1/1, peer-consent 2/2, privacy-effects 3/3, safety-support 3/3,
-square-effects 2/2, tool-run 7/7. Two groups are **not** fully verified: `peer-detail` 1/3 and
-`peer-requests` 3/5 - their case files name a hardcoded `peer_match_1792524192636_2ea87231`, which
-does not exist for a fresh identity, so the accept/decline and request-sheet controls were skipped
-rather than exercised. Seeding a pending peer match (or making those cases target whatever pending
-request exists) is the next step for those two pages.
+**Control-level coverage** (`node scripts/run-control-suites.mjs`, 2026-10-23, same device): 14
+suites; 12 were green on the first full pass and the other two were instrument defects, not product
+ones (below). Per suite: diary-list 9/9, future-self 7/7, letter-today 4/4, mood-create 5/5,
+mood-create-effects 1/1, post-detail 7/7, post-detail-effects 1/1, privacy-effects 3/3,
+safety-support 3/3, square-effects 2/2, tool-run 7/7, peer-requests 5/5, peer-detail 4/4,
+peer-consent 2/2.
+
+**Every control number recorded before this round is void.** `verify-controls.mjs` read the route from
+`process.argv[2]`, and Git Bash rewrites a leading-slash argument into a Windows path: the script was
+asked for `/pages/peer/requests` and received `C:/Program Files/Git/pages/peer/requests`. The WebView
+refused that path, the page that was already open stayed open, and the suite then reported every
+control of the intended page as missing — or, when the app happened to be on the right page already,
+passed without navigating at all. `capture-page.mjs` had been repaired for exactly this; the repair
+was never carried to the other four scripts that take a route. It now lives in `scripts/cli-route.mjs`
+and every one of them uses it.
+
+**API concurrency fix:** the legacy full flush (`saveRelationalRuntimeState`) upserted every `User` row
+in snapshot order, while peer writes take `FOR UPDATE` on the participants in sorted order. Two
+transactions could each hold one user and wait for the other; Postgres aborted one with `40P01` and the
+client saw a bare 500 (`请求发送失败`). Reproduced twice, both times while a background AI job was
+flushing. The flush now takes the same sorted `User` locks before it writes anything.
+
+**Peer fixtures:** `scripts/seed-peer-incoming-request.mjs` builds the state 同行请求 and 匿名经历 need
+— a published experience for the app's own account (published through the real admin review route),
+three pending requests, one accepted, one declined, one `suggested` match — and writes the two routes
+those pages are keyed by into `artifacts/ui-v2/fixtures/peer-fixtures.json`. It reads the app's identity
+off the device, because a deploy uninstalls the package and the app comes back as a new anonymous user.
 
 **Not started or not finished:** 31 queue pages (Square, MoodCreate, PostDetail, LetterToday,
 ToolIndex, ToolRun, LetterList, FavoriteList, FeedbackHelp, HelpFaqs, TonightHome, PeerNetwork,
@@ -177,6 +196,15 @@ this HEAD.
 
 **Instrument fixes that were needed before any of the above could be trusted** — each of these had
 been reporting an environment or fixture problem as a product defect:
+- Five scripts received Git-Bash-mangled routes and measured whatever page happened to be open; see
+  the control-coverage note above. The repair is now one shared function (`scripts/cli-route.mjs`).
+- `verify-control-effects.mjs` filled the composer before the form had rendered, so the click
+  submitted an empty field, the server refused it, and the case reported "the control had no effect"
+  about a control that never ran. It also called `go()` inside `apiRead`, reloading the page
+  immediately after the click it was measuring.
+- `run-control-suites.mjs` reads each suite's summary line and exits non-zero when any of them is not
+  green; the suites themselves now set `process.exitCode` too, so a red run cannot pass for a green
+  one in a wrapper that only checks whether the command ran.
 - `capture-page.mjs` wrote its PNG through a path relative to the caller's cwd, so a capture started
   from another directory left the previous PNG in place while printing the current page's text. A
   reviewer then compared the design against a screenshot from an earlier run. It is anchored on the

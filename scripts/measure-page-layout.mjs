@@ -1,10 +1,11 @@
 // Read the computed style of the page's own elements, so a claim about font size, colour or overlap
 // is measured rather than inferred from a screenshot.
 import { execFileSync } from 'node:child_process';
+import { normalizeRoute } from './cli-route.mjs';
 
 const ADB = process.env.ADB_PATH ?? [process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe'].join('/');
 const CDP = 9333;
-const route = process.argv[2] ?? '/pages/square/index';
+const route = normalizeRoute(process.argv[2] ?? '/pages/square/index');
 const adb = (...a) => execFileSync(ADB, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
 adb('shell', 'wm', 'dismiss-keyguard');

@@ -999,6 +999,16 @@ export async function saveRelationalRuntimeState(
       // product's own legal write as a legacy-flush write. The setting is transaction-local and has
       // no effect when no probe exists.
       await tx.$executeRawUnsafe("SELECT set_config('batch4.in_flush', 'on', true)");
+      // Global lock order: `User` (sorted) -> `LifeJourney` (sorted) -> the row being written.
+      //
+      // The flush rewrites every user row. Upserting them in snapshot order let it hold `User` A and
+      // wait for `User` B while a peer request held B and waited for A - a real `40P01`, reproduced
+      // with an AI job flushing in the background while a peer request was answered. Taking the same
+      // sorted root locks every other writer already uses removes the cycle; the upserts below then
+      // find the rows locked by this same transaction.
+      for (const userId of [...userIds].sort()) {
+        await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      }
       let jobIds: Set<string>;
       if (DIRECT_DB_MODELS.AIJob) {
         const candidateJobIds = [
