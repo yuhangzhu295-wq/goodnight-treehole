@@ -132,7 +132,7 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | route aliases | `verify-route-aliases` 7/7 | n/a |
 | input matrix | `verify-input-matrix` 7/7 | n/a |
 | square controls | `verify-square-controls` 17 manifest entries, all found | n/a |
-| responsive | `verify-responsive` PASS at 360/390/430 and large font | n/a |
+| responsive | `verify-responsive-all` 20/20 pages at 360/390/430 and large font (was 19/20: TonightHome's 更多 chip sat at x=289..363 in a 360 viewport and could not be tapped; the chips scroll now and 更多 is pinned) | n/a |
 | identity isolation | `verify-device-credential-ownership` - the device sees its own record, another identity does not | n/a |
 | mood ownership | `verify-mood-owner` - the mood belongs to the session that created it | n/a |
 
