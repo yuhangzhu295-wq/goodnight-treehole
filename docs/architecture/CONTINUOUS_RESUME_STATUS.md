@@ -134,6 +134,8 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | square controls | `verify-square-controls` 17 manifest entries, all found | n/a |
 | square | `verify-square-sort` 5/5 (API order for 最新/热门 plus the device rendering the server's hot order); controls 2/2 | **WAITING_REVIEW** - reviewer quota exhausted |
 | mood-create | `verify-controls` 5/5 + effects 1/1 | **WAITING_REVIEW** - reviewer quota exhausted |
+| post-detail | `verify-controls` 7/7 against a real seeded post | not reviewed |
+| design package | `verify-design-package`: 39 images, all 780x1688, no numbering gaps, no empty files | n/a |
 | responsive | `verify-responsive-all` 20/20 pages at 360/390/430 and large font (was 19/20: TonightHome's 更多 chip sat at x=289..363 in a 360 viewport and could not be tapped; the chips scroll now and 更多 is pinned) | n/a |
 
 **Reviewer availability (2026-10-23).** The reviewer models are rate-limited until **18:30 UTC+8**:
