@@ -551,12 +551,20 @@ onMounted(async () => {
 }
 
 .report-page .report-actions button {
+  /* The shared button rule makes buttons flex items that can shrink; inside a flex row a Chinese
+     label then collapses to one character per line. Keep the label on one line. */
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: #275f56;
   font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .report-page .report-actions button:disabled { color: #b3b9c0; }

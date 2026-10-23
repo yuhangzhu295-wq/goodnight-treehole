@@ -270,6 +270,17 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
    tapping blind. Neither can close the check-to-tap gap. **Do not kill the other project's processes.**
    For data questions, prefer verifying with the credential the app holds
    (`scripts/verify-device-credential-ownership.mjs`) over tapping the UI.
+   **On 2026-10-23 the same automation was also disabling this package**, which looks nothing like a
+   foreground steal: `am start` answers `Activity class {com.goodnight.treehole/.MainActivity} does
+   not exist`, `cmd package resolve-activity` says `No activity found`, yet `dumpsys package` still
+   lists a MAIN/LAUNCHER filter. The real state is `enabled=3` (DISABLED_USER) in `dumpsys package`
+   `User 0:`; it flips back from 1 to 3 within about two minutes of being enabled, so a run dies
+   mid-way with `the app is no longer running and would not restart`. It is **not** a broken
+   `adb install -r` registration — reinstalling "fixes" it only by resetting the flag. `scripts/
+   device-session.mjs` now runs `pm enable` before concluding the install is broken, retries the
+   attach while the devtools socket is still coming up, and re-attaches once when a read loses the
+   socket, so a script survives one restart. Do not kill the other project's automation; work inside
+   the window and let the harness absorb a restart.
 4. **`adb shell` paths get mangled by Git Bash**: `/data/data/...` becomes `C:/Program Files/Git/...`.
    Set `MSYS_NO_PATHCONV=1` for those commands.
 5. **github.com:443 is intermittently unreachable**; `git push` may need several retries over minutes.

@@ -72,7 +72,10 @@ await withSession(async (session) => {
   await navigateTo(session, '/pages/archive/index', { ready: '[data-testid=archive-tab-diary]' });
   const beforeCount = (JSON.parse(await rowsOf(ev, 'archive-diary-') || '[]')).length;
   const sample = JSON.parse(await rowsOf(ev, 'archive-diary-') || '[]')[0] ?? '';
-  const needle = String(sample).replace(/[0-9/\s:·]+/g, '').slice(2, 6);
+  // A contiguous prefix of the row's own text. The previous needle stripped digits and separators
+  // first, which produced a string that only existed because a decorative glyph sat in front of the
+  // title; removing that glyph turned the fixture into a false failure.
+  const needle = String(sample).trim().slice(0, 4);
   const typed = await typeInto(session, 'archive-search', needle);
   await sleep(800);
   const afterRows = JSON.parse(await rowsOf(ev, 'archive-diary-') || '[]');

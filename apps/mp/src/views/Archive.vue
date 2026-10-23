@@ -291,7 +291,6 @@ onMounted(load);
         <h2 class="archive-group-title">{{ group.label }}</h2>
         <article v-for="entry in group.entries" :key="entry.item.id" class="archive-row">
           <button class="archive-row-main" :data-testid="entry.index === 0 ? 'archive-diary-first' : `archive-diary-${entry.item.id}`" @click="openDiary(entry.item)">
-            <span class="archive-row-icon" aria-hidden="true">▤</span>
             <span class="archive-row-copy">
               <strong>{{ diaryPreview(entry.item) }}</strong>
               <small>{{ entry.item.emotionLabel ?? entry.item.emotion ?? '心情记录' }} · {{ dateLabel(entry.item.createdAt) }}<template v-if="entry.item.hasLetter"> · 有回信</template></small>
@@ -308,7 +307,6 @@ onMounted(load);
         <h2 class="archive-group-title">{{ group.label }}</h2>
         <article v-for="entry in group.entries" :key="entry.item.id" class="archive-row">
           <button class="archive-row-main" :data-testid="entry.index === 0 ? 'archive-post-first' : `archive-post-${entry.item.id}`" @click="openPost(entry.item)">
-            <span class="archive-row-icon" aria-hidden="true">☼</span>
             <span class="archive-row-copy"><strong>{{ postPreview(entry.item) }}</strong><small>{{ entry.item.emotion ?? '公开树洞' }} · {{ dateLabel(entry.item.createdAt) }}</small></span>
             <AppIcon name="chevron-right" :size="18" class="archive-row-chevron" />
           </button>
@@ -322,7 +320,6 @@ onMounted(load);
         <h2 class="archive-group-title">{{ group.label }}</h2>
         <article v-for="entry in group.entries" :key="entry.item.id" class="archive-row">
           <button class="archive-row-main" :data-testid="entry.index === 0 ? 'archive-letter-first' : `archive-letter-${entry.item.id}`" @click="openLetter(entry.item)">
-            <span class="archive-row-icon" aria-hidden="true">☾</span>
             <span class="archive-row-copy"><strong>{{ entry.item.title || '给现在的你' }}</strong><p>{{ letterPreview(entry.item) }}</p><small>{{ dateLabel(entry.item.createdAt) }}</small></span>
             <AppIcon name="chevron-right" :size="18" class="archive-row-chevron" />
           </button>
@@ -336,7 +333,6 @@ onMounted(load);
         <h2 class="archive-group-title">{{ group.label }}</h2>
         <article v-for="entry in group.entries" :key="entry.item.journey.id" class="archive-row">
           <button class="archive-row-main" :data-testid="entry.index === 0 ? 'archive-journey-first' : `archive-journey-${entry.item.journey.id}`" @click="openJourney(entry.item)">
-            <span class="archive-row-icon" aria-hidden="true">⌁</span>
             <span class="archive-row-copy"><strong>{{ entry.item.journey.title }}</strong><p>{{ journeyPreview(entry.item) }}</p><small>{{ entry.item.journey.status === 'archived' ? '已经归档' : `最后更新 · ${dateLabel(entry.item.endedAt)}` }}</small></span>
             <AppIcon name="chevron-right" :size="18" class="archive-row-chevron" />
           </button>
@@ -431,7 +427,6 @@ onMounted(load);
 .archive-group-title { margin: 24px 0 0; font-size: 17px; font-weight: 700; line-height: 1.3; color: var(--gn-ink); }
 .archive-row { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--gn-line); }
 .archive-row-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 14px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; text-align: left; }
-.archive-row-icon { flex: 0 0 auto; color: var(--gn-muted); font-size: 15px; }
 .archive-row-copy { display: grid; flex: 1; min-width: 0; gap: 4px; }
 .archive-row-copy strong { display: -webkit-box; overflow: hidden; color: var(--gn-ink); font-size: 16px; font-weight: 700; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .archive-row-copy p { display: -webkit-box; overflow: hidden; margin: 0; color: var(--gn-muted); font-size: 13px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }

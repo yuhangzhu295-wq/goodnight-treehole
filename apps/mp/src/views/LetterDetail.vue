@@ -25,7 +25,13 @@ async function load() {
       : await api.get<any>('/api/v1/letters/today');
     letter.value = payload.item;
   } catch (cause: any) {
-    loadError.value = cause?.message ?? '这封回信暂时打不开';
+    // A 404 means this letter does not exist, and the page has a template for exactly that. Showing
+    // it as a load failure told the user to retry a request that can never succeed.
+    if (cause?.status === 404) {
+      letter.value = undefined;
+    } else {
+      loadError.value = cause?.message ?? '这封回信暂时打不开';
+    }
   } finally {
     loading.value = false;
   }
@@ -223,10 +229,15 @@ const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(lette
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-height: 0;
   padding: 14px 0;
   border: 0;
+  /* The shared button rule rounds every button; on a full-width row that turns the hairline into a
+     rounded card edge, which is not what the design's rows are. */
+  border-radius: 0;
   border-bottom: 1px solid #ebedf0;
   background: transparent;
+  box-shadow: none;
   text-align: left;
 }
 

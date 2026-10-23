@@ -318,7 +318,6 @@ onBeforeUnmount(() => window.clearInterval(timer));
 
       <section v-if="activeItems.length" class="saved-section">
         <div class="list-head">
-          <h2 class="section-title">我的决定</h2>
           <button class="add-trigger" type="button" data-testid="decision-add" @click="toggleComposer">
             {{ composerOpen ? '收起' : '＋ 新增决定' }}
           </button>
@@ -509,11 +508,11 @@ onBeforeUnmount(() => window.clearInterval(timer));
   border-bottom: 1px solid var(--gn-line);
 }
 
-/* The list header carries the add action, so the composer stays folded until it is wanted. */
+/* The list header carries only the add action: the page title already says what the list is. */
 .list-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -548,6 +547,8 @@ onBeforeUnmount(() => window.clearInterval(timer));
   min-height: 38px;
   padding: 6px 0;
   border: 0;
+  /* The shared button rule rounds buttons, which bows the underline into an arc. */
+  border-radius: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
   box-shadow: none;
