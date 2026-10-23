@@ -266,18 +266,22 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- Category Filter Chips -->
+      <!-- Category Filter Chips. The chips scroll; 更多 stays pinned at the right edge, because it is
+           the only way to reach the categories that did not fit - at 360px it used to be clipped by
+           the scroll container and could not be tapped without dragging the row first. -->
       <div class="category-chips" aria-label="主题分类">
-        <button
-          v-for="cat in visibleCategories"
-          :key="cat.domain"
-          type="button"
-          class="category-chip"
-          :class="{ active: isCategorySelected(cat.domain) }"
-          @click="chooseVisibleCategory(cat)"
-        >
-          {{ cat.label }}
-        </button>
+        <div class="category-chip-scroll">
+          <button
+            v-for="cat in visibleCategories"
+            :key="cat.domain"
+            type="button"
+            class="category-chip"
+            :class="{ active: isCategorySelected(cat.domain) }"
+            @click="chooseVisibleCategory(cat)"
+          >
+            {{ cat.label }}
+          </button>
+        </div>
         <button
           type="button"
           class="category-chip more-chip"
@@ -549,8 +553,26 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   margin-top: 14px;
-  overflow-x: auto;
   white-space: nowrap;
+}
+
+/* Only the category chips scroll; 更多 is a sibling so it can never be pushed out of view. */
+.category-chip-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.category-chip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.more-chip {
+  flex: 0 0 auto;
+  color: #757D87;
 }
 
 .category-chip {
@@ -573,10 +595,6 @@ onUnmounted(() => {
   border-color: #C3DAD0;
   color: #275F56;
   font-weight: 600;
-}
-
-.more-chip {
-  color: #757D87;
 }
 
 .privacy-hint {
