@@ -116,26 +116,46 @@ Branch `codex/ui-v2-native-redesign`. Queue: `docs/design-v2/UI_V2_MASTER_QUEUE.
 `docs/design-v2/UI_V2_ISSUES.md` (15 entries, all with the `UI2-` prefix — the numbers are namespaced
 because the repo already had a product-audit `ISSUE-001..027` series).
 
-**Round 1 (4 pages)** and **Round 2 (10 pages)** are all *rendered* on device. `done` is **no** for
-every page: the `visualApproved` and `codeReviewApproved` axes are outstanding because no reviewer
-provider was reachable, and interaction coverage is uneven.
+Position as of `10d4965` (2026-10-23). "Green" below means a script ran on a real APK on
+`emulator-5554` against the real API and PostgreSQL, not that a build succeeded.
 
-Defects found and fixed on this branch, all verified on a real APK on `emulator-5554`:
-`UI2-008` (footer/composer covered by the tab bar), `UI2-009` (a failed read receipt swallowed the
-notification tap), `UI2-010` (composer not pinned, conversation opened on its oldest message),
-`UI2-011` (raw English network error in the Chinese UI), `UI2-012` (同路人's 我的请求 tab listed the
-wrong direction), `UI2-013` (consent page's fake acknowledgement), `UI2-014` (two symptom options
-clipped and unreachable), `UI2-015` (JourneyDetail still V1).
+| page | functional script | visual verdict |
+|---|---|---|
+| DiaryList | `verify-diary-list` 6/6 | **PASS** |
+| DiaryDetail | `verify-diary-detail` 6/6 | not re-reviewed since the rewrite |
+| LetterDetail | `verify-letter-detail` 5/5 | **PASS** |
+| ReportMonth | `verify-month-report` 8/8 | **PASS** |
+| DecisionVault | `verify-decision-vault` 7/7 | **PASS** |
+| Archive | `verify-archive` 7/7 | FAIL on one item: the title says 归档, the mock says 旅程归档. Deliberate - the page holds diaries, posts, letters and journeys, so the mock's title would misdescribe three of its four tabs |
+| StableSelf | `verify-stable-self` 6/6 | verdict pending on `stable-self-v4.png` |
+| ToolDecompose / breakdown aliases | 4/4 and 2/2 | not reviewed |
+| route aliases | `verify-route-aliases` 7/7 | n/a |
+| input matrix | `verify-input-matrix` 7/7 | n/a |
 
-**Next UI entry point:** Round 3 is implemented (10 pages; `ReportMonth` is shell-only, and the six
-pages below still owe a device render), and **Round 4 (14 pages) has one page touched**: `Square.vue`
-had its hardcoded `· 2 小时前` and `想被理解` replaced with real data (`d51f378`) — a data fix, not the
-restyle, so its hero, cards and mood pills are still the V1 language. Round 4's remaining pages:
-MoodCreate, PostDetail, LetterToday, ToolIndex, ToolDecompose, ToolRun, DiaryList, DiaryDetail,
-LetterList, LetterDetail, FavoriteList, FeedbackHelp, HelpFaqs.
+`codeReviewApproved` is still **no** for every page: the visual verdicts above come from an
+independent reviewer, but no code-review pass over these diffs has been recorded.
 
-Round 3 pages that still owe a verified render: PrivacySettings, DataPolicy, ReportMonth's lower
-half, Archive, MemoryCenter, DecisionVault.
+**Not started or not finished:** the remaining P2 pages (Square, MoodCreate, PostDetail, LetterToday,
+ToolIndex, ToolRun, LetterList, FavoriteList, FeedbackHelp, HelpFaqs, and the rest of the 39-view
+baseline), the 12-domain end-to-end matrix, the persistence and security gates
+(`PERSISTENCE_BATCH3_STABLE=false`), and CI on this HEAD.
+
+**Instrument fixes that were needed before any of the above could be trusted** — each of these had
+been reporting an environment or fixture problem as a product defect:
+- `capture-page.mjs` wrote its PNG through a path relative to the caller's cwd, so a capture started
+  from another directory left the previous PNG in place while printing the current page's text. A
+  reviewer then compared the design against a screenshot from an earlier run. It is anchored on the
+  script now, heals the stack before navigating, restores `adb reverse`, and warns when the page it
+  photographed rendered an error banner.
+- `device-session.mjs` treated "Activity class does not exist" as a broken install. On this AVD it is
+  usually `enabled=3` (DISABLED_USER) set by the other project's automation; see environment fact 3.
+- `verify-stable-self.mjs` used `PrismaClient` without importing it (it could never run), and opened
+  the recovery-data consent only after saving, so it asserted a request body the server had refused
+  with 403.
+- `verify-archive.mjs` built its search needle by stripping digits and separators, which only
+  produced a real substring because a decorative glyph sat in front of the title.
+- `verify-letter-detail.mjs` assumed the account already had letters; it now writes one mood through
+  the composer first.
 
 Follow the per-page loop in each page's `逐页提示词/NN_*.md`: read the design → preserve the data
 contract → minimal UI change → targeted tests → real emulator screenshot → visual-judge → fix →
