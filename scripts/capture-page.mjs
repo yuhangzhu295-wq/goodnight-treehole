@@ -120,7 +120,19 @@ const result = await withSession(async ({ call, ev }) => {
     false,
   );
 
-  const shot = await ctl(async () => call('Page.captureScreenshot', { format: 'png' }));
+  // CAPTURE_FULL=1 photographs the whole document, not just the first screen. A page whose primary
+  // action sits below the fold otherwise reaches the reviewer as a screenshot with no save button on
+  // it, and "cannot confirm the button moved" reads as a failed fix.
+  const shotParams = { format: 'png' };
+  if (process.env.CAPTURE_FULL === '1') {
+    const metrics = await call('Page.getLayoutMetrics');
+    const size = metrics?.result?.cssContentSize ?? metrics?.result?.contentSize;
+    if (size?.width && size?.height) {
+      shotParams.captureBeyondViewport = true;
+      shotParams.clip = { x: 0, y: 0, width: Math.ceil(size.width), height: Math.ceil(size.height), scale: 1 };
+    }
+  }
+  const shot = await ctl(async () => call('Page.captureScreenshot', shotParams));
   let file = null;
   if (shot?.result?.data) {
     file = path.join(OUT, `${slug}.png`);

@@ -411,12 +411,13 @@ onMounted(load);
   gap: 4px;
 }
 
+/* Sections are separated by whitespace, as the design does - a rule under every section added a line
+   between the last field and the next heading that the mock does not have. */
 .stable-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 14px 0;
-  border-bottom: 1px solid var(--gn-line);
 }
 
 .section-title {
@@ -456,10 +457,15 @@ onMounted(load);
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-height: 0;
   padding: 12px 0;
   border: 0;
+  /* The shared button rule rounds every button; on a full-width row it bows the hairline into an arc
+     that reads as a card outline the design does not have. */
+  border-radius: 0;
   border-bottom: 1px solid var(--gn-line);
   background: transparent;
+  box-shadow: none;
   color: var(--gn-ink);
   font: inherit;
   text-align: left;

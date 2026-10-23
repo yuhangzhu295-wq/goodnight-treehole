@@ -16,7 +16,15 @@ const MARKER = `稳定自述_${Date.now()}`;
 await withSession(async (session) => {
   const { call, ev } = session;
   await call('Runtime.enable');
-  const go = async () => { await ev("(function(){var a=document.createElement('a');a.href='/pages/stable-self/index';a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()", false); await sleep(4500); };
+  const go = async () => {
+    await ev("(function(){var a=document.createElement('a');a.href='/pages/stable-self/index';a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()", false);
+    // Wait for the field itself rather than a fixed sleep: after a restart the page can still be
+    // loading when a 4.5s timer expires, and the failure then reads as "the field did not take focus".
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (Number(await ev("(function(){return document.querySelector('[data-testid=stable-description]')?1:0;})()", false)) === 1) return;
+      await sleep(300);
+    }
+  };
 
   // 1. typing reaches Vue
   await go();
