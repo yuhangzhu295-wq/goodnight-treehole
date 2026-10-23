@@ -196,8 +196,20 @@ for (const c of cases) {
     // default one second is enough for a navigation and not for an API round trip.
     await sleep(c.settleMs ?? 1000);
   }
-  const url = await ev('location.pathname + location.search', false);
+  let url = await ev('location.pathname + location.search', false);
   const expect = c.expect ?? {};
+  // A control whose handler awaits a request navigates when the request returns, which on a busy API
+  // is later than the fixed settle. Re-reading the URL for a few seconds is not a weaker assertion -
+  // the final URL still has to be the expected one - it just stops a slow round trip from being
+  // reported as "the control did nothing".
+  if (expect.url && !String(url).includes(expect.url)) {
+    const deadline = Date.now() + (c.expect.urlTimeout ?? 6000);
+    while (Date.now() < deadline) {
+      await sleep(300);
+      url = await ev('location.pathname + location.search', false);
+      if (String(url).includes(expect.url)) break;
+    }
+  }
   const problems = [];
   if (!found) problems.push('control not found');
   if (expect.url && !String(url).includes(expect.url)) problems.push(`url ${url}, expected ${expect.url}`);

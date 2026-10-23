@@ -132,17 +132,20 @@ Position as of `7e166d7` (2026-10-23). "Green" below means a script ran on a rea
 | route aliases | `verify-route-aliases` 7/7 | n/a |
 | input matrix | `verify-input-matrix` 7/7 | n/a |
 | square controls | `verify-square-controls` 17 manifest entries, all found | n/a |
-| square | `verify-square-sort` 5/5 (API order for 最新/热门 plus the device rendering the server's hot order); controls 2/2 | **WAITING_REVIEW** - reviewer quota exhausted |
-| mood-create | `verify-controls` 5/5 + effects 1/1 | **WAITING_REVIEW** - reviewer quota exhausted |
-| post-detail | `verify-controls` 7/7 against a real seeded post | not reviewed |
+| square | `verify-square-sort` 5/5 (API order for 最新/热门 plus the device rendering the server's hot order); controls 2/2 | **WAITING_REVIEW** - reviewer gateway 401 |
+| mood-create | `verify-controls` 5/5 + effects 1/1 | **WAITING_REVIEW** - reviewer gateway 401 |
+| post-detail | `verify-controls` 7/7 + effects 1/1, responsive clean at 360/390/430 + large font | **WAITING_REVIEW** - reviewer gateway 401 |
+| letter-today | `verify-controls` 6/6 (menu, regenerate, save, poster, 原始记录, back), responsive clean | **WAITING_REVIEW** - reviewer gateway 401 |
 | design package | `verify-design-package`: 39 images, all 780x1688, no numbering gaps, no empty files | n/a |
 | responsive | `verify-responsive-all` 20/20 pages at 360/390/430 and large font (was 19/20: TonightHome's 更多 chip sat at x=289..363 in a 360 viewport and could not be tapped; the chips scroll now and 更多 is pinned) | n/a |
 
-**Reviewer availability (2026-10-23).** The reviewer models are rate-limited until **18:30 UTC+8**:
-`gpt-6-sol` returned `usage_limit_reached` and the general-purpose route returned 频率限制 for the same
-window. Square and MoodCreate are implemented and functionally green but have no visual verdict, and
-Archive/DiaryDetail-style follow-ups cannot be re-reviewed either. Everything else that needs no
-reviewer (scripts, functional gates, responsive sweep) is unblocked.
+**Reviewer availability (2026-10-23).** The reviewer models were rate-limited until **18:30 UTC+8**
+(`gpt-6-sol` returned `usage_limit_reached`, the general-purpose route returned 频率限制). After the
+reset, every reviewer path returned `401 Authorization Required` from the subagent gateway, so no
+visual verdict is obtainable at all right now — see the block note further up. Square, MoodCreate,
+PostDetail and LetterToday are implemented and functionally green but have no visual verdict, and
+Archive/DiaryDetail-style follow-ups cannot be re-reviewed either. Everything that needs no reviewer
+(scripts, functional gates, responsive sweep) is unblocked.
 
 **Push status.** github.com:443 was unreachable for about six minutes during this session; the
 commits made in that window (`31c2b9d`, `3009d58`) are now pushed - `HEAD` and

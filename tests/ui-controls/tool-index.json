@@ -1,0 +1,11 @@
+[
+ { "selector": "tool-decompose", "expect": { "url": "/pages/tool/decompose" } },
+ { "selector": "tool-rewrite", "expect": { "url": "/pages/tool/run?type=negative_rewrite" } },
+ { "selector": "tool-rant", "expect": { "url": "/pages/tool/run?type=rant" } },
+ { "selector": "tool-healing-quote", "expect": { "url": "/pages/tool/run?type=healing_phrase" } },
+ { "selector": "tool-sleep-comfort", "expect": { "url": "/pages/tool/run?type=sleep_comfort" } },
+ { "selector": "tool-work-support", "expect": { "url": "/pages/tool/run?type=work_support" } },
+ { "selector": "tool-letter", "expect": { "url": "/pages/letter/" } },
+ { "selector": "tool-future-letter", "expect": { "url": "/pages/tool/run?type=future_letter" } },
+ { "selector": "tool-report", "expect": { "url": "/pages/report/month" } }
+]

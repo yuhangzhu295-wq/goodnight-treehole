@@ -75,6 +75,7 @@ if (runArg > -1) {
     'safety-support': 'SafetySupport',
     'square-effects': 'Square',
     'tool-run': 'ToolRun',
+    'tool-index': 'ToolIndex',
     'peer-requests': 'PeerRequests',
     'peer-detail': 'PeerExperienceDetail',
     'peer-consent': 'PeerConsent',
