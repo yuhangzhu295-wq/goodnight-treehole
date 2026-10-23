@@ -691,25 +691,25 @@
       "screenshot": "artifacts/ui-v2/android/R4_Square_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "square-effects 2/2",
         "screenshot": "artifacts/ui-v2/r2/square-v8.png",
         "visualVerdict": "PASS",
-        "codeReview": "re-review pending after eight blocking fixes",
+        "codeReview": "APPROVE — independent code reviewer, seventh pass (eight blocking findings across passes 1-2 and three more in passes 3-5, all fixed; final state: save-to-diary is one transaction, the effects case resets the favourite before asserting the delta, and the letter fixture has no write path at all)",
         "recordedAt": "2026-10-23T22:28:00.270Z",
         "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
         "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent code re-review (eight blocking fixes applied)"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-23",
@@ -724,25 +724,25 @@
       "screenshot": "artifacts/ui-v2/android/R4_MoodCreate_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "mood-create 5/5 + mood-create-effects 1/1",
         "screenshot": "artifacts/ui-v2/r2/mood-v8.png",
         "visualVerdict": "PASS",
-        "codeReview": "re-review pending after eight blocking fixes",
+        "codeReview": "APPROVE — independent code reviewer, seventh pass (eight blocking findings across passes 1-2 and three more in passes 3-5, all fixed; final state: save-to-diary is one transaction, the effects case resets the favourite before asserting the delta, and the letter fixture has no write path at all)",
         "recordedAt": "2026-10-23T22:28:00.270Z",
         "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
         "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent code re-review (eight blocking fixes applied)"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-24",
@@ -757,25 +757,25 @@
       "screenshot": "artifacts/ui-v2/android/R4_PostDetail_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "post-detail 7/7 + post-detail-effects 1/1",
         "screenshot": "artifacts/ui-v2/r2/post-v8.png",
         "visualVerdict": "PASS",
-        "codeReview": "re-review pending after eight blocking fixes",
+        "codeReview": "APPROVE — independent code reviewer, seventh pass (eight blocking findings across passes 1-2 and three more in passes 3-5, all fixed; final state: save-to-diary is one transaction, the effects case resets the favourite before asserting the delta, and the letter fixture has no write path at all)",
         "recordedAt": "2026-10-23T22:28:00.270Z",
         "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
         "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent code re-review (eight blocking fixes applied)"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-25",
@@ -790,25 +790,25 @@
       "screenshot": "artifacts/ui-v2/android/R4_LetterToday_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "letter-today 6/6",
         "screenshot": "artifacts/ui-v2/r2/letter-v8.png",
         "visualVerdict": "PASS",
-        "codeReview": "re-review pending after eight blocking fixes",
+        "codeReview": "APPROVE — independent code reviewer, seventh pass (eight blocking findings across passes 1-2 and three more in passes 3-5, all fixed; final state: save-to-diary is one transaction, the effects case resets the favourite before asserting the delta, and the letter fixture has no write path at all)",
         "recordedAt": "2026-10-23T22:28:00.270Z",
         "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
         "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent code re-review (eight blocking fixes applied)"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-26",
@@ -823,25 +823,25 @@
       "screenshot": "artifacts/ui-v2/android/R4_ToolIndex_capture.png",
       "issue": "",
       "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
         "result": "tool-index 9/9",
         "screenshot": "artifacts/ui-v2/r2/tool-v8.png",
         "visualVerdict": "PASS",
-        "codeReview": "re-review pending after eight blocking fixes",
+        "codeReview": "APPROVE — independent code reviewer, seventh pass (eight blocking findings across passes 1-2 and three more in passes 3-5, all fixed; final state: save-to-diary is one transaction, the effects case resets the favourite before asserting the delta, and the letter fixture has no write path at all)",
         "recordedAt": "2026-10-23T22:28:00.270Z",
         "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
         "visualReview": "independent final-gate reviewer, third pass: P1s fixed, P2s accepted as debt (top-bar hairline stops at the 18px inset; ReplyDetail reply-like column; LetterToday keeps an extra 今日小建议 section the design does not have)"
       },
-      "nextAction": "independent code re-review (eight blocking fixes applied)"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-27",
@@ -1269,7 +1269,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
-  "updatedAt": "2026-10-23T22:28:12.563Z",
+  "updatedAt": "2026-10-23T23:11:53.350Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
