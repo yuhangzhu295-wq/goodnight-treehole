@@ -48,9 +48,21 @@ const go = async () => {
   return false;
 };
 
+/**
+ * A case selector ending in `*` matches the first control whose testid starts with the rest. Cases
+ * that name a record id (`peer-request-accept-peer_match_1792…`) only exist for the account that
+ * happened to own that record, so they were skipped on every other identity; a prefix lets the same
+ * case exercise whatever record the page currently shows.
+ */
+function selectorExpression(selector) {
+  return selector.endsWith('*')
+    ? `[data-testid^="${selector.slice(0, -1)}"]`
+    : `[data-testid="${selector}"]`;
+}
+
 const probe = (selector) =>
   ev(`(function(){
-    var e=document.querySelector('[data-testid="${selector}"]');
+    var e=document.querySelector('${selectorExpression(selector)}');
     if(!e) return JSON.stringify({found:false});
     var r=e.getBoundingClientRect();
     return JSON.stringify({found:true,visible:r.width>0&&r.height>0,text:(e.innerText||'').trim().slice(0,24)});
@@ -58,7 +70,7 @@ const probe = (selector) =>
 
 const click = (selector) =>
   ev(`(function(){
-    var e=document.querySelector('[data-testid="${selector}"]');
+    var e=document.querySelector('${selectorExpression(selector)}');
     if(!e) return 'not found';
     // The testid often marks a container while the handler sits on a control inside it (a row whose
     // click lives on its button). Clicking the container alone would report a working control as
