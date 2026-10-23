@@ -21,7 +21,7 @@ const EVIDENCE = {
     script: 'verify-archive.mjs', passed: 7, total: 7, shot: 'artifacts/ui-v2/r2/archive-v5.png', visual: 'FAIL',
     note: 'reviewer fails it on one item: the title is 归档, the mock says 旅程归档. Deliberate - the page holds diaries, posts, letters and journeys.',
   },
-  StableSelf: { script: 'verify-stable-self.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/stable-self-v4.png', visual: null },
+  StableSelf: { script: 'verify-stable-self.mjs', passed: 6, total: 6, shot: 'artifacts/ui-v2/r2/stable-self-bottom-v3.png', visual: 'PASS' },
   ToolDecompose: { script: 'verify-tool-decompose.mjs', passed: 4, total: 4, shot: null, visual: null },
 };
 

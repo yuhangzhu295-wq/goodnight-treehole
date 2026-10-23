@@ -529,18 +529,18 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "note": "Layout adopted from the design: bare-chevron bar, heading + the real subtitle, bare section blocks instead of cards, the design's rounded-square check rows for anchors and contacts, and a pinned full-width CTA. The script block is untouched (verified by diff) and the only data-testid is preserved. The real page has four sections plus a details block where the mock shows two, and the real titles were kept where the mock's wording did not describe the real data. Two pieces of user-facing copy were ADDED by the implementer: the heading 清醒时候的提醒 and the note 这只是你自己记录过的判断，不是 AI 对你的结论。 The design shows a heading and a note block, but that wording is not in the mock or the original file. UNVERIFIED: the saved-state rendering (the API was erroring, so only the empty/error state was exercised).",
       "evidence": {
         "script": "scripts/verify-stable-self.mjs",
         "result": "6/6",
-        "screenshot": "artifacts/ui-v2/r2/stable-self-v4.png",
-        "visualVerdict": null,
+        "screenshot": "artifacts/ui-v2/r2/stable-self-bottom-v3.png",
+        "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.286Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -596,8 +596,8 @@
         "screenshot": "artifacts/ui-v2/r2/decision-vault-v8.png",
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -631,8 +631,8 @@
         "visualVerdict": "FAIL",
         "codeReview": "not run on this branch",
         "note": "reviewer fails it on one item: the title is 归档, the mock says 旅程归档. Deliberate - the page holds diaries, posts, letters and journeys.",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -773,8 +773,8 @@
         "screenshot": null,
         "visualVerdict": null,
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -850,8 +850,8 @@
         "screenshot": "artifacts/ui-v2/r2/diary-list-v6.png",
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -882,8 +882,8 @@
         "screenshot": "artifacts/ui-v2/r2/diary-detail.png",
         "visualVerdict": null,
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -915,8 +915,8 @@
         "screenshot": "artifacts/ui-v2/r2/report-month-v5.png",
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -969,8 +969,8 @@
         "screenshot": "artifacts/ui-v2/r2/letter-detail-v4.png",
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T04:21:51.153Z",
-        "head": "8835da851438f3b84a0adb7d860813d1b714c95f"
+        "recordedAt": "2026-10-23T04:52:15.287Z",
+        "head": "11e83d150191b486bacda712e309507234fb8e24"
       },
       "nextAction": "none"
     },
@@ -1150,8 +1150,8 @@
     ],
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
-  "head": "8835da851438f3b84a0adb7d860813d1b714c95f",
-  "updatedAt": "2026-10-23T04:21:51.153Z",
+  "head": "11e83d150191b486bacda712e309507234fb8e24",
+  "updatedAt": "2026-10-23T04:52:15.287Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
