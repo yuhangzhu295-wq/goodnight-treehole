@@ -15,6 +15,12 @@ SERVICES=("$@")
 if [ ${#SERVICES[@]} -eq 0 ]; then SERVICES=(postgres redis minio); fi
 
 echo "[stack] up: ${SERVICES[*]}"
+# Keep the distro alive for the whole session. WSL2 stops a distro once no client is attached, and
+# `vmIdleTimeout` in .wslconfig has no effect on this WSL version (measured), so the containers die
+# with it and the next command reports them as "Up 2 seconds" while the API 500s. A detached process
+# inside the distro is what actually holds it open; re-create it on every bring-up, because a distro
+# that stopped took the old one with it.
+wsl.exe -e bash -lc "pgrep -f 'sleep 864000' >/dev/null || (setsid nohup sleep 864000 >/dev/null 2>&1 < /dev/null &)" >/dev/null 2>&1 || true
 wsl.exe -e bash -lc "cd /mnt/c/Users/zyu33/Projects/goodnight-treehole && docker compose -f docker-compose.yml -f docker-compose.recovery.yml up -d ${SERVICES[*]}"
 
 # WSL2's localhost forwarding takes a moment after a container (re)start; without this the caller
