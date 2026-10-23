@@ -282,12 +282,17 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
    Kill the API first (`taskkill /PID <pid on :3000> /F`), and re-run any single failing file alone
    before treating it as a regression.
 
-0. **WSL2 suspends and the forwarded ports die with it.** Hold it awake for the whole run from the
-   Windows side - `(wsl.exe -e sleep 21600 &)` in a Git Bash session works and survives tool calls;
-   a `nohup sleep` started *inside* WSL does not, because WSL tears the process tree down when the
-   invoking command returns. Symptom when it lapses: `psql: FATAL: the database system is shutting
-   down`, then `[INFRASTRUCTURE_FAILURE] Cannot connect to PostgreSQL`. A `-l -v` state of `Stopped`
-   that flips to `Running` on the next invocation is this, not a test failure.
+0. **WSL2 stops the distro whenever no client is attached — fixed 2026-10-23.** `vmIdleTimeout` in
+   `.wslconfig` has no effect on this WSL version (measured), so the distro stopped between commands
+   and took postgres/redis/minio with it. Every command after a gap then showed the containers as
+   "Up 2 seconds" while the API answered 500, which reads as a product defect. The fix is a detached
+   process inside the distro (`setsid nohup sleep 864000`): `scripts/stack-up.sh` re-creates it on
+   every bring-up, and the scheduled task `GoodnightTreehole-WSL-Keepalive` (running
+   `scripts/wsl-keepalive.cmd` every 5 minutes) re-creates it even when nothing of ours is running.
+   Remove the task with `schtasks /Delete /TN "GoodnightTreehole-WSL-Keepalive" /F`.
+   Verified: distro up 24 minutes, `RestartCount=0`, API answering after a 200-second idle gap.
+   If it ever regresses, check `ps -o etimes= -p 1` inside WSL — a small number means the distro
+   restarted, not that postgres crashed.
    `netsh interface portproxy` needs an elevated shell and cannot be recreated here, so point
    `DATABASE_URL`/`REDIS_URL` at the WSL IP directly (`wsl.exe -e bash -lc "hostname -I"`), and pass
    `TEST_PG_PORT=5432` - the `.env` values use ports 15432/16379 that no longer forward.
@@ -304,7 +309,7 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
    looked like "submit did nothing". Use `scripts/ui2-capture.mjs`, which re-asserts our activity
    **before each tap** and refuses to write a capture unless the complete `topResumedActivity` is ours
    and the frame is portrait; `scripts/device-mood-e2e.sh` is a smaller version that aborts instead of
-   tapping blind. Neither can close the check-to-tap gap. **Do not kill the other project's processes.**
+   tapping blind. Neither can close the check-to-tap gap.
    For data questions, prefer verifying with the credential the app holds
    (`scripts/verify-device-credential-ownership.mjs`) over tapping the UI.
    **On 2026-10-23 the same automation was also disabling this package**, which looks nothing like a
@@ -316,8 +321,19 @@ read the now-disabled `store.aiJobs` getter. DAPI-dependent assertions are **ski
    `adb install -r` registration — reinstalling "fixes" it only by resetting the flag. `scripts/
    device-session.mjs` now runs `pm enable` before concluding the install is broken, retries the
    attach while the devtools socket is still coming up, and re-attaches once when a read loses the
-   socket, so a script survives one restart. Do not kill the other project's automation; work inside
-   the window and let the harness absorb a restart.
+   socket, so a script survives one restart.
+   **Root cause found and fixed the same day.** The disabler is the CozyFocus QA harness:
+   `Documents/Codex/2026-09-07/new-chat/cozy_focus_app/tools/qa/{cozy,rest,tab,restore}_shot.sh`
+   each run `pm disable-user --user 0 com.goodnight.treehole` to stop this app taking the foreground,
+   and none of them restored it — a global side effect with no cleanup. Their own header documents a
+   private `CozyFocusQA` AVD "for exactly this reason", but the scripts default to
+   `COZY_SERIAL=emulator-5554`, which is this project's device. All four now arm
+   `trap 'adb shell pm enable …' EXIT INT TERM` immediately after their `adb()` wrapper, so the
+   package is restored on every exit path including the REFUSED ones (verified: `enabled=3` before
+   running one, `enabled=1` after). They still disable it *for the duration* of a capture, so a run
+   that overlaps theirs can lose one restart — that is what the harness retry above absorbs.
+   **Do not kill the other project's processes.** For data questions, prefer verifying with the
+   credential the app holds (`scripts/verify-device-credential-ownership.mjs`) over tapping the UI.
 4. **`adb shell` paths get mangled by Git Bash**: `/data/data/...` becomes `C:/Program Files/Git/...`.
    Set `MSYS_NO_PATHCONV=1` for those commands.
 5. **github.com:443 is intermittently unreachable**; `git push` may need several retries over minutes.

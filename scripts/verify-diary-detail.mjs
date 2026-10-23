@@ -42,6 +42,17 @@ const openMenu = async (ev) => {
 await withSession(async (session) => {
   const { ev } = session;
 
+  // 0. A freshly installed app has no diaries, and an empty list cannot show whether a diary opens.
+  //    Write one through the real composer first, exactly as a user would.
+  const seeded = await navigateTo(session, '/pages/mood/create', { ready: '[data-testid=input-mood-content]' });
+  if (seeded) {
+    const typed = await typeInto(session, 'input-mood-content', `详情种子_${Date.now()}`);
+    if (typed.ok) {
+      await ev("(function(){document.querySelector('[data-testid=btn-submit-mood]').click();return 1;})()", false);
+      await sleep(5000);
+    }
+  }
+
   // 1. open the first diary from the list - the real path, which also gives us a real id
   const listed = await navigateTo(session, '/pages/diary/index', { ready: '[data-testid=diary-card-first]' });
   await openFirstDiary(ev);
