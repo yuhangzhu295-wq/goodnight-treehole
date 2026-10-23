@@ -7,11 +7,14 @@
 // Usage: node scripts/verify-controls.mjs <route> <cases.json>
 // cases.json: [{ "selector": "...", "expect": { "url": "...", "api": "...", "text": "..." }, "setup": "..." }]
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { withSession, ADB } from './device-session.mjs';
+import { repoFile } from './repo-root.mjs';
 
 const route = process.argv[2];
-const casesFile = process.argv[3];
+// A relative cases path is resolved against the repository, not the caller's working directory.
+const casesFile = process.argv[3] ? (path.isAbsolute(process.argv[3]) ? process.argv[3] : repoFile(process.argv[3])) : '';
 if (!route || !casesFile) {
   console.error('usage: node scripts/verify-controls.mjs <route> <cases.json>');
   process.exit(1);
