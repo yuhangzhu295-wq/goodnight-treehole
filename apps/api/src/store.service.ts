@@ -3726,7 +3726,13 @@ export class StoreService implements OnModuleInit {
         { openid: { contains: params.q, mode: 'insensitive' } },
       ];
     }
-    if (params.status && params.status !== 'all') where.status = params.status;
+    if (params.status && params.status !== 'all') {
+      // Prisma would answer an unknown enum value with a 500; the list's filter is user input.
+      if (!['normal', 'limited', 'banned'].includes(params.status)) {
+        throw new BadRequestException('无效的账号状态');
+      }
+      where.status = params.status;
+    }
     const [total, rows] = await Promise.all([
       this.prisma.user.count({ where: where as any }),
       this.prisma.user.findMany({
@@ -4164,8 +4170,15 @@ export class StoreService implements OnModuleInit {
   }
 
   private assertCanWrite(userId: string) {
-    const user = this.users.find((item) => item.id === userId);
-    if (user?.status === 'limited' || user?.status === 'banned') {
+    // The verified identity carries the status read in the same query as the session, so a ban
+    // applied on another instance blocks the next write here without waiting for a cache refresh.
+    // The in-memory copy is only a fallback for internal callers with no request identity.
+    const identity = currentIdentity();
+    const status =
+      identity && identity.userId === userId
+        ? identity.status
+        : this.users.find((item) => item.id === userId)?.status;
+    if (status === 'limited' || status === 'banned') {
       throw new ForbiddenException('当前账号已被禁言或限制发布，请联系管理员');
     }
   }

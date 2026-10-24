@@ -35,7 +35,16 @@ const LAST_USED_THROTTLE_MS = 5 * 60 * 1000;
 
 const SECRET_BYTES = 32;
 
-export type VerifiedIdentity = { userId: string; sessionId: string };
+export type VerifiedIdentity = {
+  userId: string;
+  sessionId: string;
+  /**
+   * The account status read with the session on the same query. Write gates use it so a ban applied
+   * by another instance takes effect on the next request instead of waiting for a cache refresh.
+   * Optional for unit callers that construct an identity directly.
+   */
+  status?: 'normal' | 'limited' | 'banned';
+};
 
 /**
  * The verified identity of the request being served.
@@ -119,9 +128,11 @@ export class AnonymousSessionService {
         expiresAt: Date;
         lastUsedAt: Date | null;
         revokedAt: Date | null;
+        userStatus: 'normal' | 'limited' | 'banned';
       }>
     >`
-      SELECT s."id", s."userId", s."secretHash", s."expiresAt", s."lastUsedAt", s."revokedAt"
+      SELECT s."id", s."userId", s."secretHash", s."expiresAt", s."lastUsedAt", s."revokedAt",
+             u."status" AS "userStatus"
       FROM "AnonymousSession" s
       JOIN "User" u ON u."id" = s."userId"
       WHERE s."id" = ${parts.sessionId}
@@ -148,7 +159,7 @@ export class AnonymousSessionService {
         .catch(() => undefined);
     }
 
-    return { userId: session.userId, sessionId: session.id };
+    return { userId: session.userId, sessionId: session.id, status: session.userStatus };
   }
 
   /** Verifies without throwing, for routes where identity is optional. */

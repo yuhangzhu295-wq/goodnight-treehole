@@ -119,6 +119,7 @@ describe('api contracts', () => {
       { nickname: '昵\u061C称' },
       { nickname: '昵\u00AD称' },
       { nickname: '昵\u034F称' },
+      { nickname: '昵\u115F称' },
       { nickname: '隐藏\u202E字符' },
       { nickname: 123 },
       { nickname: '正常', userId: 'user_someone_else' },

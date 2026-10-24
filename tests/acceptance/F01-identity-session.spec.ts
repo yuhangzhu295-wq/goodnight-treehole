@@ -314,10 +314,25 @@ describe('F01 anonymous identity and session lifecycle', () => {
     const row = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
     expect(row?.status).toBe('banned');
 
+    // A successful status response means the audit row is already there.
+    const auditRow = await prisma.auditLog.findFirst({
+      where: { action: 'USER_STATUS', resourceId: userId },
+      select: { id: true },
+    });
+    expect(auditRow).not.toBeNull();
+
     await request(server)
       .patch('/api/v1/me/profile')
       .set('x-goodnight-user-id', credential)
       .send({ nickname: '封禁后改名' })
+      .expect(403);
+
+    // The write gate reads the status with the verified session, so the instance that still has a
+    // `normal` user object in memory cannot let the banned account post.
+    await request(secondServer)
+      .post('/api/v1/moods')
+      .set('x-goodnight-user-id', credential)
+      .send({ content: '封禁后发布', emotion: '工作', visibility: 'PRIVATE' })
       .expect(403);
 
     // The operator list reads the database, so it sees the ban even on the instance that did not

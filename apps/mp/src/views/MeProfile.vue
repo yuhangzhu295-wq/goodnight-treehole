@@ -174,19 +174,20 @@ async function revoke(item: SessionItem) {
   // with it, so the loading flag is cleared here.
   sessionsRequest += 1;
   sessionsLoading.value = false;
+  const request = api.post(`/api/v1/auth/sessions/${encodeURIComponent(item.id)}/revoke`);
   try {
-    await withTimeout(
-      api.post(`/api/v1/auth/sessions/${encodeURIComponent(item.id)}/revoke`),
-      12000,
-      '撤销请求超时，请重试',
-    );
+    await withTimeout(request, 12000, '撤销请求超时，请重试');
     // A list request issued while the POST was in flight may still be holding the old row.
     sessionsRequest += 1;
     sessions.value = sessions.value.filter((row) => row.id !== item.id);
     void reconcileSessions(item.id);
   } catch (cause: any) {
     sessionsError.value = cause?.message ?? '撤销会话失败，请稍后重试。';
-    // The server may have applied it even though the response was lost.
+    // On a timeout the request is still in flight; the immediate read can still see the old row, so
+    // reconcile again once the request actually settles.
+    if (cause?.message === '撤销请求超时，请重试') {
+      void request.then(() => reconcileSessions(item.id)).catch(() => reconcileSessions(item.id));
+    }
     void reconcileSessions(item.id);
   } finally {
     revokingId.value = '';

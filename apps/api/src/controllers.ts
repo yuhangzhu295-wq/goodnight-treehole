@@ -164,13 +164,30 @@ function requireRuntimeUserId(_header?: string): string {
 const NICKNAME_MAX_CHARS = 20;
 const NICKNAME_MAX_BYTES = 80;
 /**
- * Control characters, line/paragraph separators, bidi overrides and zero-width marks can make one
- * name render as another. ZWJ/ZWNJ (U+200C/U+200D) are kept: they are part of legitimate emoji and
- * Indic sequences. U+061C (Arabic letter mark), U+2028 and U+2029 are listed explicitly because they
- * are not in the C0/C1 ranges but do break a single-line label.
+ * Control characters and format characters can make one name render as another.
+ *
+ * `\p{Cc}` is C0/C1 and `\p{Cf}` is the format category, which covers the soft hyphen, bidi
+ * overrides and zero-width marks. ZWNJ/ZWJ (U+200C/U+200D) are exempt: they are part of legitimate
+ * emoji and Indic sequences. The lookahead keeps those two from matching.
  */
-const NICKNAME_FORBIDDEN =
-  /[\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u180E\u200B\u200E\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0]/;
+const NICKNAME_FORBIDDEN = /(?![\u200C\u200D])[\p{Cc}\p{Cf}]/u;
+
+/**
+ * Invisible characters that are not in the format category.
+ *
+ * U+034F is a combining mark, U+2028/U+2029 are line/paragraph separators, and the Hangul fillers
+ * (U+115F/U+1160/U+3164/U+FFA0) render as blank space. They are matched by value rather than in a
+ * character class so a combining mark cannot be misread as part of a grapheme.
+ */
+const NICKNAME_INVISIBLE = ['\u034F', '\u2028', '\u2029', '\u115F', '\u1160', '\u3164', '\uFFA0'];
+
+function hasForbiddenNicknameCharacters(value: string): boolean {
+  return (
+    NICKNAME_FORBIDDEN.test(value) ||
+    NICKNAME_INVISIBLE.some((character) => value.includes(character)) ||
+    /\p{Cs}/u.test(value)
+  );
+}
 
 /**
  * Validates the only profile field this product lets a person edit.
@@ -191,13 +208,13 @@ function normalizeNickname(body: unknown): string {
   if (typeof raw !== 'string') throw new BadRequestException('昵称必须是文本');
   // Check the raw value before trimming: a leading newline is a control character to reject, not
   // whitespace to silently drop. Trimming first let "\n昵称" through as "昵称".
-  if (NICKNAME_FORBIDDEN.test(raw) || /\p{Cs}/u.test(raw)) {
+  if (hasForbiddenNicknameCharacters(raw)) {
     throw new BadRequestException('昵称包含不可见字符');
   }
   const nickname = raw.normalize('NFC').trim();
   if (!nickname) throw new BadRequestException('昵称不能为空');
   // NFC can compose a sequence into a different code point; re-check the value that will be stored.
-  if (NICKNAME_FORBIDDEN.test(nickname) || /\p{Cs}/u.test(nickname)) {
+  if (hasForbiddenNicknameCharacters(nickname)) {
     throw new BadRequestException('昵称包含不可见字符');
   }
   if (Array.from(nickname).length > NICKNAME_MAX_CHARS) {
@@ -3298,7 +3315,9 @@ export class AdminController {
     if (!before) throw new NotFoundException('用户不存在');
     const status = body.status === 'muted' ? 'limited' : body.status === 'deleted' ? 'banned' : body.status;
     const item = await this.store.updateUserStatus(id, status);
-    this.store.audit(admin.id, 'USER_STATUS', 'User', id, before, item);
+    // The status is already committed; awaiting the audit makes a success response mean the audit
+    // row exists too. If the audit write fails the request fails loudly, and a retry is idempotent.
+    await this.store.audit(admin.id, 'USER_STATUS', 'User', id, before, item);
     return { item };
   }
 

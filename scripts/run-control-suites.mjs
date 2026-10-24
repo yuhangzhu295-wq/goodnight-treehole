@@ -105,12 +105,13 @@ if (!skipFixtures) {
   // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
   letterFixture = runFixture('letter', 'reset-letter.mjs', [], { required: false, blockedExitCodes: [3] });
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
-  // Only the profile page has a revoke control, and only when a second session exists.
-  if (selected.some((suite) => suite.name === 'me-profile')) {
-    // Required: without a known second session the revoke case could target an account's real
-    // credential. The fixture refuses rather than guesses, and that refusal stops the run.
-    runFixture('session', 'seed-second-session.mjs', [], { required: true });
-  }
+}
+
+// This one is not optional even under `--no-fixtures`: the profile suite's revoke case is
+// destructive, and without a known second session it could cut off an account's real credential.
+// The fixture refuses rather than guesses, and that refusal stops the run.
+if (selected.some((suite) => suite.name === 'me-profile')) {
+  runFixture('session', 'seed-second-session.mjs', [], { required: true });
 }
 
 // A peer route is generated per run, so a missing fixture is a setup problem, not a product failure.
