@@ -861,19 +861,20 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "no",
+      "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/verify-controls.mjs",
-        "result": "tool-decompose 5/5",
-        "screenshot": "artifacts/ui-v2/r2/tool-decompose-v3.png",
-        "visualVerdict": "not reviewed on this layout",
-        "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-24T07:17:02.478Z",
-        "head": "4d2b031"
+        "result": "tool-decompose 8/8",
+        "screenshot": "artifacts/ui-v2/r2/tool-decompose-v5.png",
+        "visualVerdict": "PASS",
+        "codeReview": "not yet returned - both reviewer routes were rate-limited (gpt-6-sol usage_limit_reached, reviewer-glm concurrency)",
+        "recordedAt": "2026-10-24T08:28:52.913Z",
+        "head": "0ccac59",
+        "visualReview": "independent final-gate reviewer, re-review after layout fixes: all previous P1/P2 fixed; two spacing P2s fixed after the pass; one P2 accepted as debt (the AI note wraps to one line because the container is the full content width)"
       },
-      "nextAction": "independent visual review and code review"
+      "nextAction": "independent code review when a reviewer route is available"
     },
     {
       "id": "UI-V2-28",
@@ -1269,7 +1270,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
-  "updatedAt": "2026-10-24T07:17:02.479Z",
+  "updatedAt": "2026-10-24T08:28:52.920Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",
