@@ -173,13 +173,29 @@ const NICKNAME_MAX_BYTES = 80;
 const NICKNAME_FORBIDDEN = /(?![\u200C\u200D])[\p{Cc}\p{Cf}]/u;
 
 /**
- * Invisible characters that are not in the format category.
+ * Default-ignorable characters that are not in the format category.
  *
- * U+034F is a combining mark, U+2028/U+2029 are line/paragraph separators, and the Hangul fillers
- * (U+115F/U+1160/U+3164/U+FFA0) render as blank space. They are matched by value rather than in a
- * character class so a combining mark cannot be misread as part of a grapheme.
+ * U+034F and the Khmer/Mongolian marks are combining marks, U+2028/U+2029 are line/paragraph
+ * separators, and the Hangul fillers render as blank space. They are matched by value rather than in
+ * a character class so a combining mark cannot be misread as part of a grapheme. Variation selectors
+ * (U+FE00-U+FE0F) and emoji tag characters are deliberately not listed: they are invisible on their
+ * own but are part of legitimate emoji sequences.
  */
-const NICKNAME_INVISIBLE = ['\u034F', '\u2028', '\u2029', '\u115F', '\u1160', '\u3164', '\uFFA0'];
+const NICKNAME_INVISIBLE = [
+  '\u034F',
+  '\u115F',
+  '\u1160',
+  '\u17B4',
+  '\u17B5',
+  '\u180B',
+  '\u180C',
+  '\u180D',
+  '\u180F',
+  '\u2028',
+  '\u2029',
+  '\u3164',
+  '\uFFA0',
+];
 
 function hasForbiddenNicknameCharacters(value: string): boolean {
   return (
@@ -3314,10 +3330,9 @@ export class AdminController {
     const before = await this.store.readUserForAdmin(id);
     if (!before) throw new NotFoundException('用户不存在');
     const status = body.status === 'muted' ? 'limited' : body.status === 'deleted' ? 'banned' : body.status;
-    const item = await this.store.updateUserStatus(id, status);
-    // The status is already committed; awaiting the audit makes a success response mean the audit
-    // row exists too. If the audit write fails the request fails loudly, and a retry is idempotent.
-    await this.store.audit(admin.id, 'USER_STATUS', 'User', id, before, item);
+    // The status and its audit row commit together, so a success response cannot be missing its
+    // evidence and a failed audit cannot leave the status applied.
+    const item = await this.store.updateUserStatus(id, status, { adminUserId: admin.id, before });
     return { item };
   }
 

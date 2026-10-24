@@ -3755,16 +3755,38 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
-   * Changes an account's status.
+   * Changes an account's status, and writes its audit row in the same transaction.
    *
    * The database is written first and the in-memory mirror second, for the same reason as the
    * nickname: the snapshot is loaded once at boot, and letting a stale instance write it back would
-   * undo a ban made elsewhere.
+   * undo a ban made elsewhere. The audit row is part of the transaction so a success response means
+   * both the status and its evidence exist; a failed audit rolls the status back instead of leaving
+   * a moderation action with no record.
    */
-  async updateUserStatus(userId: string, status: 'normal' | 'limited' | 'banned') {
-    const row = await this.prisma.user.update({
-      where: { id: userId },
-      data: { status },
+  async updateUserStatus(
+    userId: string,
+    status: 'normal' | 'limited' | 'banned',
+    audit?: { adminUserId: string; before: unknown },
+  ) {
+    const asJson = (value: unknown) =>
+      value === undefined || value === null ? undefined : (JSON.parse(JSON.stringify(value)) as object);
+    const row = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({ where: { id: userId }, data: { status } });
+      if (audit) {
+        await tx.auditLog.create({
+          data: {
+            adminUserId: audit.adminUserId,
+            action: 'USER_STATUS',
+            resourceType: 'User',
+            resourceId: userId,
+            beforeJson: asJson(audit.before),
+            afterJson: asJson(updated),
+            ip: '127.0.0.1',
+            userAgent: 'local-dev',
+          },
+        });
+      }
+      return updated;
     });
     const cached = this.users.find((item) => item.id === userId);
     if (cached) cached.status = row.status as 'normal' | 'limited' | 'banned';

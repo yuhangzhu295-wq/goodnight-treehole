@@ -321,6 +321,17 @@ describe('F01 anonymous identity and session lifecycle', () => {
     });
     expect(auditRow).not.toBeNull();
 
+    // If the audit row cannot be written, the status change must roll back with it rather than
+    // leaving a moderation action with no record.
+    await expect(
+      app.get(StoreService).updateUserStatus(userId, 'normal', {
+        adminUserId: 'admin_that_does_not_exist',
+        before: {},
+      }),
+    ).rejects.toBeTruthy();
+    const afterFailedAudit = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+    expect(afterFailedAudit?.status).toBe('banned');
+
     await request(server)
       .patch('/api/v1/me/profile')
       .set('x-goodnight-user-id', credential)
