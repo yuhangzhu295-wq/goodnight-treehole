@@ -6,6 +6,40 @@
   }
  },
  {
+  "selector": "btn-decompose-run",
+  "settleMs": 600,
+  "expect": {
+   "present": "[data-testid=\"btn-decompose-run\"][disabled]"
+  }
+ },
+ {
+  "selector": "btn-decompose-save",
+  "prefill": [
+   {
+    "fill": {
+     "selector": "input-decompose",
+     "value": "明天要汇报，我不知道从哪里开始准备。"
+    }
+   },
+   {
+    "click": "btn-decompose-run",
+    "waitFor": "decompose-result-card",
+    "timeoutMs": 130000
+   },
+   {
+    "fill": {
+     "selector": "input-decompose",
+     "value": "改主意了，想先处理另一件事。"
+    }
+   }
+  ],
+  "settleMs": 800,
+  "expect": {
+   "present": "[data-testid=\"decompose-stale\"]",
+   "text": "内容已修改"
+  }
+ },
+ {
   "selector": "input-decompose",
   "prefill": {
    "fill": {

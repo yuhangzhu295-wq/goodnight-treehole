@@ -133,6 +133,33 @@ describe('api contracts', () => {
     expect(row?.nickname).toBe(original);
   });
 
+  it('persists the tool result attached to a diary', async () => {
+    const server = app.getHttpServer();
+    const issued = await request(server).post('/api/v1/auth/anonymous').send({ deviceLabel: 'api spec tool result' });
+    const credential = issued.body.item.credential as string;
+    const toolResult = {
+      triggerEvent: '明天要汇报',
+      coreEmotions: ['紧张'],
+      realNeeds: ['确定感'],
+      nextSmallStep: '先写三行提纲',
+      advice: ['写三行提纲', '读一遍并标出卡住的地方'],
+    };
+
+    const created = await request(server)
+      .post('/api/v1/diaries')
+      .set('x-goodnight-user-id', credential)
+      .send({ content: '拆解后保存', emotion: '焦虑', source: 'emotion-analysis', toolResult })
+      .expect(201);
+
+    // The row, not just the response: the page says 已保存到日记, so the breakdown must be there.
+    const prisma = app.get(PrismaRuntimeService);
+    const row = await prisma.diary.findUnique({
+      where: { id: created.body.item.id },
+      select: { toolResult: true },
+    });
+    expect(row?.toolResult).toEqual(toolResult);
+  });
+
   it('refuses a nickname change for a restricted account', async () => {
     const server = app.getHttpServer();
     const issued = await request(server).post('/api/v1/auth/anonymous').send({ deviceLabel: 'api spec limited' });

@@ -56,7 +56,13 @@ const go = async () => {
       // The document was replaced mid-call; the next iteration re-issues against the new one.
     }
     await sleep(2600);
-    here = String(await ev('location.pathname', false));
+    // The navigation replaces the document and can close the debugger socket for a moment; that is
+    // not a page failure, so read the path again on the next attempt instead of aborting the run.
+    try {
+      here = String(await ev('location.pathname', false));
+    } catch {
+      here = '';
+    }
     if (here === expected) break;
   }
   if (here !== expected) {
@@ -68,7 +74,13 @@ const go = async () => {
   // late, which is a different thing from absent.
   const deadline = Date.now() + 12000;
   while (Date.now() < deadline) {
-    const ready = await ev("(function(){return Boolean(document.querySelector('[data-testid], .goodnight-page'))})()", false);
+    let ready = false;
+    try {
+      ready = await ev("(function(){return Boolean(document.querySelector('[data-testid], .goodnight-page'))})()", false);
+    } catch {
+      // Same transient socket as above; the next iteration reads the new document.
+      ready = false;
+    }
     if (ready) return true;
     await sleep(600);
   }

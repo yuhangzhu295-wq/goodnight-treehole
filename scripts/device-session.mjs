@@ -176,7 +176,9 @@ export async function withSession(fn, { relaunch = true } = {}) {
     // process appears, and a restart between the pid read and the fetch closes it again. Retrying here
     // is what makes a run survive the emulator restarting the app underneath it.
     let lastError;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // A navigation replaces the renderer and the devtools socket briefly refuses connections. Three
+    // attempts at 800ms was shorter than a cold page load, so the run died on a healthy app.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
       const currentPid = appPid() || pid;
       if (currentPid) pid = currentPid;
       try {
@@ -188,7 +190,7 @@ export async function withSession(fn, { relaunch = true } = {}) {
         return new WebSocket(target.webSocketDebuggerUrl);
       } catch (cause) {
         lastError = cause;
-        await new Promise((res) => setTimeout(res, 800));
+        await new Promise((res) => setTimeout(res, 700 + attempt * 400));
       }
     }
     throw lastError;
@@ -217,10 +219,24 @@ export async function withSession(fn, { relaunch = true } = {}) {
    * A freshly cold-started app accepts the WebSocket connection before its renderer is ready, and the
    * first `send` then gets no reply at all - the caller sees a 15s timeout on its first read and the
    * whole run dies. One cheap round-trip here turns that into a retry.
+   *
+   * This uses a local probe rather than `call`: `call` is declared below and referring to it here was
+   * a temporal-dead-zone ReferenceError on every attempt, so the readiness check never actually ran
+   * and each attempt closed a healthy socket.
    */
+  const probe = () =>
+    new Promise((res, rej) => {
+      const id = ++seq;
+      const timer = setTimeout(() => rej(new Error('CDP probe timed out')), 15_000);
+      waiters.set(id, (m) => {
+        clearTimeout(timer);
+        res(m);
+      });
+      ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: '1', returnByValue: true } }));
+    });
   for (let i = 0; i < 3; i += 1) {
     try {
-      await call('Runtime.evaluate', { expression: '1', returnByValue: true });
+      await probe();
       break;
     } catch {
       if (i === 2) break;
