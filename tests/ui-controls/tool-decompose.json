@@ -35,7 +35,7 @@
   ],
   "settleMs": 800,
   "expect": {
-   "present": "[data-testid=\"decompose-stale\"]",
+   "present": "[data-testid=\"btn-decompose-save\"][disabled]",
    "text": "内容已修改"
   }
  },
@@ -144,7 +144,11 @@
   },
   "settleMs": 20000,
   "expect": {
-   "present": "[data-testid=\"decompose-result-card\"]"
+   "present": "[data-testid=\"decompose-result-card\"]",
+   "attributeChanged": {
+    "selector": "[data-testid=\"decompose-result-card\"]",
+    "attribute": "data-job-id"
+   }
   }
  }
 ]

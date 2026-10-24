@@ -224,6 +224,16 @@ for (const c of cases) {
   const found = before && JSON.parse(before).found;
   const clickedTestId = found ? await testIdOf(c.selector) : '';
   const urlBefore = await ev('location.pathname + location.search', false);
+  const expect = c.expect ?? {};
+  // A case can assert that the action produced a different identity, not just the same card again.
+  const readAttribute = async (spec) => {
+    if (!spec) return null;
+    return await ev(
+      `(function(){var e=document.querySelector(${JSON.stringify(spec.selector)});return e?e.getAttribute(${JSON.stringify(spec.attribute)}):null})()`,
+      false,
+    );
+  };
+  const attributeBefore = await readAttribute(expect.attributeChanged);
   let after = 'skipped';
   if (found) {
     after = await click(c.selector);
@@ -232,7 +242,6 @@ for (const c of cases) {
     await sleep(c.settleMs ?? 1000);
   }
   let url = await ev('location.pathname + location.search', false);
-  const expect = c.expect ?? {};
   // A control whose handler awaits a request navigates when the request returns, which on a busy API
   // is later than the fixed settle. Re-reading the URL for a few seconds is not a weaker assertion -
   // the final URL still has to be the expected one - it just stops a slow round trip from being
@@ -264,6 +273,15 @@ for (const c of cases) {
   }
   if (expect.gone && (await exists(expect.gone))) {
     problems.push(`"${expect.gone}" is still on the page`);
+  }
+  if (expect.attributeChanged) {
+    // "The card is still there" also passes when the button did nothing and the first card stayed.
+    const attributeAfter = await readAttribute(expect.attributeChanged);
+    if (!attributeAfter || attributeAfter === attributeBefore) {
+      problems.push(
+        `${expect.attributeChanged.attribute} did not change (${attributeAfter ?? 'missing'}, was ${attributeBefore ?? 'missing'})`,
+      );
+    }
   }
   if (expect.controlGone) {
     // The exact element that was clicked, not the prefix: the prefix would still match the next row.

@@ -43,6 +43,10 @@ const canRun = computed(() => !loading.value && content.value.trim().length > 0)
 const mode = ref<'minimal' | 'list'>('minimal');
 /** Identifies the current run, so a superseded poll cannot write over a newer one. */
 const runSeq = ref(0);
+/** Identifies the current save, so an older save's `finally` cannot unlock a newer one. */
+let saveSeq = 0;
+/** The job the displayed result came from; a rerun must produce a different one. */
+const lastJobId = ref('');
 
 /** Back to wherever the tool was opened from; a deep link has no history to return to. */
 function safeBack() {
@@ -121,12 +125,15 @@ async function run() {
     return;
   }
   const ticket = ++runSeq.value;
+  // Invalidate any save in flight: its `finally` must not clear the new run's save lock.
+  saveSeq += 1;
   loading.value = true; saving.value = false; message.value = ''; aiNotice.value = '';
   // A new run retires the old result: leaving it on screen while the new job runs (or fails) lets the
   // reader save a breakdown that belongs to different input.
   result.value = undefined;
   safety.value = undefined;
   resultSource.value = '';
+  lastJobId.value = '';
   copied.value = false; saved.value = false;
   try {
     const queued = await withTimeout(
@@ -134,6 +141,7 @@ async function run() {
       20_000,
       '提交拆解任务超时',
     );
+    lastJobId.value = queued.jobId;
     const state = await poll(queued.jobId, ticket);
     if (!state || ticket !== runSeq.value) return;
     aiNotice.value = aiDegradationNotice(state);
@@ -159,9 +167,11 @@ async function run() {
 
 async function save() {
   // A stale result belongs to different text; saving it would file a breakdown the person no longer
-  // has on screen. `saving` also stops a double tap from creating two diaries.
-  if (!result.value || saving.value || resultStale.value) return;
+  // has on screen. `saved` makes a second tap a no-op, and `saving` stops a double tap from creating
+  // two diaries in the first place.
+  if (!result.value || saving.value || saved.value || resultStale.value) return;
   const ticket = runSeq.value;
+  const saveTicket = ++saveSeq;
   const current = result.value;
   const source = resultSource.value;
   saving.value = true;
@@ -174,14 +184,17 @@ async function save() {
       source: 'emotion-analysis',
       toolResult: current,
     });
-    // A run that started while the save was in flight owns the screen now; its result is not saved.
-    if (ticket !== runSeq.value) return;
+    // A run or another save started while this was in flight owns the screen now.
+    if (ticket !== runSeq.value || saveTicket !== saveSeq) return;
     saved.value = true;
     message.value = '已保存到日记';
   } catch (cause: any) {
-    if (ticket === runSeq.value) message.value = cause?.message ?? '保存失败，请稍后重试';
+    if (ticket === runSeq.value && saveTicket === saveSeq) {
+      message.value = cause?.message ?? '保存失败，请稍后重试';
+    }
   } finally {
-    saving.value = false;
+    // An older save must not unlock a newer one's button.
+    if (saveTicket === saveSeq) saving.value = false;
   }
 }
 
@@ -209,6 +222,7 @@ async function restoreExistingResult() {
       throw new Error(state.job?.errorMessage ?? '情绪拆解任务尚未完成');
     }
     aiNotice.value = aiDegradationNotice(state);
+    lastJobId.value = jobId;
     const prompt = displayPrompt(state.job?.promptSummary ?? content.value);
     const escalated = toSafety(state);
     content.value = prompt;
@@ -289,7 +303,12 @@ onBeforeUnmount(() => { runSeq.value += 1; });
       <button class="primary" type="button" @click="router.push('/pages/safety/index')">查看现实支持</button>
     </section>
 
-    <section v-if="result && !safety" class="decompose-result-section" data-testid="decompose-result-card">
+    <section
+      v-if="result && !safety"
+      class="decompose-result-section"
+      data-testid="decompose-result-card"
+      :data-job-id="lastJobId"
+    >
       <h2>拆解结果</h2>
       <article v-if="mode === 'minimal'" class="decompose-result-card">
         <p v-if="result.summary" class="result-summary">{{ result.summary }}</p>
@@ -306,7 +325,7 @@ onBeforeUnmount(() => { runSeq.value += 1; });
         <button
           data-testid="btn-decompose-save"
           class="primary"
-          :disabled="saving || resultStale"
+          :disabled="saving || resultStale || saved"
           @click="save"
         >{{ saving ? '保存中…' : saved ? '已保存到日记' : '保存到日记' }}</button>
         <button data-testid="btn-decompose-copy" @click="copyResult">{{ copied ? '已复制' : '复制结果' }}</button>
@@ -348,6 +367,9 @@ onBeforeUnmount(() => { runSeq.value += 1; });
   /* Geometry stated here rather than via `.bleed-bar`: the shared `.rest-topbar` carries its own
      margin, padding, a fixed 84px height and a translateY(-8px), which together left an 84px dead band
      under the title and put the back button off the bar's content box. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: grid;
   /* 24px for the chevron and no gap: the shared bar's 32px column plus `gap: 8px` put the title 91
      device px after the chevron where the design has 25. */
@@ -427,6 +449,12 @@ onBeforeUnmount(() => { runSeq.value += 1; });
   resize: none;
 }
 
+/* The WebView draws an orange default focus ring; the page's accent is the green hairline. */
+.decompose-input textarea:focus {
+  outline: none;
+  border-color: #275f56;
+}
+
 .decompose-count {
   position: absolute;
   right: 12px;
@@ -489,6 +517,30 @@ onBeforeUnmount(() => { runSeq.value += 1; });
   font-weight: 650;
 }
 
+/*
+ * The legacy page has a 272px fixed result card and a 64px icon column for the old four-row layout.
+ * Both are global selectors; scoped styles need the same shape plus the scope attribute to win, or the
+ * new single-step card is squeezed into the icon column and its actions are pushed off screen.
+ */
+.decompose-page .decompose-result-section .decompose-result-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  grid-template-rows: none;
+}
+
+.decompose-page .decompose-result-section .result-block {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .decompose-result-card { display: grid; gap: 14px; }
 
 .result-block strong {
@@ -507,11 +559,12 @@ onBeforeUnmount(() => { runSeq.value += 1; });
 
 .decompose-steps {
   margin: 0;
-  padding-left: 20px;
+  padding-left: 0;
+  list-style: none;
   color: #4d565f;
 }
 
-.decompose-steps li { margin-bottom: 12px; font-size: 14px; line-height: 1.7; }
+.decompose-steps li { margin-bottom: 8px; font-size: 14px; line-height: 1.7; }
 .decompose-steps li strong { color: #242a32; font-size: 12.5px; }
 .decompose-steps li p { margin: 3px 0 0; }
 
@@ -558,7 +611,7 @@ onBeforeUnmount(() => { runSeq.value += 1; });
   /* Pushed to the bottom of the column: on a short page the button sits where the design puts it
      instead of floating under the note. */
   margin-top: auto;
-  padding-top: 24px;
+  padding-top: 14px;
 }
 
 .submit-dock .submit-wide {
