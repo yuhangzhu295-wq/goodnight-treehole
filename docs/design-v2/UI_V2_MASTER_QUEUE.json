@@ -917,18 +917,18 @@
       "prompt": "逐页提示词/29*",
       "implementation": "PATCH /api/v1/me/profile (nickname only: NFC, trim, 1-20 code points, invisible-character rejection, database-authoritative); GET /api/v1/auth/sessions with a server-computed current flag; POST /api/v1/auth/sessions/:id/revoke (own, active, non-current only); admin user list/detail/export read the database. MeProfile.vue: design bar, avatar/name block, 基本资料 (nickname editor with counter, anonymous-code explanation), 账号安全 (inline real session list with revoke, identity explanation), credential note, bottom 保存资料 CTA with a disabled state until the nickname changes.",
       "tests": "pnpm test:api 8/8 PASS; F01 acceptance 4/4 PASS (nickname across stale flush/restart, admin list+export, banned status); device control suite 8/8 PASS including a real revoke of a seeded second session; API build, MP build, typecheck PASS.",
-      "reviewer": "visual final-gate: PASS on loaded/edit/saved/sessions; code review: re-review in progress",
+      "reviewer": "visual final-gate: PASS on loaded/edit/saved/sessions; independent code review: APPROVE (2026-10-25)",
       "screenshot": "artifacts/ui-v2/r2/me-profile-v4.png",
       "issue": "UI2-016 already fixed. This round: nickname is database-authoritative and the mapper no longer rewrites nickname/status from a stale snapshot; the session list and revoke are real; no fake CTA or toast-only action. Reviewer P1s fixed: invisible characters, atomic status check, cross-instance admin reads, save/revoke races, emoji counting, stale-flush test, revoke control assertion, fixture strictness.",
-      "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "gitCommit": "df38163",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
         "result": "me-profile controls 8/8; api 8/8; F01 4/4",
         "screenshot": "artifacts/ui-v2/r2/me-profile-v4.png",
@@ -938,9 +938,11 @@
           "artifacts/ui-v2/r2/me-profile-sessions-v4.png"
         ],
         "visualReview": "PASS (final-gate)",
-        "codeReview": "pending"
+        "codeReview": "APPROVE",
+        "ci": "CI + Migration Cleanroom success on df38163",
+        "head": "df381634dfc4ac3a520e1c07edb94c0f0438d587"
       },
-      "nextAction": "complete the independent code re-review; then commit and push"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-30",
