@@ -106,7 +106,7 @@ onMounted(() => { void restoreExistingResult(); });
 
 <template>
   <section class="page goodnight-page decompose-page">
-    <header class="rest-topbar bleed-bar">
+    <header class="rest-topbar">
       <button class="back-icon" data-testid="front-tool-back" aria-label="返回" @click="router.back()">‹</button>
       <h1>拆解任务</h1>
       <span aria-hidden="true"></span>
@@ -195,26 +195,36 @@ onMounted(() => { void restoreExistingResult(); });
 }
 
 .decompose-page .rest-topbar {
+  /* Geometry stated here rather than via `.bleed-bar`: the shared `.rest-topbar` carries its own
+     margin and padding, and the combination put the back button 3px off the left edge where
+     `overflow: hidden` clipped the chevron away entirely. */
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
+  box-sizing: border-box;
+  width: calc(100% + 36px);
+  max-width: none;
   min-height: 52px;
-  margin-top: 0;
+  margin: 0 0 0 -18px;
+  padding: 0 18px;
   border-bottom: 1px solid #e8eaed;
   background: #ffffff;
 }
 
 .decompose-page .rest-topbar .back-icon {
   justify-self: start;
-  place-items: center start;
   width: 32px;
   height: 32px;
+  /* The shared `.back-icon` carries a -18px left margin; left in place it pushed the button off the
+     bar's content box and `overflow: hidden` clipped the chevron away. */
+  margin: 0;
   padding: 0;
   border: 0;
   background: none;
   color: #39454c;
   font-size: 24px;
   line-height: 1;
+  text-align: left;
 }
 
 .decompose-page .rest-topbar h1 {

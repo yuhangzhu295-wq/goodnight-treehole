@@ -1,0 +1,29 @@
+[
+ {
+  "selector": "front-tool-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "input-decompose",
+  "expect": { "present": "[data-testid=\"input-decompose\"]" }
+ },
+ {
+  "selector": "decompose-mode-list",
+  "expect": { "present": "[data-testid=\"decompose-mode-list\"][aria-pressed=\"true\"]" }
+ },
+ {
+  "selector": "decompose-mode-minimal",
+  "expect": { "present": "[data-testid=\"decompose-mode-minimal\"][aria-pressed=\"true\"]" }
+ },
+ {
+  "selector": "btn-decompose-run",
+  "prefill": {
+   "fill": { "selector": "input-decompose", "value": "明天要汇报，我不知道从哪里开始准备。" },
+   "click": "btn-decompose-run",
+   "waitFor": "decompose-result-card",
+   "timeoutMs": 130000
+  },
+  "settleMs": 1500,
+  "expect": { "present": "[data-testid=\"decompose-result-card\"]" }
+ }
+]
