@@ -246,6 +246,9 @@ onMounted(() => { void restoreExistingResult(); });
      third of the screen blank underneath it. */
   display: flex;
   flex-direction: column;
+  /* The shared `.decompose-page` sets `gap: 8px`; with a flex column that stacks on top of every
+     explicit margin and widened the space between blocks (measured 39px where the design has 23px). */
+  gap: 0;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
@@ -260,7 +263,10 @@ onMounted(() => { void restoreExistingResult(); });
      margin, padding, a fixed 84px height and a translateY(-8px), which together left an 84px dead band
      under the title and put the back button off the bar's content box. */
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  /* 24px for the chevron and no gap: the shared bar's 32px column plus `gap: 8px` put the title 91
+     device px after the chevron where the design has 25. */
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  gap: 0;
   align-items: center;
   box-sizing: border-box;
   width: calc(100% + 36px);
