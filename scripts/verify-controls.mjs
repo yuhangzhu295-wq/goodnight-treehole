@@ -112,16 +112,25 @@ const click = (selector) =>
     return 'clicked ' + target.tagName + (target === e ? '' : ' (inner)');
   })()`, false);
 
-const fill = async (selector, value) =>
-  ev(`(function(){
+/**
+ * `{{timestamp}}` makes a write case repeatable.
+ *
+ * A save control is only enabled when the value actually changed, so a fixed name made the case pass
+ * once and then fail forever against the same account. A fresh value per run is what a person
+ * editing their own profile would produce.
+ */
+const fill = async (selector, value) => {
+  const resolved = String(value).replace(/\{\{timestamp\}\}/g, String(Date.now()));
+  return await ev(`(function(){
     var e=document.querySelector('[data-testid="${selector}"]');
     if(!e) return 'not found';
     e.focus();
-    e.value = ${JSON.stringify(value)};
+    e.value = ${JSON.stringify(resolved)};
     e.dispatchEvent(new Event('input', {bubbles:true}));
     e.dispatchEvent(new Event('change', {bubbles:true}));
     return 'filled';
   })()`, false);
+};
 
 /** Waits for a selector to appear, because a result panel only exists after the job finishes. */
 const waitFor = async (selector, timeoutMs = 90000) => {
@@ -170,10 +179,21 @@ for (const c of cases) {
   // `prefill` runs the page's own action first (type into the box, submit) so controls that only
   // exist after that action - a result panel and its buttons - are there to be probed. Re-navigating
   // for every case would otherwise clear the result and report them as missing.
+  //
+  // It accepts either one step or an ordered list. A page that reveals an input on click (the
+  // profile nickname editor) needs the click to happen before the fill; a single object can only
+  // express one of those, and running the fill against a field that is not there yet silently does
+  // nothing.
   if (c.prefill) {
-    if (c.prefill.fill) await fill(c.prefill.fill.selector, c.prefill.fill.value);
-    if (c.prefill.click) await click(c.prefill.click);
-    await waitFor(c.prefill.waitFor ?? c.selector, c.prefill.timeoutMs);
+    const steps = Array.isArray(c.prefill) ? c.prefill : [c.prefill];
+    for (const step of steps) {
+      if (step.fill) await fill(step.fill.selector, step.fill.value);
+      if (step.click) await click(step.click);
+      // `waitFor` here names a testid, like the case selector, not a raw CSS selector.
+      if (step.waitFor) await waitFor(step.waitFor, step.timeoutMs);
+    }
+    const last = steps[steps.length - 1] ?? {};
+    await waitFor(last.waitFor ?? c.selector, last.timeoutMs);
   }
   // A control that lives on another tab only exists after that tab is selected.
   if (c.tab) {

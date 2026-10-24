@@ -1141,10 +1141,12 @@ export async function saveRelationalRuntimeState(
           },
           update: {
             openid: item.openid,
-            nickname: item.nickname,
+            // `nickname` and `status` are deliberately absent: both are database-authoritative
+            // (UI-V2-29-D1). The profile editor and the operator status action write the row
+            // directly, and this snapshot is loaded once at boot, so writing either back here would
+            // revert a change made after this process started - including a ban.
             anonymousCode: item.anonymousCode,
             avatarUrl: item.avatarUrl || null,
-            status: valid(item.status, ['normal', 'limited', 'banned'] as const, 'normal'),
           },
         });
       }

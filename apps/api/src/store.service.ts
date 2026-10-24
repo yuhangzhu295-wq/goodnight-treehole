@@ -2790,13 +2790,19 @@ export class StoreService implements OnModuleInit {
     const assetId = id('export');
     const storageKey = `user-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
     const target = path.join(uploadsDirectory, storageKey);
+    // Nickname and status are database-authoritative, so the export reads the rows rather than this
+    // instance's boot-time copy: another instance may have saved either value since.
+    const rows = await this.prisma.user.findMany({
+      select: { id: true, nickname: true, anonymousCode: true, status: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
     const users = await Promise.all(
-      this.users.map(async (user) => ({
+      rows.map(async (user) => ({
         id: user.id,
         nickname: user.nickname,
         anonymousCode: user.anonymousCode,
         status: user.status,
-        createdAt: user.createdAt,
+        createdAt: user.createdAt.toISOString(),
         privacy: DIRECT_DB_MODELS.PrivacySetting
           ? await this.selfPersistence.getPrivacySettings(user.id)
           : this.privacySettings[user.id] ?? null,
@@ -3655,6 +3661,108 @@ export class StoreService implements OnModuleInit {
       status: row.status as 'normal' | 'limited' | 'banned',
       createdAt: row.createdAt.toISOString(),
     });
+  }
+
+  /**
+   * The caller's profile, read from the database rather than the boot-time snapshot.
+   *
+   * `nickname` is database-authoritative (UI-V2-29-D1): the snapshot is loaded once at boot, so
+   * serving it would show a stale name after an edit on this or another instance. The projection is
+   * a whitelist - `openid` is an account locator and has no business being in a profile response.
+   */
+  async readUserProfile(userId: string) {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nickname: true, anonymousCode: true, avatarUrl: true, status: true, createdAt: true },
+    });
+    if (!row) throw new NotFoundException('当前匿名会话用户不存在');
+    return { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() };
+  }
+
+  /**
+   * Saves the caller's nickname.
+   *
+   * Order matters: the database row is written first and the in-memory mirror second, because the
+   * mirror is what the legacy read paths and the flush see. The flush no longer writes `nickname`
+   * for an existing user (see `relational-runtime.mapper.ts`), so a stale snapshot cannot revert it.
+   *
+   * The status check is part of the update condition, not a separate read: a ban that lands between
+   * a read and a write would otherwise still allow the write.
+   */
+  async updateUserNickname(userId: string, nickname: string) {
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, status: 'normal' },
+      data: { nickname },
+    });
+    if (updated.count === 0) {
+      const existing = await this.prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+      if (!existing) throw new NotFoundException('当前匿名会话用户不存在');
+      throw new ForbiddenException('当前账号状态不允许修改资料');
+    }
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nickname: true, anonymousCode: true, avatarUrl: true, status: true, createdAt: true },
+    });
+    if (!row) throw new NotFoundException('当前匿名会话用户不存在');
+    const cached = this.users.find((item) => item.id === userId);
+    if (cached) cached.nickname = row.nickname;
+    return { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() };
+  }
+
+  /**
+   * One page of the operator user list, filtered and paginated in the database.
+   *
+   * `nickname` and `status` are database-authoritative, so reading the boot-time snapshot here would
+   * show values another instance has already changed - and filtering a stale nickname would miss a
+   * search for the new one. The page size therefore also bounds the work.
+   */
+  async listUsersForAdmin(params: { q?: string; status?: string; page: number; pageSize: number }) {
+    const where: Record<string, unknown> = {};
+    if (params.q) {
+      where.OR = [
+        { id: { contains: params.q, mode: 'insensitive' } },
+        { nickname: { contains: params.q, mode: 'insensitive' } },
+        { anonymousCode: { contains: params.q, mode: 'insensitive' } },
+        { openid: { contains: params.q, mode: 'insensitive' } },
+      ];
+    }
+    if (params.status && params.status !== 'all') where.status = params.status;
+    const [total, rows] = await Promise.all([
+      this.prisma.user.count({ where: where as any }),
+      this.prisma.user.findMany({
+        where: where as any,
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
+    return {
+      total,
+      items: rows.map((row) => ({ ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() })),
+    };
+  }
+
+  /** One user for the operator detail view, read from the database. */
+  async readUserForAdmin(userId: string) {
+    const row = await this.prisma.user.findUnique({ where: { id: userId } });
+    return row ? { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() } : null;
+  }
+
+  /**
+   * Changes an account's status.
+   *
+   * The database is written first and the in-memory mirror second, for the same reason as the
+   * nickname: the snapshot is loaded once at boot, and letting a stale instance write it back would
+   * undo a ban made elsewhere.
+   */
+  async updateUserStatus(userId: string, status: 'normal' | 'limited' | 'banned') {
+    const row = await this.prisma.user.update({
+      where: { id: userId },
+      data: { status },
+    });
+    const cached = this.users.find((item) => item.id === userId);
+    if (cached) cached.status = row.status as 'normal' | 'limited' | 'banned';
+    return { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() };
   }
 
   /**

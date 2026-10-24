@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { BadRequestException, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 
 /**
@@ -217,13 +224,54 @@ export class AnonymousSessionService {
     return result.count;
   }
 
+  /**
+   * Lists the caller's active sessions.
+   *
+   * `current` is derived from the verified request identity, not from anything the client sends, so
+   * the page can label "this device" honestly. `deviceId` is not projected: it groups sessions for
+   * revocation, but the page does not need it and it is not a credential.
+   */
   async listActiveForUser(userId: string) {
     if (!userId?.trim()) throw new BadRequestException('缺少用户');
-    return await this.prisma.anonymousSession.findMany({
+    const current = currentIdentity();
+    const rows = await this.prisma.anonymousSession.findMany({
       where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
       select: { id: true, deviceLabel: true, createdAt: true, expiresAt: true, lastUsedAt: true },
     });
+    return rows.map((row) => ({ ...row, current: row.id === current?.sessionId }));
+  }
+
+  /**
+   * Revokes one of the caller's own sessions.
+   *
+   * The current session is refused with 409: revoking it would invalidate the credential this
+   * request is using, and the page has no way to recover that credential afterwards. Ownership is
+   * part of the update condition, so another user's session id is indistinguishable from an unknown
+   * one (404) and cannot be revoked by guessing.
+   */
+  async revokeSession(userId: string, sessionId: string, reason: string): Promise<number> {
+    const target = sessionId?.trim();
+    if (!target) throw new BadRequestException('缺少会话标识');
+    const current = currentIdentity();
+    if (current?.sessionId === target) throw new ConflictException('不能撤销当前正在使用的会话');
+    const result = await this.prisma.anonymousSession.updateMany({
+      where: { id: target, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      data: { revokedAt: new Date(), revokedReason: reason },
+    });
+    if (result.count === 0) throw new NotFoundException('会话不存在或已失效');
+    return result.count;
+  }
+
+  /** The device id behind the current session, so `revoke-device` cannot cut itself off. */
+  async currentDeviceId(): Promise<string | null> {
+    const current = currentIdentity();
+    if (!current) return null;
+    const row = await this.prisma.anonymousSession.findUnique({
+      where: { id: current.sessionId },
+      select: { deviceId: true },
+    });
+    return row?.deviceId ?? null;
   }
 
   async findById(sessionId: string) {

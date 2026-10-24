@@ -30,6 +30,7 @@ const SUITES = [
   { name: 'diary-list', route: '/pages/diary/list', cases: 'diary-list.json', runner: 'controls' },
   { name: 'future-self', route: '/pages/future-self/index', cases: 'future-self.json', runner: 'controls' },
   { name: 'letter-today', route: '/pages/letter/index', cases: 'letter-today.json', runner: 'controls' },
+  { name: 'me-profile', route: '/pages/me/profile', cases: 'me-profile.json', runner: 'controls' },
   { name: 'mood-create', route: '/pages/mood/create', cases: 'mood-create.json', runner: 'controls' },
   { name: 'mood-create-effects', route: '/pages/mood/create', cases: 'mood-create-effects.json', runner: 'effects' },
   { name: 'post-detail', route: '/pages/post/detail?id=post_seed_shimian', cases: 'post-detail.json', runner: 'controls' },
@@ -104,6 +105,12 @@ if (!skipFixtures) {
   // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
   letterFixture = runFixture('letter', 'reset-letter.mjs', [], { required: false, blockedExitCodes: [3] });
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
+  // Only the profile page has a revoke control, and only when a second session exists.
+  if (selected.some((suite) => suite.name === 'me-profile')) {
+    // Required: without a known second session the revoke case could target an account's real
+    // credential. The fixture refuses rather than guesses, and that refusal stops the run.
+    runFixture('session', 'seed-second-session.mjs', [], { required: true });
+  }
 }
 
 // A peer route is generated per run, so a missing fixture is a setup problem, not a product failure.

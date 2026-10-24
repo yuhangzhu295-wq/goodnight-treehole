@@ -915,21 +915,32 @@
       "round": 3,
       "reference": "设计图/29_MeProfile.png",
       "prompt": "逐页提示词/29*",
-      "implementation": "",
-      "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R3_MeProfile_recapture.png",
-      "issue": "UI2-016 FIXED: the root was `<section v-if=\"profile\">` with no try/catch, so a failed profile request rendered a completely blank page. The root and the bar now always render, only the content is gated, and a failure shows a message with a retry.",
+      "implementation": "PATCH /api/v1/me/profile (nickname only: NFC, trim, 1-20 code points, invisible-character rejection, database-authoritative); GET /api/v1/auth/sessions with a server-computed current flag; POST /api/v1/auth/sessions/:id/revoke (own, active, non-current only); admin user list/detail/export read the database. MeProfile.vue: design bar, avatar/name block, 基本资料 (nickname editor with counter, anonymous-code explanation), 账号安全 (inline real session list with revoke, identity explanation), credential note, bottom 保存资料 CTA with a disabled state until the nickname changes.",
+      "tests": "pnpm test:api 8/8 PASS; F01 acceptance 4/4 PASS (nickname across stale flush/restart, admin list+export, banned status); device control suite 8/8 PASS including a real revoke of a seeded second session; API build, MP build, typecheck PASS.",
+      "reviewer": "visual final-gate: PASS on loaded/edit/saved/sessions; code review: re-review in progress",
+      "screenshot": "artifacts/ui-v2/r2/me-profile-v4.png",
+      "issue": "UI2-016 already fixed. This round: nickname is database-authoritative and the mapper no longer rewrites nickname/status from a stale snapshot; the session list and revoke are real; no fake CTA or toast-only action. Reviewer P1s fixed: invisible characters, atomic status check, cross-instance admin reads, save/revoke races, emoji counting, stale-flush test, revoke control assertion, fixture strictness.",
       "gitCommit": "",
-      "status": "PENDING",
+      "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Restyle adopted from the design plus the UI2-016 fix. VERIFIED at code level: build ✓, typecheck ✓, `front-profile-back` preserved, the API call byte-identical, the root no longer gated, the file ends with </style> and its tags balance (the build is the proof — vue-tsc does not check template structure). The design's chrome copy was adopted (bar title 匿名资料, section titles 基本资料/账号安全, row labels 昵称/匿名编号/账号状态/匿名身份说明), following the precedent of the already-reviewed Me.vue. NOT VERIFIED visually: the emulator shut down mid-render. Deliberate omissions, each because no real action exists behind it: the design's 保存资料 CTA (there is no PATCH/PUT for the profile), its 已登录设备 / 查看与撤销会话 row (listActiveForUser returns no deviceId while revoke-device requires one, and there is no per-session revoke route), its 匿名身份说明 chevron (no explaining page), and the row chevrons. The root class also dropped `goodnight-page`, which returns the shell's safe-area top padding so the bar clears the status bar, and drops the 130px tab-bar reserve that this route does not need. RENDERED AND VERIFIED: the capture is the API-failure state, which is the exact case that used to produce a blank page. The page now shows the bar (‹ 匿名资料), the message 服务暂时不可用，请稍后重试 and a 重新读取 retry button — UI2-016 is fixed in the wild, not just in the code. The loaded (success) state is still unverified because the API was down for the whole capture window."
+      "evidence": {
+        "result": "me-profile controls 8/8; api 8/8; F01 4/4",
+        "screenshot": "artifacts/ui-v2/r2/me-profile-v4.png",
+        "states": [
+          "artifacts/ui-v2/r2/me-profile-edit-v4.png",
+          "artifacts/ui-v2/r2/me-profile-saved-v3.png",
+          "artifacts/ui-v2/r2/me-profile-sessions-v4.png"
+        ],
+        "visualReview": "PASS (final-gate)",
+        "codeReview": "pending"
+      },
+      "nextAction": "complete the independent code re-review; then commit and push"
     },
     {
       "id": "UI-V2-30",

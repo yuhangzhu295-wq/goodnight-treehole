@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
   Get,
+  Header,
   Headers,
   HttpException,
   HttpStatus,
@@ -156,6 +158,55 @@ function requireRuntimeUserId(_header?: string): string {
     throw new UnauthorizedException('缺少用户身份凭证');
   }
   return identity.userId;
+}
+
+/** A nickname is a display label, not a place to smuggle markup or invisible overrides. */
+const NICKNAME_MAX_CHARS = 20;
+const NICKNAME_MAX_BYTES = 80;
+/**
+ * Control characters, line/paragraph separators, bidi overrides and zero-width marks can make one
+ * name render as another. ZWJ/ZWNJ (U+200C/U+200D) are kept: they are part of legitimate emoji and
+ * Indic sequences. U+061C (Arabic letter mark), U+2028 and U+2029 are listed explicitly because they
+ * are not in the C0/C1 ranges but do break a single-line label.
+ */
+const NICKNAME_FORBIDDEN =
+  /[\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u180E\u200B\u200E\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0]/;
+
+/**
+ * Validates the only profile field this product lets a person edit.
+ *
+ * The body must contain exactly `nickname`: accepting extra keys would let a caller believe it can
+ * change `anonymousCode` or `status`, and silently ignoring them is how a "saved" profile turns out
+ * to be unchanged. Length is counted in user-visible characters so one emoji is one character.
+ */
+function normalizeNickname(body: unknown): string {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new BadRequestException('请求内容无效');
+  }
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== 'nickname') {
+    throw new BadRequestException('只允许修改昵称');
+  }
+  const raw = (body as { nickname?: unknown }).nickname;
+  if (typeof raw !== 'string') throw new BadRequestException('昵称必须是文本');
+  // Check the raw value before trimming: a leading newline is a control character to reject, not
+  // whitespace to silently drop. Trimming first let "\n昵称" through as "昵称".
+  if (NICKNAME_FORBIDDEN.test(raw) || /\p{Cs}/u.test(raw)) {
+    throw new BadRequestException('昵称包含不可见字符');
+  }
+  const nickname = raw.normalize('NFC').trim();
+  if (!nickname) throw new BadRequestException('昵称不能为空');
+  // NFC can compose a sequence into a different code point; re-check the value that will be stored.
+  if (NICKNAME_FORBIDDEN.test(nickname) || /\p{Cs}/u.test(nickname)) {
+    throw new BadRequestException('昵称包含不可见字符');
+  }
+  if (Array.from(nickname).length > NICKNAME_MAX_CHARS) {
+    throw new BadRequestException(`昵称最多 ${NICKNAME_MAX_CHARS} 个字符`);
+  }
+  if (Buffer.byteLength(nickname, 'utf8') > NICKNAME_MAX_BYTES) {
+    throw new BadRequestException('昵称过长');
+  }
+  return nickname;
 }
 const FINGERPRINT = {
   gitCommitSha: process.env.GIT_COMMIT_SHA ?? 'unknown',
@@ -377,19 +428,46 @@ export class PublicController {
     return { item: { credential: rotated.credential, expiresAt: rotated.expiresAt.toISOString() } };
   }
 
-  /** Lists the caller's active sessions, so a device can be recognised and cut off. */
+  /**
+   * Lists the caller's active sessions, so one can be recognised and cut off.
+   *
+   * `current` is computed server-side from the verified credential. The response carries no secret
+   * material and is not cacheable, because it is tied to the caller's identity.
+   */
   @Get('auth/sessions')
+  @Header('Cache-Control', 'no-store')
   async listSessions(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = requireRuntimeUserId(userId);
     return { items: await this.sessions.listActiveForUser(runtimeId) };
   }
 
-  /** Revokes every session of one device: what a lost device needs. */
+  /**
+   * Revokes one of the caller's own sessions. The current session is refused (409) and another
+   * user's session id answers exactly like an unknown one (404), so the route cannot be used to
+   * probe for sessions or to lock the caller out of the credential it is using.
+   */
+  @Post('auth/sessions/:id/revoke')
+  async revokeSession(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const revoked = await this.sessions.revokeSession(runtimeId, id, 'session_revoked_by_user');
+    return { ok: true, revoked };
+  }
+
+  /**
+   * Revokes every session of one device: what a lost device needs.
+   *
+   * Deprecated in favour of `POST auth/sessions/:id/revoke`: the C-end never learns a `deviceId`, so
+   * nothing in the product calls this. It stays for operational use, and refuses to revoke the
+   * device behind the current session so it cannot bypass the per-session self-revocation guard.
+   */
   @Post('auth/revoke-device')
   async revokeDevice(@Body() body: { deviceId?: string }, @Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = requireRuntimeUserId(userId);
     const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim() : '';
     if (!deviceId) throw new BadRequestException('缺少设备标识');
+    if ((await this.sessions.currentDeviceId()) === deviceId) {
+      throw new ConflictException('不能撤销当前正在使用的设备');
+    }
     const revoked = await this.sessions.revokeDevice(runtimeId, deviceId, 'device_revoked_by_user');
     return { ok: true, revoked };
   }
@@ -1918,11 +1996,26 @@ export class PublicController {
     return { ok: true };
   }
 
+  /**
+   * The caller's anonymous profile.
+   *
+   * Read from the database, not the boot-time snapshot: `nickname` is editable and
+   * database-authoritative (UI-V2-29-D1), and the snapshot would show a stale name after an edit on
+   * another instance. The response is a whitelist projection - no `openid` - and is not cacheable.
+   */
   @Get('me/profile')
-  profile(@Headers('x-goodnight-user-id') userId?: string) {
+  @Header('Cache-Control', 'no-store')
+  async profile(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
-    const user = this.store.users.find((item) => item.id === runtimeId);
-    return { item: user ?? null };
+    return { item: await this.store.readUserProfile(runtimeId) };
+  }
+
+  /** Saves the caller's nickname. Only `nickname` is accepted; identity is never taken from the body. */
+  @Patch('me/profile')
+  @Header('Cache-Control', 'no-store')
+  async updateProfile(@Body() body: unknown, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return { item: await this.store.updateUserNickname(runtimeId, normalizeNickname(body)) };
   }
 
   @Get('me/stats')
@@ -2456,6 +2549,15 @@ export class AdminController {
       throw new ForbiddenException('当前角色无权访问敏感管理数据');
     }
     return admin;
+  }
+
+  /** The same page defaults as `list()`, for endpoints that paginate in the database. */
+  private pageParams(pageValue?: string | number, pageSizeValue?: string | number) {
+    const configured = Number(this.store.systemSettings.defaultPageSize?.value);
+    const fallbackSize = Number.isFinite(configured) && configured > 0 ? configured : 20;
+    const page = Math.max(1, Number(pageValue ?? 1) || 1);
+    const pageSize = Math.max(1, Math.min(100, Number(pageSizeValue ?? fallbackSize) || fallbackSize));
+    return { page, pageSize };
   }
 
   private list<T>(items: T[], pageValue?: string | number, pageSizeValue?: string | number) {
@@ -3128,13 +3230,15 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    const needle = q?.trim().toLowerCase();
-    const items = this.store.users.filter((user) => {
-      const matchesQuery =
-        !needle ||
-        [user.id, user.nickname, user.anonymousCode, user.openid].some((value) => value.toLowerCase().includes(needle));
-      const matchesStatus = !status || status === 'all' || user.status === status;
-      return matchesQuery && matchesStatus;
+    // Filter and paginate in the database: nickname and status are database-authoritative, so a
+    // boot-time snapshot would both show and search stale values, and a full read would grow with
+    // the user table instead of with the page.
+    const params = this.pageParams(page, pageSize);
+    const { total, items } = await this.store.listUsersForAdmin({
+      q: q?.trim(),
+      status,
+      page: params.page,
+      pageSize: params.pageSize,
     });
     // The operator list carries each user's current note. The admin view read `user.note`
     // before, which this payload never contained, so the saved note vanished on the next load
@@ -3144,7 +3248,13 @@ export class AdminController {
       const note = notes.get(user.id);
       return { ...user, note: note?.content, noteUpdatedAt: note?.updatedAt };
     });
-    return this.list(withNotes, page, pageSize);
+    return {
+      items: withNotes,
+      page: params.page,
+      pageSize: params.pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / params.pageSize)),
+    };
   }
   // Declared before @Get('users/:id') on purpose. Nest matches routes in declaration
   // order, so a literal segment declared after the parameterised one is shadowed: the
@@ -3175,7 +3285,7 @@ export class AdminController {
     const privacy = DIRECT_DB_MODELS.PrivacySetting
       ? await this.selfPersistence.getPrivacySettings(id)
       : this.store.privacySettings[id];
-    return { item: this.store.users.find((u) => u.id === id), privacy };
+    return { item: await this.store.readUserForAdmin(id), privacy };
   }
   @Patch('users/:id/status')
   async userStatus(
@@ -3184,13 +3294,12 @@ export class AdminController {
     @Body() body: { status: 'normal' | 'limited' | 'muted' | 'banned' | 'deleted' },
   ) {
     const admin = this.admin(auth);
-    const user = this.store.users.find((u) => u.id === id)!;
-    const before = { ...user };
-    user.status = body.status === 'muted' ? 'limited' : body.status === 'deleted' ? 'banned' : body.status;
-    this.store.audit(admin.id, 'USER_STATUS', 'User', id, before, user);
-    this.store.persist();
-    await this.store.flush();
-    return { item: user };
+    const before = await this.store.readUserForAdmin(id);
+    if (!before) throw new NotFoundException('用户不存在');
+    const status = body.status === 'muted' ? 'limited' : body.status === 'deleted' ? 'banned' : body.status;
+    const item = await this.store.updateUserStatus(id, status);
+    this.store.audit(admin.id, 'USER_STATUS', 'User', id, before, item);
+    return { item };
   }
 
   // Kept for compatibility with the existing admin call, but it now writes real business data
