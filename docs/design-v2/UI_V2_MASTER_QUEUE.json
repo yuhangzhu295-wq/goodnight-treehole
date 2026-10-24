@@ -858,22 +858,22 @@
       "gitCommit": "",
       "status": "WAITING_REVIEW",
       "implemented": "yes",
-      "rendered": "no",
+      "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "no",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
-        "script": "scripts/verify-tool-decompose.mjs",
-        "result": "4/4",
-        "screenshot": null,
-        "visualVerdict": null,
+        "script": "scripts/verify-controls.mjs",
+        "result": "tool-decompose 5/5",
+        "screenshot": "artifacts/ui-v2/r2/tool-decompose-v3.png",
+        "visualVerdict": "not reviewed on this layout",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T06:55:18.588Z",
-        "head": "41b84926b1cbe29afc19c4ca7d017841cfaa8397"
+        "recordedAt": "2026-10-24T07:17:02.478Z",
+        "head": "4d2b031"
       },
-      "nextAction": "visual review of this page (reviewer quota was exhausted on the last attempt)"
+      "nextAction": "independent visual review and code review"
     },
     {
       "id": "UI-V2-28",
@@ -1269,7 +1269,7 @@
     "note": "implemented / rendered / interactionTested / businessVerified / visualApproved / codeReviewApproved are independent. done requires all of them plus regression evidence. Implementation alone is never DONE."
   },
   "head": "d50df68253b6df03b0db8ae46811b3326e38b841",
-  "updatedAt": "2026-10-23T23:11:53.350Z",
+  "updatedAt": "2026-10-24T07:17:02.479Z",
   "captureProcedure": [
     "Confirm the emulator is up (adb devices shows emulator-5554) and the APK is installed.",
     "pm disable-user the conflicting package on the dedicated test AVD only (com.yuhangzhu295.cozyfocus takes the foreground back).",

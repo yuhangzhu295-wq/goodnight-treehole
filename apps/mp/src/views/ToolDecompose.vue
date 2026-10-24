@@ -25,29 +25,55 @@ const count = computed(() => content.value.length);
  * result the job returned; neither invents anything.
  */
 const mode = ref<'minimal' | 'list'>('minimal');
+/** Identifies the current run, so a superseded poll cannot write over a newer one. */
+const runSeq = ref(0);
+
+/** Back to wherever the tool was opened from; a deep link has no history to return to. */
+function safeBack() {
+  if (window.history.state?.back) router.back();
+  else router.push('/pages/tool/index');
+}
 
 function displayPrompt(value: unknown) {
   return String(value ?? '').replace(/^(?:ROUTE|FLOW|DECOMPOSE)_[A-Z0-9_]+\s+/i, '').trim();
 }
 
-function toResult(structured: any): DecomposeResult {
-  return {
-    triggerEvent: displayPrompt(structured?.triggerEvent ?? structured?.trigger ?? '未记录触发事件'),
-    coreEmotions: structured?.coreEmotions ?? [structured?.coreEmotion].filter(Boolean),
-    realNeeds: structured?.realNeeds ?? [structured?.realNeed].filter(Boolean),
-    nextSmallStep: structured?.nextSmallStep ?? structured?.smallAction ?? structured?.nextStep ?? '先给自己一点安静的时间。',
-    summary: structured?.summary,
-  };
+/** A job result with nothing usable in it is reported, not filled in with invented text. */
+function toResult(structured: any): DecomposeResult | null {
+  const triggerEvent = displayPrompt(structured?.triggerEvent ?? structured?.trigger ?? '');
+  const coreEmotions = (structured?.coreEmotions ?? [structured?.coreEmotion].filter(Boolean)) as string[];
+  const realNeeds = (structured?.realNeeds ?? [structured?.realNeed].filter(Boolean)) as string[];
+  const nextSmallStep = String(structured?.nextSmallStep ?? structured?.smallAction ?? structured?.nextStep ?? '').trim();
+  if (!triggerEvent || !nextSmallStep) return null;
+  return { triggerEvent, coreEmotions, realNeeds, nextSmallStep, summary: structured?.summary };
 }
 
-async function poll(id: string) {
+/**
+ * Each request is bounded on its own: the API client has no timeout, and a status read that never
+ * settles would leave `loading` true forever with no way back to the button.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
+/**
+ * Waits for one job and returns its terminal state.
+ *
+ * The caller gets the terminal state rather than only the payload: the degradation notice has to
+ * describe the state the job actually ended in, and returning `structured` alone made a fallback result
+ * look like a live one. `ticket` identifies the attempt, so a superseded poll stops touching the page.
+ */
+async function poll(id: string, ticket: number) {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    const state = await api.get<any>(`/api/v1/ai/tasks/${id}`);
+    const state = await withTimeout(api.get<any>(`/api/v1/ai/tasks/${id}`), 15_000, '读取拆解进度超时');
+    if (ticket !== runSeq.value) return null;
     if (!['queued', 'running'].includes(state.status)) {
       if (!['succeeded', 'fallback'].includes(state.status)) throw new Error(state.job?.errorMessage ?? '情绪拆解失败');
-      aiNotice.value = aiDegradationNotice(state);
-      return state.structured;
+      return state;
     }
     await new Promise((resolve) => window.setTimeout(resolve, 350));
   }
@@ -55,19 +81,44 @@ async function poll(id: string) {
 }
 
 async function run() {
+  const ticket = ++runSeq.value;
   loading.value = true; message.value = ''; aiNotice.value = '';
+  // A new run retires the old result: leaving it on screen while the new job runs (or fails) lets the
+  // reader save a breakdown that belongs to different input.
+  result.value = undefined;
+  copied.value = false; saved.value = false;
   try {
-    const queued = await api.post<any>('/api/v1/ai/tasks', { taskType: 'emotion_analysis', content: content.value || '我说不清楚自己为什么难受。', style: 'rational', sourceId: `emotion_${Date.now()}` });
-    const structured = await poll(queued.jobId);
-    result.value = toResult(structured);
-    copied.value = false; saved.value = false;
-  } catch (cause: any) { message.value = cause?.message ?? '拆解失败，请稍后重试'; } finally { loading.value = false; }
+    const queued = await withTimeout(
+      api.post<any>('/api/v1/ai/tasks', { taskType: 'emotion_analysis', content: content.value || '我说不清楚自己为什么难受。', style: 'rational', sourceId: `emotion_${Date.now()}` }),
+      20_000,
+      '提交拆解任务超时',
+    );
+    const state = await poll(queued.jobId, ticket);
+    if (!state || ticket !== runSeq.value) return;
+    aiNotice.value = aiDegradationNotice(state);
+    const parsed = toResult(state.structured);
+    if (!parsed) {
+      message.value = '这次拆解没有返回完整内容，可以再试一次。';
+      return;
+    }
+    result.value = parsed;
+  } catch (cause: any) {
+    if (ticket === runSeq.value) message.value = cause?.message ?? '拆解失败，请稍后重试';
+  } finally {
+    if (ticket === runSeq.value) loading.value = false;
+  }
 }
 
 async function save() {
   if (!result.value) return;
-  await api.post('/api/v1/diaries', { emotion: '焦虑', content: `${content.value}\n\n${result.value.summary ?? result.value.nextSmallStep}`, hasLetter: false, source: 'emotion-analysis', toolResult: result.value });
-  saved.value = true; message.value = '已保存到日记';
+  try {
+    await api.post('/api/v1/diaries', { emotion: '焦虑', content: `${content.value}\n\n${result.value.summary ?? result.value.nextSmallStep}`, hasLetter: false, source: 'emotion-analysis', toolResult: result.value });
+    saved.value = true;
+    message.value = '已保存到日记';
+  } catch (cause: any) {
+    // A rejected write used to leave the button enabled and say nothing.
+    message.value = cause?.message ?? '保存失败，请稍后重试';
+  }
 }
 
 async function copyResult() {
@@ -79,25 +130,29 @@ async function copyResult() {
 async function restoreExistingResult() {
   const jobId = typeof route.query.job === 'string' ? route.query.job.trim() : '';
   if (!jobId) return;
+  const ticket = ++runSeq.value;
   loading.value = true;
   message.value = '';
   aiNotice.value = '';
   try {
-    const state = await api.get<any>(`/api/v1/ai/tasks/${encodeURIComponent(jobId)}`);
-    const structured = ['queued', 'running'].includes(state.status) ? await poll(jobId) : state.structured;
+    const initial = await withTimeout(api.get<any>(`/api/v1/ai/tasks/${encodeURIComponent(jobId)}`), 15_000, '读取拆解结果超时');
+    const state = ['queued', 'running'].includes(initial.status) ? await poll(jobId, ticket) : initial;
+    if (!state || ticket !== runSeq.value) return;
+    const structured = state.structured;
     if (!['succeeded', 'fallback'].includes(state.status) && !structured) throw new Error(state.job?.errorMessage ?? '情绪拆解任务尚未完成');
     aiNotice.value = aiDegradationNotice(state);
     const prompt = displayPrompt(state.job?.promptSummary ?? content.value);
     const restored = toResult(structured);
+    if (!restored) throw new Error('这次拆解没有返回完整内容');
     if (/^(?:ROUTE|FLOW|DECOMPOSE)_/i.test(restored.triggerEvent)) restored.triggerEvent = prompt;
     content.value = prompt;
     result.value = restored;
     copied.value = false;
     saved.value = false;
   } catch (cause: any) {
-    message.value = cause?.message ?? '无法读取这次情绪拆解结果';
+    if (ticket === runSeq.value) message.value = cause?.message ?? '无法读取这次情绪拆解结果';
   } finally {
-    loading.value = false;
+    if (ticket === runSeq.value) loading.value = false;
   }
 }
 
@@ -107,7 +162,7 @@ onMounted(() => { void restoreExistingResult(); });
 <template>
   <section class="page goodnight-page decompose-page">
     <header class="rest-topbar">
-      <button class="back-icon" data-testid="front-tool-back" aria-label="返回" @click="router.back()">‹</button>
+      <button class="back-icon" data-testid="front-tool-back" aria-label="返回" @click="safeBack">‹</button>
       <h1>拆解任务</h1>
       <span aria-hidden="true"></span>
     </header>
@@ -186,33 +241,43 @@ onMounted(() => { void restoreExistingResult(); });
    old page boxed the editor in a card with the button inside it, drew the result blocks with decorative
    glyphs, and ended with an encouragement aside the design does not have. */
 .decompose-page.goodnight-page {
-  display: block;
+  /* A column, so the action can be pushed to the bottom of the viewport with `margin-top: auto`:
+     `position: sticky; bottom: 0` does nothing to a short page, and the button sat mid-screen with a
+     third of the screen blank underneath it. */
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-height: 100vh;
-  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  padding: 0 0 calc(24px + env(safe-area-inset-bottom));
+  /* The bar below is exactly viewport-wide; the shared `.goodnight-page` clips it at the inset. */
+  overflow-x: visible;
 }
 
 .decompose-page .rest-topbar {
   /* Geometry stated here rather than via `.bleed-bar`: the shared `.rest-topbar` carries its own
-     margin and padding, and the combination put the back button 3px off the left edge where
-     `overflow: hidden` clipped the chevron away entirely. */
+     margin, padding, a fixed 84px height and a translateY(-8px), which together left an 84px dead band
+     under the title and put the back button off the bar's content box. */
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
   box-sizing: border-box;
   width: calc(100% + 36px);
   max-width: none;
+  height: auto;
   min-height: 52px;
   margin: 0 0 0 -18px;
   padding: 0 18px;
+  transform: none;
   border-bottom: 1px solid #e8eaed;
   background: #ffffff;
 }
 
 .decompose-page .rest-topbar .back-icon {
   justify-self: start;
+  /* The shared rule centres the glyph in its track; the design puts it on the content axis. */
+  place-items: center start;
   width: 32px;
   height: 32px;
   /* The shared `.back-icon` carries a -18px left margin; left in place it pushed the button off the
@@ -267,7 +332,7 @@ onMounted(() => { void restoreExistingResult(); });
   color: #242a32;
   font-size: 15px;
   line-height: 1.7;
-  resize: vertical;
+  resize: none;
 }
 
 .decompose-count {
@@ -317,7 +382,13 @@ onMounted(() => { void restoreExistingResult(); });
   line-height: 1.7;
 }
 
-.decompose-result-section { margin-top: 24px; }
+.decompose-result-section {
+  margin-top: 24px;
+  /* The shared `.decompose-page .decompose-result-section` fixes a 272px height and hides overflow,
+     which would clip a longer real result. */
+  height: auto;
+  overflow: visible;
+}
 
 .decompose-result-section h2 {
   margin: 0 0 10px;
@@ -356,15 +427,10 @@ onMounted(() => { void restoreExistingResult(); });
 .decompose-summary p { margin: 8px 0 0; color: #4d565f; font-size: 13.5px; line-height: 1.7; }
 
 .submit-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  box-sizing: border-box;
-  width: calc(100% + 36px);
-  max-width: none;
-  margin: 24px 0 0 -18px;
-  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
-  background: #ffffff;
+  /* Pushed to the bottom of the column: on a short page the button sits where the design puts it
+     instead of floating under the note. */
+  margin-top: auto;
+  padding-top: 24px;
 }
 
 .submit-dock .submit-wide {

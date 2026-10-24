@@ -76,6 +76,7 @@ if (runArg > -1) {
     'square-effects': 'Square',
     'tool-run': 'ToolRun',
     'tool-index': 'ToolIndex',
+    'tool-decompose': 'ToolDecompose',
     'peer-requests': 'PeerRequests',
     'peer-detail': 'PeerExperienceDetail',
     'peer-consent': 'PeerConsent',

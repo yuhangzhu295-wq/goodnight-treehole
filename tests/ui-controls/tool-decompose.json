@@ -1,29 +1,116 @@
 [
  {
   "selector": "front-tool-back",
-  "expect": { "urlChanged": true }
+  "expect": {
+   "urlChanged": true
+  }
  },
  {
   "selector": "input-decompose",
-  "expect": { "present": "[data-testid=\"input-decompose\"]" }
+  "prefill": {
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报"
+   }
+  },
+  "expect": {
+   "text": "5/1000"
+  }
  },
  {
   "selector": "decompose-mode-list",
-  "expect": { "present": "[data-testid=\"decompose-mode-list\"][aria-pressed=\"true\"]" }
+  "prefill": {
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报，我不知道从哪里开始准备。"
+   },
+   "click": "btn-decompose-run",
+   "waitFor": "decompose-result-card",
+   "timeoutMs": 130000
+  },
+  "expect": {
+   "present": "ol.decompose-steps",
+   "gone": "article.decompose-result-card"
+  }
  },
  {
   "selector": "decompose-mode-minimal",
-  "expect": { "present": "[data-testid=\"decompose-mode-minimal\"][aria-pressed=\"true\"]" }
+  "prefill": {
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报，我不知道从哪里开始准备。"
+   },
+   "click": "btn-decompose-run",
+   "waitFor": "decompose-result-card",
+   "timeoutMs": 130000
+  },
+  "expect": {
+   "present": "article.decompose-result-card",
+   "gone": "ol.decompose-steps"
+  }
  },
  {
   "selector": "btn-decompose-run",
   "prefill": {
-   "fill": { "selector": "input-decompose", "value": "明天要汇报，我不知道从哪里开始准备。" },
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报，我不知道从哪里开始准备。"
+   },
    "click": "btn-decompose-run",
    "waitFor": "decompose-result-card",
    "timeoutMs": 130000
   },
   "settleMs": 1500,
-  "expect": { "present": "[data-testid=\"decompose-result-card\"]" }
+  "expect": {
+   "present": "[data-testid=\"decompose-result-card\"]"
+  }
+ },
+ {
+  "selector": "btn-decompose-save",
+  "prefill": {
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报，我不知道从哪里开始准备。"
+   },
+   "click": "btn-decompose-run",
+   "waitFor": "decompose-result-card",
+   "timeoutMs": 130000
+  },
+  "settleMs": 2500,
+  "expect": {
+   "text": "已保存到日记"
+  }
+ },
+ {
+  "selector": "btn-decompose-copy",
+  "prefill": {
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报，我不知道从哪里开始准备。"
+   },
+   "click": "btn-decompose-run",
+   "waitFor": "decompose-result-card",
+   "timeoutMs": 130000
+  },
+  "settleMs": 1500,
+  "expect": {
+   "text": "复制失败"
+  }
+ },
+ {
+  "selector": "btn-decompose-again",
+  "prefill": {
+   "fill": {
+    "selector": "input-decompose",
+    "value": "明天要汇报，我不知道从哪里开始准备。"
+   },
+   "click": "btn-decompose-run",
+   "waitFor": "decompose-result-card",
+   "timeoutMs": 130000
+  },
+  "settleMs": 20000,
+  "expect": {
+   "present": "[data-testid=\"decompose-result-card\"]"
+  }
  }
 ]

@@ -39,6 +39,7 @@ const SUITES = [
   { name: 'square-effects', route: '/pages/square/index', cases: 'square-effects.json', runner: 'effects' },
   { name: 'tool-run', route: '/pages/tool/run', cases: 'tool-run.json', runner: 'controls' },
   { name: 'tool-index', route: '/pages/tool/index', cases: 'tool-index.json', runner: 'controls' },
+  { name: 'tool-decompose', route: '/pages/tool/decompose', cases: 'tool-decompose.json', runner: 'controls' },
   { name: 'peer-requests', route: '/pages/peer/requests', cases: 'peer-requests.json', runner: 'controls' },
   { name: 'peer-detail', route: () => fixtures()?.detailRoute, cases: 'peer-detail.json', runner: 'controls' },
   { name: 'peer-consent', route: () => fixtures()?.consentRoute, cases: 'peer-consent.json', runner: 'controls' },

@@ -97,6 +97,7 @@ export class DiaryPersistenceService {
     hasLetter?: boolean;
     source?: string;
     attachmentIds?: string[];
+    toolResult?: unknown;
     createdAt?: Date;
   }) {
     // `Diary` keeps its attachments in the `DiaryAttachment` join table, not as an array column.
@@ -111,6 +112,9 @@ export class DiaryPersistenceService {
         journeyId: input.journeyId ?? null,
         hasLetter: input.hasLetter ?? Boolean(input.letterId),
         source: input.source ?? 'manual',
+        // The tool's structured result was accepted by the route and then dropped here, so a diary saved
+        // from a tool kept only the text and lost the breakdown it came from.
+        ...(input.toolResult === undefined ? {} : { toolResult: input.toolResult as any }),
         attachments: {
           create: (input.attachmentIds ?? []).map((mediaAssetId, sortOrder) => ({ mediaAssetId, sortOrder })),
         },

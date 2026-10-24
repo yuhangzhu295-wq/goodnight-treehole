@@ -2001,6 +2001,7 @@ export class PublicController {
         emotion: diary.emotion,
         letterId: diary.letterId,
         source: diary.source,
+        toolResult: diary.toolResult,
         createdAt: new Date(diary.createdAt),
       });
       return { item: created };
