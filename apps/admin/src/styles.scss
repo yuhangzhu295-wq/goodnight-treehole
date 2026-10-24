@@ -931,25 +931,6 @@ progress::-webkit-progress-value {
 
 .login-input-wrap input::placeholder { color: #aaa79f; }
 
-.login-card .captcha-row {
-  grid-template-columns: minmax(0, 1fr) 132px;
-  gap: 12px;
-}
-
-.captcha-code {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 132px;
-  min-height: 52px;
-  border: 1px dashed #d5dfcd;
-  border-radius: 10px;
-  color: #5e7f49;
-  background: repeating-linear-gradient(-45deg, #fbfcf8 0 7px, #f4f8ee 7px 14px);
-  font-weight: 700;
-  letter-spacing: .14em;
-}
-
 .login-card > .primary {
   min-height: 52px;
   margin-top: 3px;
@@ -1025,24 +1006,6 @@ progress::-webkit-progress-value {
 .scene-lantern { fill: #F6D682; opacity: .9; }
 .scene-shrub { fill: #D4DFC0; }
 .scene-shrub-right { fill: #C6D4A8; }
-
-.captcha-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.captcha-row strong {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 76px;
-  min-height: 36px;
-  border: 1px solid #d8e4d3;
-  border-radius: 8px;
-  color: #42633c;
-  background: #f2f7ef;
-}
 
 .login-options {
   display: flex;

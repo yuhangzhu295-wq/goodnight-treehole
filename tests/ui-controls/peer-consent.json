@@ -1,0 +1,4 @@
+[
+  { "selector": "peer-consent-confirm", "expect": {} },
+  { "selector": "peer-consent-decline", "expect": {} }
+]

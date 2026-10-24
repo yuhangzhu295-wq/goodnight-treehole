@@ -2,10 +2,12 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
 const letters = ref<any[]>([]);
 const filter = ref<'all' | 'unread' | 'favorited'>('all');
+const loadError = ref('');
 
 const styleNames: Record<string, string> = {
   warm: '温柔陪伴',
@@ -27,8 +29,17 @@ function sourceLabel(letter: any) {
 
 async function load(next = filter.value) {
   filter.value = next;
+  loadError.value = '';
   const query = next === 'all' ? '' : `?status=${next}`;
-  letters.value = (await api.get<any>(`/api/v1/letters${query}`)).items;
+  try {
+    const result = await api.get<any>(`/api/v1/letters${query}`);
+    letters.value = result.items ?? [];
+  } catch (cause: any) {
+    // Without this a failed read left the list empty and the page said "还没有符合条件的回信" - the
+    // reader was told they had no letters when in fact none had loaded.
+    letters.value = [];
+    loadError.value = cause?.message ?? '回信加载失败，请稍后重试';
+  }
 }
 
 async function readFull(letter: any) {
@@ -54,7 +65,7 @@ onMounted(load);
   <section class="page goodnight-page rest-page list-page letter-list-page">
     <header class="letter-list-hero">
       <button class="back-icon" data-testid="front-letter-list-back" aria-label="返回" @click="router.back()">‹</button>
-      <div class="letter-list-heading"><h1>我的回信</h1><p>收到的每一封温柔回应，都值得被收藏</p></div>
+      <div class="letter-list-heading"><h1>我的回信</h1></div>
     </header>
 
     <div class="segmented-tabs letter-list-tabs" aria-label="回信筛选">
@@ -63,47 +74,52 @@ onMounted(load);
       <button data-testid="filter-letter-fav" :class="{ active: filter === 'favorited' }" @click="load('favorited')">已收藏</button>
     </div>
 
+    <!--
+      An inbox, not a stack of envelopes: unread dot, style, date, a one-line excerpt, and where the
+      letter came from. The full text lives in the detail page, which is what "操作在详情，列表清爽"
+      asks for. The portrait and the right-hand illustration are gone - they were the ink excess the
+      audit measured (21% against the design's 4.8%).
+    -->
     <article
       v-for="(letter, index) in letters"
       :key="letter.id"
-      class="letter-list-card"
+      class="letter-row"
+      :class="{ unread: letter.status === 'unread' }"
       :data-testid="index === 0 ? 'letter-card-first' : `letter-card-${letter.id}`"
+      @click="readFull(letter)"
     >
-      <span class="letter-card-portrait" aria-hidden="true"></span>
-      <div class="letter-card-copy">
-        <div class="letter-card-meta">
-          <span class="tag" :class="{ pink: letter.status === 'unread' }">{{ styleNames[letter.style] ?? '温柔回信' }}</span>
-          <time :data-visual-mask="index === 0 ? 'time' : undefined">{{ dateLabel(letter.createdAt) }}</time>
-          <i v-if="letter.status === 'unread'" class="letter-unread-dot" aria-label="未读"></i>
+      <i v-if="letter.status === 'unread'" class="letter-unread-dot" aria-label="未读"></i>
+      <div class="letter-row-copy">
+        <div class="letter-row-meta">
+          <strong class="letter-row-title">{{ letter.title || '给今晚的你' }}</strong>
+          <span class="letter-row-style">{{ styleNames[letter.style] ?? '温柔回信' }}</span>
         </div>
-        <small>{{ sourceLabel(letter) }}</small>
-        <strong>{{ letter.title || '给今晚的你' }}</strong>
-        <p>{{ letter.content }}</p>
-        <div class="letter-card-actions">
-          <button
-            :data-testid="index === 0 ? 'btn-letter-like-first' : `btn-letter-like-${letter.id}`"
-            @click="likeLetter(letter)"
-          >
-            ♡ {{ letter.likeCount ?? 0 }}
-          </button>
-          <button
-            :data-testid="index === 0 ? 'btn-letter-list-fav' : `btn-letter-list-fav-${letter.id}`"
-            @click="favoriteLetter(letter)"
-          >
-            ☆ {{ letter.favorite ? '已收藏' : '收藏' }}
-          </button>
-          <button
-            :data-testid="index === 0 ? 'btn-letter-read-full-first' : `btn-letter-read-full-${letter.id}`"
-            @click="readFull(letter)"
-          >
-            查看全文 ›
-          </button>
+        <p class="letter-row-excerpt">{{ letter.content }}</p>
+        <div class="letter-row-foot">
+          <span class="letter-row-source">{{ sourceLabel(letter) }}</span>
+          <time :data-visual-mask="index === 0 ? 'time' : undefined">{{ dateLabel(letter.createdAt) }}</time>
         </div>
       </div>
-      <span class="letter-card-illustration" aria-hidden="true"></span>
+      <div class="letter-row-actions" @click.stop>
+        <button
+          :data-testid="index === 0 ? 'btn-letter-like-first' : `btn-letter-like-${letter.id}`"
+          :aria-label="letter.likedByCurrentUser ? '取消喜欢' : '喜欢'"
+          @click="likeLetter(letter)"
+        >
+          ♡ {{ letter.likeCount ?? 0 }}
+        </button>
+        <button
+          :data-testid="index === 0 ? 'btn-letter-list-fav' : `btn-letter-list-fav-${letter.id}`"
+          @click="favoriteLetter(letter)"
+        >
+          {{ letter.favorite ? '已收藏' : '收藏' }}
+        </button>
+      </div>
     </article>
 
-    <article v-if="!letters.length" class="empty-card letter-list-empty">
+    <LoadErrorBanner :message="loadError" retry-label="重新加载" @retry="load" />
+
+    <article v-if="!loadError && !letters.length" class="empty-card letter-list-empty">
       <strong>还没有符合条件的回信</strong>
       <p>写下一次心情后，新的回信会出现在这里。</p>
       <button class="primary" @click="router.push('/pages/mood/create')">写下心情</button>
@@ -112,52 +128,120 @@ onMounted(load);
 </template>
 
 <style scoped>
-/* The data-driven cards retain their complete live copy; the small inset
-   simply aligns a real one-letter state with the shared handset card grid. */
-.letter-list-page .letter-list-card {
-  margin-inline: 7px;
-}
-
-.letter-list-page .letter-card-copy > strong {
-  font-weight: 600;
-}
-
-/* Let the live reply cards keep the breathing room of the reference rather
-   than collapsing their source, actions and illustration into one short row. */
+/* An inbox: white rows separated by hairlines, the unread dot carrying the only accent colour, and
+   the title as the strongest element. The old card reserved a 66px portrait column and a 76px
+   illustration column, which is what made three rows of body text fill the screen. */
 .letter-list-page .letter-list-hero {
-  min-height: 150px;
-  padding-top: 16px;
-  padding-bottom: 11px;
+  min-height: 64px;
+  padding-top: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e8eaed;
 }
 
-.letter-list-page .letter-list-heading { margin-top: 15px; }
-.letter-list-page .letter-list-heading h1 { font-size: 38px; }
-.letter-list-page .letter-list-heading p { margin-top: 8px; }
+.letter-list-page .letter-list-heading { margin-top: 0; }
+.letter-list-page .letter-list-heading h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; }
+.letter-list-page .letter-list-heading p { display: none; }
 
-.letter-list-page .letter-list-card {
-  min-height: 140px;
-  grid-template-columns: 66px minmax(0, 1fr) 76px;
-  padding: 12px 10px;
+.letter-list-page .segmented-tabs {
+  margin: 12px 0 0;
+  border-bottom: 1px solid #e8eaed;
 }
 
-.letter-list-page .letter-card-portrait {
-  width: 66px;
-  height: 66px;
+.letter-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
 }
 
-.letter-list-page .letter-card-illustration {
-  width: 76px;
-  height: 76px;
+.letter-unread-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #275f56;
 }
 
-@media (max-width: 374px) {
-  .letter-list-page .letter-list-hero { min-height: 142px; }
-  .letter-list-page .letter-list-heading h1 { font-size: 34px; }
-  .letter-list-page .letter-list-card {
-    min-height: 132px;
-    grid-template-columns: 58px minmax(0, 1fr) 64px;
-  }
-  .letter-list-page .letter-card-portrait { width: 58px; height: 58px; }
-  .letter-list-page .letter-card-illustration { width: 64px; height: 64px; }
+.letter-row-copy { min-width: 0; }
+
+.letter-row-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
+
+.letter-row-title {
+  color: #242a32;
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.letter-row-style {
+  flex: 0 0 auto;
+  color: #818993;
+  font-size: 11px;
+}
+
+/* The excerpt is the letter's own text, clamped to two lines - the full reply is the detail page. */
+.letter-row-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: #58616b;
+  font-size: 12.5px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.letter-row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  color: #88909a;
+  font-size: 11px;
+}
+
+.letter-row-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Secondary actions: quiet until touched, and never wider than the row. */
+.letter-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.letter-row-actions button {
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #606a74;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.letter-row-actions button:active { background: #f4f6f7; }
+
+.letter-list-empty {
+  margin: 22px 20px;
+  padding: 18px;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.letter-list-empty strong { color: #242a32; font-size: 14px; }
+.letter-list-empty p { margin: 6px 0 12px; color: #7a838e; font-size: 12.5px; line-height: 1.6; }
 </style>

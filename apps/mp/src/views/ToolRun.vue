@@ -2,8 +2,11 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
+import { aiDegradationNotice } from '../aiStatus';
 import { copyText } from '../clipboard';
+import AiDegradationNotice from '../components/AiDegradationNotice.vue';
 import ToolTaskContracts from '../components/ToolTaskContracts.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -14,6 +17,7 @@ const saved = ref(false);
 const copied = ref(false);
 const loading = ref(false);
 const error = ref('');
+const aiNotice = ref('');
 
 const type = computed(() => {
   const alias = String(route.path.split('/').pop() ?? '');
@@ -32,20 +36,34 @@ const meta = computed(() => ({
   future_letter: { title: '写给未来的自己', subtitle: '把今天的你，整理成一封可以编辑的信。', emotion: '焦虑', action: '帮我整理成一封信' },
 }[type.value] ?? { title: '情绪工具', subtitle: '给此刻的自己一点空间。', emotion: '焦虑', action: '开始生成' }));
 
+/**
+ * Which action the banner's retry should repeat.
+ *
+ * All three failures on this page - restoring the last result, generating, and copying - used to share
+ * one banner wired to `restoreLatestResult`. Retrying a failed *generation* therefore re-read the last
+ * result instead of running the tool again, and retrying a failed *copy* did nothing at all.
+ */
+type ToolFailure = 'restore' | 'generate' | 'copy';
+const failure = ref<ToolFailure>('restore');
+
 async function restoreLatestResult() {
   result.value = '';
   jobId.value = '';
   saved.value = false;
   copied.value = false;
   error.value = '';
+  failure.value = 'restore';
+  aiNotice.value = '';
   try {
     const latest = await api.get<any>(`/api/v1/ai/tasks/latest?taskType=${encodeURIComponent(type.value)}`);
     if (!latest.item?.result) return;
     jobId.value = latest.item.id;
     result.value = latest.item.result;
+    aiNotice.value = aiDegradationNotice({ status: latest.item.status, job: latest.item });
     if (latest.item.promptSummary) input.value = latest.item.promptSummary;
   } catch (cause: any) {
     error.value = cause?.message ?? '无法恢复最近的生成结果';
+    failure.value = 'restore';
   }
 }
 
@@ -69,11 +87,19 @@ async function runTool() {
   saved.value = false;
   copied.value = false;
   error.value = '';
+  failure.value = 'generate';
+  aiNotice.value = '';
+  // Clear the previous run's result and job id before the new one starts. Leaving them in place meant
+  // a failed generation still had last time's text on screen and the *new* job's id in `jobId`, so
+  // "保存到日记" wrote the old text labelled with the new task - a result that no job produced.
+  result.value = '';
+  jobId.value = '';
   try {
     const queued = await api.post<any>('/api/v1/ai/tasks', { taskType: type.value, content: input.value, sourceId: `tool_${Date.now()}` });
     jobId.value = queued.jobId;
     const completed = await poll(queued.jobId);
     result.value = completed.result;
+    aiNotice.value = aiDegradationNotice(completed);
   } catch (cause: any) {
     error.value = cause?.message ?? '生成失败，请稍后再试';
   } finally {
@@ -81,9 +107,23 @@ async function runTool() {
   }
 }
 
+/** Repeats whichever action produced the current error. */
+async function retryFailedAction() {
+  error.value = '';
+  const which = failure.value;
+  if (which === 'generate') await runTool();
+  else if (which === 'copy') await copyResult();
+  else await restoreLatestResult();
+}
+
 async function saveResult() {
-  if (!result.value) await runTool();
-  if (!result.value) return;
+  // Only an existing result of *this* run is saved. Generating here and then saving would mean the
+  // text and the job id could come from different attempts.
+  if (!result.value || !jobId.value) {
+    error.value = '还没有可保存的结果，请先运行一次';
+    failure.value = 'generate';
+    return;
+  }
   await api.post('/api/v1/diaries', { emotion: meta.value.emotion, content: result.value, hasLetter: false, source: `tool-${type.value}`, toolResult: { taskType: type.value, input: input.value, result: result.value, jobId: jobId.value } });
   saved.value = true;
 }
@@ -91,7 +131,10 @@ async function saveResult() {
 async function copyResult() {
   if (!result.value) return;
   copied.value = await copyText(result.value);
-  if (!copied.value) error.value = '复制失败，请稍后重试';
+  if (!copied.value) {
+    error.value = '复制失败，请稍后重试';
+    failure.value = 'copy';
+  }
 }
 </script>
 
@@ -104,6 +147,7 @@ async function copyResult() {
       <button class="submit-wide" data-testid="btn-tool-run-submit" :disabled="loading" @click="runTool">{{ loading ? '生成中…' : meta.action }}</button>
       <p v-if="loading" class="tool-job-status">正在排队并生成（任务 {{ jobId || '创建中' }}）</p>
     </article>
+    <AiDegradationNotice :notice="aiNotice" />
     <article v-if="result" class="decompose-result-card" data-testid="tool-run-result-card">
       <h2>{{ type === 'negative_rewrite' ? '更温和但不虚假的表达' : '生成结果' }}</h2>
       <p class="tool-original" v-if="type === 'negative_rewrite'"><strong>原始表达：</strong>{{ input }}</p>
@@ -112,6 +156,10 @@ async function copyResult() {
       <div class="sheet-actions"><button data-testid="btn-tool-run-save" class="primary" @click="saveResult">{{ saved ? '已保存到日记' : '保存到日记' }}</button><button data-testid="btn-tool-run-copy" @click="copyResult">{{ copied ? '已复制' : '复制结果' }}</button><button data-testid="btn-tool-run-close" @click="result = ''">收起结果</button></div>
     </article>
     <ToolTaskContracts v-if="result" :type="type" :input="input" :result="result" />
-    <p v-if="error" class="error-text">{{ error }}</p>
+    <LoadErrorBanner
+      :message="error"
+      :retry-label="failure === 'copy' ? '重新复制' : failure === 'generate' ? '重新生成' : '重新加载'"
+      @retry="retryFailedAction"
+    />
   </section>
 </template>

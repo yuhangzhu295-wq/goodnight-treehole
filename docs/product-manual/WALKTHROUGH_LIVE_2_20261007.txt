@@ -1,0 +1,181 @@
+==============================================================================
+ 晚安树洞 — 其余功能线走查 (live dev stack)
+==============================================================================
+
+
+########## 主线 H：归档与恢复 ##########
+
+[ 1] H 归档 | 旅程详情 → 走完了，结束这段旅程
+     action : 创建一条旅程用于归档
+     result : PASS - HTTP 201; journeyId=journey_6311bcbd2c
+
+[ 2] H 归档 | 旅程详情 → 结束旅程
+     action : 把旅程标记为完成（status=completed）
+     result : PASS - HTTP 200; status=?
+
+[ 3] H 归档 | 我的 → 归档 /pages/archive/index
+     action : 查看归档列表
+     result : PASS - HTTP 200; archived=2
+
+[ 4] H 归档 | 归档 → 恢复这段旅程
+     action : 把归档的旅程恢复出来
+     result : FAIL - HTTP 400
+
+
+########## 主线 I：毕业与交接 ##########
+
+[ 5] I 毕业 | 旅程详情 → 添加并完成一个行动
+     action : 产品要求：完成过至少一个行动才能毕业
+     result : PASS - HTTP 201; actionId=action_702aa8a47d
+
+[ 6] I 毕业 | 旅程详情 → 毕业前同意
+     action : 同意毕业后保留长期分析（decision=willing）
+     result : FAIL - HTTP 400
+
+[ 7] I 毕业 | 旅程详情 → 毕业
+     action : 让这段旅程毕业
+     result : PASS - HTTP 201; status=completed
+
+[ 8] I 毕业 | 现实交接 /pages/reality-handoff/index
+     action : 查看交接记录
+     result : PASS - HTTP 200; handoffs=0
+
+
+########## 主线 J：树洞广场（公开内容）##########
+
+[ 9] J 广场 | 写一条 → 发布到树洞 /pages/post/create
+     action : 发布一条公开内容
+     result : PASS - HTTP 201; postId={"mood":{"id":"mood_c6e71f7d3b","userId":"user_demo","emotion":"平静","content":"今天把手机放在客厅了，真的睡着了。","visibility":"PUBLIC",… status=?
+
+[10] J 广场 | 树洞 /pages/square/index
+     action : 浏览树洞内容
+     result : PASS - HTTP 200; posts=5
+
+
+########## 主线 K：日记本 ##########
+
+[11] K 日记 | 日记本 → 新增
+     action : 写一篇日记
+     result : PASS - HTTP 201; diaryId=diary_1791305530196
+
+[12] K 日记 | 日记本列表
+     action : 查看日记列表
+     result : PASS - HTTP 200; diaries=14
+
+[13] K 日记 | 日记详情 /pages/diary/detail
+     action : 打开一篇日记
+     result : PASS - HTTP 200
+
+
+########## 主线 L：有限记忆 ##########
+
+[14] L 记忆 | 记忆中心 → 新增一条
+     action : 主动告诉 AI 一条可以记住的事
+     result : PASS - HTTP 201; memoryId=memory_726cbc862f
+
+[15] L 记忆 | 记忆中心 /pages/memory/index
+     action : 查看 AI 记住的内容
+     result : PASS - HTTP 200; memories=1
+
+[16] L 记忆 | 记忆中心 → 关掉一条
+     action : 让 AI 不再使用这条记忆
+     result : PASS - HTTP 200
+
+[17] L 记忆 | 记忆中心 → 删除
+     action : 删除这条记忆
+     result : PASS - HTTP 200
+
+
+########## 主线 M：支持计划 / 稳定的我 / 恢复 ##########
+
+[18] M 陪伴 | 支持计划 /pages/support-plan/index
+     action : 更新自己的支持计划
+     result : PASS - HTTP 200
+
+[19] M 陪伴 | 稳定的我 /pages/stable-self/index
+     action : 更新稳定自我描述
+     result : FAIL - HTTP 400
+
+[20] M 陪伴 | 恢复 /pages/recovery/index
+     action : 记录一次恢复状态
+     result : PASS - HTTP 201
+
+
+########## 主线 N：信任联系人 ##########
+
+[21] N 联系人 | 安全支持 → 信任联系人
+     action : 添加一位信任联系人
+     result : PASS - HTTP 201
+
+[22] N 联系人 | 安全支持 → 信任联系人列表
+     action : 查看联系人
+     result : PASS - HTTP 200; contacts=1
+
+
+########## 主线 O：帮助与反馈 ##########
+
+[23] O 反馈 | 帮助 /pages/help/faqs
+     action : 查看常见问题
+     result : PASS - HTTP 200; faqs=2
+
+[24] O 反馈 | 反馈 /pages/help/feedback
+     action : 查看反馈分类
+     result : PASS - HTTP 200; categories=3
+
+[25] O 反馈 | 反馈 → 提交
+     action : 提交一条反馈工单
+     result : PASS - HTTP 201
+
+[26] O 反馈 | 反馈 → 我的反馈
+     action : 查看自己提交的反馈
+     result : PASS - HTTP 200; tickets=3
+
+
+########## 主线 P：信件与分享 ##########
+
+[27] P 信件 | 我的 → 信件列表 /pages/letter/list
+     action : 查看历史信件
+     result : PASS - HTTP 200; letters=5
+
+[28] P 信件 | 信件 → 喜欢
+     action : 给一封信点赞
+     result : PASS - HTTP 201
+
+[29] P 信件 | 信件 → 收藏
+     action : 收藏这封信
+     result : PASS - HTTP 201
+
+[30] P 信件 | 信件 → 再写一封
+     action : 重新生成这封信（无 DAPI key，走兜底）
+     result : PASS - HTTP 201
+
+[31] P 信件 | 情绪月报 /pages/report/month
+     action : 查看本月报告
+     result : PASS - HTTP 200
+
+
+########## 主线 Q：决定保险箱 ##########
+
+[32] Q 决定 | 决定保险箱 /pages/decision/index → 锁起来
+     action : 把一个决定先锁进冷静期
+     result : PASS - HTTP 201; decisionId=decision_e734dd6d56
+
+[33] Q 决定 | 决定保险箱 → 设置冷静期
+     action : 设置一个冷静期并安排提醒
+     result : PASS - HTTP 201
+
+[34] Q 决定 | 决定保险箱列表
+     action : 查看所有被锁的决定
+     result : PASS - HTTP 200; decisions=5
+
+[35] Q 决定 | 决定保险箱 → 冷静中
+     action : 查看正在冷静期的决定
+     result : PASS - HTTP 200
+
+
+==============================================================================
+  走查完成：共 35 步 — PASS 32 / FAIL 3
+==============================================================================
+  [4] 归档 → 恢复这段旅程 :: 把归档的旅程恢复出来 -> HTTP 400
+  [6] 旅程详情 → 毕业前同意 :: 同意毕业后保留长期分析（decision=willing） -> HTTP 400
+  [19] 稳定的我 /pages/stable-self/index :: 更新稳定自我描述 -> HTTP 400

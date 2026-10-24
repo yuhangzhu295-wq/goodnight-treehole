@@ -1,0 +1,43 @@
+[
+ {
+  "selector": "peer-request-tab-pending",
+  "waitFor": "[data-testid^=\"peer-request-accept-\"]",
+  "expect": {
+   "present": "[data-testid^=\"peer-request-accept-\"]"
+  }
+ },
+ {
+  "selector": "peer-request-tab-accepted",
+  "waitFor": "[data-testid^=\"peer-request-accept-\"]",
+  "expect": {
+   "present": "[data-testid^=\"peer-request-consent-\"]",
+   "gone": "[data-testid=\"peer-request-empty-accepted\"]"
+  }
+ },
+ {
+  "selector": "peer-request-tab-closed",
+  "waitFor": "[data-testid^=\"peer-request-accept-\"]",
+  "expect": {
+   "present": ".request-item",
+   "gone": "[data-testid=\"peer-request-empty-closed\"]"
+  }
+ },
+ {
+  "selector": "peer-request-accept-*",
+  "waitFor": "[data-testid^=\"peer-request-accept-\"]",
+  "tab": "peer-request-tab-pending",
+  "expect": {
+   "url": "/pages/peer/consent"
+  }
+ },
+ {
+  "selector": "peer-request-decline-*",
+  "waitFor": "[data-testid^=\"peer-request-accept-\"]",
+  "tab": "peer-request-tab-pending",
+  "expect": {
+   "controlGone": true,
+   "present": "[data-testid^=\"peer-request-accept-\"]"
+  },
+  "settleMs": 3500
+ }
+]

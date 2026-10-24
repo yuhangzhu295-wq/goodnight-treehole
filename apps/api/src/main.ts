@@ -91,7 +91,17 @@ const frontApiPaths = [
   'POST /api/v1/peer-conversations/:matchId/feedback',
 ];
 
-const adminApiPaths = [
+type RouteDoc = {
+  path: string;
+  summary?: string;
+  description?: string;
+  deprecated?: boolean;
+  responses?: Record<string, { description: string }>;
+};
+
+type ApiRouteEntry = string | RouteDoc;
+
+const adminApiPaths: ApiRouteEntry[] = [
   'POST /api/admin/v1/auth/login',
   'POST /api/admin/v1/login',
   'POST /api/admin/v1/auth/logout',
@@ -101,16 +111,40 @@ const adminApiPaths = [
   'GET /api/admin/v1/users',
   'GET /api/admin/v1/users/:id',
   'PATCH /api/admin/v1/users/:id/status',
-  'PATCH /api/admin/v1/users/:id/tags',
-  'POST /api/admin/v1/users/:id/tags',
+  {
+    path: 'PATCH /api/admin/v1/users/:id/tags',
+    summary: 'PATCH /api/admin/v1/users/:id/tags (Deprecated)',
+    description: '已废弃：用户标签功能未实现；本请求未保存任何标签。',
+    deprecated: true,
+    responses: { '410': { description: 'Gone - 端点已废弃，未保存任何标签' } },
+  },
+  {
+    path: 'POST /api/admin/v1/users/:id/tags',
+    summary: 'POST /api/admin/v1/users/:id/tags (Deprecated)',
+    description: '已废弃：用户标签功能未实现；本请求未保存任何标签。',
+    deprecated: true,
+    responses: { '410': { description: 'Gone - 端点已废弃，未保存任何标签' } },
+  },
   'DELETE /api/admin/v1/users/:id/data',
   'GET /api/admin/v1/posts',
   'GET /api/admin/v1/posts/:id',
+  {
+    path: 'PATCH /api/admin/v1/posts/:id/review',
+    summary: 'PATCH /api/admin/v1/posts/:id/review',
+    description: '帖子审核统一入口，支持审核通过、隐藏、驳回及标记风险。',
+    responses: { '200': { description: 'OK' } },
+  },
   'PATCH /api/admin/v1/posts/:id/moderation',
   'PATCH /api/admin/v1/posts/:id/approve',
   'PATCH /api/admin/v1/posts/:id/reject',
   'PATCH /api/admin/v1/posts/:id/block',
-  'PATCH /api/admin/v1/posts/:id/visibility',
+  {
+    path: 'PATCH /api/admin/v1/posts/:id/visibility',
+    summary: 'PATCH /api/admin/v1/posts/:id/visibility (Deprecated)',
+    description: '已废弃：该接口不再修改帖子内容或可见范围；审核、隐藏与恢复请使用 PATCH /api/admin/v1/posts/:id/review。',
+    deprecated: true,
+    responses: { '410': { description: 'Gone - 端点已废弃，不再修改帖子或可见范围' } },
+  },
   'DELETE /api/admin/v1/posts/:id',
   'GET /api/admin/v1/replies',
   'GET /api/admin/v1/replies/:id',
@@ -159,22 +193,24 @@ const adminApiPaths = [
   'GET /api/admin/v1/audit-logs',
 ];
 
-function toOpenApi(paths: string[]) {
-  return Object.fromEntries(
-    paths.map((item) => {
-      const [method, rawPath] = item.split(' ');
-      const path = rawPath.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
-      return [
-        path,
-        {
-          [method.toLowerCase()]: {
-            summary: item,
-            responses: { '200': { description: 'OK' }, '201': { description: 'Created' } },
-          },
-        },
-      ];
-    }),
-  );
+function toOpenApi(entries: ApiRouteEntry[]) {
+  const result: Record<string, Record<string, any>> = {};
+  for (const entry of entries) {
+    const rawMethodAndPath = typeof entry === 'string' ? entry : entry.path;
+    const [method, rawPath] = rawMethodAndPath.split(' ');
+    const path = rawPath.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+    const op = method.toLowerCase();
+    const doc: Partial<RouteDoc> = typeof entry === 'string' ? {} : entry;
+
+    result[path] = result[path] || {};
+    result[path][op] = {
+      summary: doc.summary ?? rawMethodAndPath,
+      ...(doc.description ? { description: doc.description } : {}),
+      ...(doc.deprecated ? { deprecated: true } : {}),
+      responses: doc.responses ?? { '200': { description: 'OK' }, '201': { description: 'Created' } },
+    };
+  }
+  return result;
 }
 
 function setupOpenApi(app: any) {
@@ -194,13 +230,25 @@ function setupOpenApi(app: any) {
 
 export async function createServer() {
   assertVisualFixtureRuntime();
-  const app = await NestFactory.create(AppModule, { cors: true });
+  // Content-Disposition must be exposed explicitly: it is not one of the CORS-safelisted
+  // response headers, so without this the admin app can download a file but cannot read the
+  // filename the server chose and has to fall back to a generic name.
+  const app = await NestFactory.create(AppModule, {
+    cors: { origin: true, exposedHeaders: ['Content-Disposition'] },
+  });
   (app as any).useStaticAssets(resolveUploadsDirectory(), { prefix: '/uploads/' });
   setupOpenApi(app);
   return app;
 }
 
 if (process.env.NODE_ENV !== 'test') {
+  // A server must not exit because one background write failed. Prisma's P1017 ("Server has closed the
+  // connection") rejected a floating promise in the AI job path and took the whole API down; the device
+  // then reported every page as broken while the database was already back. Request handling has its own
+  // error path, so a stray rejection is logged and the process keeps serving.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[api] unhandled rejection:', reason);
+  });
   const app = await createServer();
   await app.listen(Number(process.env.API_PORT ?? 3000), '0.0.0.0');
   console.log(`API listening on http://localhost:${process.env.API_PORT ?? 3000}`);

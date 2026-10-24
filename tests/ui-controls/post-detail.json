@@ -1,0 +1,37 @@
+[
+ {
+  "selector": "front-post-back",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "detail-reply-count",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "btn-hug",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "btn-open-reply",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "reply-like-first",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "quick-hug-0",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ },
+ {
+  "selector": "btn-open-more",
+  "expect": {},
+  "waitFor": "[data-testid=\"detail-reply-count\"]"
+ }
+]

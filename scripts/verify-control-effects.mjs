@@ -1,0 +1,215 @@
+// Click a control and assert its real effect, not just that the click landed.
+//
+// "The button was found and clicked" says nothing about whether the feature works. This drives the
+// page, then reads the authoritative source - the API - and compares it against the value captured
+// before the click, so a control that renders but does nothing fails here.
+//
+// Usage: node scripts/verify-control-effects.mjs <route> <cases.json>
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { withSession, ADB } from './device-session.mjs';
+import { normalizeRoute } from './cli-route.mjs';
+
+const route = normalizeRoute(process.argv[2]);
+const casesFile = process.argv[3];
+if (!route || !casesFile) {
+  console.error('usage: node scripts/verify-control-effects.mjs <route> <cases.json>');
+  process.exit(1);
+}
+const cases = JSON.parse(readFileSync(casesFile, 'utf8'));
+
+// The app reaches the API over `adb reverse`; without it every page renders its error state and the
+// "before" and "after" reads would compare two failures.
+try {
+  execFileSync(ADB, ['reverse', 'tcp:3000', 'tcp:3000'], { stdio: 'ignore' });
+} catch {
+  // The page itself will show it if it matters.
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+await withSession(async ({ call, ev }) => {
+await call('Runtime.enable');
+
+const go = async () => {
+  await ev(`(function(){var a=document.createElement('a');a.href=${JSON.stringify(route)};a.style.display='none';document.body.appendChild(a);a.click();a.remove();})()`, false);
+  await sleep(3000);
+};
+/** Waits for a control to exist before acting on it: the page may still be rendering. */
+const waitFor = async (sel, timeoutMs = 12000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const has = await ev(`(function(){return Boolean(document.querySelector('[data-testid="${sel}"]'))})()`, false);
+    if (has) return true;
+    await sleep(800);
+  }
+  return false;
+};
+
+/** Waits for a raw CSS selector, for a case's `waitFor` (a page's own content signal). */
+const waitForSelector = async (css, timeoutMs = 20000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const has = await ev(`(function(){return Boolean(document.querySelector(${JSON.stringify(css)}))})()`, false);
+    if (has) return true;
+    await sleep(700);
+  }
+  return false;
+};
+
+const click = (sel) =>
+  ev(`(function(){
+    var e=document.querySelector('[data-testid="${sel}"]');
+    if(!e) return 'not found';
+    var target=e;
+    if(!e.onclick){var inner=e.querySelector('button, a, [role=button], input');if(inner)target=inner;}
+    target.scrollIntoView({block:'center'});
+    target.click();
+    return 'clicked';
+  })()`, false);
+/**
+ * Types into a field the way Vue actually notices.
+ *
+ * Assigning `el.value` and dispatching `input` is not enough: Vue installs its own value setter on the
+ * element, so a plain assignment is overwritten before the listener runs. Going through the prototype
+ * setter is the documented way to drive a v-model programmatically.
+ */
+const fill = (sel, value) =>
+  ev(`(function(){
+    var e=document.querySelector('[data-testid="${sel}"]');
+    if(!e) return 'not found';
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(e, ${JSON.stringify(value)});
+    e.dispatchEvent(new Event('input', { bubbles: true }));
+    e.dispatchEvent(new Event('change', { bubbles: true }));
+    return 'filled:' + e.value.slice(0, 12);
+  })()`, false);
+
+/**
+ * Reads a value from the API through the page's own fetch, carrying the app's stored credential.
+ *
+ * The header matters: per-viewer fields (`favoritedByCurrentUser`, hide lists) are derived from the
+ * caller's identity, and an unauthenticated read returns them as false/empty - which reads exactly
+ * like "the click had no effect".
+ */
+const appCredential = async () =>
+  ev("(async()=>{var p=window.Capacitor.Plugins.Preferences;var r=await p.get({key:'goodnight-identity-credential'});return (r&&r.value)||''})()");
+let credential = await appCredential();
+
+/**
+ * Calls the API from the page with the app's credential, for a case that needs a known starting state.
+ *
+ * `becomes: 1` alone would pass on a post that was already favourited - the click could do nothing and
+ * the final state would still be 1. `setupApi` puts the state where the case expects it first.
+ */
+const apiCall = async (method, path) => {
+  credential = (await appCredential()) || credential;
+  return ev(`(async()=>{
+    var r = await fetch('http://127.0.0.1:3000${path}', { method: ${JSON.stringify(method)}, headers: { 'x-goodnight-user-id': ${JSON.stringify(credential || '')} } });
+    return r.status;
+  })()`);
+};
+
+const apiRead = async (path) => {
+  // No navigation here. `apiRead` used to call `go()` first, which reloaded the page immediately
+  // after the click it was supposed to measure - a write still in flight is aborted by that reload,
+  // and the read then reports the pre-write state. The fetch only needs *a* page context, not this
+  // route's.
+  credential = (await appCredential()) || credential;
+  return ev(`(async()=>{
+    var r = await fetch('http://127.0.0.1:3000${path}', { headers: { 'x-goodnight-user-id': ${JSON.stringify(credential || '')} } });
+    var t = await r.text();
+    return r.status + ' ' + t;
+  })()`);
+};
+
+const results = [];
+for (const c of cases) {
+  await go();
+  if (c.waitFor) await waitForSelector(c.waitFor, 20000);
+  if (c.fill) {
+    // The frame renders before the form does, and a fill that silently found nothing made the click
+    // submit an empty composer: the server refused it, nothing was written, and the case reported
+    // "the control had no effect" about a control that never ran.
+    const present = await waitFor(c.fill.selector, 20000);
+    const filled = present ? await fill(c.fill.selector, c.fill.value) : 'not found';
+    if (!String(filled).startsWith('filled')) {
+      console.log(`FAIL (could not fill) ${c.selector} <- ${c.fill.selector}: ${filled}`);
+      results.push({ selector: c.selector, verdict: `FAIL (fill: ${filled})` });
+      continue;
+    }
+  }
+  // A reversible control (`toggle`) needs the same before/after read as a counted one; without
+  // `apiDelta` the runner never read the API and a click that changed nothing passed.
+  const readsApi = Boolean(c.expect.apiDelta || c.expect.toggle || typeof c.expect.becomes === 'number');
+  for (const call of c.expect.setupApi ?? []) {
+    const status = await apiCall(call.method, call.path);
+    if (Number(status) >= 400) console.log(`      setupApi ${call.method} ${call.path} -> ${status}`);
+  }
+  const before = readsApi ? await apiRead(c.expect.apiRead) : null;
+  // A control that lives on another tab only exists after that tab is selected.
+  if (c.tab) {
+    await waitFor(c.tab, 15000);
+    await click(c.tab);
+    await sleep(1400);
+  }
+  // A control inside a sheet or dialog only exists after its trigger is clicked.
+  if (c.setup) {
+    await waitFor(c.setup, 15000);
+    await click(c.setup);
+    await sleep(1200);
+  }
+  const ready = await waitFor(c.selector, 20000);
+  if (!ready) { console.log(`FAIL (control never appeared) ${c.selector}`); results.push({ selector: c.selector, verdict: 'FAIL (never appeared)' }); continue; }
+  const clicked = await click(c.selector);
+  await sleep(c.settleMs ?? 2500);
+  // A write often navigates (publishing leaves the composer). Wait for the URL to settle before
+  // reading the effect, or the read races the redirect and sees the pre-write state.
+  await sleep(c.expect.settleAfterMs ?? 3000);
+  const after = readsApi ? await apiRead(c.expect.apiRead) : null;
+
+  let verdict = 'PASS';
+  const notes = [];
+  if (clicked !== 'clicked') verdict = `FAIL (${clicked})`;
+  if (c.expect.url) {
+    const url = await ev('location.pathname + location.search', false);
+    if (!String(url).includes(c.expect.url)) { verdict = `FAIL (url ${url})`; notes.push(`expected ${c.expect.url}`); }
+  }
+  if (readsApi && before && after) {
+    // `pick` is stored as a string in the cases file (a JSON file cannot hold a function), so it is
+    // compiled here and run against the parsed body.
+    const picker = new Function('b', `return (${c.expect.pick})(b)`);
+    const pick = (raw) => {
+      try { return picker(JSON.parse(String(raw).replace(/^\d+\s/, ''))); } catch { return null; }
+    };
+    const b = pick(before);
+    const a = pick(after);
+    if (b === null || a === null) { notes.push(`could not read values (${b}/${a})`); if (verdict === 'PASS') verdict = 'INCONCLUSIVE'; }
+    // `toggle: true` asserts the value flipped, which is what a reversible control (favourite, hide)
+    // does; otherwise the exact delta is required.
+    // `becomes` is for an idempotent action (favourite, hide): the value has to end at the stated
+    // state, whether or not it was already there before the click.
+    else if (typeof c.expect.becomes === 'number') {
+      if (a !== c.expect.becomes) { verdict = `FAIL (ended at ${a}, expected ${c.expect.becomes})`; notes.push(`${b} -> ${a}`); }
+      else notes.push(`${b} -> ${a}`);
+    }
+    else if (c.expect.toggle) {
+      if (a === b) { verdict = `FAIL (unchanged ${b}, expected a flip)`; notes.push(`${b} -> ${a}`); }
+      else notes.push(`${b} -> ${a} (flipped)`);
+    }
+    else if (a - b !== c.expect.apiDelta) { verdict = `FAIL (delta ${a - b}, expected ${c.expect.apiDelta})`; notes.push(`${b} -> ${a}`); }
+    else notes.push(`${b} -> ${a}`);
+  }
+  if (c.expect.text) {
+    const has = await ev(`(function(){return (document.body.innerText||'').indexOf(${JSON.stringify(c.expect.text)})>=0})()`, false);
+    if (!has) { verdict = `FAIL (text "${c.expect.text}" absent)`; }
+  }
+  results.push({ selector: c.selector, verdict });
+  console.log(`${verdict.startsWith('PASS') ? 'PASS ' : verdict.padEnd(6)} ${c.selector.padEnd(28)} ${notes.join(' ')}`);
+}
+const failed = results.filter((r) => !r.verdict.startsWith('PASS'));
+console.log(`\n${results.length - failed.length}/${results.length} controls had their expected effect`);
+if (failed.length) console.log('failed: ' + failed.map((r) => r.selector).join(', '));
+// The exit code is the verdict, so a wrapper cannot read a failed run as a successful one.
+if (failed.length) process.exitCode = 1;
+});

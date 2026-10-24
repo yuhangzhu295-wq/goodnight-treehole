@@ -3,10 +3,9 @@ import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AIStyle } from '@goodnight/shared-types';
 import { api, deleteMedia, resolveApiUrl, uploadMedia } from '../api';
-import { useDeviceClock } from '../composables/useDeviceClock';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 const router = useRouter();
-const { timeLabel } = useDeviceClock();
 const MAX_IMAGES = 2;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -108,6 +107,10 @@ function validate() {
 }
 
 async function submit() {
+  // Re-entrancy guard at the entry, not just a disabled attribute: a second tap while the first
+  // request is still in flight used to start a second POST, and the same mood was written twice.
+  // (Verified by the input matrix: two clicks produced two rows.)
+  if (submitting.value) return;
   error.value = validate();
   if (error.value) return;
   submitting.value = true;
@@ -135,42 +138,57 @@ async function submit() {
 
 <template>
   <section class="page goodnight-page mood-create-page">
-    <header class="front-hero compact-hero">
-      <div class="status-row"><span>{{ timeLabel }}</span><span aria-hidden="true"></span></div>
+    <header class="compact-topbar bleed-bar">
       <button class="back-icon" data-testid="front-mood-back" aria-label="返回" @click="safeBack">‹</button>
-      <div class="hero-copy"><h1>写下心情</h1><p>把心里的话写下来，晚安树洞陪你听</p></div>
-      <div class="tree-scene small" aria-hidden="true"><span class="tree-heart">♥</span><span class="seedling-face">●</span></div>
-      <span class="mood-hero-baby" aria-hidden="true" />
+      <h1>写一段话</h1>
+      <span class="topbar-spacer" aria-hidden="true"></span>
     </header>
 
+    <p class="mood-lead">写下现在的想法，你可以选择是否公开。</p>
+
+    <!-- The editor is the page. The old version boxed it in a rounded card with a mascot in the corner,
+         which pushed the primary action off the first screen. -->
     <section class="write-card">
-      <textarea v-model="form.content" data-testid="input-mood-content" maxlength="1000" placeholder="此刻的你，想说些什么呢？&#10;开心的、难过的、烦恼的，都可以告诉树洞哦～" />
+      <textarea v-model="form.content" data-testid="input-mood-content" maxlength="1000" placeholder="比如：今天开会的时候，我还是有点紧张……" />
       <span class="counter">{{ countText }}</span>
     </section>
 
-    <section class="panel-card">
-      <h2>♧ 选择心情</h2>
-      <div class="emotion-grid">
-        <button v-for="item in emotions.slice(0, 6)" :key="item.testId" :data-testid="item.testId" class="emotion-choice" :class="{ active: form.emotion === item.value }" @click="form.emotion = item.value">
-          <span class="face">{{ item.face }}</span><span>{{ item.label }}</span>
+    <section class="mood-section">
+      <h2>可见范围</h2>
+      <div class="visibility-rows">
+        <button data-testid="mood-visibility-private" class="visibility-row" :class="{ active: form.visibility === 'PRIVATE' }" @click="form.visibility = 'PRIVATE'">
+          <span class="radio-dot" aria-hidden="true" />
+          <span class="visibility-copy"><strong>仅自己可见</strong><small>默认选项 · 不会公开</small></span>
+          <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PRIVATE' ? '✓' : '' }}</span>
+        </button>
+        <button data-testid="mood-visibility-public" class="visibility-row" :class="{ active: form.visibility === 'PUBLIC' }" @click="form.visibility = 'PUBLIC'">
+          <span class="radio-dot" aria-hidden="true" />
+          <span class="visibility-copy"><strong>申请公开</strong><small>提交后进入真实审核流程</small></span>
+          <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PUBLIC' ? '✓' : '' }}</span>
         </button>
       </div>
     </section>
 
-    <section class="panel-card">
-      <h2>♧ 谁可以看见？</h2>
-      <div class="visibility-grid">
-        <button data-testid="mood-visibility-private" class="visibility-card" :class="{ active: form.visibility === 'PRIVATE' }" @click="form.visibility = 'PRIVATE'">
-          <span class="round-icon">◐</span><strong>仅自己可见</strong><small>只进入我的日记与情绪月报</small>
-        </button>
-        <button data-testid="mood-visibility-public" class="visibility-card" :class="{ active: form.visibility === 'PUBLIC' }" @click="form.visibility = 'PUBLIC'">
-          <span class="round-icon">♡</span><strong>匿名发布到广场</strong><small>审核后可获得 AI 与真人回应</small>
-        </button>
+    <!-- The design calls this 话题; this product stores an emotion, and the monthly report and the
+         letter are built from that value, so the heading keeps saying what the choice really is. -->
+    <section class="mood-section">
+      <h2>话题 <small>会用来生成月报和回信</small></h2>
+      <div class="emotion-row">
+        <button
+          v-for="item in emotions.slice(0, 6)"
+          :key="item.testId"
+          :data-testid="item.testId"
+          class="emotion-pill"
+          :class="{ active: form.emotion === item.value }"
+          :aria-pressed="form.emotion === item.value"
+          @click="form.emotion = item.value"
+        >{{ item.label }}</button>
       </div>
     </section>
 
-    <section class="panel-card reply-style-panel" aria-labelledby="reply-style-title">
-      <h2 id="reply-style-title">♧ 想收到怎样的回应？</h2>
+    <!-- Real options the design does not show; collapsed so the primary action stays on the first screen. -->
+    <details class="more-options">
+      <summary>更多选项 <small>回应风格 · 添加图片</small></summary>
       <div class="style-row" role="group" aria-label="公开树洞的 AI 回应风格">
         <button
           v-for="item in replyStyles"
@@ -183,14 +201,9 @@ async function submit() {
           :aria-label="`选择${item.label}回应风格`"
           @click="form.replyStyle = item.value"
         >
-          <span aria-hidden="true">{{ item.icon }}</span>
-          <span>{{ item.label }}</span>
+          {{ item.label }}
         </button>
       </div>
-    </section>
-
-    <section class="panel-card media-panel">
-      <h2>♧ 添加图片 <small>（最多 2 张）</small></h2>
       <input ref="fileInput" class="file-picker" data-testid="input-mood-images" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="chooseImages" />
       <div class="image-row" data-testid="mood-image-grid">
         <article v-for="asset in assets" :key="asset.id" class="image-box filled" data-testid="mood-image-preview">
@@ -202,34 +215,142 @@ async function submit() {
           <span>＋</span><span>添加图片</span>
         </button>
       </div>
-    </section>
+    </details>
 
-    <p v-if="error" class="error-text">{{ error }}</p>
-    <button class="submit-bar" data-testid="btn-submit-mood" :disabled="submitting" @click="submit">{{ submitting ? '正在发布…' : '发布心情' }}</button>
+    <!-- 本页没有可重试的加载函数（错误来自校验/上传/发布），仅展示错误提示。 -->
+    <LoadErrorBanner :message="error" />
+
+    <div class="submit-dock">
+      <button class="submit-bar" data-testid="btn-submit-mood" :disabled="submitting" @click="submit">{{ submitting ? '正在保存…' : '保存这段话' }}</button>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.mood-create-page .status-row {
-  visibility: hidden;
+/* The composer is the page: a plain top bar, then the textarea, then the choices. The old header
+   spent ~150px on a display title, mood copy and a mascot cutout above the writing area. */
+.compact-topbar {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 52px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
 }
 
-.mood-hero-baby {
-  position: absolute;
-  right: 82px;
-  bottom: 0;
-  z-index: 2;
-  width: 76px;
-  height: 72px;
-  background: url("../assets/goodnight/square-baby-cutout.png") center / contain no-repeat;
-  pointer-events: none;
+.compact-topbar h1 {
+  color: #242a32;
+  font-size: 17px;
+  font-weight: 650;
+  text-align: center;
 }
 
-.mood-create-page .back-icon {
-  position: absolute;
-  top: 44px;
-  left: 14px;
-  z-index: 5;
+/* The design's one-line subtitle under the bar. */
+.mood-lead {
+  margin: 14px 0 0;
+  color: #6c747d;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/*
+ * The shared `.mood-create-page .back-icon` is absolutely positioned for the old hero. Inside this
+ * three-column bar it has to stay in the flow, or the title is pushed into the first (32px) column
+ * and renders one character per line - measured as 32px wide by 99px tall.
+ */
+.mood-create-page .compact-topbar .back-icon {
+  justify-self: start;
+  position: static;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: #39454c;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.topbar-spacer { display: block; }
+
+.write-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e4e7ea;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.write-card textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #242a32;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+}
+
+.write-card .counter {
+  display: block;
+  margin-top: 8px;
+  color: #9aa1a8;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* Visibility is the one choice the design keeps on the first level: private is the default and has
+   to be obvious, because it is what a first-time writer gets. */
+.panel-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.panel-card h2 {
+  margin: 0 0 10px;
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+/* Reply style and attachments are second-level: still fully functional, but folded away so the
+   writing area and the privacy choice lead. */
+.secondary-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.secondary-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+  color: #39454c;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.secondary-panel > summary::-webkit-details-marker { display: none; }
+
+.secondary-panel > summary::after {
+  content: '⌄';
+  color: #9aa1a8;
+  font-size: 14px;
+}
+
+.secondary-panel[open] > summary::after { content: '⌃'; }
+
+.secondary-panel > *:not(summary) {
+  margin: 0 14px 14px;
 }
 
 /* The reference gives this otherwise short display title a little more
@@ -240,68 +361,226 @@ async function submit() {
   letter-spacing: .02em;
 }
 
-/* The textarea remains a real editable control. The clean mascot crop is a
-   text-free decorative sibling layered over only its unused lower-right
-   corner; it contains no captured form controls or copy. */
-.mood-create-page .write-card::after {
-  position: absolute;
-  right: 4px;
-  bottom: 6px;
+/* No mascot in the corner: the design has no illustrations, and the crop forced an 84px right
+   padding on the textarea and pushed the counter away from the edge it belongs on. */
+.mood-create-page .counter {
+  right: 12px;
   z-index: 2;
-  width: 80px;
-  height: 75px;
-  background: url("../assets/goodnight/mood-card-baby-clean.png") center bottom / contain no-repeat;
-  content: "";
-  pointer-events: none;
+}
+
+
+/* Text pills, not illustrated tiles: the design's 话题 row is plain text, and the six assets that used
+   to sit behind these labels were V1 mascots. */
+
+/* The design's visibility choice is two full-width rows - radio, name, consequence, check - not two
+   side-by-side cards. The consequence line stays a full sentence on its own line: it is the whole
+   privacy difference between the two options, so it is never truncated. */
+.mood-create-page .visibility-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.mood-create-page .visibility-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #e8eaed;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.mood-create-page .visibility-row:last-child {
+  border-bottom: 0;
+}
+
+.mood-create-page .radio-dot {
+  display: grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1.5px solid #c9ced6;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.mood-create-page .visibility-row.active .radio-dot {
+  border-color: #275f56;
+}
+
+.mood-create-page .visibility-row.active .radio-dot::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #275f56;
+}
+
+.mood-create-page .visibility-copy {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.mood-create-page .visibility-copy strong {
+  display: block;
+  color: #242a32;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.mood-create-page .visibility-copy small {
+  display: block;
+  margin-top: 3px;
+  color: #8b939c;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.mood-create-page .visibility-check {
+  flex: 0 0 auto;
+  color: #275f56;
+  font-size: 16px;
+}
+
+/* ---- V2 layout ---------------------------------------------------------------------------------
+   One reading column: editor, 可见范围, 话题, then a sticky primary action. The old page stacked four
+   rounded panels, which pushed 保存这段话 past the fold - the one control the page exists for. */
+.mood-create-page.goodnight-page {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  /* Full viewport height so the sticky dock reaches the bottom on a short page. */
+  min-height: 100vh;
+  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+}
+
+.mood-create-page .compact-topbar h1 {
+  text-align: left;
+}
+
+.mood-create-page .write-card {
+  position: relative;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .mood-create-page .write-card textarea {
-  position: relative;
-  z-index: 1;
-  padding-right: 84px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 148px;
+  padding: 12px 12px 26px;
+  border: 1px solid #e4e7ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #242a32;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: vertical;
 }
 
-.mood-create-page .counter {
-  right: 88px;
-  z-index: 3;
+.mood-section {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #ebedf0;
 }
 
-/* Six semantic choices remain ordinary buttons; replace platform-dependent
-   emoji glyphs with the existing reusable illustration family. */
-.mood-create-page .emotion-choice .face {
-  color: transparent;
-  background-color: transparent;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
+.mood-section h2 {
+  margin: 0 0 10px;
+  color: #242a32;
+  font-size: 14.5px;
+  font-weight: 650;
 }
 
-.mood-create-page .emotion-choice:nth-child(1) .face { background-image: url("../assets/goodnight/avatar-baby.png"); }
-.mood-create-page .emotion-choice:nth-child(2) .face { background-image: url("../assets/goodnight/tool-icon-decompose.png"); }
-.mood-create-page .emotion-choice:nth-child(3) .face { background-image: url("../assets/goodnight/square-baby-cutout.png"); }
-.mood-create-page .emotion-choice:nth-child(4) .face { background-image: url("../assets/goodnight/tool-icon-rant.png"); }
-.mood-create-page .emotion-choice:nth-child(5) .face { background-image: url("../assets/goodnight/tool-baby-letter-cutout.png"); }
-.mood-create-page .emotion-choice:nth-child(6) .face { background-image: url("../assets/goodnight/tool-icon-sleep.png"); }
-
-/* Keep both privacy descriptions real, but let them fit the compact two-card
-   layout rather than making the first viewport depend on wrapping length. */
-.mood-create-page .visibility-card {
-  grid-template-columns: 32px minmax(0, 1fr);
-  min-height: 50px;
-  padding: 6px 8px;
-  gap: 4px 7px;
+.mood-section h2 small {
+  margin-left: 6px;
+  color: #8b939c;
+  font-size: 11.5px;
+  font-weight: 400;
 }
 
-.mood-create-page .round-icon {
-  width: 28px;
-  height: 28px;
+.emotion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.mood-create-page .visibility-card small {
-  overflow: hidden;
-  font-size: 10px;
+.emotion-pill {
+  min-height: 0;
+  padding: 7px 14px;
+  border: 1px solid #e4e7ea;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #5c656f;
+  font-size: 13px;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.emotion-pill.active {
+  border-color: #c3dad0;
+  background: #eaf2ee;
+  color: #275f56;
+  font-weight: 600;
+}
+
+.more-options {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #ebedf0;
+}
+
+.more-options > summary {
+  color: #5c656f;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.more-options > summary small {
+  color: #8b939c;
+  font-size: 11.5px;
+}
+
+.more-options .style-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Sticky, so 保存这段话 is on screen no matter how long the text or how many options are open. */
+.submit-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  width: calc(100% + 36px);
+  max-width: none;
+  margin: 20px 0 0 -18px;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid #ebedf0;
+  background: #ffffff;
+}
+
+.submit-dock .submit-bar {
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  border-radius: 10px;
+  background: #275f56;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 650;
 }
 </style>
