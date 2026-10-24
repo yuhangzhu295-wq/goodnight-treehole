@@ -918,7 +918,7 @@ async function resolveAiJobForUpdate(
 export async function saveRelationalRuntimeState(
   db: DbClient,
   state: RuntimeData,
-  options?: { _onInTransaction?: () => Promise<void> },
+  options?: { _onInTransaction?: (tx: DbClient) => Promise<void> },
 ): Promise<void> {
   const users = asArray(state.users);
   if (!users.length) throw new Error('Relational persistence requires at least one user');
@@ -999,6 +999,16 @@ export async function saveRelationalRuntimeState(
       // product's own legal write as a legacy-flush write. The setting is transaction-local and has
       // no effect when no probe exists.
       await tx.$executeRawUnsafe("SELECT set_config('batch4.in_flush', 'on', true)");
+      // The test rendezvous fires here, before any lock is taken.
+      //
+      // It used to run after the root locks, which made the concurrency test that proves "both writers
+      // hold a lock at the same time" impossible: the flush blocked on the other transaction's `User`
+      // lock and never reached the barrier. A rendezvous placed after the lock cannot observe a
+      // rendezvous: the point of the hook is that the caller does its own locking *inside* this
+      // transaction and then signals, so it has to come first.
+      if (options?._onInTransaction) {
+        await options._onInTransaction(tx);
+      }
       // Global lock order: `User` (sorted) -> `LifeJourney` (sorted) -> the row being written.
       //
       // The flush rewrites every user row. Upserting them in snapshot order let it hold `User` A and
@@ -1116,9 +1126,6 @@ export async function saveRelationalRuntimeState(
             lastLoginAt: item.lastLoginAt ? date(item.lastLoginAt) : null,
           },
         });
-      }
-      if (options?._onInTransaction) {
-        await options._onInTransaction();
       }
       for (const item of users) {
         await tx.user.upsert({

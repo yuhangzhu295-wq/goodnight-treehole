@@ -478,6 +478,9 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
       const journeyId = `journey_legacy_race_${Date.now()}`;
       const snapshotId = `snapshot_legacy_race_${Date.now()}`;
       const updateId = `update_legacy_race_${Date.now()}`;
+      // Sorts before every business user id, so the flush takes this lock first and then waits for the
+      // business user the other transaction is holding.
+      const sentinelUserId = 'user_000000_sentinel';
 
       // Prepare a stale runtime state snapshot on Instance B
       // Note: DIRECT_DB_MODELS are omitted from this snapshot
@@ -493,6 +496,14 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
           },
         ],
         users: [
+          {
+            id: sentinelUserId,
+            openid: `openid_${sentinelUserId}`,
+            nickname: 'Sentinel User',
+            anonymousCode: 'sentinel_code',
+            status: 'normal',
+            createdAt: new Date().toISOString(),
+          },
           {
             id: testUserId,
             openid: `openid_${Date.now()}`,
@@ -522,7 +533,22 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         ],
       };
 
-      // StrictBarrier ensures both transactions demonstrably hold locks in PostgreSQL at the same time
+      // StrictBarrier ensures both transactions demonstrably hold locks in PostgreSQL at the same time.
+      //
+      // The flush now fires its rendezvous before it takes the sorted root locks, so the hook itself has
+      // to acquire a lock to prove the flush is holding one while the other transaction is open. The
+      // sentinel sorts before the business user, so the flush takes it first and then waits for the
+      // business user - which is exactly the contention this case is about.
+      await harness.db.user.upsert({
+        where: { id: sentinelUserId },
+        create: {
+          id: sentinelUserId,
+          openid: `openid_${sentinelUserId}`,
+          nickname: 'Sentinel User',
+          anonymousCode: 'sentinel_code',
+        },
+        update: {},
+      });
       const barrier = new StrictBarrier(['migratedWriteLocked', 'legacyFlushLocked']);
 
       const migratedWritePromise = harness.persistenceA.createJourneyWithSnapshotAndUpdate({
@@ -568,7 +594,11 @@ describe('Batch 1 Multi-Instance & Concurrency Verification', () => {
         new PrismaClient({ datasources: { db: { url: harness.dbUrl } } }),
         staleState as any,
         {
-          _onInTransaction: async () => {
+          _onInTransaction: async (tx: any) => {
+            const locked = await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${sentinelUserId} FOR UPDATE`;
+            // If this matched nothing the barrier would prove nothing: the flush would be signalling
+            // without holding any lock at all.
+            expect(Array.isArray(locked) ? locked.length : 0).toBe(1);
             await barrier.enter('legacyFlushLocked');
           },
         },
