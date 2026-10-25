@@ -53,6 +53,14 @@
   }
  },
  {
+  "selector": "filter-fav-post",
+  "settleMs": 2000,
+  "expect": {
+   "present": "[data-testid=\"favorite-list-empty\"]",
+   "text": "树洞里暂时没有收藏"
+  }
+ },
+ {
   "selector": "btn-favorite-search",
   "expect": { "present": "[data-testid=\"input-favorite-search\"]" }
  },

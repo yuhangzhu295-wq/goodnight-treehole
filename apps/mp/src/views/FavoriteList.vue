@@ -114,7 +114,10 @@ async function load(next: Filter = filter.value) {
   try {
     const result = await api.get<{ items: FavoriteItem[] }>(`/api/v1/favorites${query}`);
     if (ticket !== loadSeq) return;
-    items.value = result.items ?? [];
+    // A removal in flight has already taken its row off screen; a list read that started before it
+    // committed would put it back, and the delete would then look like it did nothing.
+    const pending = removingId.value;
+    items.value = (result.items ?? []).filter((row) => row.id !== pending);
   } catch (cause: any) {
     if (ticket !== loadSeq) return;
     // An empty list must not stand in for a request that failed.
@@ -154,8 +157,14 @@ async function removeFavorite(item: FavoriteItem) {
     const result = await api.delete<{ ok: boolean }>(`/api/v1/favorites/${item.id}`);
     if (!result?.ok) throw new Error('取消收藏没有成功');
   } catch (cause: any) {
-    // Put this row back in the list the reader is looking at, not in a snapshot from another tab.
-    if (ticket === loadSeq) items.value = snapshot;
+    if (ticket === loadSeq) {
+      // Put this row back in the list the reader is looking at, not in a snapshot from another tab.
+      items.value = snapshot;
+    } else {
+      // The reader moved to another tab while the delete was in flight: re-read the current one so
+      // the row is restored where it belongs, rather than waiting for them to navigate again.
+      void load();
+    }
     removeError.value = cause?.message ?? '取消收藏失败，请稍后重试';
   } finally {
     removingId.value = '';

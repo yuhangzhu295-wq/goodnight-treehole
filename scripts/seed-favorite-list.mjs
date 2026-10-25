@@ -53,10 +53,12 @@ const prisma = new PrismaClient({ datasources: { db: { url: DEV_DATABASE_URL } }
 try {
   // Re-runs replace the previous fixture rows, so the list assertions stay deterministic. The marker
   // lives inside the target's own text, not in a visible title. Old targets are removed too: leaving
-  // them behind accumulates rows in the other lists the same account can open.
+  // them behind accumulates rows in the other lists the same account can open. Rows that reference a
+  // target (a hug, a diary written from a letter) go first, so the delete does not fail on a foreign
+  // key and leave the fixture half-prepared.
   const stalePosts = await prisma.post.findMany({
     where: { userId, content: { contains: 'UI收藏' } },
-    select: { id: true },
+    select: { id: true, moodId: true },
   });
   const staleLetters = await prisma.letter.findMany({
     where: { userId, content: { contains: 'UI收藏' } },
@@ -66,30 +68,39 @@ try {
     where: { userId, content: { contains: 'UI收藏' } },
     select: { id: true },
   });
-  if (stalePosts.length) {
+  const postIds = stalePosts.map((row) => row.id);
+  const letterIds = staleLetters.map((row) => row.id);
+  const moodIds = [...staleMoods.map((row) => row.id), ...stalePosts.map((row) => row.moodId)];
+  if (postIds.length || letterIds.length) {
     await prisma.favorite.deleteMany({
-      where: { userId, targetType: 'post', targetId: { in: stalePosts.map((row) => row.id) } },
+      where: {
+        userId,
+        OR: [
+          { targetType: 'post', targetId: { in: postIds } },
+          { targetType: 'letter', targetId: { in: letterIds } },
+        ],
+      },
     });
-    await prisma.post.deleteMany({ where: { id: { in: stalePosts.map((row) => row.id) } } });
   }
-  if (staleLetters.length) {
-    await prisma.favorite.deleteMany({
-      where: { userId, targetType: 'letter', targetId: { in: staleLetters.map((row) => row.id) } },
-    });
-    await prisma.letter.deleteMany({ where: { id: { in: staleLetters.map((row) => row.id) } } });
+  if (letterIds.length) {
+    // A diary written from a letter points back at it.
+    await prisma.diary.deleteMany({ where: { userId, letterId: { in: letterIds } } });
+    await prisma.letter.deleteMany({ where: { id: { in: letterIds } } });
+  }
+  if (postIds.length) {
+    await prisma.hugAction.deleteMany({ where: { userId, postId: { in: postIds } } });
+    await prisma.post.deleteMany({ where: { id: { in: postIds } } });
   }
   // A post is unique on its mood, so the mood goes with it.
-  if (staleMoods.length) {
-    await prisma.mood.deleteMany({ where: { id: { in: staleMoods.map((row) => row.id) } } });
+  if (moodIds.length) {
+    await prisma.mood.deleteMany({ where: { id: { in: moodIds } } });
   }
 
-  // Local calendar midnights, so the “今天收藏 / 昨天收藏” labels are what the page will show.
-  const localMidnight = (offsetDays = 0) => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() + offsetDays);
-    return date;
-  };
+  // Later than midnight on purpose: the list is ordered by when the item was saved, so a fixture
+  // stamped at 00:00 can sort *behind* a real favourite saved the same afternoon, and the suite would
+  // then remove an account's own favourite instead of the fixture's.
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   // Post requires a mood, so the fixture creates one and points the post at it. The content starts
   // with a sentence a person could have written; the marker is at the end, out of the visible title.
@@ -125,15 +136,15 @@ try {
   // `Letter.favorite`) stay in step with the Favourite rows.
   await prisma.$transaction(async (tx) => {
     await tx.favorite.create({
-      data: { userId, targetType: 'post', targetId: post.id, createdAt: localMidnight(0) },
+      data: { userId, targetType: 'post', targetId: post.id, createdAt: now },
     });
     await tx.post.update({ where: { id: post.id }, data: { favoriteCount: 1 } });
     await tx.favorite.create({
-      data: { userId, targetType: 'letter', targetId: letter.id, createdAt: localMidnight(-1) },
+      data: { userId, targetType: 'letter', targetId: letter.id, createdAt: yesterday },
     });
     await tx.letter.update({ where: { id: letter.id }, data: { favorite: true } });
   });
-  console.log('favorite list seeded');
+  console.log(`favorite list seeded (post ${post.id}, letter ${letter.id})`);
 } finally {
   await prisma.$disconnect();
 }
