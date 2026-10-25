@@ -2051,9 +2051,11 @@ export async function saveRelationalRuntimeState(
             update: { profile: json(item.profile ?? {}) },
           });
       }
-      for (const item of asArray(state.memoryItems))
-        if (!DIRECT_DB_MODELS.MemoryItem)
-        await tx.memoryItem.upsert({
+      // The guard wraps the loop, not just the statement: `state.memoryItems` is a throwing accessor
+      // once the model is registered, so even reading it here would fail a zero-write probe.
+      if (!DIRECT_DB_MODELS.MemoryItem) {
+        for (const item of asArray(state.memoryItems))
+          await tx.memoryItem.upsert({
           where: { id: item.id },
           create: {
             id: item.id,
@@ -2085,6 +2087,7 @@ export async function saveRelationalRuntimeState(
             deletedAt: item.deletedAt ? date(item.deletedAt) : null,
           },
         });
+      }
       if (!DIRECT_DB_MODELS.RecoverySnapshot) {
         for (const item of asArray(state.recoverySnapshots))
           await tx.recoverySnapshot.upsert({
@@ -2361,21 +2364,24 @@ export async function saveRelationalRuntimeState(
             update: {},
           });
       }
-      for (const item of asArray(state.feedbackCategories))
-        if (!DIRECT_DB_MODELS.FeedbackCategory)
-        await tx.feedbackCategory.upsert({
-          where: { id: item.id },
-          create: {
-            id: item.id,
-            name: item.name,
-            sortOrder: Number(item.sortOrder ?? 0),
-            enabled: item.enabled !== false,
-          },
-          update: { name: item.name, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false },
-        });
-      for (const item of asArray(state.faqs))
-        if (!DIRECT_DB_MODELS.FaqItem)
-        await tx.faqItem.upsert({
+      // The guard wraps the loop, not just the statement: `state.feedbackCategories` is a throwing
+      // accessor once the model is registered, so even reading it here would fail a zero-write probe.
+      if (!DIRECT_DB_MODELS.FeedbackCategory) {
+        for (const item of asArray(state.feedbackCategories))
+          await tx.feedbackCategory.upsert({
+            where: { id: item.id },
+            create: {
+              id: item.id,
+              name: item.name,
+              sortOrder: Number(item.sortOrder ?? 0),
+              enabled: item.enabled !== false,
+            },
+            update: { name: item.name, sortOrder: Number(item.sortOrder ?? 0), enabled: item.enabled !== false },
+          });
+      }
+      if (!DIRECT_DB_MODELS.FaqItem) {
+        for (const item of asArray(state.faqs))
+          await tx.faqItem.upsert({
           where: { id: item.id },
           create: {
             id: item.id,
@@ -2392,9 +2398,10 @@ export async function saveRelationalRuntimeState(
             enabled: item.enabled !== false,
           },
         });
-      for (const item of asArray(state.replyPresets))
-        if (!DIRECT_DB_MODELS.ReplyPreset)
-        await tx.replyPreset.upsert({
+      }
+      if (!DIRECT_DB_MODELS.ReplyPreset) {
+        for (const item of asArray(state.replyPresets))
+          await tx.replyPreset.upsert({
           where: { id: item.id },
           create: {
             id: item.id,
@@ -2411,9 +2418,10 @@ export async function saveRelationalRuntimeState(
             enabled: item.enabled !== false,
           },
         });
-      for (const item of asArray(state.feedbackTickets))
-        if (!DIRECT_DB_MODELS.FeedbackTicket)
-        await tx.feedbackTicket.upsert({
+      }
+      if (!DIRECT_DB_MODELS.FeedbackTicket) {
+        for (const item of asArray(state.feedbackTickets))
+          await tx.feedbackTicket.upsert({
           where: { id: item.id },
           create: {
             id: item.id,
@@ -2442,6 +2450,7 @@ export async function saveRelationalRuntimeState(
             repliedAt: item.repliedAt ? date(item.repliedAt) : null,
           },
         });
+      }
       for (const [key, item] of Object.entries(state.systemSettings ?? {}))
         await tx.systemSetting.upsert({
           where: { key },
