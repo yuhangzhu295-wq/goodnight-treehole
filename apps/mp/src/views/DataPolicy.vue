@@ -115,12 +115,75 @@ function openPrivacy() {
 </template>
 
 <style scoped>
-.data-policy-page {
-  padding-bottom: calc(32px + env(safe-area-inset-bottom));
+/*
+ * The bar is stated here rather than inherited: the shared `.rest-topbar` carries a 16px top margin,
+ * a 64px height, a centred 24px title and no bottom hairline, none of which this design has. The
+ * geometry matches the other V2 detail pages so the title sits on the content axis.
+ */
+.data-policy-page.goodnight-page {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  /* `detail-rest-page` sets `gap: 16px`, which stacks on every explicit margin below. */
+  gap: 0;
+  /* The bar below is exactly viewport-wide; `.goodnight-page` clips it at the inset. */
+  overflow-x: visible;
+  padding: 0 0 calc(24px + env(safe-area-inset-bottom));
+}
+
+/*
+ * This route has no tab bar, but the shell reserves 88px for one; left in place the fourth section
+ * and its action link fall below the fold.
+ */
+:global(.phone-shell:has(.data-policy-page)) {
+  padding-bottom: 0;
+}
+
+.data-policy-page .rest-topbar {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: calc(100% + 30px);
+  max-width: none;
+  min-height: 52px;
+  margin: 0 -15px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--gn-line);
+  border-radius: 0;
+  background: var(--gn-paper);
+}
+
+.data-policy-page .rest-topbar h1 {
+  color: var(--gn-ink);
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+
+.data-policy-page .back-icon {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 24px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--gn-ink);
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 1;
 }
 
 .policy-lead h2 {
-  margin: 18px 0 0;
+  margin: 16px 0 0;
   color: var(--gn-ink);
   font-size: 24px;
   line-height: 1.3;
@@ -135,7 +198,7 @@ function openPrivacy() {
 /* A titled block, then its text. The head is a real button so a keyboard can reach it, and its
    hairline makes the four sections read as one list rather than four cards. */
 .policy-block {
-  margin-top: 18px;
+  margin-top: 14px;
   border-top: 1px solid var(--gn-line);
 }
 
@@ -145,7 +208,7 @@ function openPrivacy() {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 48px;
+  min-height: 40px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -170,15 +233,15 @@ function openPrivacy() {
 
 .policy-body {
   display: grid;
-  gap: 10px;
-  padding: 0 0 16px;
+  gap: 8px;
+  padding: 0 0 12px;
 }
 
 .policy-body p {
   margin: 0;
   color: var(--gn-ink-soft, #4a525d);
   font-size: 14px;
-  line-height: 1.75;
+  line-height: 1.65;
 }
 
 .policy-link {
