@@ -133,6 +133,46 @@ describe('api contracts', () => {
     expect(row?.nickname).toBe(original);
   });
 
+  it('persists letter read and like, and filters by read status', async () => {
+    const server = app.getHttpServer();
+    const issued = await request(server).post('/api/v1/auth/anonymous').send({ deviceLabel: 'api spec letters' });
+    const credential = issued.body.item.credential as string;
+    const userId = issued.body.item.userId as string;
+    const other = await request(server).post('/api/v1/auth/anonymous').send({ deviceLabel: 'api spec letters b' });
+    const otherCredential = other.body.item.credential as string;
+    const prisma = app.get(PrismaRuntimeService);
+    const letter = await prisma.letter.create({
+      data: { userId, title: '测试回信', content: '正文', style: 'warm', status: 'unread' },
+    });
+
+    const unread = await request(server).get('/api/v1/letters?status=unread').set('x-goodnight-user-id', credential).expect(200);
+    expect(unread.body.items.some((item: any) => item.id === letter.id)).toBe(true);
+    const readBefore = await request(server).get('/api/v1/letters?status=read').set('x-goodnight-user-id', credential).expect(200);
+    expect(readBefore.body.items.some((item: any) => item.id === letter.id)).toBe(false);
+
+    // The read state must be a database write, not a snapshot mutation.
+    await request(server).patch(`/api/v1/letters/${letter.id}/read`).set('x-goodnight-user-id', credential).expect(200);
+    const rowAfterRead = await prisma.letter.findUnique({ where: { id: letter.id }, select: { status: true } });
+    expect(rowAfterRead?.status).toBe('read');
+    const readAfter = await request(server).get('/api/v1/letters?status=read').set('x-goodnight-user-id', credential).expect(200);
+    expect(readAfter.body.items.some((item: any) => item.id === letter.id)).toBe(true);
+
+    // The like is an increment, persisted.
+    await request(server).post(`/api/v1/letters/${letter.id}/like`).set('x-goodnight-user-id', credential).expect(201);
+    await request(server).post(`/api/v1/letters/${letter.id}/like`).set('x-goodnight-user-id', credential).expect(201);
+    const rowAfterLike = await prisma.letter.findUnique({ where: { id: letter.id }, select: { likeCount: true } });
+    expect(rowAfterLike?.likeCount).toBe(2);
+
+    // Another user cannot see or mutate this letter.
+    await request(server).patch(`/api/v1/letters/${letter.id}/read`).set('x-goodnight-user-id', otherCredential).expect(404);
+    await request(server).post(`/api/v1/letters/${letter.id}/like`).set('x-goodnight-user-id', otherCredential).expect(404);
+    const otherList = await request(server).get('/api/v1/letters').set('x-goodnight-user-id', otherCredential).expect(200);
+    expect(otherList.body.items.some((item: any) => item.id === letter.id)).toBe(false);
+
+    // An unknown filter is a client error, not "the whole inbox".
+    await request(server).get('/api/v1/letters?status=typo').set('x-goodnight-user-id', credential).expect(400);
+  });
+
   it('persists the tool result attached to a diary', async () => {
     const server = app.getHttpServer();
     const issued = await request(server).post('/api/v1/auth/anonymous').send({ deviceLabel: 'api spec tool result' });

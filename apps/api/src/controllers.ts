@@ -1677,11 +1677,22 @@ export class PublicController {
     let items = DIRECT_DB_MODELS.Letter
       ? await this.store.lettersDb.listForUser(userId)
       : this.store.letters.filter((item) => item.userId === userId);
+    // Newest first, with the id as a tie-breaker so two letters written in the same second do not
+    // swap places between reads.
+    items = [...items].sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
+        String(left.id).localeCompare(String(right.id)),
+    );
     if (status === 'unread') items = items.filter((item) => item.status === 'unread');
-    if (status === 'favorited' || status === 'fav')
+    else if (status === 'read') items = items.filter((item) => item.status !== 'unread');
+    else if (status === 'favorited' || status === 'fav')
       // `Letter.favorite` is the denormalised column FavoritePersistenceService keeps in step with
       // the favourite table; reading the table per row here would be an N+1 for no gain.
       items = items.filter((item) => Boolean(item.favorite));
+    // An unknown filter used to be ignored, so `?status=typo` answered with the whole inbox as if
+    // that were the requested view.
+    else if (status && status !== 'all') throw new BadRequestException('无效的回信状态');
     return { items: items.map((item) => this.store.decorateLetter(item)) };
   }
 
@@ -1702,9 +1713,14 @@ export class PublicController {
   @Patch('letters/:id/read')
   async readLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = DIRECT_DB_MODELS.Letter
-      ? await this.store.lettersDb.findOwned(id, userId)
-      : this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (DIRECT_DB_MODELS.Letter) {
+      // Letter is database-authoritative: mutating the object and calling `persist()` only updated
+      // this process's snapshot, so a read letter reverted on the next load.
+      const result = await this.store.lettersDb.markRead(id, userId);
+      if (result.count === 0) throw new NotFoundException('回信不存在');
+      return { item: await this.letterForResponse(id, userId) };
+    }
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     letter.status = 'read';
     this.store.persist();
@@ -1714,13 +1730,30 @@ export class PublicController {
   @Post('letters/:id/like')
   async likeLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
-    const letter = DIRECT_DB_MODELS.Letter
-      ? await this.store.lettersDb.findOwned(id, userId)
-      : this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (DIRECT_DB_MODELS.Letter) {
+      // Same as read: the increment must be a database write, not a snapshot mutation.
+      const result = await this.store.lettersDb.incrementLike(id, userId);
+      if (result.count === 0) throw new NotFoundException('回信不存在');
+      return { item: await this.letterForResponse(id, userId) };
+    }
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
     letter.likeCount = (letter.likeCount ?? 0) + 1;
     this.store.persist();
     return { item: letter };
+  }
+
+  /**
+   * The caller's letter as a response payload, after a successful write.
+   *
+   * The write's affected-row count already proves ownership, but re-reading can still miss if another
+   * device cleared the account's data in between. Reporting success with an empty item would tell the
+   * client a write landed while nothing is left to show, so that case is an explicit error.
+   */
+  private async letterForResponse(id: string, userId: string) {
+    const letter = await this.store.lettersDb.get(id);
+    if (!letter || letter.userId !== userId) throw new NotFoundException('回信不存在');
+    return this.store.decorateLetter(letter);
   }
 
   @Post('letters/:id/regenerate')

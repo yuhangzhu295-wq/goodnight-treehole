@@ -1,0 +1,69 @@
+[
+ {
+  "selector": "front-letter-list-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "filter-letter-unread",
+  "settleMs": 1200,
+  "expect": {
+   "present": "[data-testid=\"filter-letter-unread\"].active",
+   "text": "关于你上次写的那件事",
+   "gone": "[data-testid=\"letter-list-empty\"]"
+  }
+ },
+ {
+  "selector": "filter-letter-read",
+  "settleMs": 1200,
+  "expect": {
+   "present": "[data-testid=\"filter-letter-read\"].active",
+   "text": "关于工作压力的一封回信",
+   "gone": "[data-testid=\"letter-list-empty\"]"
+  }
+ },
+ {
+  "selector": "filter-letter-all",
+  "settleMs": 1200,
+  "expect": {
+   "present": "[data-testid=\"filter-letter-all\"].active",
+   "text": "更早"
+  }
+ },
+ {
+  "selector": "btn-letter-search",
+  "expect": { "present": "[data-testid=\"input-letter-search\"]" }
+ },
+ {
+  "selector": "input-letter-search",
+  "prefill": [
+   { "click": "btn-letter-search", "waitFor": "input-letter-search" },
+   { "fill": { "selector": "input-letter-search", "value": "关于你上次" } }
+  ],
+  "settleMs": 600,
+  "expect": { "text": "关于你上次写的那件事", "gone": "[data-testid=\"letter-list-empty\"]" }
+ },
+ {
+  "selector": "btn-letter-search-clear",
+  "prefill": [
+   { "click": "btn-letter-search", "waitFor": "input-letter-search" },
+   { "fill": { "selector": "input-letter-search", "value": "今天未读" } },
+   { "waitFor": "btn-letter-search-clear" }
+  ],
+  "settleMs": 600,
+  "expect": { "gone": "[data-testid=\"btn-letter-search-clear\"]" }
+ },
+ {
+  "selector": "input-letter-search",
+  "prefill": [
+   { "click": "btn-letter-search", "waitFor": "input-letter-search" },
+   { "fill": { "selector": "input-letter-search", "value": "没有这封信" } }
+  ],
+  "settleMs": 600,
+  "expect": { "text": "没有匹配的回信" }
+ },
+ {
+  "selector": "letter-card-first",
+  "settleMs": 3000,
+  "expect": { "url": "/pages/letter/detail" }
+ }
+]

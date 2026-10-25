@@ -24,6 +24,23 @@ async function load() {
       ? await api.get<any>(`/api/v1/letters/${encodeURIComponent(id)}`)
       : await api.get<any>('/api/v1/letters/today');
     letter.value = payload.item;
+    // Mark read only after the letter has actually loaded and is on screen. A failed write leaves it
+    // unread in the list, which is the truth, and says so instead of silently claiming success.
+    if (letter.value?.status === 'unread' && letter.value.id) {
+      const openedId = letter.value.id;
+      void api
+        .patch<any>(`/api/v1/letters/${encodeURIComponent(openedId)}/read`, {})
+        .then((updated) => {
+          // `sourceDiaryId` comes from the detail route only; a write response has no source, so the
+          // field is preserved rather than dropped by replacing the whole object.
+          if (letter.value?.id === openedId && updated?.item) {
+            letter.value = { ...letter.value, ...updated.item, sourceDiaryId: letter.value.sourceDiaryId };
+          }
+        })
+        .catch(() => {
+          if (letter.value?.id === openedId) message.value = '这封信暂时未能标记为已读';
+        });
+    }
   } catch (cause: any) {
     // A 404 means this letter does not exist, and the page has a template for exactly that. Showing
     // it as a load failure told the user to retry a request that can never succeed.
@@ -48,6 +65,28 @@ async function favorite() {
     message.value = letter.value?.favorite ? '已收藏这封回信' : '已取消收藏';
   } catch (cause: any) {
     message.value = cause?.message ?? '收藏没有成功';
+  } finally {
+    busy.value = false;
+  }
+}
+
+/**
+ * The like endpoint increments a count; it is not a per-person toggle, so the row says 喜欢 and
+ * never claims the current reader has already liked it.
+ */
+async function like() {
+  if (!letter.value || busy.value) return;
+  busy.value = true;
+  message.value = '';
+  try {
+    const result = await api.post<any>(`/api/v1/letters/${letter.value.id}/like`);
+    // Same as the read path: the write response has no source field, so keep the one already loaded.
+    if (result?.item) {
+      letter.value = { ...letter.value, ...result.item, sourceDiaryId: letter.value.sourceDiaryId };
+    }
+    message.value = '已送出喜欢';
+  } catch (cause: any) {
+    message.value = cause?.message ?? '喜欢没有成功';
   } finally {
     busy.value = false;
   }
@@ -118,6 +157,15 @@ const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(lette
         <span class="detail-row-icon" aria-hidden="true">{{ letter.favorite ? '♥' : '♡' }}</span>
         <span class="detail-row-copy">
           <strong>{{ letter.favorite ? '已收藏这封信' : '收藏这封信' }}</strong>
+        </span>
+        <span class="detail-chev" aria-hidden="true">›</span>
+      </button>
+
+      <button class="detail-row" type="button" data-testid="btn-letter-detail-like" :disabled="busy" @click="like">
+        <span class="detail-row-icon" aria-hidden="true">♡</span>
+        <span class="detail-row-copy">
+          <strong>喜欢这封信</strong>
+          <small>{{ letter.likeCount ? `${letter.likeCount} 人喜欢` : '送出一次喜欢' }}</small>
         </span>
         <span class="detail-chev" aria-hidden="true">›</span>
       </button>

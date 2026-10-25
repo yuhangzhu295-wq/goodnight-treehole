@@ -30,6 +30,7 @@ const SUITES = [
   { name: 'diary-list', route: '/pages/diary/list', cases: 'diary-list.json', runner: 'controls' },
   { name: 'future-self', route: '/pages/future-self/index', cases: 'future-self.json', runner: 'controls' },
   { name: 'letter-today', route: '/pages/letter/index', cases: 'letter-today.json', runner: 'controls' },
+  { name: 'letter-list', route: '/pages/letter/list', cases: 'letter-list.json', runner: 'controls' },
   { name: 'me-profile', route: '/pages/me/profile', cases: 'me-profile.json', runner: 'controls' },
   { name: 'mood-create', route: '/pages/mood/create', cases: 'mood-create.json', runner: 'controls' },
   { name: 'mood-create-effects', route: '/pages/mood/create', cases: 'mood-create-effects.json', runner: 'effects' },
@@ -112,6 +113,12 @@ if (!skipFixtures) {
 // The fixture refuses rather than guesses, and that refusal stops the run.
 if (selected.some((suite) => suite.name === 'me-profile')) {
   runFixture('session', 'seed-second-session.mjs', [], { required: true });
+}
+
+// The inbox suite asserts today/date/更早 groups and both read states, so it needs its own rows;
+// the AI letter fixture can legitimately be unavailable.
+if (selected.some((suite) => suite.name === 'letter-list')) {
+  runFixture('letterlist', 'seed-letter-list.mjs', [], { required: true });
 }
 
 // A peer route is generated per run, so a missing fixture is a setup problem, not a product failure.
