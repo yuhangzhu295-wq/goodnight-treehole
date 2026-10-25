@@ -1857,6 +1857,11 @@ export class StoreService implements OnModuleInit {
     this.ensureGoodnightTwoCoverage();
     this.ensurePhaseTwoCoverage();
     await this.ensureSeedCoverage();
+    // The flush no longer owns these two tables (Batch 4 registered them), so a database that never
+    // carried their rows would serve an empty category list and an empty FAQ list to every client.
+    // Both routines only fill an empty table; the console remains the owner.
+    await this.feedbackPersistence.ensureSeedCategories();
+    await this.feedbackPersistence.ensureSeedFaqs();
     if (!visualFixtureMode) await this.enforceRemoteAiProviderPolicy();
     // After the policy, not before: the policy writes the three managed providers the routes point
     // at, and a route seeded before them would fail on `AIStyleRoute.primaryProvider` being a

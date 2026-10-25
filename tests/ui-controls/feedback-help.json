@@ -1,0 +1,60 @@
+[
+ {
+  "selector": "front-feedback-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "select-feedback-category",
+  "settleMs": 500,
+  "expect": { "present": "[data-testid=\"select-feedback-category\"][aria-pressed=\"true\"]" }
+ },
+ {
+  "selector": "input-feedback-contact",
+  "expect": { "present": "[data-testid=\"input-feedback-contact\"]" }
+ },
+ {
+  "selector": "btn-feedback-submit",
+  "prefill": { "fill": { "selector": "input-feedback-content", "value": "" } },
+  "settleMs": 600,
+  "expect": {
+   "text": "请先写下你遇到的问题或建议"
+  }
+ },
+ {
+  "selector": "btn-feedback-submit",
+  "prefill": [
+   { "fill": { "selector": "input-feedback-content", "value": "在回信详情点喜欢后，计数没有变化。" } },
+   { "fill": { "selector": "input-feedback-contact", "value": "希望补充功能支持" } }
+  ],
+  "settleMs": 4000,
+  "expect": {
+   "text": "工单号",
+   "gone": "[data-testid=\"feedback-list-empty\"]"
+  }
+ },
+ {
+  "selector": "front-feedback-back",
+  "prefill": [
+   { "click": "btn-faq-all", "waitFor": "front-faqs-back" },
+   { "click": "front-faqs-back", "waitFor": "front-feedback-back" }
+  ],
+  "settleMs": 3000,
+  "expect": { "url": "/pages/help/faqs" }
+ },
+ {
+  "selector": "btn-faq-all",
+  "settleMs": 2500,
+  "expect": { "url": "/pages/help/faqs" }
+ },
+ {
+  "selector": "btn-support-more",
+  "settleMs": 800,
+  "expect": { "present": "[data-testid=\"support-panel\"]" }
+ },
+ {
+  "selector": "btn-support-close",
+  "prefill": { "click": "btn-support-more", "waitFor": "support-panel" },
+  "settleMs": 800,
+  "expect": { "gone": "[data-testid=\"support-panel\"]" }
+ }
+]

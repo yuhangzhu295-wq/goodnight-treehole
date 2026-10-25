@@ -30,6 +30,7 @@ const SUITES = [
   { name: 'data-policy', route: '/pages/settings/data-policy', cases: 'data-policy.json', runner: 'controls' },
   { name: 'diary-list', route: '/pages/diary/list', cases: 'diary-list.json', runner: 'controls' },
   { name: 'favorite-list', route: '/pages/favorite/index', cases: 'favorite-list.json', runner: 'controls' },
+  { name: 'feedback-help', route: '/pages/help/feedback', cases: 'feedback-help.json', runner: 'controls' },
   { name: 'future-self', route: '/pages/future-self/index', cases: 'future-self.json', runner: 'controls' },
   { name: 'letter-today', route: '/pages/letter/index', cases: 'letter-today.json', runner: 'controls' },
   { name: 'letter-list', route: '/pages/letter/list', cases: 'letter-list.json', runner: 'controls' },

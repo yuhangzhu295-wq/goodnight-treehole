@@ -141,6 +141,68 @@ export class FeedbackPersistenceService {
   // ------------------------------------------------------------------
 
   /**
+   * Writes the categories a fresh install needs, and leaves the table alone otherwise.
+   *
+   * The legacy flush used to seed these from the store snapshot. Once `FeedbackCategory` was
+   * registered the flush stopped writing the table, and a database that had never carried the rows
+   * then served an empty list to every client - the feedback form had no type to choose, and its
+   * submit was refused with "请选择可用的反馈分类". An operator still owns the table: this only fills an
+   * empty one, and it never renames or re-enables a row the console has changed.
+   */
+  async ensureSeedCategories() {
+    const existing = await this.prisma.feedbackCategory.count();
+    if (existing > 0) return 0;
+    await this.prisma.feedbackCategory.createMany({
+      data: [
+        { id: 'cat_1', name: '使用问题', sortOrder: 1, enabled: true },
+        { id: 'cat_2', name: '内容建议', sortOrder: 2, enabled: true },
+        { id: 'cat_3', name: '隐私与数据', sortOrder: 3, enabled: true },
+      ],
+      skipDuplicates: true,
+    });
+    return 3;
+  }
+
+  /**
+   * Writes the FAQ entries a fresh install needs, and leaves the table alone otherwise.
+   *
+   * Same shape as the categories: the flush no longer writes this table, so a database that never
+   * carried the rows would show an empty FAQ list on the help page and its "查看全部" link would lead
+   * to nothing. The console remains the owner; this only fills an empty table.
+   */
+  async ensureSeedFaqs() {
+    const existing = await this.prisma.faqItem.count();
+    if (existing > 0) return 0;
+    const items = [
+      {
+        id: 'faq_1',
+        question: '树洞内容会公开我的身份吗？',
+        answer: '不会。广场只展示匿名编号，个人身份不会出现在公开内容里。',
+      },
+      {
+        id: 'faq_2',
+        question: 'AI 回信是心理诊断吗？',
+        answer: '不是。晚安树洞只提供情绪陪伴和整理，不做诊断或医疗建议。',
+      },
+      {
+        id: 'faq_3',
+        question: '为什么换设备后看不到以前的回信？',
+        answer: '匿名身份由服务端签发的凭据确认，凭据只保存在原设备上。丢失后无法通过本应用恢复原身份的私密数据。',
+      },
+      {
+        id: 'faq_4',
+        question: '删除我的数据会删掉什么？',
+        answer: '会从服务端删除你的日记、回信与收藏记录，此操作不可撤销。隐私与数据页面会说明当前生效的删除范围。',
+      },
+    ];
+    await this.prisma.faqItem.createMany({
+      data: items.map((item, index) => ({ ...item, sortOrder: index + 1, enabled: true })),
+      skipDuplicates: true,
+    });
+    return items.length;
+  }
+
+  /**
    * Enabled categories in display order, for the feedback form.
    *
    * An operator controls which categories exist, so an empty or all-disabled table is a real state the

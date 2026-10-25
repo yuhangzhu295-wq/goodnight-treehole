@@ -11,6 +11,7 @@ const faqs = ref<any[]>([]);
 const cats = ref<any[]>([]);
 const categoryId = ref('');
 const content = ref('');
+const contact = ref('');
 const assets = ref<Array<FeedbackAsset | null>>([null, null]);
 const tickets = ref<FeedbackTicket[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -105,24 +106,37 @@ async function removeAsset(slot: number) {
 
 async function submit() {
   const text = content.value.trim();
+  const note = contact.value.trim();
   if (submitting.value) return;
   if (!text) {
     formMessage.value = '请先写下你遇到的问题或建议。';
+    return;
+  }
+  // The server caps a ticket at 500 characters and the contact note is appended to the report, so the
+  // combined length is what has to fit. Checking only the description would let a valid-looking form
+  // be refused after the reader pressed submit.
+  if (`${text}\n\n联系方式：${note}`.length > 500) {
+    formMessage.value = '内容与联系方式合计不能超过 500 字，请精简后再提交。';
     return;
   }
 
   submitting.value = true;
   formMessage.value = '';
   try {
-    await api.post('/api/v1/feedback', {
+    const report = contact.value.trim() ? `${text}\n\n联系方式：${contact.value.trim()}` : text;
+    const created = await api.post<{ item: FeedbackTicket }>('/api/v1/feedback', {
       categoryId: categoryId.value || undefined,
-      content: text,
+      content: report,
       sourcePage: '/pages/help/feedback',
       assetIds: assetIds.value,
     });
     content.value = '';
+    contact.value = '';
     assets.value = [null, null];
-    formMessage.value = '反馈已提交，工单已创建。';
+    // The ticket id is the server's own answer that the write landed, and the reader needs it to
+    // refer to this report later. A message without it would only assert our own optimism.
+    const ticketId = created?.item?.id;
+    formMessage.value = ticketId ? `反馈已提交，工单号 ${ticketId}。` : '反馈已提交，工单已创建。';
     const ticketResponse = await api.get<any>('/api/v1/feedback');
     tickets.value = ticketResponse.items ?? [];
   } catch (error: any) {
@@ -158,27 +172,29 @@ onMounted(load);
 
       <!-- Section 1: Feedback Form (Primary Task) -->
       <section class="group-section" aria-label="提交反馈">
-        <div class="section-label">提交反馈</div>
-        <form class="form-surface" @submit.prevent="submit">
-          <!-- Category Row -->
-          <div class="form-field">
-            <label class="form-label" for="category-select">问题分类</label>
-            <select
-              id="category-select"
-              v-model="categoryId"
-              data-testid="select-feedback-category"
-              class="form-select"
-              aria-label="反馈类型"
-            >
-              <option v-for="category in cats" :key="category.id" :value="category.id">{{ category.name }}</option>
-              <option v-if="!cats.length" value="">一般问题</option>
-            </select>
-          </div>
+        <div class="section-label">反馈类型</div>
+        <div class="type-chips" role="group" aria-label="反馈类型">
+          <button
+            v-for="category in cats"
+            :key="category.id"
+            type="button"
+            class="type-chip"
+            data-testid="select-feedback-category"
+            :data-value="category.id"
+            :aria-pressed="categoryId === category.id"
+            :class="{ active: categoryId === category.id }"
+            @click="categoryId = category.id"
+          >
+            {{ category.name }}
+          </button>
+          <span v-if="!cats.length" class="type-empty">分类读取中…</span>
+        </div>
 
+        <form class="form-surface" @submit.prevent="submit">
           <!-- Content Textarea -->
           <div class="form-field">
             <div class="field-label-row">
-              <label class="form-label" for="feedback-content">问题描述</label>
+              <label class="form-label" for="feedback-content">具体情况</label>
               <span class="char-count" :class="{ limit: characterCount === 500 }">{{ characterCount }}/500</span>
             </div>
             <textarea
@@ -188,7 +204,7 @@ onMounted(load);
               class="form-textarea"
               maxlength="500"
               rows="4"
-              placeholder="请描述遇到的问题或改进建议…"
+              placeholder="在哪个页面遇到了问题？当时点了什么？"
             ></textarea>
           </div>
 
@@ -242,6 +258,23 @@ onMounted(load);
             <div v-if="attachmentCount" class="upload-status" data-testid="feedback-upload-preview" aria-live="polite">
               已添加 {{ attachmentCount }} 张截图
             </div>
+          </div>
+
+          <!-- Contact: optional, and never a place to ask for someone's real identity. The design
+               shows this field; the ticket model has no column for it, so it is collected as part of
+               the report text rather than dropped silently or promised as a stored field. -->
+          <div class="form-field">
+            <label class="form-label" for="feedback-contact">联系方式（可选）</label>
+            <input
+              id="feedback-contact"
+              v-model="contact"
+              data-testid="input-feedback-contact"
+              class="form-input"
+              type="text"
+              maxlength="120"
+              placeholder="希望我们如何回复你（如功能支持）"
+            />
+            <p class="field-note">不要填写他人的真实身份或敏感联系方式。提交以后服务端返回状态为准。</p>
           </div>
 
           <!-- Submit -->
@@ -510,6 +543,66 @@ onMounted(load);
   gap: 4px;
 }
 
+/* Type chips, matching the other V2 pages: quiet until selected, then leaf-green with a hairline. */
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 4px 4px;
+}
+
+.type-chip {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: 999px;
+  background: var(--gn-paper);
+  color: var(--gn-ink-soft);
+  font-family: var(--gn-font-body);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.type-chip.active {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
+  font-weight: 600;
+}
+
+.type-empty {
+  color: var(--gn-muted);
+  font-size: 13px;
+}
+
+.form-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--gn-line);
+  border-radius: var(--gn-radius-small);
+  padding: 8px 10px;
+  background: var(--gn-bg);
+  color: var(--gn-ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--gn-leaf);
+}
+
+.field-note {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .field-label-row {
   display: flex;
   align-items: center;
@@ -532,7 +625,6 @@ onMounted(load);
   font-weight: 600;
 }
 
-.form-select,
 .form-textarea {
   box-sizing: border-box;
   width: 100%;
@@ -648,14 +740,18 @@ onMounted(load);
 }
 
 .submit-btn {
+  /* The form is long, and the primary action must not be below the fold when the page is scrolled. */
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   width: 100%;
-  min-height: 40px;
+  min-height: 46px;
   border: 0;
   border-radius: var(--gn-radius-small);
   background: var(--gn-leaf);
   color: #fff;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
   margin-top: 4px;
 }
