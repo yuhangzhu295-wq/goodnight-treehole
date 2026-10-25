@@ -1,0 +1,38 @@
+[
+ {
+  "selector": "front-faqs-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "faq-full-1",
+  "settleMs": 600,
+  "expect": { "present": ".faq-answer" }
+ },
+ {
+  "selector": "btn-faq-search",
+  "expect": { "present": "[data-testid=\"input-faq-search\"]" }
+ },
+ {
+  "selector": "input-faq-search",
+  "prefill": [
+   { "click": "btn-faq-search", "waitFor": "input-faq-search" },
+   { "fill": { "selector": "input-faq-search", "value": "身份" } }
+  ],
+  "settleMs": 600,
+  "expect": { "text": "账号与隐私" }
+ },
+ {
+  "selector": "input-faq-search",
+  "prefill": [
+   { "click": "btn-faq-search", "waitFor": "input-faq-search" },
+   { "fill": { "selector": "input-faq-search", "value": "没有这个问题" } }
+  ],
+  "settleMs": 600,
+  "expect": { "text": "没有匹配的问题" }
+ },
+ {
+  "selector": "btn-faq-open-feedback",
+  "settleMs": 2500,
+  "expect": { "url": "/pages/help/feedback" }
+ }
+]
