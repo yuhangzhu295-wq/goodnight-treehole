@@ -1,0 +1,77 @@
+[
+ {
+  "selector": "front-favorite-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "filter-fav-all",
+  "settleMs": 1200,
+  "expect": {
+   "present": "[data-testid=\"filter-fav-all\"].active",
+   "text": "最近收藏"
+  }
+ },
+ {
+  "selector": "filter-fav-letter",
+  "settleMs": 1200,
+  "expect": {
+   "present": "[data-testid=\"filter-fav-letter\"].active",
+   "text": "关于第一次尝试的回信"
+  }
+ },
+ {
+  "selector": "filter-fav-post",
+  "settleMs": 1200,
+  "expect": { "present": "[data-testid=\"filter-fav-post\"].active" }
+ },
+ {
+  "selector": "filter-fav-diary",
+  "settleMs": 1200,
+  "expect": {
+   "present": "[data-testid=\"filter-fav-diary\"].active",
+   "text": "我的日记里暂时没有收藏"
+  }
+ },
+ {
+  "selector": "filter-fav-all",
+  "settleMs": 1200,
+  "expect": { "present": "[data-testid=\"favorite-card-first\"]" }
+ },
+ {
+  "selector": "favorite-card-first",
+  "settleMs": 2000,
+  "expect": { "url": "/pages/post/detail" }
+ },
+ {
+  "selector": "btn-favorite-remove",
+  "prefill": { "click": "filter-fav-post", "waitFor": "btn-favorite-remove" },
+  "settleMs": 2500,
+  "expect": {
+   "controlGone": true,
+   "present": "[data-testid=\"filter-fav-post\"].active",
+   "gone": "[data-testid=\"favorite-remove-error\"]"
+  }
+ },
+ {
+  "selector": "btn-favorite-search",
+  "expect": { "present": "[data-testid=\"input-favorite-search\"]" }
+ },
+ {
+  "selector": "input-favorite-search",
+  "prefill": [
+   { "click": "btn-favorite-search", "waitFor": "input-favorite-search" },
+   { "fill": { "selector": "input-favorite-search", "value": "关于第一次" } }
+  ],
+  "settleMs": 600,
+  "expect": { "text": "关于第一次尝试的回信" }
+ },
+ {
+  "selector": "input-favorite-search",
+  "prefill": [
+   { "click": "btn-favorite-search", "waitFor": "input-favorite-search" },
+   { "fill": { "selector": "input-favorite-search", "value": "不存在的关键词" } }
+  ],
+  "settleMs": 600,
+  "expect": { "text": "没有匹配的收藏" }
+ }
+]

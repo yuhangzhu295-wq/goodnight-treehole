@@ -79,10 +79,18 @@ export class FavoritePersistenceService {
     return removed;
   }
 
+  /**
+   * Removes one favourite by id, returning the row it actually deleted.
+   *
+   * The row is read first only to know which projection to refresh; the delete itself is a single
+   * conditional statement whose affected count decides the answer. Two devices removing the same
+   * favourite would both see the row, and only the statement that deleted a row reports success.
+   */
   async removeById(userId: string, favoriteId: string) {
     const favorite = await this.prisma.favorite.findFirst({ where: { id: favoriteId, userId } });
     if (!favorite) return undefined;
-    await this.prisma.favorite.deleteMany({ where: { id: favorite.id, userId } });
+    const result = await this.prisma.favorite.deleteMany({ where: { id: favoriteId, userId } });
+    if (result.count === 0) return undefined;
     await this.afterWrite(favorite.userId, favorite.targetType as FavoriteTargetType, favorite.targetId);
     return favorite;
   }

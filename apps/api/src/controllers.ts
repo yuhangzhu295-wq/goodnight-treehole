@@ -2399,9 +2399,12 @@ export class PublicController {
 
   @Delete('favorites/:id')
   async deleteFavoriteItem(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
-    await this.store.removeFavoriteById(requireRuntimeUserId(requestedUserId), id);
+    // The affected row is what proves this caller's favourite was removed. Answering `ok` for a
+    // missing or foreign id would let the page claim success while nothing was deleted.
+    const removed = await this.store.removeFavoriteById(requireRuntimeUserId(requestedUserId), id);
+    if (!removed) throw new NotFoundException('收藏不存在');
     await this.store.persistAndFlush();
-    return { ok: true };
+    return { ok: true, id: removed.id };
   }
 
   @Get('reports/monthly')

@@ -28,6 +28,7 @@ const fixtures = () => (existsSync(fixturePath) ? JSON.parse(readFileSync(fixtur
 // the API response (verify-control-effects).
 const SUITES = [
   { name: 'diary-list', route: '/pages/diary/list', cases: 'diary-list.json', runner: 'controls' },
+  { name: 'favorite-list', route: '/pages/favorite/index', cases: 'favorite-list.json', runner: 'controls' },
   { name: 'future-self', route: '/pages/future-self/index', cases: 'future-self.json', runner: 'controls' },
   { name: 'letter-today', route: '/pages/letter/index', cases: 'letter-today.json', runner: 'controls' },
   { name: 'letter-list', route: '/pages/letter/list', cases: 'letter-list.json', runner: 'controls' },
@@ -119,6 +120,11 @@ if (selected.some((suite) => suite.name === 'me-profile')) {
 // the AI letter fixture can legitimately be unavailable.
 if (selected.some((suite) => suite.name === 'letter-list')) {
   runFixture('letterlist', 'seed-letter-list.mjs', [], { required: true });
+}
+
+// The favourites suite asserts a cross-type list, a per-type filter and a real removal.
+if (selected.some((suite) => suite.name === 'favorite-list')) {
+  runFixture('favorites', 'seed-favorite-list.mjs', [], { required: true });
 }
 
 // A peer route is generated per run, so a missing fixture is a setup problem, not a product failure.
