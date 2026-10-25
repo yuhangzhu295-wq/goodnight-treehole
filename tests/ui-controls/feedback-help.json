@@ -42,6 +42,11 @@
   "expect": { "url": "/pages/help/faqs" }
  },
  {
+  "selector": "front-feedback-back",
+  "settleMs": 3000,
+  "expect": { "urlChanged": true }
+ },
+ {
   "selector": "btn-faq-all",
   "settleMs": 2500,
   "expect": { "url": "/pages/help/faqs" }

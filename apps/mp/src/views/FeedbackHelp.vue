@@ -152,7 +152,7 @@ onMounted(load);
 <template>
   <section class="goodnight-page feedback-help-page">
     <template v-if="!loading">
-      <header class="feedback-header">
+      <header class="feedback-bar">
         <button
           class="back-btn"
           data-testid="front-feedback-back"
@@ -162,17 +162,20 @@ onMounted(load);
         >
           ‹
         </button>
-        <div class="header-titles">
-          <h1 class="feedback-title">帮助与反馈</h1>
-          <p class="feedback-subtitle">问题反馈与常见解答</p>
-        </div>
+        <h1>帮助与反馈</h1>
+        <span aria-hidden="true"></span>
       </header>
+
+      <div class="policy-lead">
+        <h2>遇到什么问题？</h2>
+        <p>请尽量描述发生了什么，方便我们排查。</p>
+      </div>
 
       <p v-if="loadError" class="status-msg error" role="status">{{ loadError }}</p>
 
       <!-- Section 1: Feedback Form (Primary Task) -->
       <section class="group-section" aria-label="提交反馈">
-        <div class="section-label">反馈类型</div>
+        <h2 class="section-label">反馈类型</h2>
         <div class="type-chips" role="group" aria-label="反馈类型">
           <button
             v-for="category in cats"
@@ -274,7 +277,7 @@ onMounted(load);
               maxlength="120"
               placeholder="希望我们如何回复你（如功能支持）"
             />
-            <p class="field-note">不要填写他人的真实身份或敏感联系方式。提交以后服务端返回状态为准。</p>
+            <p class="field-note">不要填写他人的真实身份或敏感联系方式。提交后以服务器返回状态为准。</p>
           </div>
 
           <!-- Submit -->
@@ -492,11 +495,74 @@ onMounted(load);
   flex-direction: column;
 }
 
+/* The design's section headings are dark and bold; the old 12px grey made the form's structure
+   disappear into the background. */
 .section-label {
-  padding: 8px 4px 6px;
-  font-size: 12px;
-  font-weight: 500;
+  margin: 0;
+  padding: 8px 0 6px;
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* The lead sits directly under the bar, as in the design. */
+.policy-lead h2 {
+  margin: 18px 0 0;
+  color: var(--gn-ink);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.policy-lead p {
+  margin: 8px 0 0;
   color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* The bar: a bare chevron and the title, with the hairline reaching both screen edges. */
+.feedback-help-page .feedback-bar {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: calc(100% + 32px);
+  max-width: none;
+  min-height: 52px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line);
+  border-radius: 0;
+  background: var(--gn-paper);
+}
+
+.feedback-help-page .feedback-bar h1 {
+  margin: 0;
+  color: var(--gn-ink);
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+
+.feedback-help-page .feedback-bar .back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 24px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--gn-ink);
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 1;
 }
 
 .section-header-row {
@@ -526,36 +592,33 @@ onMounted(load);
   overflow: hidden;
 }
 
-/* Form */
+/* Form: one flat column, no card border. The design's form is a set of labelled fields on the page,
+   not a boxed panel. */
 .form-surface {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
+  gap: 16px;
 }
 
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-/* Type chips, matching the other V2 pages: quiet until selected, then leaf-green with a hairline. */
+/* Type chips, matching the design: rounded rectangles with a hairline, leaf-green when selected. */
 .type-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 0 4px 4px;
+  padding: 0 0 4px;
 }
 
 .type-chip {
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 36px;
+  padding: 0 16px;
   border: 1px solid var(--gn-line);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--gn-paper);
   color: var(--gn-ink-soft);
   font-family: var(--gn-font-body);
@@ -609,15 +672,16 @@ onMounted(load);
   justify-content: space-between;
 }
 
+/* The design's field labels are dark and bold, like its section headings. */
 .form-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--gn-muted);
+  color: var(--gn-ink);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .char-count {
-  font-size: 11px;
   color: var(--gn-muted);
+  font-size: 11px;
 }
 
 .char-count.limit {
@@ -638,9 +702,15 @@ onMounted(load);
 }
 
 .form-textarea {
-  min-height: 80px;
-  resize: vertical;
-  line-height: 1.5;
+  min-height: 96px;
+  /* A phone has no resize handle; the WebView's default one sat in the corner of the box. */
+  resize: none;
+  line-height: 1.6;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--gn-leaf);
 }
 
 .file-input-hidden {
