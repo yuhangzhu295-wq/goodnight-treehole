@@ -438,7 +438,7 @@ onBeforeUnmount(() => { runSeq.value += 1; });
 .decompose-input textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 148px;
+  min-height: 120px;
   padding: 12px 12px 26px;
   border: 1px solid #e4e7ea;
   border-radius: 8px;
@@ -529,8 +529,17 @@ onBeforeUnmount(() => { runSeq.value += 1; });
   height: auto;
   min-height: 0;
   padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   overflow: visible;
   grid-template-rows: none;
+}
+
+/* This route has no tab bar, but the shell reserves 88px for one; left in place the list mode's
+   primary action was clipped at the viewport edge. */
+:global(.phone-shell:has(.decompose-page)) {
+  padding-bottom: 0;
 }
 
 .decompose-page .decompose-result-section .result-block {
@@ -608,10 +617,15 @@ onBeforeUnmount(() => { runSeq.value += 1; });
 #btn-decompose-save:disabled { opacity: 0.55; }
 
 .submit-dock {
-  /* Pushed to the bottom of the column: on a short page the button sits where the design puts it
-     instead of floating under the note. */
+  /* Pushed to the bottom of the column on a short page, and pinned to the viewport when a long result
+     makes the page scroll: the primary action must not be half below the fold. */
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   margin-top: auto;
-  padding-top: 14px;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: var(--gn-paper);
+  border-top: 1px solid var(--gn-line);
 }
 
 .submit-dock .submit-wide {

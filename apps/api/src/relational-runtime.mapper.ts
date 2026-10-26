@@ -2753,18 +2753,29 @@ export async function saveRelationalRuntimeState(
       await deleteAbsent('feedbackTicket', tx.feedbackTicket,
         asArray(state.feedbackTickets).map((item: any) => item.id),
       );
-      if (!DIRECT_DB_MODELS.FeedbackCategory)
-      await deleteAbsent('feedbackCategory', tx.feedbackCategory,
-        asArray(state.feedbackCategories).map((item: any) => item.id),
-      );
-      if (!DIRECT_DB_MODELS.FaqItem)
-      await deleteAbsent('faqItem', tx.faqItem,
-        asArray(state.faqs).map((item: any) => item.id),
-      );
-      if (!DIRECT_DB_MODELS.ReplyPreset)
-      await deleteAbsent('replyPreset', tx.replyPreset,
-        asArray(state.replyPresets).map((item: any) => item.id),
-      );
+      // The guard wraps the call, not just the arguments: `state.feedbackCategories` is a throwing
+      // accessor once the model is registered, so it cannot be read to decide what is absent.
+      if (!DIRECT_DB_MODELS.FeedbackCategory) {
+        await deleteAbsent(
+          'feedbackCategory',
+          tx.feedbackCategory,
+          asArray(state.feedbackCategories).map((item: any) => item.id),
+        );
+      }
+      if (!DIRECT_DB_MODELS.FaqItem) {
+        await deleteAbsent(
+          'faqItem',
+          tx.faqItem,
+          asArray(state.faqs).map((item: any) => item.id),
+        );
+      }
+      if (!DIRECT_DB_MODELS.ReplyPreset) {
+        await deleteAbsent(
+          'replyPreset',
+          tx.replyPreset,
+          asArray(state.replyPresets).map((item: any) => item.id),
+        );
+      }
       if (!DIRECT_DB_MODELS.MediaAsset)
       await deleteAbsent('mediaAsset', tx.mediaAsset,
         asArray(state.assets).map((item: any) => item.id),

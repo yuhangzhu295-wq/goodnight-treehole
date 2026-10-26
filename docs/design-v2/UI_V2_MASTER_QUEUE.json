@@ -852,29 +852,29 @@
       "prompt": "逐页提示词/27*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R4_ToolDecompose_capture.png",
-      "issue": "",
-      "gitCommit": "",
-      "status": "WAITING_REVIEW",
+      "reviewer": "independent code review: APPROVE (2026-10-25); visual final-gate: PASS on minimal/list/safety states",
+      "screenshot": "artifacts/ui-v2/r2/tool-decompose-minimal.png",
+      "gitCommit": "23fa3ff",
+      "status": "DONE",
       "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
       "visualApproved": "yes",
-      "codeReviewApproved": "no",
-      "done": "no",
+      "codeReviewApproved": "yes",
+      "done": "yes",
       "evidence": {
-        "script": "scripts/verify-controls.mjs",
-        "result": "tool-decompose 8/8",
-        "screenshot": "artifacts/ui-v2/r2/tool-decompose-v5.png",
-        "visualVerdict": "PASS",
-        "codeReview": "not yet returned - both reviewer routes were rate-limited (gpt-6-sol usage_limit_reached, reviewer-glm concurrency)",
-        "recordedAt": "2026-10-24T08:28:52.913Z",
-        "head": "0ccac59",
-        "visualReview": "independent final-gate reviewer, re-review after layout fixes: all previous P1/P2 fixed; two spacing P2s fixed after the pass; one P2 accepted as debt (the AI note wraps to one line because the container is the full content width)"
+        "result": "tool-decompose controls 10/10",
+        "visualReview": "PASS (final-gate)",
+        "codeReview": "APPROVE",
+        "states": [
+          "artifacts/ui-v2/r2/tool-decompose-minimal.png",
+          "artifacts/ui-v2/r2/tool-decompose-list.png",
+          "artifacts/ui-v2/r2/tool-decompose-safety.png"
+        ],
+        "head": "23fa3ff96687aeca293d865fef2743fa02807e95"
       },
-      "nextAction": "independent code review when a reviewer route is available"
+      "nextAction": "none"
     },
     {
       "id": "UI-V2-28",
@@ -1051,18 +1051,28 @@
       "prompt": "逐页提示词/33*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R4_LetterList_capture.png",
-      "issue": "",
-      "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "reviewer": "visual final-gate: PASS on 全部/未读 (2026-10-25); independent code review: CHANGES_REQUESTED then fixed and pushed 53bc963, final re-review not yet received",
+      "screenshot": "artifacts/ui-v2/r2/letter-list-v1.png",
+      "gitCommit": "53bc963",
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "evidence": {
+        "result": "letter-list controls 9/9; api 10/10",
+        "visualReview": "PASS (final-gate)",
+        "codeReview": "fixes pushed, re-review outstanding",
+        "states": [
+          "artifacts/ui-v2/r2/letter-list-v1.png",
+          "artifacts/ui-v2/r2/letter-list-unread.png"
+        ],
+        "head": "53bc9631f6753f1bb53b0ce953c677cc4975d25e"
+      },
+      "nextAction": "independent code re-review of the review fixes"
     },
     {
       "id": "UI-V2-34",
@@ -1105,18 +1115,24 @@
       "prompt": "逐页提示词/35*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R4_FavoriteList_capture.png",
-      "issue": "",
-      "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "reviewer": "visual: reviewed against 35_FavoriteList (structure/density/copy), no P1/P2 open; independent code review: two rounds of CHANGES_REQUESTED, fixes pushed a438a11, final re-review outstanding",
+      "screenshot": "artifacts/ui-v2/r2/favorite-list-v1.png",
+      "gitCommit": "a438a11",
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "evidence": {
+        "result": "favorite-list controls 12/12 including a real unfavourite",
+        "visualReview": "self-reviewed, no open P1/P2",
+        "codeReview": "fixes pushed, re-review outstanding",
+        "head": "a438a11"
+      },
+      "nextAction": "independent code re-review of the review fixes"
     },
     {
       "id": "UI-V2-36",
@@ -1160,19 +1176,28 @@
       "prompt": "逐页提示词/37*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R4_DataPolicy_capture.png",
-      "issue": "",
-      "gitCommit": "",
-      "status": "PENDING",
+      "reviewer": "visual final-gate: PASS on expanded/collapsed (2026-10-25); independent code review not yet run",
+      "screenshot": "artifacts/ui-v2/r2/data-policy-v1.png",
+      "gitCommit": "ca7d9b4",
+      "status": "WAITING_REVIEW",
       "implemented": "yes",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "rendered": "yes",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Rebuilt from a bare 19-line component with no style block into the design's structure: bar 数据使用说明, the intro 你的数据怎么用 / 以实际生效的授权和服务端行为为准。, and four titled sections (保存什么 / 什么时候用 AI / 分享给谁 / 如何管理与删除). Where the mock and the page's own copy overlapped, the page's more specific sentences were kept so nothing it used to tell the reader was lost. VERIFIED at code level: build ✓, typecheck ✓, front-data-policy-back preserved. NOT VERIFIED visually."
+      "evidence": {
+        "result": "data-policy controls 6/6",
+        "visualReview": "PASS (final-gate)",
+        "codeReview": "not run",
+        "states": [
+          "artifacts/ui-v2/r2/data-policy-v1.png",
+          "artifacts/ui-v2/r2/data-policy-collapsed.png"
+        ],
+        "head": "ca7d9b4"
+      },
+      "nextAction": "independent code review"
     },
     {
       "id": "UI-V2-38",
@@ -1183,18 +1208,29 @@
       "prompt": "逐页提示词/38*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R4_FeedbackHelp_capture.png",
-      "issue": "",
-      "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "reviewer": "visual final-gate: PASS on initial/filled/submitted (2026-10-25); independent code review not yet run (reviewer route failed)",
+      "screenshot": "artifacts/ui-v2/r2/feedback-help-v1.png",
+      "gitCommit": "5f250c5",
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "evidence": {
+        "result": "feedback-help controls 10/10 including a real ticket id",
+        "visualReview": "PASS (final-gate)",
+        "codeReview": "not run",
+        "states": [
+          "artifacts/ui-v2/r2/feedback-help-v1.png",
+          "artifacts/ui-v2/r2/feedback-help-filled.png",
+          "artifacts/ui-v2/r2/feedback-help-submitted.png"
+        ],
+        "head": "5f250c5"
+      },
+      "nextAction": "independent code review"
     },
     {
       "id": "UI-V2-39",
@@ -1205,18 +1241,29 @@
       "prompt": "逐页提示词/39*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
-      "screenshot": "artifacts/ui-v2/android/R4_HelpFaqs_capture.png",
-      "issue": "",
-      "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
-      "rendered": "no",
-      "interactionTested": "no",
-      "businessVerified": "no",
+      "reviewer": "visual: self-reviewed after the P1/P2 fixes (search field now permanent with its icon, search bar full-width, no duplicate clear control, entry visible); independent visual re-review and code review not yet run",
+      "screenshot": "artifacts/ui-v2/r2/help-faqs-v1.png",
+      "gitCommit": "611eda7",
+      "status": "WAITING_REVIEW",
+      "implemented": "yes",
+      "rendered": "yes",
+      "interactionTested": "yes",
+      "businessVerified": "yes",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
-      "done": "no"
+      "done": "no",
+      "evidence": {
+        "result": "help-faqs controls 5/5",
+        "visualReview": "self-reviewed, fixes applied",
+        "codeReview": "not run",
+        "states": [
+          "artifacts/ui-v2/r2/help-faqs-v1.png",
+          "artifacts/ui-v2/r2/help-faqs-search.png",
+          "artifacts/ui-v2/r2/help-faqs-open.png"
+        ],
+        "head": "611eda7"
+      },
+      "nextAction": "independent visual re-review and code review"
     }
   ],
   "globalTasks": [

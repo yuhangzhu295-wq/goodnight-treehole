@@ -9,26 +9,20 @@
   "expect": { "present": ".faq-answer" }
  },
  {
-  "selector": "btn-faq-search",
-  "expect": { "present": "[data-testid=\"input-faq-search\"]" }
+  "selector": "input-faq-search",
+  "prefill": {
+   "fill": { "selector": "input-faq-search", "value": "身份" }
+  },
+  "settleMs": 600,
+  "expect": { "text": "账号与隐私", "present": "[data-testid=\"btn-faq-search-clear\"]" }
  },
  {
-  "selector": "input-faq-search",
-  "prefill": [
-   { "click": "btn-faq-search", "waitFor": "input-faq-search" },
-   { "fill": { "selector": "input-faq-search", "value": "身份" } }
-  ],
+  "selector": "btn-faq-search-clear",
+  "prefill": {
+   "fill": { "selector": "input-faq-search", "value": "没有这个问题" }
+  },
   "settleMs": 600,
-  "expect": { "text": "账号与隐私" }
- },
- {
-  "selector": "input-faq-search",
-  "prefill": [
-   { "click": "btn-faq-search", "waitFor": "input-faq-search" },
-   { "fill": { "selector": "input-faq-search", "value": "没有这个问题" } }
-  ],
-  "settleMs": 600,
-  "expect": { "text": "没有匹配的问题" }
+  "expect": { "gone": "[data-testid=\"btn-faq-search-clear\"]", "text": "AI 与同路" }
  },
  {
   "selector": "btn-faq-open-feedback",

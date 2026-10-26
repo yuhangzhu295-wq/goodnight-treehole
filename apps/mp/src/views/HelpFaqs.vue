@@ -11,7 +11,6 @@ const faqs = ref<Faq[]>([]);
 const opened = ref('');
 const loading = ref(true);
 const loadError = ref('');
-const searchOpen = ref(false);
 const searchTerm = ref('');
 
 /** Matches the design's three groups. */
@@ -60,11 +59,6 @@ async function load() {
   }
 }
 
-function toggleSearch() {
-  searchOpen.value = !searchOpen.value;
-  if (!searchOpen.value) searchTerm.value = '';
-}
-
 /** The design's last group is a real entry point, not a decoration. */
 function openFeedback() {
   router.push('/pages/help/feedback');
@@ -86,21 +80,15 @@ onMounted(load);
         ‹
       </button>
       <h1>常见问题</h1>
-      <button
-        class="search-toggle"
-        data-testid="btn-faq-search"
-        type="button"
-        aria-label="搜索常见问题"
-        :aria-expanded="searchOpen"
-        @click="toggleSearch"
-      >⌕</button>
+      <span aria-hidden="true"></span>
     </header>
 
-    <div v-if="searchOpen" class="faq-search">
+    <div class="faq-search">
+      <span class="search-icon" aria-hidden="true">⌕</span>
       <input
         v-model="searchTerm"
         data-testid="input-faq-search"
-        type="search"
+        type="text"
         placeholder="搜索常见问题"
         aria-label="搜索常见问题"
       />
@@ -199,8 +187,7 @@ onMounted(load);
   line-height: 1.3;
 }
 
-.faq-bar .back-btn,
-.faq-bar .search-toggle {
+.faq-bar .back-btn {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -216,18 +203,24 @@ onMounted(load);
   line-height: 1;
 }
 
-.faq-bar .search-toggle { justify-content: flex-end; }
-
 .faq-search {
   display: flex;
   align-items: center;
   gap: 10px;
   box-sizing: border-box;
   width: calc(100% + 32px);
+  max-width: none;
   margin: 0 -16px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--gn-line);
   background: var(--gn-paper);
+}
+
+.search-icon {
+  flex: none;
+  color: var(--gn-muted);
+  font-size: 15px;
+  line-height: 1;
 }
 
 .faq-search input {
@@ -251,6 +244,7 @@ onMounted(load);
 .faq-search button {
   flex: none;
   height: 38px;
+  align-self: center;
   padding: 0 10px;
   border: 0;
   background: none;
@@ -353,8 +347,8 @@ onMounted(load);
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 48px;
-  padding: 0;
+  min-height: 56px;
+  padding: 6px 0;
   border: 0;
   border-bottom: 1px solid var(--gn-line);
   border-radius: 0;
