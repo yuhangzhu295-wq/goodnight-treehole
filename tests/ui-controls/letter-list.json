@@ -1,7 +1,9 @@
 [
  {
   "selector": "front-letter-list-back",
-  "expect": { "urlChanged": true }
+  "expect": {
+   "urlChanged": true
+  }
  },
  {
   "selector": "filter-letter-unread",
@@ -31,39 +33,84 @@
  },
  {
   "selector": "btn-letter-search",
-  "expect": { "present": "[data-testid=\"input-letter-search\"]" }
+  "expect": {
+   "present": "[data-testid=\"input-letter-search\"]"
+  }
  },
  {
   "selector": "input-letter-search",
   "prefill": [
-   { "click": "btn-letter-search", "waitFor": "input-letter-search" },
-   { "fill": { "selector": "input-letter-search", "value": "关于你上次" } }
+   {
+    "click": "btn-letter-search",
+    "waitFor": "input-letter-search"
+   },
+   {
+    "fill": {
+     "selector": "input-letter-search",
+     "value": "关于你上次"
+    }
+   }
   ],
   "settleMs": 600,
-  "expect": { "text": "关于你上次写的那件事", "gone": "[data-testid=\"letter-list-empty\"]" }
+  "expect": {
+   "text": "关于你上次写的那件事",
+   "gone": "[data-testid=\"letter-list-empty\"]"
+  }
  },
  {
   "selector": "btn-letter-search-clear",
   "prefill": [
-   { "click": "btn-letter-search", "waitFor": "input-letter-search" },
-   { "fill": { "selector": "input-letter-search", "value": "今天未读" } },
-   { "waitFor": "btn-letter-search-clear" }
+   {
+    "click": "btn-letter-search",
+    "waitFor": "input-letter-search"
+   },
+   {
+    "fill": {
+     "selector": "input-letter-search",
+     "value": "今天未读"
+    }
+   },
+   {
+    "waitFor": "btn-letter-search-clear"
+   }
   ],
   "settleMs": 600,
-  "expect": { "gone": "[data-testid=\"btn-letter-search-clear\"]" }
+  "expect": {
+   "gone": "[data-testid=\"btn-letter-search-clear\"]"
+  }
  },
  {
   "selector": "input-letter-search",
   "prefill": [
-   { "click": "btn-letter-search", "waitFor": "input-letter-search" },
-   { "fill": { "selector": "input-letter-search", "value": "没有这封信" } }
+   {
+    "click": "btn-letter-search",
+    "waitFor": "input-letter-search"
+   },
+   {
+    "fill": {
+     "selector": "input-letter-search",
+     "value": "没有这封信"
+    }
+   }
   ],
   "settleMs": 600,
-  "expect": { "text": "没有匹配的回信" }
+  "expect": {
+   "text": "没有匹配的回信"
+  }
  },
  {
-  "selector": "letter-card-first",
+  "selector": "front-letter-detail-back",
+  "prefill": [
+   {
+    "click": "letter-card-first",
+    "waitFor": "letter-detail-body",
+    "timeoutMs": 15000
+   }
+  ],
   "settleMs": 3000,
-  "expect": { "url": "/pages/letter/detail" }
+  "expect": {
+   "url": "/pages/letter/list",
+   "present": "[data-testid=\"letter-card-first\"][data-state=\"read\"]"
+  }
  }
 ]

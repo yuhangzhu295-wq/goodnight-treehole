@@ -25,12 +25,28 @@ export type FavoriteTargetType = 'post' | 'letter' | 'diary';
 export class FavoritePersistenceService {
   constructor(@Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService) {}
 
+  /**
+   * The page's rows plus the true count.
+   *
+   * The list used to be unbounded, so one reader with years of saves transferred the whole history
+   * on every tab switch. `total` is what lets the page say it is showing a window instead of
+   * silently pretending the window is everything.
+   */
   async listForUser(userId: string, targetType?: string) {
-    return this.prisma.favorite.findMany({
-      where: { userId, ...(targetType ? { targetType: targetType as FavoriteTargetType } : {}) },
-      orderBy: { createdAt: 'desc' },
-    });
+    const where = { userId, ...(targetType ? { targetType: targetType as FavoriteTargetType } : {}) };
+    const [rows, total] = await Promise.all([
+      this.prisma.favorite.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: FavoritePersistenceService.PAGE_SIZE,
+      }),
+      this.prisma.favorite.count({ where }),
+    ]);
+    return { rows, total };
   }
+
+  /** Enough for a long-lived personal list; the page names the limit when it truncates. */
+  static readonly PAGE_SIZE = 200;
 
   /** The viewer's post favourites, as ids. Used once per feed request by the decoration context. */
   async postIdsForUser(userId: string): Promise<Set<string>> {
@@ -59,24 +75,28 @@ export class FavoritePersistenceService {
    * the array.
    */
   async add(userId: string, targetType: FavoriteTargetType, targetId: string) {
-    const existing = await this.prisma.favorite.findUnique({
-      where: { userId_targetType_targetId: { userId, targetType, targetId } },
-    });
-    if (existing) return { item: existing, created: false };
+    return await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.favorite.findUnique({
+        where: { userId_targetType_targetId: { userId, targetType, targetId } },
+      });
+      if (existing) return { item: existing, created: false };
 
-    const item = await this.prisma.favorite.create({ data: { userId, targetType, targetId } });
-    await this.afterWrite(userId, targetType, targetId);
-    return { item, created: true };
+      const item = await tx.favorite.create({ data: { userId, targetType, targetId } });
+      await this.afterWrite(userId, targetType, targetId, tx);
+      return { item, created: true };
+    });
   }
 
   async removeByTarget(userId: string, targetType: FavoriteTargetType, targetId: string) {
-    const removed = await this.prisma.favorite.findMany({
-      where: { userId, targetType, targetId },
+    return await this.prisma.$transaction(async (tx) => {
+      const removed = await tx.favorite.findMany({
+        where: { userId, targetType, targetId },
+      });
+      if (!removed.length) return removed;
+      await tx.favorite.deleteMany({ where: { userId, targetType, targetId } });
+      await this.afterWrite(userId, targetType, targetId, tx);
+      return removed;
     });
-    if (!removed.length) return removed;
-    await this.prisma.favorite.deleteMany({ where: { userId, targetType, targetId } });
-    await this.afterWrite(userId, targetType, targetId);
-    return removed;
   }
 
   /**
@@ -87,22 +107,26 @@ export class FavoritePersistenceService {
    * favourite would both see the row, and only the statement that deleted a row reports success.
    */
   async removeById(userId: string, favoriteId: string) {
-    const favorite = await this.prisma.favorite.findFirst({ where: { id: favoriteId, userId } });
-    if (!favorite) return undefined;
-    const result = await this.prisma.favorite.deleteMany({ where: { id: favoriteId, userId } });
-    if (result.count === 0) return undefined;
-    await this.afterWrite(favorite.userId, favorite.targetType as FavoriteTargetType, favorite.targetId);
-    return favorite;
+    return await this.prisma.$transaction(async (tx) => {
+      const favorite = await tx.favorite.findFirst({ where: { id: favoriteId, userId } });
+      if (!favorite) return undefined;
+      const result = await tx.favorite.deleteMany({ where: { id: favoriteId, userId } });
+      if (result.count === 0) return undefined;
+      await this.afterWrite(favorite.userId, favorite.targetType as FavoriteTargetType, favorite.targetId, tx);
+      return favorite;
+    });
   }
 
   async clearForUser(userId: string) {
-    const removed = await this.prisma.favorite.findMany({ where: { userId } });
-    if (!removed.length) return removed;
-    await this.prisma.favorite.deleteMany({ where: { userId } });
-    for (const item of removed) {
-      await this.afterWrite(item.userId, item.targetType as FavoriteTargetType, item.targetId);
-    }
-    return removed;
+    return await this.prisma.$transaction(async (tx) => {
+      const removed = await tx.favorite.findMany({ where: { userId } });
+      if (!removed.length) return removed;
+      await tx.favorite.deleteMany({ where: { userId } });
+      for (const item of removed) {
+        await this.afterWrite(item.userId, item.targetType as FavoriteTargetType, item.targetId, tx);
+      }
+      return removed;
+    });
   }
 
   /** Post id → favourite count, for the rows the caller is about to serve. */
@@ -125,13 +149,18 @@ export class FavoritePersistenceService {
     return new Set(rows.map((row) => `${row.userId}:${row.targetId}`));
   }
 
-  /** Recomputes the denormalised counters a favourite row owns, after the row changed. */
-  private async afterWrite(userId: string, targetType: FavoriteTargetType, targetId: string) {
+  /** Recomputes the denormalised counters a favourite row owns, in the same transaction as the write. */
+  private async afterWrite(
+    userId: string,
+    targetType: FavoriteTargetType,
+    targetId: string,
+    db: Pick<PrismaRuntimeService, '$executeRaw'> = this.prisma,
+  ) {
     if (targetType === 'post') {
-      await this.prisma.$executeRaw`
+      await db.$executeRaw`
         UPDATE "Post"
         SET "favoriteCount" = (
-          SELECT count(*) FROM "Favorite"
+          SELECT count(*)::int FROM "Favorite"
           WHERE "targetType" = 'post' AND "targetId" = ${targetId}
         )
         WHERE id = ${targetId}
@@ -139,14 +168,14 @@ export class FavoritePersistenceService {
       return;
     }
     if (targetType === 'letter') {
-      const stillFavorited = await this.prisma.favorite.findFirst({
-        where: { userId, targetType: 'letter', targetId },
-        select: { id: true },
-      });
-      await this.prisma.letter.updateMany({
-        where: { id: targetId, userId },
-        data: { favorite: Boolean(stillFavorited) },
-      });
+      await db.$executeRaw`
+        UPDATE "Letter"
+        SET "favorite" = EXISTS (
+          SELECT 1 FROM "Favorite"
+          WHERE "userId" = ${userId} AND "targetType" = 'letter' AND "targetId" = ${targetId}
+        )
+        WHERE id = ${targetId} AND "userId" = ${userId}
+      `;
     }
   }
 

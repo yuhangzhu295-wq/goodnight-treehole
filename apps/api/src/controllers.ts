@@ -1674,9 +1674,31 @@ export class PublicController {
   @Get('letters')
   async letters(@Query('status') status?: string, requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
-    let items = DIRECT_DB_MODELS.Letter
-      ? await this.store.lettersDb.listForUser(userId)
-      : this.store.letters.filter((item) => item.userId === userId);
+    // An unknown filter used to be ignored, so `?status=typo` answered with the whole inbox as if
+    // that were the requested view.
+    if (status && !['all', 'unread', 'read', 'favorited', 'fav'].includes(status)) {
+      throw new BadRequestException('无效的回信状态');
+    }
+    // `Letter.favorite` is the denormalised column FavoritePersistenceService keeps in step with the
+    // favourite table; reading the table per row here would be an N+1 for no gain.
+    const filter = status === 'unread'
+      ? 'unread'
+      : status === 'read'
+        ? 'read'
+        : status === 'favorited' || status === 'fav'
+          ? 'favorited'
+          : undefined;
+
+    if (DIRECT_DB_MODELS.Letter) {
+      const { rows, total } = await this.store.lettersDb.listPageForUser(userId, { status: filter });
+      return {
+        items: rows.map((item) => this.store.decorateLetter(item)),
+        total,
+        truncated: total > rows.length,
+      };
+    }
+
+    let items = this.store.letters.filter((item) => item.userId === userId);
     // Newest first, with the id as a tie-breaker so two letters written in the same second do not
     // swap places between reads.
     items = [...items].sort(
@@ -1684,16 +1706,15 @@ export class PublicController {
         new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
         String(left.id).localeCompare(String(right.id)),
     );
-    if (status === 'unread') items = items.filter((item) => item.status === 'unread');
-    else if (status === 'read') items = items.filter((item) => item.status !== 'unread');
-    else if (status === 'favorited' || status === 'fav')
-      // `Letter.favorite` is the denormalised column FavoritePersistenceService keeps in step with
-      // the favourite table; reading the table per row here would be an N+1 for no gain.
-      items = items.filter((item) => Boolean(item.favorite));
-    // An unknown filter used to be ignored, so `?status=typo` answered with the whole inbox as if
-    // that were the requested view.
-    else if (status && status !== 'all') throw new BadRequestException('无效的回信状态');
-    return { items: items.map((item) => this.store.decorateLetter(item)) };
+    if (filter === 'unread') items = items.filter((item) => item.status === 'unread');
+    else if (filter === 'read') items = items.filter((item) => item.status !== 'unread');
+    else if (filter === 'favorited') items = items.filter((item) => Boolean(item.favorite));
+    const total = items.length;
+    return {
+      items: items.slice(0, 200).map((item) => this.store.decorateLetter(item)),
+      total,
+      truncated: total > 200,
+    };
   }
 
   @Get('letters/:id')
@@ -2348,41 +2369,64 @@ export class PublicController {
   async favorites(@Query('type') type?: string, requestedUserId?: string) {
     const userId = requireRuntimeUserId(requestedUserId);
     // Favorite is database-authoritative; the in-memory array is empty once it is registered.
-    const rows = await this.store.favoritesDb.listForUser(userId, type);
+    const { rows, total } = await this.store.favoritesDb.listForUser(userId, type);
     // The preview comes from the favourite's target. Post is database-authoritative too, so its rows
     // are read from the table; Letter and Diary still come from the store's arrays.
     const favouritePosts = DIRECT_DB_MODELS.Post
       ? await this.store.postsDb.findByIds(rows.filter((item) => item.targetType === 'post').map((item) => item.targetId))
       : [];
-    const items = await Promise.all(
-      rows.map(async (item) => {
-      const post =
-        item.targetType === 'post' ? favouritePosts.find((postItem) => postItem.id === item.targetId) : undefined;
-      const letter =
-        item.targetType === 'letter'
-          ? DIRECT_DB_MODELS.Letter
-            ? await this.store.lettersDb.get(item.targetId)
-            : this.store.letters.find((letterItem) => letterItem.id === item.targetId)
-          : undefined;
-      const diary =
-        item.targetType === 'diary'
-          ? DIRECT_DB_MODELS.Diary
-            ? await this.store.diariesDb.get(item.targetId)
-            : this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
-          : undefined;
-      return {
-        ...item,
-        title: letter?.title ?? (post ? '收藏的树洞' : diary ? '收藏的日记' : '收藏内容'),
-        preview: letter?.content ?? post?.content ?? diary?.content ?? item.targetId,
-        emotion: post?.emotion
-          ? emotionLabel(post.emotion)
-          : diary?.emotion
-            ? emotionLabel(diary.emotion)
-            : undefined,
-      };
-    }),
-    );
-    return { items };
+    const items = (
+      await Promise.all(
+        rows.map(async (item) => {
+          const post =
+            item.targetType === 'post'
+              ? favouritePosts.find((postItem) => postItem.id === item.targetId)
+              : undefined;
+          const letter =
+            item.targetType === 'letter'
+              ? DIRECT_DB_MODELS.Letter
+                ? await this.store.lettersDb.get(item.targetId)
+                : this.store.letters.find((letterItem) => letterItem.id === item.targetId)
+              : undefined;
+          const diary =
+            item.targetType === 'diary'
+              ? DIRECT_DB_MODELS.Diary
+                ? await this.store.diariesDb.get(item.targetId)
+                : this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
+              : undefined;
+
+          // A favourite outlives its target: posts are soft-deleted, diaries hard-deleted, and the
+          // Favourite table has no foreign key. Serving the row anyway showed the original text and
+          // then a 404 on tap, so only a target the detail route would still open is listed.
+          if (item.targetType === 'post') {
+            if (!post || post.status !== 'active' || post.reviewStatus === 'hidden') return null;
+            return {
+              ...item,
+              title: '收藏的树洞',
+              preview: post.content,
+              emotion: post.emotion ? emotionLabel(post.emotion) : undefined,
+            };
+          }
+          if (item.targetType === 'letter') {
+            if (!letter) return null;
+            return { ...item, title: letter.title, preview: letter.content };
+          }
+          if (item.targetType === 'diary') {
+            if (!diary) return null;
+            return {
+              ...item,
+              title: '收藏的日记',
+              preview: diary.content,
+              emotion: diary.emotion ? emotionLabel(diary.emotion) : undefined,
+            };
+          }
+          return null;
+        }),
+      )
+    ).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    // `truncated` compares the window to the table, not to the filtered list: a dangling favourite
+    // is not a reason to tell the reader there are more rows to scroll.
+    return { items, total, truncated: total > rows.length };
   }
 
   @Get('me/favorites')
@@ -3931,16 +3975,21 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    const needle = q?.trim().toLowerCase();
-    const items = this.store.feedbackTickets.filter((ticket) => {
-      const matchesQuery =
-        !needle ||
-        [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
-          String(value).toLowerCase().includes(needle),
-        );
-      const matchesStatus = !status || status === 'all' || ticket.status === status;
-      return matchesQuery && matchesStatus;
-    });
+    // The console has to see tickets the C-end wrote. The legacy array only held rows this process
+    // had flushed, so a real submission was invisible to the operator until a restart re-hydrated it
+    // (and after Batch 4's conversion, not even then).
+    const items = DIRECT_DB_MODELS.FeedbackTicket
+      ? await this.feedbackPersistence.listTicketsForAdmin({ q, status })
+      : this.store.feedbackTickets.filter((ticket) => {
+          const needle = q?.trim().toLowerCase();
+          const matchesQuery =
+            !needle ||
+            [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
+              String(value).toLowerCase().includes(needle),
+            );
+          const matchesStatus = !status || status === 'all' || ticket.status === status;
+          return matchesQuery && matchesStatus;
+        });
     return this.list(
       await Promise.all(items.map((ticket) => this.store.decorateFeedbackTicket(ticket))),
       page,
@@ -3949,20 +3998,24 @@ export class AdminController {
   }
 
   @Get('feedback/summary')
-  feedbackSummary(@Query('q') q?: string, @Query('status') status?: string) {
-    const ticketMatches = this.store.feedbackTickets.filter((ticket) => {
-      const needle = q?.trim().toLowerCase();
-      const matchesQuery =
-        !needle ||
-        [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
-          String(value).toLowerCase().includes(needle),
-        );
-      return matchesQuery && (!status || status === 'all' || ticket.status === status);
-    });
+  async feedbackSummary(@Query('q') q?: string, @Query('status') status?: string) {
+    const ticketMatches = DIRECT_DB_MODELS.FeedbackTicket
+      ? await this.feedbackPersistence.listTicketsForAdmin({ q, status })
+      : this.store.feedbackTickets.filter((ticket) => {
+          const needle = q?.trim().toLowerCase();
+          const matchesQuery =
+            !needle ||
+            [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
+              String(value).toLowerCase().includes(needle),
+            );
+          return matchesQuery && (!status || status === 'all' || ticket.status === status);
+        });
     const actual = {
       open: ticketMatches.filter((item) => item.status === 'open').length,
+      // A database row carries a Date; `String(date)` is not ISO and the old prefix test silently
+      // counted zero. Both shapes go through `Date` so the count means the same thing either way.
       today: ticketMatches.filter((item) =>
-        String(item.createdAt ?? '').startsWith(new Date().toISOString().slice(0, 10)),
+        (item.createdAt ? new Date(item.createdAt) : new Date(0)).toISOString().startsWith(new Date().toISOString().slice(0, 10)),
       ).length,
       high: ticketMatches.filter((item) =>
         ['high', 'urgent', 'critical'].includes(String(item.priority ?? '').toLowerCase()),
@@ -4000,7 +4053,10 @@ export class AdminController {
   }
   @Get('feedback/tickets/:id')
   async ticket(@Param('id') id: string) {
-    return { item: await this.store.decorateFeedbackTicket(this.store.feedbackTicketOrThrow(id)) };
+    const row = DIRECT_DB_MODELS.FeedbackTicket
+      ? await this.feedbackPersistence.findTicketForAdmin(id)
+      : this.store.feedbackTicketOrThrow(id);
+    return { item: await this.store.decorateFeedbackTicket(row) };
   }
 
   @Get('feedback/:id')
@@ -4011,6 +4067,11 @@ export class AdminController {
   @Post('feedback/tickets/:id/reply')
   async ticketReply(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { reply: string }) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.FeedbackTicket) {
+      const { before, after } = await this.feedbackPersistence.replyToTicketAsAdmin(id, body.reply, admin.id);
+      await this.store.audit(admin.id, 'FEEDBACK_REPLY', 'FeedbackTicket', id, before, after);
+      return { item: await this.store.decorateFeedbackTicket(after) };
+    }
     const ticket = await this.store.replyToFeedbackTicket(admin.id, id, body.reply);
     return { item: await this.store.decorateFeedbackTicket(ticket) };
   }
@@ -4040,6 +4101,11 @@ export class AdminController {
     @Body() body: { status: string },
   ) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.FeedbackTicket) {
+      const { before, after, changed } = await this.feedbackPersistence.updateTicketStatusAsAdmin(id, body.status, admin.id);
+      if (changed) await this.store.audit(admin.id, 'FEEDBACK_STATUS', 'FeedbackTicket', id, before, after);
+      return { item: await this.store.decorateFeedbackTicket(after) };
+    }
     const ticket = await this.store.updateFeedbackTicketStatus(admin.id, id, body.status);
     return { item: await this.store.decorateFeedbackTicket(ticket) };
   }

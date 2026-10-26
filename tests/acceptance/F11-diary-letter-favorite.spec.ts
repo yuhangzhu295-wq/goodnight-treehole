@@ -166,7 +166,7 @@ describe('F11 diary, letter and favourite ownership', () => {
         share: 404,
         saveToDiary: 404,
         deleteDiary: 404,
-        deleteFavorite: 200,
+        deleteFavorite: 404,
         diaryStillOwned: true,
         favouriteStillThere: 1,
       },
@@ -219,9 +219,9 @@ describe('F11 diary, letter and favourite ownership', () => {
     })) {
       expect(response.status, `${label} must be refused`).toBe(404);
     }
-    // Deleting someone else's favourite is scoped by owner in the store, so it is a no-op that does
-    // not disclose whether the id exists.
-    expect(strangerFavoriteDelete.status).toBe(200);
+    // The delete is scoped by owner: a foreign id is not found, and the response must say so rather
+    // than answer `ok` for a row it did not touch. The row count below is the other half of the proof.
+    expect(strangerFavoriteDelete.status).toBe(404);
     expect(favoriteRows).toBe(1);
     expect(diaryRowAfter?.userId).toBe(ownerUserId);
 

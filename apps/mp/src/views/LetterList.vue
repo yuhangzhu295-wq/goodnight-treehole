@@ -9,6 +9,7 @@ type Letter = {
   title?: string;
   content?: string;
   status?: string;
+  generationStatus?: string | null;
   createdAt?: string;
   sourceMoodId?: string | null;
 };
@@ -18,6 +19,8 @@ type LetterGroup = { key: string; label: string; older: boolean; items: Letter[]
 
 const router = useRouter();
 const letters = ref<Letter[]>([]);
+/** The server caps the list; when it does, the page says so instead of looking complete. */
+const truncated = ref(false);
 const filter = ref<Filter>('all');
 const loading = ref(true);
 const loadError = ref('');
@@ -40,6 +43,20 @@ function formatFullDate(value?: string) {
 /** The real source of a letter; the design's 匿名同行者 is a layout sample, not a stored field. */
 function sourceLabel(letter: Letter) {
   return letter.sourceMoodId ? '来自你的心情记录' : '来自晚安树洞';
+}
+
+/**
+ * A row exists as soon as the job is queued, before there is anything to read. Calling that
+ * "尚未阅读" was wrong twice: it promised a letter that was not there yet, and opening it marked it
+ * read (the detail page) while it still had no content.
+ */
+function isGenerating(letter: Letter) {
+  return ['queued', 'running'].includes(String(letter.generationStatus ?? ''));
+}
+
+function rowStateLabel(letter: Letter) {
+  if (isGenerating(letter)) return '正在生成…';
+  return letter.status === 'unread' ? '尚未阅读' : '已读';
 }
 
 const filtered = computed(() => {
@@ -129,20 +146,30 @@ const emptyHint = computed(() => {
   return '写下一次心情后，新的回信会出现在这里。';
 });
 
+/** Discards a response that started before the reader switched filters. */
+let loadSeq = 0;
+
 async function load(next: Filter = filter.value) {
   filter.value = next;
+  const ticket = ++loadSeq;
   loading.value = true;
   loadError.value = '';
   const query = next === 'all' ? '' : `?status=${next}`;
   try {
-    const result = await api.get<{ items: Letter[] }>(`/api/v1/letters${query}`);
+    const result = await api.get<{ items: Letter[]; truncated?: boolean }>(`/api/v1/letters${query}`);
+    // Two quick tab switches used to race: the earlier response could land last and the highlighted
+    // tab would no longer describe the list under it.
+    if (ticket !== loadSeq) return;
     letters.value = result.items ?? [];
+    truncated.value = Boolean(result.truncated);
   } catch (cause: any) {
+    if (ticket !== loadSeq) return;
     // A failed read used to leave an empty list that said there were no letters at all.
     letters.value = [];
+    truncated.value = false;
     loadError.value = cause?.message ?? '回信加载失败，请稍后重试';
   } finally {
-    loading.value = false;
+    if (ticket === loadSeq) loading.value = false;
   }
 }
 
@@ -233,6 +260,9 @@ onUnmounted(() => {
     <LoadErrorBanner v-else-if="loadError" :message="loadError" retry-label="重新加载" @retry="load()" />
 
     <template v-else>
+      <p v-if="truncated" class="letter-window-note" data-testid="letter-window-note">
+        回信较多，这里只显示最近 {{ letters.length }} 封。
+      </p>
       <section v-for="group in groups" :key="group.key" class="letter-group" :aria-label="group.label">
         <h2 class="letter-group-title">{{ group.label }}</h2>
         <button
@@ -241,16 +271,22 @@ onUnmounted(() => {
           type="button"
           class="letter-row"
           :data-testid="letter.id === firstLetterId ? 'letter-card-first' : `letter-card-${letter.id}`"
+          :data-state="isGenerating(letter) ? 'generating' : letter.status === 'unread' ? 'unread' : 'read'"
           @click="openLetter(letter)"
         >
-          <span class="letter-icon" :class="{ unread: letter.status === 'unread' }" aria-hidden="true">
-            <span v-if="letter.status === 'unread'" class="letter-unread-dot"></span>
+          <span
+            class="letter-icon"
+            :class="{ unread: letter.status === 'unread' && !isGenerating(letter), generating: isGenerating(letter) }"
+            aria-hidden="true"
+          >
+            <span v-if="isGenerating(letter)" class="letter-generating-dot"></span>
+            <span v-else-if="letter.status === 'unread'" class="letter-unread-dot"></span>
             <span v-else class="letter-envelope">✉</span>
           </span>
           <span class="letter-copy">
             <strong class="letter-title">{{ letter.title || '给今晚的你' }}</strong>
             <span class="letter-meta">
-              {{ sourceLabel(letter) }} · {{ letter.status === 'unread' ? '尚未阅读' : '已读' }}
+              {{ sourceLabel(letter) }} · {{ rowStateLabel(letter) }}
               <template v-if="group.older">· {{ formatFullDate(letter.createdAt) }}</template>
             </span>
           </span>
@@ -434,6 +470,16 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+.letter-window-note {
+  margin: 12px 16px 0;
+  padding: 8px 10px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .letter-group-title {
   margin: 20px 0 2px;
   color: var(--gn-ink);
@@ -477,6 +523,17 @@ onUnmounted(() => {
   margin: 0;
   border-radius: 50%;
   background: #5a626a;
+}
+
+/* A ring rather than a filled dot: the letter is not readable yet, so it must not look like an
+   unread one the reader can open and finish. */
+.letter-generating-dot {
+  box-sizing: border-box;
+  width: 15px;
+  height: 15px;
+  border: 2px solid #c3c9d0;
+  border-top-color: #8a929b;
+  border-radius: 50%;
 }
 
 .letter-envelope {

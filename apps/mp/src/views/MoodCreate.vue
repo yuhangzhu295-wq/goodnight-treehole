@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AIStyle } from '@goodnight/shared-types';
 import { api, deleteMedia, resolveApiUrl, uploadMedia } from '../api';
@@ -34,6 +34,8 @@ const form = reactive({
   visibility: 'PRIVATE' as 'PRIVATE' | 'PUBLIC',
   replyStyle: 'warm' as AIStyle,
 });
+/** Once the reader picks a row, a late settings response must not overwrite that choice. */
+const visibilityTouched = ref(false);
 const assets = ref<Array<{ id: string; url: string; preview: string; name: string; uploading: boolean }>>([]);
 const fileInput = ref<HTMLInputElement>();
 const error = ref('');
@@ -134,6 +136,21 @@ async function submit() {
     submitting.value = false;
   }
 }
+
+/**
+ * The privacy setting is the default visibility for new content. This page used to hardcode PRIVATE
+ * while the policy page said the setting decides it, so the statement was false for anyone who had
+ * switched the default to PUBLIC. A failed read keeps the safe PRIVATE default.
+ */
+onMounted(async () => {
+  try {
+    const response = await api.get<{ item: { defaultVisibility?: string } }>('/api/v1/settings/privacy');
+    const next = response.item?.defaultVisibility;
+    if (!visibilityTouched.value && (next === 'PUBLIC' || next === 'PRIVATE')) form.visibility = next;
+  } catch {
+    // Keep PRIVATE: an unavailable preference must not silently make a mood public.
+  }
+});
 </script>
 
 <template>
@@ -156,12 +173,12 @@ async function submit() {
     <section class="mood-section">
       <h2>可见范围</h2>
       <div class="visibility-rows">
-        <button data-testid="mood-visibility-private" class="visibility-row" :class="{ active: form.visibility === 'PRIVATE' }" @click="form.visibility = 'PRIVATE'">
+        <button data-testid="mood-visibility-private" class="visibility-row" :class="{ active: form.visibility === 'PRIVATE' }" @click="visibilityTouched = true; form.visibility = 'PRIVATE'">
           <span class="radio-dot" aria-hidden="true" />
-          <span class="visibility-copy"><strong>仅自己可见</strong><small>默认选项 · 不会公开</small></span>
+          <span class="visibility-copy"><strong>仅自己可见</strong><small>不会公开</small></span>
           <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PRIVATE' ? '✓' : '' }}</span>
         </button>
-        <button data-testid="mood-visibility-public" class="visibility-row" :class="{ active: form.visibility === 'PUBLIC' }" @click="form.visibility = 'PUBLIC'">
+        <button data-testid="mood-visibility-public" class="visibility-row" :class="{ active: form.visibility === 'PUBLIC' }" @click="visibilityTouched = true; form.visibility = 'PUBLIC'">
           <span class="radio-dot" aria-hidden="true" />
           <span class="visibility-copy"><strong>申请公开</strong><small>提交后进入真实审核流程</small></span>
           <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PUBLIC' ? '✓' : '' }}</span>

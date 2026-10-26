@@ -17,7 +17,7 @@ const searchTerm = ref('');
 const groupRules: Array<{ key: string; label: string; test: RegExp }> = [
   { key: 'account', label: '账号与隐私', test: /身份|账号|匿名|隐私|删除|设备|凭据|编号|找回|数据/ },
   { key: 'ai', label: 'AI 与同路', test: /AI|同路|会话|聊天|匹配|回信|记忆/ },
-  { key: 'help', label: '仍需帮助', test: /反馈|提交|运营|联系/ },
+  { key: 'help', label: '反馈与联系', test: /反馈|提交|运营|联系/ },
 ];
 
 function groupOf(faq: Faq) {
@@ -59,6 +59,17 @@ async function load() {
   }
 }
 
+/**
+ * One line of the answer under a collapsed question.
+ *
+ * The design's rows are title + a grey second line; without it every row was a single line and the
+ * list read as a menu rather than as questions with answers behind them.
+ */
+function previewOf(answer: string) {
+  const text = String(answer ?? '').replace(/\s+/g, ' ').trim();
+  return text.length > 42 ? `${text.slice(0, 42)}…` : text;
+}
+
 /** The design's last group is a real entry point, not a decoration. */
 function openFeedback() {
   router.push('/pages/help/feedback');
@@ -92,7 +103,9 @@ onMounted(load);
         placeholder="搜索常见问题"
         aria-label="搜索常见问题"
       />
-      <button v-if="searchTerm" type="button" data-testid="btn-faq-search-clear" @click="searchTerm = ''">清除</button>
+      <button v-if="searchTerm" class="search-clear" type="button" data-testid="btn-faq-search-clear" @click="searchTerm = ''">
+        清除
+      </button>
     </div>
 
     <p v-if="loading" class="faq-state" data-testid="faq-loading">正在读取常见问题…</p>
@@ -114,7 +127,10 @@ onMounted(load);
               :aria-expanded="opened === faq.id"
               @click="opened = opened === faq.id ? '' : faq.id"
             >
-              <strong class="faq-question">{{ faq.question }}</strong>
+              <span class="faq-main">
+                <strong class="faq-question">{{ faq.question }}</strong>
+                <small v-if="opened !== faq.id" class="faq-preview">{{ previewOf(faq.answer) }}</small>
+              </span>
               <span class="faq-chevron" :class="{ open: opened === faq.id }" aria-hidden="true">›</span>
             </button>
             <div v-if="opened === faq.id" class="faq-content">
@@ -129,19 +145,21 @@ onMounted(load);
         <p v-if="searchTerm">换一个词试试，搜索只覆盖已经加载的问题。</p>
       </div>
 
-      <!-- A real route: the last group of the design is where a reader goes when the answer is not
-           here, and it leads to the form that actually creates a ticket. -->
-      <section class="faq-group" aria-label="仍需帮助">
-        <h2 class="group-label">仍需帮助</h2>
-        <button class="faq-entry" type="button" data-testid="btn-faq-open-feedback" @click="openFeedback">
-          <span class="faq-copy">
-            <strong>提交问题反馈</strong>
-            <small>将问题发送给运营处理</small>
-          </span>
-          <span class="faq-chevron" aria-hidden="true">›</span>
-        </button>
-      </section>
     </template>
+
+    <!-- A real route: the last group of the design is where a reader goes when the answer is not
+         here, and it leads to the form that actually creates a ticket. It sits outside the state
+         branch on purpose: when the FAQ request fails this entry is the only useful action left. -->
+    <section class="faq-group" aria-label="仍需帮助">
+      <h2 class="group-label">仍需帮助</h2>
+      <button class="faq-entry" type="button" data-testid="btn-faq-open-feedback" @click="openFeedback">
+        <span class="faq-copy">
+          <strong>提交问题反馈</strong>
+          <small>将问题发送给运营处理</small>
+        </span>
+        <span class="faq-chevron" aria-hidden="true">›</span>
+      </button>
+    </section>
   </section>
 </template>
 
@@ -203,34 +221,39 @@ onMounted(load);
   line-height: 1;
 }
 
+/*
+ * The field is the bordered box, not the input: the icon and the clear control are inside the same
+ * border. Putting the border on the input left the icon outside it and made the clear button a
+ * separate control that pushed the field narrower than the rows below.
+ */
 .faq-search {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   box-sizing: border-box;
-  width: calc(100% + 32px);
-  max-width: none;
-  margin: 0 -16px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--gn-line);
+  width: 100%;
+  min-height: 48px;
+  margin: 12px 0 0;
+  padding: 0 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: 10px;
   background: var(--gn-paper);
 }
 
 .search-icon {
   flex: none;
   color: var(--gn-muted);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
 }
 
 .faq-search input {
   flex: 1;
   min-width: 0;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--gn-line);
-  border-radius: 8px;
-  background: var(--gn-paper);
+  height: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--gn-ink);
   font-family: var(--gn-font-body);
   font-size: 14px;
@@ -238,18 +261,24 @@ onMounted(load);
 
 .faq-search input:focus {
   outline: none;
+}
+
+.faq-search:focus-within {
   border-color: var(--gn-leaf);
 }
 
-.faq-search button {
+.search-clear {
   flex: none;
-  height: 38px;
-  align-self: center;
-  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 2px;
   border: 0;
   background: none;
   color: var(--gn-muted);
+  font-family: var(--gn-font-body);
   font-size: 13px;
+  line-height: 1;
 }
 
 .faq-state {
@@ -280,8 +309,8 @@ onMounted(load);
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 48px;
-  padding: 0;
+  min-height: 68px;
+  padding: 12px 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -289,13 +318,31 @@ onMounted(load);
   color: var(--gn-ink);
 }
 
-.faq-question {
+.faq-main {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.faq-question {
   min-width: 0;
   color: var(--gn-ink);
   font-size: 15px;
   font-weight: 600;
+  line-height: 1.4;
+}
+
+/* One line of the answer under a collapsed question; the design's rows are two lines, not one. */
+.faq-preview {
+  overflow: hidden;
+  color: var(--gn-muted);
+  font-size: 13px;
+  font-weight: 400;
   line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .faq-chevron {
@@ -317,7 +364,7 @@ onMounted(load);
 .faq-answer {
   margin: 0;
   color: var(--gn-ink-soft, #4a525d);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.7;
   white-space: pre-line;
 }
@@ -350,7 +397,6 @@ onMounted(load);
   min-height: 56px;
   padding: 6px 0;
   border: 0;
-  border-bottom: 1px solid var(--gn-line);
   border-radius: 0;
   background: none;
   text-align: left;

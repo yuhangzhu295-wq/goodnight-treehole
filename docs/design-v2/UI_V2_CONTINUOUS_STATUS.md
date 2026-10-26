@@ -329,3 +329,42 @@ tool runner×2 是"同一组件、按路由参数不同内容"（标题 负面�
 **环境**：数据库在运行中途又断了一次（WSL2 转发失效，容器三个全 Up）。`preflight-api.mjs` 现在
 开局自愈一次，并且**收尾再探一次**：中途断库时以 exit 2 退出并写明"本轮什么都不能证明"，
 而不是把后面的失败记成产品缺陷。
+
+---
+
+## 重启前保存点（2026-10-26）
+
+### 1. 已达到 7 轴全绿（DONE = 13 / 39）
+- 包含本轮新增通过终审与独立代码审查的 `UI-V2-27`（`/pages/tool/decompose`）与 `UI-V2-29`（`/pages/me/profile`）。
+- 之前因环境原因未跑完的 `tool-run`（7/7）与 `peer-requests`（5/5）已在稳定环境重跑通过。
+- `scripts/seed-second-session.mjs` 已补齐通过真实 `POST /api/v1/auth/sessions/:id/revoke` 清理历史旧会话的自愈逻辑。
+
+### 2. 本轮独立审查（LetterList / FavoriteList / DataPolicy / FeedbackHelp / HelpFaqs）发现并已修复的问题
+1. **FeedbackHelp（UI-V2-38）P0 + 6×P1 修复**：
+   - **P0**：管理端 `/api/admin/v1/feedback/tickets`（列表、summary、详情、reply、status）原先仍读内存 `store.feedbackTickets`，看不到 C 端写入 PostgreSQL 的真实工单；现已全部接入 `FeedbackPersistenceService`（含事务内状态流转与审计日志），并在 `tests/api/api.spec.ts` 与 `tests/cross/cross.spec.ts` 增加「C 端提交 → 管理端列表/详情/回复/解决 → C 端回读」完整闭环断言。
+   - **P1**：校验返回 `ticketId` 后才清空表单；刷新历史列表失败不覆盖提交成功状态；未填联系方式时不计入前缀长度；空分类时显示重试并禁用提交；替换截图删除旧图失败时保留 `orphanAssets` 供重试清理；删除截图期间禁用提交；错误/成功提示样式分离。
+2. **FavoriteList（UI-V2-35）P1 修复**：
+   - 软删除/隐藏的树洞或已删除的回信/日记不再在 `GET /api/v1/favorites` 中返回失效预览（并在 `tests/api/api.spec.ts` 新增回归测试）；
+   - `FavoritePersistenceService` 的增删与 `afterWrite` 放入同一事务，且 `syncFavoriteProjections` 在 `DIRECT_DB_MODELS.Post/Letter` 启用时不再二次非原子覆盖计数；
+   - 增加 `PAGE_SIZE = 200` 有界分页与 `truncated` 提示；前端记录 `removedIds` 防止在途旧 GET 把已取消收藏的条目放回列表。
+3. **LetterList（UI-V2-33）P1 修复**：
+   - 增加 `loadSeq` 丢弃过期的筛选响应；
+   - `generationStatus` 为 `queued`/`running` 的回信显示「正在生成…」而非「尚未阅读」，详情页在正文生成前不提前标记已读；
+   - 增加 `listPageForUser`（`PAGE_SIZE = 200` + `truncated`）；修复 `seed-letter-list.mjs` 先查 ID、清理关联收藏再删旧回信的顺序；更新 `F11-diary-letter-favorite.spec.ts` 中外人删除收藏返回 `404` 的断言（F11 单测已实跑 PASS）。
+4. **DataPolicy（UI-V2-37）+ MoodCreate + PrivacySettings P1 修复**：
+   - `MoodCreate.vue` 挂载时读取 `/api/v1/settings/privacy` 的 `defaultVisibility`（用户未手动切换前生效），与数据政策说明一致；
+   - `DataPolicy.vue` 与 `PrivacySettings.vue` 明确说明已导出到本机或分享出去的副本不在服务端删除范围内；
+   - `tests/ui-controls/data-policy.json` 直接断言 `policy-body-*` 节点消失。
+5. **HelpFaqs（UI-V2-39）代码与视觉审查修复**：
+   - 「仍需帮助 → 提交问题反馈」入口移出错误分支，FAQ 接口失败时仍可进入反馈页；动态分组名改为「反馈与联系」避免与底部「仍需帮助」重名；
+   - 搜索框改为外层圆角描边容器包裹放大镜图标、无边框 input 与垂直居中的「清除」按钮；折叠态问答行补齐双行摘要预览，展开态正文与标题字重/字色拉开层级。
+6. **PeerMatchWaiting（UI-V2-08）与 PeerGraduation（UI-V2-11）V2 实现**：
+   - `PeerMatchWaiting.vue` 已按 `08_PeerMatchWaiting` 重写（静态点环、请求对象与当前状态卡片、无假倒计时、真实边界确认/返回同路操作），并在 `seed-peer-incoming-request.mjs` 与 `tests/ui-controls/peer-wait.json` 接入控件套件；
+   - `PeerGraduation.vue` 已按 `11_PeerGraduation` 重写（无勋章彩纸、留给自己的记录折叠面板、真实感受/留言保存、跳转旅程时间线）。
+
+### 3. 重启后恢复步骤（Resume Checklist）
+1. 启动数据库与后端：`docker compose -f docker-compose.yml -f docker-compose.recovery.yml up -d postgres redis` 并启动 `apps/api`。
+2. 启动 Android 模拟器，运行 `bash scripts/deploy-apk.sh` 将最新前端代码打包安装到模拟器。
+3. 运行 `node scripts/run-control-suites.mjs --only peer-wait,letter-list,favorite-list,help-faqs,feedback-help,mood-create,data-policy,peer-requests,me-profile` 验证最新 APK 上的控件门禁。
+4. 采集 `39_HelpFaqs`、`08_PeerMatchWaiting`、`11_PeerGraduation` 最新模拟器截图，并派发 `final-gate`（视觉）与 `code-reviewer`（代码）完成复审闭环。
+5. 继续剩余页面（`12_RealityHandoff`、`19_MemoryCenter` 等）及 12 领域 E2E / CI 门禁。

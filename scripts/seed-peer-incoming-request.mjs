@@ -62,10 +62,11 @@ if (!APP_USER) {
 }
 
 const wantArg = process.argv.indexOf('--want');
-// Four, not three: the control suite accepts one and declines one, and the runner retries a failed
-// suite once. Three left the retry with a single pending row, so its decline case found nothing and the
-// second attempt failed on the fixture rather than on the page.
-const WANT_PENDING = wantArg > -1 ? Number(process.argv[wantArg + 1]) : 4;
+// Six, not four: one suite pass accepts one request and declines another, and the runner may retry the
+// whole suite once after an unrelated failure. Four left the retry with no pending row after its own
+// accept/decline pair, so the decline case failed on the fixture rather than on the page. Six covers
+// two full passes and still leaves a row after the second decline.
+const WANT_PENDING = wantArg > -1 ? Number(process.argv[wantArg + 1]) : 6;
 if (!Number.isInteger(WANT_PENDING) || WANT_PENDING < 1) {
   console.error('--want must be a positive integer');
   process.exit(1);
@@ -311,6 +312,54 @@ if (!detailMatch) {
 }
 if (!detailMatch) throw new Error('no suggested match could be produced for the owner');
 
+// ---- a sent (requested) match, so 等待回应 has a real waiting record -----------------------------
+let waitingMatch = await prisma.peerMatch.findFirst({
+  where: { userId: APP_USER, status: 'requested' },
+  orderBy: { createdAt: 'desc' },
+});
+if (!waitingMatch) {
+  let candidate = await prisma.peerMatch.findFirst({
+    where: { userId: APP_USER, status: 'suggested', id: { not: detailMatch.id } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!candidate) {
+    const stranger = (await call('POST', '/auth/anonymous', { body: { deviceLabel: 'peer-wait-seed' } })).item;
+    await call('PATCH', '/settings/privacy', {
+      credential: stranger.credential,
+      body: { allowPeerMatching: true, allowAnonymousExperienceShare: true },
+    });
+    const sJourney = await call('POST', '/journeys', {
+      credential: stranger.credential,
+      body: { title: '慢慢把作息调回来的那几周', domain: '生活', content: '先从固定起床时间开始。', feelings: ['疲惫'], needs: ['节奏'] },
+    });
+    await publishExperience(stranger.credential, {
+      journeyId: sJourney.journey?.id,
+      title: '慢慢把作息调回来的那几周',
+      domain: '生活',
+      stage: '进行中',
+      content: '先把起床时间固定下来，哪怕前一晚睡得晚也不补觉。',
+      tags: ['作息调整'],
+    });
+    await call('POST', `/journeys/${await ownerJourneyId()}/peer-matches`, { credential: owner, body: {} });
+    candidate = await prisma.peerMatch.findFirst({
+      where: { userId: APP_USER, status: 'suggested', id: { not: detailMatch.id } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  if (candidate) {
+    await call('PATCH', `/peer-matches/${candidate.id}`, {
+      credential: owner,
+      body: {
+        status: 'requested',
+        requestReason: '看到你也在练习把日子慢慢过回来，想问问你当时是怎么撑过那几天的。',
+        requestQuestion: '最难的那个晚上，你做了什么让自己好受一点？',
+      },
+    });
+    waitingMatch = await prisma.peerMatch.findUnique({ where: { id: candidate.id } });
+  }
+}
+if (!waitingMatch) throw new Error('no waiting match could be produced for the owner');
+
 // ---- report ------------------------------------------------------------------------------------
 items = await inbox();
 const pending = items.filter((item) => item.status === 'requested');
@@ -322,10 +371,13 @@ for (const item of pending) log(`  pending  ${item.id}`);
 for (const item of accepted) log(`  accepted ${item.id}`);
 for (const item of declined) log(`  declined ${item.id}`);
 log(`  suggested ${detailMatch.id} on ${detailMatch.peerExperienceId}`);
+log(`  waiting   ${waitingMatch.id} on ${waitingMatch.peerExperienceId}`);
 const detailRoute = `/pages/peer/detail?id=${detailMatch.peerExperienceId}&matchId=${detailMatch.id}`;
 const consentRoute = accepted[0] ? `/pages/peer/consent?matchId=${accepted[0].id}` : '';
+const waitRoute = `/pages/peer/wait?matchId=${waitingMatch.id}`;
 log(`\nPEER_DETAIL_ROUTE=${detailRoute}`);
 log(`PEER_CONSENT_ROUTE=${consentRoute}`);
+log(`PEER_WAIT_ROUTE=${waitRoute}`);
 
 // Written down because these ids are generated per run: a suite that hardcoded one would be testing
 // a record from a previous fixture. `run-control-suites.mjs` reads this file.
@@ -341,6 +393,7 @@ writeFileSync(
       declined: declined.map((item) => item.id),
       detailRoute,
       consentRoute,
+      waitRoute,
     },
     null,
     2,

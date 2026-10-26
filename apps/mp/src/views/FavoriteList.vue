@@ -17,6 +17,8 @@ type Filter = 'all' | 'letter' | 'post' | 'diary';
 
 const router = useRouter();
 const items = ref<FavoriteItem[]>([]);
+/** The server caps the list; when it does, the page says so instead of looking complete. */
+const truncated = ref(false);
 const filter = ref<Filter>('all');
 const loading = ref(true);
 const loadError = ref('');
@@ -31,6 +33,13 @@ const nowTick = ref(Date.now());
 let clockTimer: number | undefined;
 /** Discards a list response that started before the reader switched tabs. */
 let loadSeq = 0;
+/**
+ * Ids this page has deleted. A GET that started before the delete committed still carries the row;
+ * filtering by the in-flight id alone stopped covering it the moment `removingId` was cleared, so a
+ * slow response could put a removed favourite back on screen. This page never re-adds a favourite,
+ * so an id that stays here for the life of the component is accurate.
+ */
+const removedIds = new Set<string>();
 
 const tabs: Array<{ key: Filter; label: string; testId: string }> = [
   { key: 'all', label: '全部', testId: 'filter-fav-all' },
@@ -112,12 +121,15 @@ async function load(next: Filter = filter.value) {
   loadError.value = '';
   const query = next === 'all' ? '' : `?type=${next}`;
   try {
-    const result = await api.get<{ items: FavoriteItem[] }>(`/api/v1/favorites${query}`);
+    const result = await api.get<{ items: FavoriteItem[]; total?: number; truncated?: boolean }>(
+      `/api/v1/favorites${query}`,
+    );
     if (ticket !== loadSeq) return;
     // A removal in flight has already taken its row off screen; a list read that started before it
     // committed would put it back, and the delete would then look like it did nothing.
     const pending = removingId.value;
-    items.value = (result.items ?? []).filter((row) => row.id !== pending);
+    items.value = (result.items ?? []).filter((row) => row.id !== pending && !removedIds.has(row.id));
+    truncated.value = Boolean(result.truncated);
   } catch (cause: any) {
     if (ticket !== loadSeq) return;
     // An empty list must not stand in for a request that failed.
@@ -156,6 +168,7 @@ async function removeFavorite(item: FavoriteItem) {
   try {
     const result = await api.delete<{ ok: boolean }>(`/api/v1/favorites/${item.id}`);
     if (!result?.ok) throw new Error('取消收藏没有成功');
+    removedIds.add(item.id);
   } catch (cause: any) {
     if (ticket === loadSeq) {
       // Put this row back in the list the reader is looking at, not in a snapshot from another tab.
@@ -234,6 +247,9 @@ onUnmounted(() => {
     <LoadErrorBanner v-else-if="loadError" :message="loadError" retry-label="重新加载" @retry="load()" />
 
     <template v-else>
+      <p v-if="truncated" class="favorite-window-note" data-testid="favorite-window-note">
+        收藏较多，这里只显示最近 {{ items.length }} 条。
+      </p>
       <p v-if="removeError" class="favorite-remove-error" role="status" data-testid="favorite-remove-error">
         {{ removeError }}
         <button type="button" @click="removeError = ''">知道了</button>
@@ -417,6 +433,16 @@ onUnmounted(() => {
   margin: 24px 0 0;
   color: var(--gn-muted);
   font-size: 14px;
+}
+
+.favorite-window-note {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--gn-radius-small);
+  background: var(--gn-paper-warm);
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .favorite-group-title {

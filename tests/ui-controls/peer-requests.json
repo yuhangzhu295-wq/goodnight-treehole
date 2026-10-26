@@ -12,7 +12,8 @@
   "expect": {
    "present": "[data-testid^=\"peer-request-consent-\"]",
    "gone": "[data-testid=\"peer-request-empty-accepted\"]"
-  }
+  },
+  "settleMs": 2500
  },
  {
   "selector": "peer-request-tab-closed",

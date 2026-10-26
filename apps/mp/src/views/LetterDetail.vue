@@ -26,7 +26,10 @@ async function load() {
     letter.value = payload.item;
     // Mark read only after the letter has actually loaded and is on screen. A failed write leaves it
     // unread in the list, which is the truth, and says so instead of silently claiming success.
-    if (letter.value?.status === 'unread' && letter.value.id) {
+    //
+    // A queued/running letter has no content yet. Marking it read then left the list saying "已读"
+    // about a letter the reader could not have read, so the write waits for the text.
+    if (letter.value?.status === 'unread' && letter.value.id && String(letter.value.content ?? '').trim()) {
       const openedId = letter.value.id;
       void api
         .patch<any>(`/api/v1/letters/${encodeURIComponent(openedId)}/read`, {})
@@ -112,6 +115,9 @@ const paragraphs = computed(() =>
     .filter(Boolean),
 );
 
+/** The job is still running, so "还没有生成出来，换一种风格再试" would be the wrong advice. */
+const generating = computed(() => ['queued', 'running'].includes(String(letter.value?.generationStatus ?? '')));
+
 const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(letter.value.sourceDiaryId) : ''));
 </script>
 
@@ -134,7 +140,11 @@ const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(lette
         <p v-for="(paragraph, index) in paragraphs" :key="index">{{ paragraph }}</p>
       </article>
       <p v-else class="detail-muted" data-testid="letter-detail-empty">
-        这封回信还没有生成出来。可以回到今日回信，换一种风格再试一次。
+        {{
+          generating
+            ? '这封回信正在生成，稍后回到这里就能读到。'
+            : '这封回信还没有生成出来。可以回到今日回信，换一种风格再试一次。'
+        }}
       </p>
 
       <h3 class="detail-section-title">相关操作</h3>

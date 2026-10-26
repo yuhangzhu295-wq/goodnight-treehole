@@ -292,19 +292,20 @@
       "prompt": "逐页提示词/08*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
+      "reviewer": "PeerMatchWaiting V2 implemented (no fake countdown, real status/target/consent/back); peer-wait control suite added",
       "screenshot": "artifacts/ui-v2/android/R2_PeerMatchWaiting_after.png",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
+      "status": "IN_PROGRESS",
+      "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "no",
       "businessVerified": "no",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Reached by consenting on the previous page; shows 请求状态 / 正在等待对方决定, which is the correct state for the side that has consented."
+      "note": "Reached by consenting on the previous page; shows 请求状态 / 正在等待对方决定, which is the correct state for the side that has consented.",
+      "nextAction": "re-run peer-wait control suite on emulator after reboot, capture screenshot, visual + code review"
     },
     {
       "id": "UI-V2-09",
@@ -371,19 +372,20 @@
       "prompt": "逐页提示词/11*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
+      "reviewer": "PeerGraduation V2 implemented (check hero,留给自己的记录, feeling/note drawer, journey timeline link, no medal/confetti)",
       "screenshot": "artifacts/ui-v2/android/R2_PeerGraduation_after.png",
       "issue": "",
       "gitCommit": "",
-      "status": "PENDING",
-      "implemented": "no",
+      "status": "IN_PROGRESS",
+      "implemented": "yes",
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "no",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Reached by tapping 留下感受 on the closed conversation, which is itself the click test for UI2-008."
+      "note": "Reached by tapping 留下感受 on the closed conversation, which is itself the click test for UI2-008.",
+      "nextAction": "capture V2 screenshot on emulator, run graduation verification, visual + code review"
     },
     {
       "id": "UI-V2-12",
@@ -1048,7 +1050,7 @@
       "prompt": "逐页提示词/33*",
       "implementation": "",
       "tests": "",
-      "reviewer": "visual final-gate: PASS on 全部/未读 (2026-10-25); independent code review: CHANGES_REQUESTED then fixed and pushed 53bc963, final re-review not yet received",
+      "reviewer": "visual final-gate: PASS; independent code review findings fixed (loadSeq filter race, generating letter not marked unread/read prematurely, listPageForUser bounded 200 with truncated notice, seed-letter-list delete order, F11 404 assertion, round-trip read control case)",
       "screenshot": "artifacts/ui-v2/r2/letter-list-v1.png",
       "gitCommit": "53bc963",
       "status": "WAITING_REVIEW",
@@ -1069,7 +1071,7 @@
         ],
         "head": "53bc9631f6753f1bb53b0ce953c677cc4975d25e"
       },
-      "nextAction": "independent code re-review of the review fixes"
+      "nextAction": "re-run code-reviewer on latest commit and letter-list control suite on fresh APK"
     },
     {
       "id": "UI-V2-34",
@@ -1112,7 +1114,7 @@
       "prompt": "逐页提示词/35*",
       "implementation": "",
       "tests": "",
-      "reviewer": "visual: reviewed against 35_FavoriteList (structure/density/copy), no P1/P2 open; independent code review: two rounds of CHANGES_REQUESTED, fixes pushed a438a11, final re-review outstanding",
+      "reviewer": "independent code review findings fixed (removedIds set prevents stale GET restore, deleted/hidden target filtered out in GET /favorites, transactional atomic favoriteCount/Letter.favorite update without non-atomic syncFavoriteProjections overwrite, bounded PAGE_SIZE=200 + truncated notice, F11 404 assertion)",
       "screenshot": "artifacts/ui-v2/r2/favorite-list-v1.png",
       "gitCommit": "a438a11",
       "status": "WAITING_REVIEW",
@@ -1129,7 +1131,7 @@
         "codeReview": "fixes pushed, re-review outstanding",
         "head": "a438a11"
       },
-      "nextAction": "independent code re-review of the review fixes"
+      "nextAction": "re-run code-reviewer on latest commit"
     },
     {
       "id": "UI-V2-36",
@@ -1173,7 +1175,7 @@
       "prompt": "逐页提示词/37*",
       "implementation": "",
       "tests": "",
-      "reviewer": "visual final-gate: PASS on expanded/collapsed (2026-10-25); independent code review not yet run",
+      "reviewer": "visual final-gate: PASS; independent code review findings fixed (MoodCreate reads defaultVisibility from /api/v1/settings/privacy; DataPolicy & PrivacySettings clarify that exported/shared copies are outside server deletion scope; data-policy control cases assert policy-body-* gone)",
       "screenshot": "artifacts/ui-v2/r2/data-policy-v1.png",
       "gitCommit": "ca7d9b4",
       "status": "WAITING_REVIEW",
@@ -1194,7 +1196,7 @@
         ],
         "head": "ca7d9b4"
       },
-      "nextAction": "independent code review"
+      "nextAction": "re-run code-reviewer on latest commit and data-policy control suite"
     },
     {
       "id": "UI-V2-38",
@@ -1205,7 +1207,7 @@
       "prompt": "逐页提示词/38*",
       "implementation": "",
       "tests": "",
-      "reviewer": "visual final-gate: PASS on initial/filled/submitted (2026-10-25); independent code review not yet run (reviewer route failed)",
+      "reviewer": "visual final-gate: PASS; independent code review P0+6xP1 fixed (admin feedback/tickets list, summary, detail, reply, status now read/write PostgreSQL via FeedbackPersistenceService; FeedbackHelp validates ticketId before clearing form, decouples refreshTickets error from submit success, counts actual report length, handles empty categories with retry, tracks orphan assets with retry cleanup, disables submit while removingSlot!==null, separates error/success styling)",
       "screenshot": "artifacts/ui-v2/r2/feedback-help-v1.png",
       "gitCommit": "5f250c5",
       "status": "WAITING_REVIEW",
@@ -1227,7 +1229,7 @@
         ],
         "head": "5f250c5"
       },
-      "nextAction": "independent code review"
+      "nextAction": "re-run code-reviewer on latest commit"
     },
     {
       "id": "UI-V2-39",
@@ -1238,7 +1240,7 @@
       "prompt": "逐页提示词/39*",
       "implementation": "",
       "tests": "",
-      "reviewer": "visual: self-reviewed after the P1/P2 fixes (search field now permanent with its icon, search bar full-width, no duplicate clear control, entry visible); independent visual re-review and code review not yet run",
+      "reviewer": "independent code review + visual review findings fixed (feedback entry rendered outside error branch; help group renamed 反馈与联系 to avoid duplicate 仍需帮助; bordered .faq-search wrapper contains icon + input + clear; two-line collapsed FAQ row with preview; distinct answer styling; 6 control cases)",
       "screenshot": "artifacts/ui-v2/r2/help-faqs-v1.png",
       "gitCommit": "0b38f4b",
       "status": "WAITING_REVIEW",
@@ -1246,7 +1248,7 @@
       "rendered": "yes",
       "interactionTested": "yes",
       "businessVerified": "yes",
-      "visualApproved": "yes",
+      "visualApproved": "no",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
@@ -1260,7 +1262,7 @@
         ],
         "head": "0b38f4b"
       },
-      "nextAction": "independent visual re-review and code review"
+      "nextAction": "re-capture 39_HelpFaqs screenshots on emulator and re-run visual + code review"
     }
   ],
   "globalTasks": [

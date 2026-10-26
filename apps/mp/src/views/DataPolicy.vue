@@ -53,7 +53,7 @@ function openPrivacy() {
         <strong>保存什么</strong>
         <span class="policy-chevron" aria-hidden="true">›</span>
       </button>
-      <div v-if="openSections.keep" class="policy-body">
+      <div v-if="openSections.keep" class="policy-body" data-testid="policy-body-keep">
         <p>晚安树洞会保存你主动写下的心情、回信、日记、收藏和反馈工单，用于展示个人记录、生成月报和后台处理反馈。</p>
         <p>账号身份由服务端签发的匿名凭据确认。凭据可能到期、被撤销，或因设备数据丢失而失效；失效后无法通过本应用恢复原身份的私密数据。</p>
       </div>
@@ -70,7 +70,7 @@ function openPrivacy() {
         <strong>什么时候用 AI</strong>
         <span class="policy-chevron" aria-hidden="true">›</span>
       </button>
-      <div v-if="openSections.ai" class="policy-body">
+      <div v-if="openSections.ai" class="policy-body" data-testid="policy-body-ai">
         <p>在你使用需要 AI 的功能、且符合相关授权与隐私条件时，系统才会提交必要的信息。</p>
         <p>当模型暂时不可用时，页面会说明结果来自安全兜底内容，不会把它伪装成实时生成。</p>
       </div>
@@ -87,7 +87,7 @@ function openPrivacy() {
         <strong>分享给谁</strong>
         <span class="policy-chevron" aria-hidden="true">›</span>
       </button>
-      <div v-if="openSections.share" class="policy-body">
+      <div v-if="openSections.share" class="policy-body" data-testid="policy-body-share">
         <p>隐私设置会影响新内容的默认可见范围、是否允许真人回应，以及月报分享图的生成偏好。只有你允许公开的匿名经历才会进入对应的社交展示。</p>
       </div>
     </section>
@@ -103,9 +103,10 @@ function openPrivacy() {
         <strong>如何管理与删除</strong>
         <span class="policy-chevron" aria-hidden="true">›</span>
       </button>
-      <div v-if="openSections.manage" class="policy-body">
+      <div v-if="openSections.manage" class="policy-body" data-testid="policy-body-manage">
         <p>可在隐私与数据中查看授权和数据管理操作。删除范围和保留规则以实际界面说明为准。</p>
         <p>“删除我的数据”会从服务端删除日记、回信与收藏记录，此操作不可撤销。</p>
+        <p>已经导出到本机或分享给别人的副本不在这项操作范围内，需要你自行删除。</p>
         <button class="policy-link" type="button" data-testid="btn-data-policy-open-privacy" @click="openPrivacy">
           前往隐私与数据
         </button>

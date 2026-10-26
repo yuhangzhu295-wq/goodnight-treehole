@@ -50,6 +50,31 @@ describe('api contracts', () => {
       });
   });
 
+  /**
+   * UI-V2-35: a favourite outlives a soft-deleted post. Serving it anyway showed the original text
+   * and then a 404 on tap, so the list must drop the row instead of advertising an unopenable item.
+   */
+  it('drops a favourite whose post was deleted instead of serving unopenable text', async () => {
+    const server = app.getHttpServer();
+    const mood = await request(server)
+      .post('/api/v1/moods')
+      .set(await demoUserHeaders())
+      .send({ content: '收藏后删除的树洞', emotion: '工作', visibility: 'PUBLIC' })
+      .expect(201);
+    const postId = mood.body.post.id as string;
+
+    await request(server).post(`/api/v1/posts/${postId}/favorite`).set(await demoUserHeaders()).expect(201);
+    const before = await request(server).get('/api/v1/favorites').set(await demoUserHeaders()).expect(200);
+    expect(before.body.items.find((item: any) => item.targetId === postId)).toMatchObject({
+      targetId: postId,
+      preview: '收藏后删除的树洞',
+    });
+
+    await request(server).delete(`/api/v1/posts/${postId}`).set(await demoUserHeaders()).expect(200);
+    const after = await request(server).get('/api/v1/favorites').set(await demoUserHeaders()).expect(200);
+    expect(after.body.items.find((item: any) => item.targetId === postId)).toBeUndefined();
+  });
+
   it('front FAQ reads admin-created FAQ', async () => {
     const server = app.getHttpServer();
     const login = await request(server)
@@ -67,6 +92,70 @@ describe('api contracts', () => {
       .expect((res) => {
         expect(res.body.items.some((faq: any) => faq.question === '测试 FAQ？')).toBe(true);
       });
+  });
+
+  /**
+   * UI-V2-38: the console used to read the in-memory ticket array, which never held a ticket the
+   * C-end route wrote. The operator could not see, open, reply to or resolve a real submission.
+   * This is the whole loop: submit, list, detail, reply, resolve, and the user's own copy.
+   */
+  it('carries a C-end feedback ticket through the operator console and back', async () => {
+    const server = app.getHttpServer();
+    const login = await request(server)
+      .post('/api/admin/v1/auth/login')
+      .send({ username: 'admin', password: 'admin123' })
+      .expect(201);
+    const admin = { Authorization: `Bearer ${login.body.token}` };
+    const issued = await request(server)
+      .post('/api/v1/auth/anonymous')
+      .send({ deviceLabel: 'api spec feedback' })
+      .expect(201);
+    const user = { 'x-goodnight-user-id': issued.body.item.credential as string };
+
+    const text = `api 反馈-${Date.now()}`;
+    const created = await request(server)
+      .post('/api/v1/feedback')
+      .set(user)
+      .send({ content: text, sourcePage: '/pages/help/feedback' })
+      .expect(201);
+    const ticketId = created.body.item.id as string;
+    expect(ticketId).toBeTruthy();
+
+    const listed = await request(server).get('/api/admin/v1/feedback/tickets').set(admin).expect(200);
+    expect(listed.body.items.find((ticket: any) => ticket.id === ticketId)).toMatchObject({
+      id: ticketId,
+      content: text,
+      status: 'open',
+    });
+
+    const detail = await request(server)
+      .get(`/api/admin/v1/feedback/tickets/${ticketId}`)
+      .set(admin)
+      .expect(200);
+    expect(detail.body.item).toMatchObject({ id: ticketId, content: text });
+
+    const reply = `已收到-${Date.now()}`;
+    const replied = await request(server)
+      .post(`/api/admin/v1/feedback/tickets/${ticketId}/reply`)
+      .set(admin)
+      .send({ reply })
+      .expect(201);
+    expect(replied.body.item).toMatchObject({ id: ticketId, status: 'processing', reply });
+
+    const resolved = await request(server)
+      .patch(`/api/admin/v1/feedback/tickets/${ticketId}/status`)
+      .set(admin)
+      .send({ status: 'resolved' })
+      .expect(200);
+    expect(resolved.body.item).toMatchObject({ id: ticketId, status: 'resolved', reply });
+
+    // The user's list is the other half of the answer: the reply must be readable where they look.
+    const mine = await request(server).get('/api/v1/feedback').set(user).expect(200);
+    expect(mine.body.items.find((ticket: any) => ticket.id === ticketId)).toMatchObject({
+      id: ticketId,
+      status: 'resolved',
+      reply,
+    });
   });
 
   /**

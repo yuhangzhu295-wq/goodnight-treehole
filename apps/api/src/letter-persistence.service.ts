@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { Letter } from './store.service.js';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 
@@ -44,6 +45,37 @@ export class LetterPersistenceService {
     const rows = await this.prisma.letter.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
     return rows.map((row) => LetterPersistenceService.normalize(row)!);
   }
+
+  /**
+   * One bounded page for the list screen, with the filter pushed into SQL.
+   *
+   * The list used to fetch every letter and filter in this process. That is both unbounded in
+   * transfer and wrong for a page: a `read` filter would miss older read letters once a window was
+   * applied after the fetch. `total` is the count for the same filter, so the page can say it is
+   * showing a window rather than pretending the window is the inbox.
+   */
+  async listPageForUser(
+    userId: string,
+    filter: { status?: 'unread' | 'read' | 'favorited'; take?: number } = {},
+  ): Promise<{ rows: LetterRow[]; total: number }> {
+    const where: Prisma.LetterWhereInput = { userId };
+    if (filter.status === 'unread') where.status = 'unread';
+    else if (filter.status === 'read') where.status = { not: 'unread' };
+    else if (filter.status === 'favorited') where.favorite = true;
+
+    const [rows, total] = await Promise.all([
+      this.prisma.letter.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        take: filter.take ?? LetterPersistenceService.PAGE_SIZE,
+      }),
+      this.prisma.letter.count({ where }),
+    ]);
+    return { rows: rows.map((row) => LetterPersistenceService.normalize(row)!), total };
+  }
+
+  /** Enough for a long inbox; the list screen names the limit when it truncates. */
+  static readonly PAGE_SIZE = 200;
 
   async listRecentForUser(userId: string, limit = 1): Promise<LetterRow[]> {
     const rows = await this.prisma.letter.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: limit });

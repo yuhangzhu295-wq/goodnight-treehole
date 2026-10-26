@@ -20,10 +20,17 @@ const support = ref(false);
 const loading = ref(true);
 const loadError = ref('');
 const formMessage = ref('');
+// The same paragraph carries both outcomes; without a flag every failure was rendered in the success
+// colour, which told the reader the opposite of what had happened.
+const formError = ref(false);
 const submitting = ref(false);
 const uploadingSlot = ref<number | null>(null);
 const removingSlot = ref<number | null>(null);
 const pendingSlot = ref(0);
+// Assets that were replaced but whose delete request failed. They are no longer referenced by this
+// form, so they are invisible on screen; keeping their ids lets the reader retry the cleanup instead
+// of leaving an orphan on the server with no way to reach it.
+const orphanAssets = ref<string[]>([]);
 
 const visibleFaqs = computed(() => faqs.value.slice(0, 5));
 const characterCount = computed(() => content.value.length);
@@ -73,15 +80,25 @@ async function chooseFile(event: Event) {
   const slot = pendingSlot.value;
   uploadingSlot.value = slot;
   formMessage.value = '';
+  formError.value = false;
   try {
     const uploaded = await uploadMedia(file, 'feedback');
     const previous = assets.value[slot];
     const next = [...assets.value];
     next[slot] = { id: uploaded.id, url: resolveApiUrl(uploaded.url), name: file.name };
     assets.value = next;
-    if (previous) await deleteMedia(previous.id).catch(() => undefined);
+    if (previous) {
+      try {
+        await deleteMedia(previous.id);
+      } catch {
+        // The replacement is already on screen; failing the whole upload now would be a lie about
+        // what is attached. Keep the id so the reader can retry the cleanup.
+        orphanAssets.value = [...orphanAssets.value, previous.id];
+      }
+    }
   } catch (error: any) {
     formMessage.value = error?.message ?? '截图上传失败，请选择 JPEG、PNG 或 WebP 图片后重试。';
+    formError.value = true;
   } finally {
     uploadingSlot.value = null;
   }
@@ -92,6 +109,7 @@ async function removeAsset(slot: number) {
   if (!asset || removingSlot.value !== null) return;
   removingSlot.value = slot;
   formMessage.value = '';
+  formError.value = false;
   try {
     await deleteMedia(asset.id);
     const next = [...assets.value];
@@ -99,50 +117,91 @@ async function removeAsset(slot: number) {
     assets.value = next;
   } catch (error: any) {
     formMessage.value = error?.message ?? '截图删除失败，请稍后重试。';
+    formError.value = true;
   } finally {
     removingSlot.value = null;
+  }
+}
+
+async function retryOrphanCleanup() {
+  for (const assetId of [...orphanAssets.value]) {
+    try {
+      await deleteMedia(assetId);
+      orphanAssets.value = orphanAssets.value.filter((id) => id !== assetId);
+    } catch {
+      // Still unreachable; the note stays and the reader can try again.
+    }
   }
 }
 
 async function submit() {
   const text = content.value.trim();
   const note = contact.value.trim();
-  if (submitting.value) return;
+  // A delete in flight would leave an id in `assetIds` that the server is about to remove, so the
+  // ticket could be refused for a screenshot the reader already removed.
+  if (submitting.value || removingSlot.value !== null || uploadingSlot.value !== null) return;
   if (!text) {
     formMessage.value = '请先写下你遇到的问题或建议。';
+    formError.value = true;
     return;
   }
-  // The server caps a ticket at 500 characters and the contact note is appended to the report, so the
-  // combined length is what has to fit. Checking only the description would let a valid-looking form
-  // be refused after the reader pressed submit.
-  if (`${text}\n\n联系方式：${note}`.length > 500) {
+  // The server caps the ticket at 500 characters and the contact note is appended to the report, so
+  // the report itself is what has to fit. A synthetic prefix is not sent and must not be counted.
+  const report = note ? `${text}\n\n联系方式：${note}` : text;
+  if (report.length > 500) {
     formMessage.value = '内容与联系方式合计不能超过 500 字，请精简后再提交。';
+    formError.value = true;
+    return;
+  }
+  if (!cats.value.length) {
+    formMessage.value = '反馈分类暂时不可用，请稍后重试。';
+    formError.value = true;
     return;
   }
 
   submitting.value = true;
   formMessage.value = '';
+  formError.value = false;
   try {
-    const report = contact.value.trim() ? `${text}\n\n联系方式：${contact.value.trim()}` : text;
     const created = await api.post<{ item: FeedbackTicket }>('/api/v1/feedback', {
       categoryId: categoryId.value || undefined,
       content: report,
       sourcePage: '/pages/help/feedback',
       assetIds: assetIds.value,
     });
+    // The ticket id is the server's own answer that the write landed. A 2xx without it does not
+    // prove a ticket exists, and clearing the form on that answer would destroy the only copy of
+    // what the reader wrote.
+    const ticketId = created?.item?.id;
+    if (!ticketId) {
+      formMessage.value = '提交结果未确认：服务器没有返回工单号。请先到“我的反馈”查看，不要重复提交。';
+      formError.value = true;
+      await refreshTickets();
+      return;
+    }
     content.value = '';
     contact.value = '';
     assets.value = [null, null];
-    // The ticket id is the server's own answer that the write landed, and the reader needs it to
-    // refer to this report later. A message without it would only assert our own optimism.
-    const ticketId = created?.item?.id;
-    formMessage.value = ticketId ? `反馈已提交，工单号 ${ticketId}。` : '反馈已提交，工单已创建。';
-    const ticketResponse = await api.get<any>('/api/v1/feedback');
-    tickets.value = ticketResponse.items ?? [];
+    orphanAssets.value = [];
+    formMessage.value = `反馈已提交，工单号 ${ticketId}。`;
+    formError.value = false;
+    // A failure to reload the history is not a failure to submit. Keeping the two apart stops the
+    // success message from turning into "提交失败" and inviting a duplicate ticket.
+    await refreshTickets();
   } catch (error: any) {
     formMessage.value = error?.message ?? '提交失败，请确认网络后重试。';
+    formError.value = true;
   } finally {
     submitting.value = false;
+  }
+}
+
+async function refreshTickets() {
+  try {
+    const ticketResponse = await api.get<any>('/api/v1/feedback');
+    tickets.value = ticketResponse.items ?? [];
+  } catch {
+    // The submit result is already known; the history can be reloaded by reopening the page.
   }
 }
 
@@ -190,7 +249,12 @@ onMounted(load);
           >
             {{ category.name }}
           </button>
-          <span v-if="!cats.length" class="type-empty">分类读取中…</span>
+          <span v-if="!cats.length" class="type-empty">
+            反馈分类暂时不可用。
+            <button class="inline-retry" type="button" data-testid="btn-feedback-category-retry" @click="load">
+              重试
+            </button>
+          </span>
         </div>
 
         <form class="form-surface" @submit.prevent="submit">
@@ -261,6 +325,12 @@ onMounted(load);
             <div v-if="attachmentCount" class="upload-status" data-testid="feedback-upload-preview" aria-live="polite">
               已添加 {{ attachmentCount }} 张截图
             </div>
+            <p v-if="orphanAssets.length" class="field-note" role="status">
+              有 {{ orphanAssets.length }} 张被替换的截图未能从服务器删除。
+              <button class="inline-retry" type="button" data-testid="btn-feedback-orphan-retry" @click="retryOrphanCleanup">
+                重试清理
+              </button>
+            </p>
           </div>
 
           <!-- Contact: optional, and never a place to ask for someone's real identity. The design
@@ -285,11 +355,11 @@ onMounted(load);
             class="submit-btn"
             data-testid="btn-feedback-submit"
             type="submit"
-            :disabled="submitting || uploadingSlot !== null"
+            :disabled="submitting || uploadingSlot !== null || removingSlot !== null || !cats.length"
           >
             {{ submitting ? '正在提交…' : '提交反馈' }}
           </button>
-          <p v-if="formMessage" class="status-msg success" role="status" aria-live="polite">{{ formMessage }}</p>
+          <p v-if="formMessage" :class="['status-msg', formError ? 'error' : 'success']" role="status" aria-live="polite">{{ formMessage }}</p>
         </form>
       </section>
 
@@ -374,7 +444,7 @@ onMounted(load);
             <span v-else class="ticket-pending-note">工单已收到，正在核查与处理。</span>
           </article>
         </div>
-        <div v-else class="empty-surface">
+        <div v-else class="empty-surface" data-testid="feedback-list-empty">
           <p class="empty-note">暂无已提交的反馈记录。</p>
         </div>
       </section>
@@ -636,6 +706,17 @@ onMounted(load);
 .type-empty {
   color: var(--gn-muted);
   font-size: 13px;
+}
+
+.inline-retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gn-leaf-deep);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .form-input {

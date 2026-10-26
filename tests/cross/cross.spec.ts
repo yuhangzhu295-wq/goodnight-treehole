@@ -90,17 +90,55 @@ describe('cross terminal acceptance loops', () => {
     const feedbackText = `跨端反馈-${Date.now()}`;
     const presetText = `新的快捷回复-${Date.now()}`;
 
-    await request(server)
+    const created = await request(server)
       .post('/api/v1/feedback')
       .set(await demoUserHeaders())
       .send({ categoryId: 'cat_1', content: feedbackText, sourcePage: '/pages/feedback/index', assetIds: [] })
       .expect(201);
-    await request(server)
+    // The C-end's own answer names the row; the operator console must then find that same row. This
+    // is the read that used to look at the in-memory array and miss every real submission.
+    const ticketId = created.body.item.id;
+    const listed = await request(server)
       .get('/api/admin/v1/feedback/tickets')
       .set('Authorization', `Bearer ${token}`)
-      .expect((response) =>
-        expect(response.body.items.some((ticket: any) => ticket.content === feedbackText)).toBe(true),
-      );
+      .expect(200);
+    expect(listed.body.items.find((ticket: any) => ticket.id === ticketId)).toMatchObject({
+      id: ticketId,
+      content: feedbackText,
+      status: 'open',
+    });
+
+    const detail = await request(server)
+      .get(`/api/admin/v1/feedback/tickets/${ticketId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(detail.body.item).toMatchObject({ id: ticketId, content: feedbackText });
+
+    const replyText = `已收到这条反馈-${Date.now()}`;
+    const replied = await request(server)
+      .post(`/api/admin/v1/feedback/tickets/${ticketId}/reply`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reply: replyText })
+      .expect(201);
+    expect(replied.body.item).toMatchObject({ id: ticketId, status: 'processing', reply: replyText });
+
+    const resolved = await request(server)
+      .patch(`/api/admin/v1/feedback/tickets/${ticketId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'resolved' })
+      .expect(200);
+    expect(resolved.body.item).toMatchObject({ id: ticketId, status: 'resolved', reply: replyText });
+
+    // The reply and the status are the user's copy of the answer, not only the console's.
+    const mine = await request(server)
+      .get('/api/v1/feedback')
+      .set(await demoUserHeaders())
+      .expect(200);
+    expect(mine.body.items.find((ticket: any) => ticket.id === ticketId)).toMatchObject({
+      id: ticketId,
+      status: 'resolved',
+      reply: replyText,
+    });
     await request(server)
       .post('/api/admin/v1/reply-presets')
       .set('Authorization', `Bearer ${token}`)

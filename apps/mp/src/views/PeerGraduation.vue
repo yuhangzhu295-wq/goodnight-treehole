@@ -9,17 +9,24 @@ const router = useRouter();
 const matchId = computed(() => String(route.query.matchId ?? ''));
 const feedback = ref('helpful');
 const note = ref('');
-const noteOpen = ref(false);
+const panelOpen = ref(false);
 const busy = ref(false);
 const error = ref('');
 const complete = ref(false);
+const savedNote = ref('');
 const conversation = ref<any>(null);
+const journeyId = ref('');
 
-const messageCount = computed(() => conversation.value?.messages?.length ?? 0);
-const startedLabel = computed(() => {
-  const source = conversation.value?.startsAt;
-  return source ? new Date(source).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '刚刚';
-});
+/** The reader's own journey, so the timeline row leads somewhere they actually have. */
+async function loadJourney() {
+  try {
+    const response = await api.get<{ items: Array<{ journey?: { id?: string }; id?: string }> }>('/api/v1/journeys');
+    const first = response.items?.[0];
+    journeyId.value = String(first?.journey?.id ?? first?.id ?? '');
+  } catch {
+    journeyId.value = '';
+  }
+}
 
 async function loadConversation() {
   try {
@@ -28,6 +35,11 @@ async function loadConversation() {
   } catch {
     conversation.value = null;
   }
+}
+
+function goJourney() {
+  if (journeyId.value) router.push(`/pages/journey/detail?id=${encodeURIComponent(journeyId.value)}`);
+  else router.push('/pages/me/index');
 }
 
 async function save(shareLater: boolean) {
@@ -41,6 +53,10 @@ async function save(shareLater: boolean) {
       shareLater,
     });
     complete.value = true;
+    savedNote.value = note.value.trim();
+    // The design's single forward action is "回到我的旅程"; saving is not a reason to strand the
+    // reader on an end screen.
+    goJourney();
   } catch (cause: any) {
     error.value = cause?.message ?? '这份感受暂时没有保存成功';
   } finally {
@@ -48,109 +64,129 @@ async function save(shareLater: boolean) {
   }
 }
 
-onMounted(loadConversation);
+onMounted(() => {
+  loadConversation();
+  loadJourney();
+});
 </script>
 
 <template>
-  <section class="goodnight-page peer-graduation-page">
-    <header class="peer-header">
-      <div class="header-titles">
-        <h1 class="peer-title">同行结束</h1>
-        <p class="peer-subtitle">感谢遵守匿名边界，这段同行已告一段落</p>
-      </div>
+  <section class="peer-graduation-page">
+    <header class="end-bar">
+      <button
+        class="back-btn"
+        data-testid="peer-graduate-back"
+        type="button"
+        aria-label="返回同路"
+        @click="router.push('/pages/peers/index')"
+      >
+        ‹
+      </button>
+      <h1>交流结束</h1>
+      <span aria-hidden="true"></span>
     </header>
 
-    <section v-if="conversation" class="stats-strip" aria-label="同行数据总结">
-      <div class="stat-unit">
-        <span class="stat-num">{{ messageCount }}</span>
-        <span class="stat-label">交流消息</span>
-      </div>
-      <div class="stat-sep" aria-hidden="true"></div>
-      <div class="stat-unit">
-        <span class="stat-num">72h</span>
-        <span class="stat-label">时间边界</span>
-      </div>
-      <div class="stat-sep" aria-hidden="true"></div>
-      <div class="stat-unit">
-        <span class="stat-num">{{ startedLabel }}</span>
-        <span class="stat-label">开启时间</span>
-      </div>
-    </section>
+    <div class="end-body">
+      <section class="end-hero" aria-label="交流已结束">
+        <span class="end-check" aria-hidden="true">✓</span>
+        <h2>这次交流已结束</h2>
+        <p>你们分享过的经历仍会按约定保留。</p>
+      </section>
 
-    <section class="feedback-panel">
-      <div class="preview-box">
-        <span class="preview-badge">同行总结</span>
-        <h2 class="preview-title">刚走过的一段路</h2>
-        <p class="preview-desc">按自己的节奏走，也是一种前进。留下反馈可帮助我们持续改进匿名同行机制。</p>
-      </div>
+      <section class="records" aria-label="留给自己的记录">
+        <h3 class="records-title">留给自己的记录</h3>
 
-      <div class="feelings-group" aria-label="这段同行的感受">
-        <span class="field-label">本次交流的体验</span>
-        <div class="feelings-row">
-          <button
-            v-for="option in [
-              { value: 'helpful', label: '有帮助' },
-              { value: 'unchanged', label: '没有变化' },
-              { value: 'uncomfortable', label: '有点不适' },
-            ]"
-            :key="option.value"
-            type="button"
-            :class="['btn-feeling', { selected: feedback === option.value }]"
-            @click="feedback = option.value"
-          >
-            {{ option.label }}
-          </button>
+        <button
+          class="record-row"
+          data-testid="peer-graduate-note"
+          type="button"
+          :aria-expanded="panelOpen"
+          @click="panelOpen = !panelOpen"
+        >
+          <span class="record-copy">
+            <strong>这段交流中有用的一句话</strong>
+            <small>{{ savedNote || '来自已结束的匿名会话' }}</small>
+          </span>
+          <span class="record-chevron" aria-hidden="true">›</span>
+        </button>
+
+        <div v-if="panelOpen" class="record-panel">
+          <span class="panel-label">这次交流的体验</span>
+          <div class="feelings-row" role="group" aria-label="这次交流的体验">
+            <button
+              v-for="option in [
+                { value: 'helpful', label: '有帮助' },
+                { value: 'unchanged', label: '没有变化' },
+                { value: 'uncomfortable', label: '有点不适' },
+              ]"
+              :key="option.value"
+              type="button"
+              :class="['btn-feeling', { selected: feedback === option.value }]"
+              :data-testid="`peer-graduate-feeling-${option.value}`"
+              @click="feedback = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <label class="note-field">
+            <span>想留下的一句话（可选）</span>
+            <textarea
+              v-model="note"
+              maxlength="500"
+              data-testid="peer-graduate-note-input"
+              placeholder="只会在你明确选择匿名分享后，作为后来的一部分。"
+            ></textarea>
+          </label>
+          <p v-if="complete" class="saved-note" role="status">已保存本次反馈。</p>
         </div>
-      </div>
 
-      <button
-        class="note-toggle"
-        type="button"
-        :aria-expanded="noteOpen"
-        @click="noteOpen = !noteOpen"
-      >
-        {{ noteOpen ? '收起留言' : '留下一句话（可选）' }}
-      </button>
+        <button
+          class="record-row"
+          data-testid="peer-graduate-timeline"
+          type="button"
+          @click="goJourney"
+        >
+          <span class="record-copy">
+            <strong>查看旅程时间线</strong>
+            <small>{{ journeyId ? '回到自己的进展' : '回到我的页面' }}</small>
+          </span>
+          <span class="record-chevron" aria-hidden="true">›</span>
+        </button>
+      </section>
 
-      <label v-if="noteOpen" class="note-field">
-        <span>想留下的一句话</span>
-        <textarea
-          v-model="note"
-          maxlength="500"
-          placeholder="只会在你明确选择匿名分享后，作为后来的一部分。"
-        />
-      </label>
+      <p class="end-note">没有必要为了继续联系而保持这段会话。</p>
 
-      <p v-if="complete" class="success-note">已保存本次反馈。感谢你认真走过这一程。</p>
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="loadConversation" />
 
-      <div class="action-stack">
+      <div class="end-actions">
         <button
           class="btn-primary"
-          :disabled="busy || complete"
+          data-testid="peer-graduate-save"
           type="button"
-          @click="save(true)"
-        >
-          {{ busy ? '正在保存…' : '愿意匿名分享' }}
-        </button>
-        <button
-          class="btn-secondary"
           :disabled="busy || complete"
-          type="button"
           @click="save(false)"
         >
-          {{ complete ? '已完成' : '以后再说' }}
+          {{ busy ? '正在保存…' : '保存并回到我的旅程' }}
         </button>
         <button
           class="btn-text"
+          data-testid="peer-graduate-share"
           type="button"
-          @click="router.push('/pages/peers/index')"
+          :disabled="busy || complete"
+          @click="save(true)"
+        >
+          愿意匿名分享
+        </button>
+        <button
+          class="btn-text muted"
+          data-testid="peer-graduate-skip"
+          type="button"
+          @click="goJourney"
         >
           先不分享
         </button>
       </div>
-    </section>
-
-    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="loadConversation" />
+    </div>
   </section>
 </template>
 
@@ -158,126 +194,171 @@ onMounted(loadConversation);
 .peer-graduation-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
+  min-height: 100%;
   overflow-x: hidden;
-  padding: 12px 16px calc(112px + env(safe-area-inset-bottom));
-  background: var(--gn-bg);
+  background: var(--gn-paper);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
 }
 
-.peer-header {
-  padding: 8px 4px 4px;
+/* This route has no tab bar, but the shell reserves 88px for one. */
+:global(.phone-shell:has(.peer-graduation-page)) {
+  padding-bottom: 0;
 }
 
-.peer-title {
+.end-bar {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+}
+
+.end-bar h1 {
   margin: 0;
+  color: var(--gn-ink);
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 24px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gn-ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.end-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.end-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 52px 8px 36px;
+  text-align: center;
+}
+
+/* A single check, not confetti: the prompt forbids turning the end into a medal. */
+.end-check {
+  color: var(--gn-leaf);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.end-hero h2 {
+  margin: 6px 0 0;
+  color: var(--gn-ink);
   font-size: 24px;
   font-weight: 700;
-  line-height: 1.25;
-  color: var(--gn-ink);
+  line-height: 1.3;
 }
 
-.peer-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--gn-muted);
-}
-
-.stats-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding: 12px 8px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-}
-
-.stat-unit {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  flex: 1;
-}
-
-.stat-num {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--gn-ink);
-  line-height: 1.2;
-}
-
-.stat-label {
-  font-size: 11px;
-  color: var(--gn-muted);
-}
-
-.stat-sep {
-  width: 1px;
-  height: 24px;
-  background: var(--gn-line);
-}
-
-.feedback-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-}
-
-.preview-box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-}
-
-.preview-badge {
-  align-self: flex-start;
-  padding: 2px 7px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf-soft);
-  color: var(--gn-leaf-deep);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.preview-title {
+.end-hero p {
   margin: 0;
+  max-width: 300px;
+  color: var(--gn-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.records {
+  display: flex;
+  flex-direction: column;
+}
+
+.records-title {
+  margin: 0 0 4px;
+  color: var(--gn-ink);
   font-size: 16px;
   font-weight: 600;
-  color: var(--gn-ink);
+  line-height: 1.4;
 }
 
-.preview-desc {
-  margin: 0;
-  font-size: 13px;
-  color: var(--gn-muted);
-  line-height: 1.5;
+.record-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--gn-line);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
 }
 
-.feelings-group {
+.record-copy {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  min-width: 0;
 }
 
-.field-label {
-  font-size: 12px;
-  font-weight: 600;
+.record-copy strong {
   color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.record-copy small {
+  overflow: hidden;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-chevron {
+  flex: none;
+  color: #b6bcc4;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.record-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.panel-label {
+  color: var(--gn-muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .feelings-row {
@@ -288,10 +369,12 @@ onMounted(loadConversation);
 .btn-feeling {
   flex: 1;
   min-height: 36px;
+  padding: 0 8px;
   border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
+  border-radius: 8px;
+  background: var(--gn-paper);
   color: var(--gn-ink-soft);
+  font-family: var(--gn-font-body);
   font-size: 13px;
   cursor: pointer;
 }
@@ -303,65 +386,63 @@ onMounted(loadConversation);
   font-weight: 600;
 }
 
-.note-toggle {
-  align-self: flex-start;
-  border: 0;
-  background: transparent;
-  color: var(--gn-leaf-deep);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 0;
-  text-decoration: underline;
-}
-
 .note-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  color: var(--gn-muted);
   font-size: 12px;
-  color: var(--gn-ink);
 }
 
 .note-field textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 64px;
-  resize: none;
+  min-height: 76px;
+  padding: 10px 12px;
   border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  padding: 8px 10px;
-  font-family: inherit;
-  font-size: 13px;
+  border-radius: 8px;
+  background: var(--gn-bg);
   color: var(--gn-ink);
+  font-family: var(--gn-font-body);
+  font-size: 13px;
   line-height: 1.5;
+  resize: vertical;
 }
 
-.success-note {
+.saved-note {
   margin: 0;
-  padding: 8px 12px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf-soft);
   color: var(--gn-leaf-deep);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
 }
 
-.action-stack {
+.end-note {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #f2f4f6;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.end-actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: auto;
+  padding-top: 28px;
 }
 
 .btn-primary {
-  min-height: 42px;
+  width: 100%;
+  min-height: 48px;
   border: 0;
-  border-radius: var(--gn-radius-card);
+  border-radius: 8px;
   background: var(--gn-leaf);
   color: #ffffff;
-  font-size: 14px;
-  font-weight: 500;
+  font-family: var(--gn-font-body);
+  font-size: 16px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -369,27 +450,20 @@ onMounted(loadConversation);
   opacity: 0.6;
 }
 
-.btn-secondary {
-  min-height: 38px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  color: var(--gn-ink-soft);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-secondary:disabled {
-  opacity: 0.6;
-}
-
 .btn-text {
-  min-height: 32px;
+  width: 100%;
+  min-height: 40px;
   border: 0;
-  background: transparent;
-  color: var(--gn-muted);
-  font-size: 12px;
+  background: none;
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-body);
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 }
 
+.btn-text.muted {
+  color: var(--gn-muted);
+  font-weight: 400;
+}
 </style>

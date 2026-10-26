@@ -2328,36 +2328,27 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
-   * Keeps the still-legacy projections (`Post.favoriteCount`, `Letter.favorite`) equal to what the
-   * favourite table now says. The flush still writes those two models, so leaving the in-memory
-   * copies stale would let the next flush overwrite the database with the old number.
+   * Keeps the still-legacy in-memory projections (`Post.favoriteCount`, `Letter.favorite`) equal to
+   * what the favourite table now says, only while those models are still flush-owned. Once `Post` or
+   * `Letter` is registered in `DIRECT_DB_MODELS`, `FavoritePersistenceService` updates the column
+   * atomically inside the same transaction as the favourite write, and re-writing it here in two
+   * steps (`countsForPosts` then `setFavoriteCount`) would introduce a lost-update race.
    */
   private async syncFavoriteProjections(
     targetType: StoreData['favorites'][number]['targetType'],
     targetId: string,
-    userId?: string,
+    _userId?: string,
   ) {
     if (targetType === 'post') {
+      if (DIRECT_DB_MODELS.Post) return;
       const counts = await this.favoritesDb.countsForPosts([targetId]);
       const favouriteCount = counts.get(targetId) ?? 0;
-      // The table is the record. The in-memory copy only has to agree while Post is still
-      // flush-owned; once it is registered there is no copy to keep.
-      await this.postsDb.setFavoriteCount(targetId, favouriteCount);
-      if (!DIRECT_DB_MODELS.Post) {
-        const post = this.posts.find((item) => item.id === targetId);
-        if (post) post.favoriteCount = favouriteCount;
-      }
+      const post = this.posts.find((item) => item.id === targetId);
+      if (post) post.favoriteCount = favouriteCount;
       return;
     }
     if (targetType === 'letter') {
-      if (DIRECT_DB_MODELS.Letter) {
-        // The flag is per user, so the projection needs to know whose flag moved. Every caller has
-        // that: the favourite it just wrote carries the user id.
-        if (!userId) return;
-        const isFavorite = await this.favoritesDb.isFavorite(userId, 'letter', targetId);
-        await this.lettersDb.setFavorite(targetId, userId, isFavorite);
-        return;
-      }
+      if (DIRECT_DB_MODELS.Letter) return;
       const letters = this.letters.filter((item) => item.id === targetId);
       for (const letter of letters) {
         letter.favorite = await this.favoritesDb.isFavorite(letter.userId, 'letter', letter.id);
@@ -2408,7 +2399,10 @@ export class StoreService implements OnModuleInit {
    * being decorated: the legacy array scan simply stopped finding it, and the registered path
    * reproduces that by reading only ready rows owned by the ticket's author.
    */
-  async decorateFeedbackTicket(ticket: FeedbackTicket) {
+  // Structural rather than the in-memory `FeedbackTicket`: the operator read path passes a Prisma
+  // row, whose `screenshots` is JSON and whose `createdAt` is a Date. Only these two fields are
+  // read here, so requiring the whole legacy shape would force every caller to re-map it.
+  async decorateFeedbackTicket<T extends { userId: string; screenshots: unknown }>(ticket: T) {
     const ids = this.storedFeedbackScreenshotIds(ticket.screenshots);
     const screenshots = DIRECT_DB_MODELS.MediaAsset
       ? (await this.mediaAssetsDb.readyByIds(ids))

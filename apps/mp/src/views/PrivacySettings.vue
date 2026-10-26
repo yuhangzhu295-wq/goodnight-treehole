@@ -155,7 +155,7 @@ async function deleteMyData() {
   try {
     await api.delete('/api/v1/me/data');
     deleteConfirm.value = false;
-    message.value = '你的日记、回信和收藏记录已经从服务端删除。';
+    message.value = '你的日记、回信和收藏记录已经从服务端删除。已导出的副本仍在你的设备上。';
     await load();
   } catch (error: any) {
     message.value = error?.message ?? '删除数据失败，请稍后重试。';
@@ -555,7 +555,7 @@ onMounted(load);
     >
       <div class="dialog-box">
         <h2 id="privacy-delete-title" class="dialog-title">确认删除我的数据？</h2>
-        <p class="dialog-desc">这会从服务端删除你的日记、回信和收藏记录，无法恢复。</p>
+        <p class="dialog-desc">这会从服务端删除你的日记、回信和收藏记录，无法恢复。已经导出或分享出去的副本不会被删除。</p>
         <div class="dialog-actions">
           <button
             class="dialog-btn dialog-cancel"

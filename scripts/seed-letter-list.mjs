@@ -53,9 +53,10 @@ const prisma = new PrismaClient({ datasources: { db: { url: DEV_DATABASE_URL } }
 try {
   // Re-runs replace the previous fixture rows, so the grouping assertions stay deterministic. The
   // marker lives in the content, not the title: the title is what the page shows a person.
-  await prisma.letter.deleteMany({ where: { userId, content: { contains: 'UI清单' } } });
-  // A favourite row points at a letter id, and the Favourite table has no foreign key to Letter, so
-  // deleting a fixture letter would leave an unopenable favourite behind. Remove those rows first.
+  //
+  // Read the ids first. A favourite row points at a letter id and the Favourite table has no foreign
+  // key to Letter, so deleting the letters first would leave unopenable favourites behind and the
+  // cleanup query would already have nothing to find.
   const previous = await prisma.letter.findMany({
     where: { userId, content: { contains: 'UI清单' } },
     select: { id: true },
@@ -65,6 +66,7 @@ try {
       where: { userId, targetType: 'letter', targetId: { in: previous.map((row) => row.id) } },
     });
   }
+  await prisma.letter.deleteMany({ where: { userId, content: { contains: 'UI清单' } } });
 
   // Local calendar midnights, not millisecond offsets: a run at 00:30 would otherwise place the
   // "today" letter in yesterday's group, and a DST change would shift the date boundaries.

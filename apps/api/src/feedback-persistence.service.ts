@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { FeedbackStatus } from '@prisma/client';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 
 /**
@@ -356,6 +357,114 @@ export class FeedbackPersistenceService {
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: { category: true },
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // FeedbackTicket — operator reads and writes
+  // ------------------------------------------------------------------
+
+  /**
+   * Every ticket, newest first, for the operator console.
+   *
+   * The console used to filter the in-memory array. That array only ever held tickets this process
+   * had written through the legacy flush, so a ticket created by the C-end route - the only route
+   * the app uses - was invisible to the operator who had to answer it. Reading the table is the
+   * only complete view, and it is also the only one that survives a restart.
+   *
+   * `q` keeps the old semantics: a case-insensitive substring over the id, content, source page and
+   * category id. The table is small, so the substring runs in this process after the indexed
+   * status filter rather than as a `contains` on four columns.
+   */
+  async listTicketsForAdmin(filter: { q?: string; status?: string } = {}) {
+    const status = filter.status && filter.status !== 'all' ? (filter.status as FeedbackStatus) : undefined;
+    const rows = await this.prisma.feedbackTicket.findMany({
+      where: status ? { status } : undefined,
+      orderBy: { createdAt: 'desc' },
+      include: { category: true },
+    });
+    const needle = filter.q?.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((ticket) =>
+      [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
+        String(value).toLowerCase().includes(needle),
+      ),
+    );
+  }
+
+  async findTicketForAdmin(id: string) {
+    const row = await this.prisma.feedbackTicket.findUnique({ where: { id }, include: { category: true } });
+    if (!row) throw new NotFoundException('反馈工单不存在');
+    return row;
+  }
+
+  /**
+   * Record the operator's reply and move an untouched ticket to `processing`.
+   *
+   * The read and the write share one transaction so a concurrent status change cannot be silently
+   * overwritten, and the caller gets both rows back so the audit entry describes what actually
+   * changed instead of a guess made before the write.
+   */
+  async replyToTicketAsAdmin(id: string, value: unknown, adminId: string) {
+    const reply = typeof value === 'string' ? value.trim() : '';
+    if (!reply) throw new BadRequestException('回复内容不能为空');
+    if (reply.length > 1000) throw new BadRequestException('回复内容不能超过 1000 字');
+
+    return await this.prisma.$transaction(async (tx) => {
+      const before = await tx.feedbackTicket.findUnique({ where: { id }, include: { category: true } });
+      if (!before) throw new NotFoundException('反馈工单不存在');
+      if (before.status === 'closed') throw new BadRequestException('已关闭的工单不能再回复');
+      const after = await tx.feedbackTicket.update({
+        where: { id },
+        data: {
+          reply,
+          repliedBy: adminId,
+          repliedAt: new Date(),
+          // A reply is work in progress, not proof that the issue has been solved.
+          status: before.status === 'open' ? 'processing' : before.status,
+        },
+        include: { category: true },
+      });
+      return { before, after };
+    });
+  }
+
+  /**
+   * Apply the console's status transition to the row.
+   *
+   * `changed: false` means the requested status already held; the caller then skips the audit entry
+   * rather than recording a no-op as an operator action.
+   */
+  async updateTicketStatusAsAdmin(id: string, value: unknown, _adminId: string) {
+    const status = typeof value === 'string' ? value : '';
+    const allowed: FeedbackStatus[] = ['open', 'processing', 'resolved', 'closed'];
+    if (!allowed.includes(status as FeedbackStatus)) throw new BadRequestException('反馈工单状态不合法');
+    const nextStatus = status as FeedbackStatus;
+
+    return await this.prisma.$transaction(async (tx) => {
+      const before = await tx.feedbackTicket.findUnique({ where: { id }, include: { category: true } });
+      if (!before) throw new NotFoundException('反馈工单不存在');
+      if (before.status === nextStatus) return { before, after: before, changed: false };
+
+      const transitions: Record<FeedbackStatus, FeedbackStatus[]> = {
+        open: ['processing', 'closed'],
+        processing: ['resolved', 'closed'],
+        resolved: ['processing', 'closed'],
+        closed: [],
+      };
+      if (!transitions[before.status].includes(nextStatus)) {
+        throw new BadRequestException('当前工单不能切换到该状态');
+      }
+      if (nextStatus === 'resolved' && !before.reply?.trim()) {
+        throw new BadRequestException('请先回复用户，再将工单标记为已解决');
+      }
+
+      const after = await tx.feedbackTicket.update({
+        where: { id },
+        data: { status: nextStatus },
+        include: { category: true },
+      });
+      return { before, after, changed: true };
     });
   }
 }

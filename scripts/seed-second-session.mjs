@@ -54,6 +54,29 @@ if (!profile.ok) {
 }
 const userId = (await profile.json()).item.id;
 
+// The suite clicks the only revoke button on the page and then asserts that no revoke button is
+// left. Repeated app installs on this device leave one live session each, so the identity can
+// accumulate several; the fixture normalises it back to the current device plus one seeded session
+// through the product's own revoke endpoint rather than writing revokedAt behind the service's back.
+const sessions = await fetch(`${API_BASE}/api/v1/auth/sessions`, {
+  headers: { 'x-goodnight-user-id': credential },
+});
+if (!sessions.ok) {
+  console.error(`session list failed: HTTP ${sessions.status}`);
+  process.exit(3);
+}
+for (const item of (await sessions.json()).items ?? []) {
+  if (item.current) continue;
+  const revoked = await fetch(`${API_BASE}/api/v1/auth/sessions/${item.id}/revoke`, {
+    method: 'POST',
+    headers: { 'x-goodnight-user-id': credential },
+  });
+  if (!revoked.ok) {
+    console.error(`could not revoke stale session ${item.id}: HTTP ${revoked.status}`);
+    process.exit(3);
+  }
+}
+
 const prisma = new PrismaClient({ datasources: { db: { url: DEV_DATABASE_URL } } });
 try {
   // A previous run that failed before revoking would otherwise leave several revoke buttons on the
@@ -62,8 +85,8 @@ try {
     where: { userId, deviceLabel: '第二会话（验证撤销）', revokedAt: null },
     data: { revokedAt: new Date(), revokedReason: 'fixture_reset' },
   });
-  // The control suite clicks the only revoke button on the page. If a real second session exists,
-  // refusing here is safer than revoking an account's actual credential.
+  // If a session the endpoint does not consider current is still live, refusing is safer than
+  // revoking a credential the page never showed.
   const active = await prisma.anonymousSession.count({
     where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
   });
