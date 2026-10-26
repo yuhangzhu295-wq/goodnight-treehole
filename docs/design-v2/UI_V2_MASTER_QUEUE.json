@@ -261,29 +261,27 @@
       "prompt": "逐页提示词/07*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
+      "reviewer": "visual: PASS (2026-10-23); independent code review: not yet run on this branch",
       "screenshot": "artifacts/ui-v2/android/R2_PeerRequests_after.png",
-      "issue": "",
       "gitCommit": "",
       "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
+      "interactionTested": "yes",
       "businessVerified": "no",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
-      "note": "Reached through its own PEER_REQUEST notification, with a live pending request. 我愿意聊聊 moves it into the 待确认边界的同行 panel and then into the boundary-confirmation page, so the accept -> consent -> waiting chain is verified end to end.",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
-        "result": "peer-requests 4/5",
+        "result": "peer-requests 5/5 (2026-10-26, stable VM; the earlier 4/5 was the VM restart mid-suite)",
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T22:28:00.270Z",
-        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
+        "recordedAt": "2026-10-26T14:20:00.000Z",
+        "head": "0b38f4b"
       },
-      "nextAction": "re-check the remaining axes"
+      "nextAction": "independent code review"
     },
     {
       "id": "UI-V2-08",
@@ -864,7 +862,7 @@
       "codeReviewApproved": "yes",
       "done": "yes",
       "evidence": {
-        "result": "tool-decompose controls 10/10",
+        "result": "tool-decompose controls 10/10 (re-run 2026-10-26 after the sticky-dock fix)",
         "visualReview": "PASS (final-gate)",
         "codeReview": "APPROVE",
         "states": [
@@ -872,7 +870,7 @@
           "artifacts/ui-v2/r2/tool-decompose-list.png",
           "artifacts/ui-v2/r2/tool-decompose-safety.png"
         ],
-        "head": "23fa3ff96687aeca293d865fef2743fa02807e95"
+        "head": "0b38f4b"
       },
       "nextAction": "none"
     },
@@ -885,28 +883,27 @@
       "prompt": "逐页提示词/28*",
       "implementation": "",
       "tests": "",
-      "reviewer": "final-gate agent (read the images), 2026-10-20; verdict PASS",
+      "reviewer": "visual: PASS; independent code review: not yet run on this branch",
       "screenshot": "artifacts/ui-v2/android/R4_ToolRun_capture.png",
-      "issue": "",
       "gitCommit": "",
       "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
-      "interactionTested": "no",
+      "interactionTested": "yes",
       "businessVerified": "no",
       "visualApproved": "yes",
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
         "script": "scripts/run-control-suites.mjs",
-        "result": "tool-run 6/7",
+        "result": "tool-run 7/7 (2026-10-26, provider healthy; the earlier 6/7 was the AI provider degraded)",
         "screenshot": null,
         "visualVerdict": "PASS",
         "codeReview": "not run on this branch",
-        "recordedAt": "2026-10-23T22:28:00.270Z",
-        "head": "d50df68253b6df03b0db8ae46811b3326e38b841"
+        "recordedAt": "2026-10-26T14:20:00.000Z",
+        "head": "0b38f4b"
       },
-      "nextAction": "re-check the remaining axes"
+      "nextAction": "independent code review"
     },
     {
       "id": "UI-V2-29",
@@ -1243,7 +1240,7 @@
       "tests": "",
       "reviewer": "visual: self-reviewed after the P1/P2 fixes (search field now permanent with its icon, search bar full-width, no duplicate clear control, entry visible); independent visual re-review and code review not yet run",
       "screenshot": "artifacts/ui-v2/r2/help-faqs-v1.png",
-      "gitCommit": "611eda7",
+      "gitCommit": "0b38f4b",
       "status": "WAITING_REVIEW",
       "implemented": "yes",
       "rendered": "yes",
@@ -1253,15 +1250,15 @@
       "codeReviewApproved": "no",
       "done": "no",
       "evidence": {
-        "result": "help-faqs controls 5/5",
-        "visualReview": "self-reviewed, fixes applied",
+        "result": "help-faqs controls 5/5 (re-run 2026-10-26 with the permanent search field)",
+        "visualReview": "self-reviewed after fixes; independent re-review outstanding",
         "codeReview": "not run",
         "states": [
           "artifacts/ui-v2/r2/help-faqs-v1.png",
           "artifacts/ui-v2/r2/help-faqs-search.png",
           "artifacts/ui-v2/r2/help-faqs-open.png"
         ],
-        "head": "611eda7"
+        "head": "0b38f4b"
       },
       "nextAction": "independent visual re-review and code review"
     }
