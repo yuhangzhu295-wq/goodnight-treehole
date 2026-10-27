@@ -33,6 +33,7 @@ onMounted(async () => {
 });
 
 async function stayHere() {
+  if (busy.value) return;
   if (!journeyId.value) {
     await router.push('/pages/tonight/index');
     return;
@@ -40,8 +41,8 @@ async function stayHere() {
   busy.value = true;
   error.value = '';
   try {
-    await api.post(`/api/v1/journeys/${journeyId.value}/safety/acknowledge`, {});
-    await router.push(`/pages/journey/detail?id=${journeyId.value}&mode=stabilize`);
+    await api.post(`/api/v1/journeys/${encodeURIComponent(journeyId.value)}/safety/acknowledge`, {});
+    await router.push(`/pages/journey/detail?id=${encodeURIComponent(journeyId.value)}&mode=stabilize`);
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '当前安全状态没有保存';
   } finally {
@@ -65,7 +66,7 @@ const steps = [
 <template>
   <section class="goodnight-page safety-v2" data-testid="safety-support">
     <header class="safety-header">
-      <button aria-label="返回" @click="router.back()"><AppIcon name="back" /></button>
+      <button class="back-btn" data-testid="safety-back" type="button" aria-label="返回" @click="router.back()">‹</button>
       <h1>安全支持</h1>
     </header>
 
@@ -120,16 +121,16 @@ const steps = [
       <button
         data-testid="safety-handoff"
         type="button"
-        @click="router.push(`/pages/reality-handoff/index${journeyId ? `?journeyId=${journeyId}` : ''}`)"
+        @click="router.push(`/pages/reality-handoff/index${journeyId ? `?journeyId=${encodeURIComponent(journeyId)}` : ''}`)"
       >
         <span class="action-icon"><AppIcon name="message" /></span>
         <div><strong>发求助卡给信任的人</strong><small>让他们知道你现在需要支持</small></div>
-        <AppIcon name="arrow" :size="19" />
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
       <button data-testid="safety-stay" type="button" :disabled="busy" @click="stayHere">
         <span class="action-icon"><AppIcon name="leaf" /></span>
         <div><strong>我暂时安全，继续留在这里</strong><small>先做一轮稳定支持，再慢慢看接下来的事</small></div>
-        <AppIcon name="arrow" :size="19" />
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
     </section>
 
@@ -334,6 +335,24 @@ const steps = [
   border-top: 1px solid var(--gn-divider, #e8ebef);
 }
 
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 28px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-ink, #242a32);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .support-actions button {
   display: flex;
   align-items: center;
@@ -342,10 +361,17 @@ const steps = [
   min-height: 64px;
   padding: 12px 0;
   border: 0;
+  border-radius: 0;
   border-bottom: 1px solid var(--gn-divider, #e8ebef);
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.row-chevron {
+  color: #b6bcc4;
+  font-size: 20px;
+  flex-shrink: 0;
 }
 
 .support-actions button:disabled {

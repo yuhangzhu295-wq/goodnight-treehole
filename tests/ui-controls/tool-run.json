@@ -1,35 +1,38 @@
 [
   {
     "selector": "front-tool-run-back",
-    "expect": {}
+    "expect": { "urlChanged": true }
   },
   {
     "selector": "input-tool-run",
     "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
-    "expect": {}
+    "expect": { "present": "[data-testid=\"tool-run-result-card\"]" }
   },
   {
     "selector": "btn-tool-run-submit",
-    "expect": {}
+    "expect": { "present": "[data-testid=\"btn-tool-run-submit\"]" }
   },
   {
     "selector": "tool-run-result-card",
     "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
-    "expect": {}
+    "expect": { "present": ".tool-result-text" }
   },
   {
     "selector": "btn-tool-run-copy",
     "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
-    "expect": {}
+    "settleMs": 600,
+    "expect": { "present": "[data-testid=\"btn-tool-run-copy\"]" }
   },
   {
     "selector": "btn-tool-run-save",
     "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
-    "expect": {}
+    "settleMs": 800,
+    "expect": { "present": "[data-testid=\"btn-tool-run-save\"]", "text": "已保存到日记" }
   },
   {
     "selector": "btn-tool-run-close",
     "prefill": { "fill": { "selector": "input-tool-run", "value": "今天把工具页从功能展板改成了列表，屏幕上终于能看见工具名字了。" }, "click": "btn-tool-run-submit", "waitFor": "tool-run-result-card", "timeoutMs": 120000 },
-    "expect": {}
+    "settleMs": 400,
+    "expect": { "present": ".empty-result-box" }
   }
 ]

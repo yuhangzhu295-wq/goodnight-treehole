@@ -264,7 +264,7 @@ onMounted(() => {
       >
     </header>
 
-    <div v-if="activeTab !== 'journey'" class="archive-tabs" role="tablist" aria-label="内容分类">
+    <div v-show="activeTab !== 'journey'" class="archive-tabs" role="tablist" aria-label="内容分类">
       <button
         v-for="tab in tabs"
         :key="tab.key"
