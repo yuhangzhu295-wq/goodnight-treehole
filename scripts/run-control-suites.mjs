@@ -45,6 +45,8 @@ const SUITES = [
   { name: 'reality-handoff', route: '/pages/reality-handoff/index', cases: 'reality-handoff.json', runner: 'controls' },
   { name: 'memory-center', route: '/pages/memory/index', cases: 'memory-center.json', runner: 'controls' },
   { name: 'notifications', route: '/pages/notifications/index', cases: 'notifications.json', runner: 'controls' },
+  { name: 'recovery', route: '/pages/recovery/index', cases: 'recovery.json', runner: 'controls' },
+  { name: 'support-plan', route: '/pages/support-plan/index', cases: 'support-plan.json', runner: 'controls' },
   { name: 'square-effects', route: '/pages/square/index', cases: 'square-effects.json', runner: 'effects' },
   { name: 'tool-run', route: '/pages/tool/run', cases: 'tool-run.json', runner: 'controls' },
   { name: 'tool-index', route: '/pages/tool/index', cases: 'tool-index.json', runner: 'controls' },
@@ -123,6 +125,10 @@ if (!skipFixtures) {
 // The fixture refuses rather than guesses, and that refusal stops the run.
 if (selected.some((suite) => suite.name === 'me-profile')) {
   runFixture('session', 'seed-second-session.mjs', [], { required: true });
+}
+
+if (selected.some((suite) => suite.name === 'recovery')) {
+  runFixture('recovery-privacy', 'seed-recovery-privacy.mjs', [], { required: false });
 }
 
 // The inbox suite asserts today/date/更早 groups and both read states, so it needs its own rows;

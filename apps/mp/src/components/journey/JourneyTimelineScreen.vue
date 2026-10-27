@@ -126,21 +126,21 @@ const date = (value: string) => {
           <strong>查看当前行动</strong>
           <small>可以完成的一小步</small>
         </span>
-        <AppIcon name="arrow" :size="17" />
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
       <button v-if="!writingLater" class="next-row" type="button" :disabled="busy" @click="writingLater = true">
         <span class="next-copy">
           <strong>写下后来呢</strong>
           <small>留下这一步带来的变化</small>
         </span>
-        <AppIcon name="arrow" :size="17" />
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
       <button class="next-row" type="button" :disabled="busy" @click="emit('change-support')">
         <span class="next-copy">
           <strong>换一种支持</strong>
           <small>重新选择现在最需要的方式</small>
         </span>
-        <AppIcon name="arrow" :size="17" />
+        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
     </section>
   </section>
@@ -363,5 +363,11 @@ const date = (value: string) => {
 .next-copy small {
   font-size: 12px;
   color: var(--gn-subtext, #757d87);
+}
+
+.row-chevron {
+  color: #b6bcc4;
+  font-size: 20px;
+  flex-shrink: 0;
 }
 </style>

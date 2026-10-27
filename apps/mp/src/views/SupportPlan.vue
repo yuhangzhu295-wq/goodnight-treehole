@@ -151,7 +151,7 @@ onMounted(load);
 <template>
   <section class="goodnight-page support-plan-page">
     <header class="support-header">
-      <button class="back-btn" type="button" aria-label="返回" @click="router.back()">‹</button>
+      <button class="back-btn" data-testid="support-plan-back" type="button" aria-label="返回" @click="router.back()">‹</button>
       <h1 class="support-title">低谷预案</h1>
     </header>
     <p class="plan-note">这份预案只在你需要时使用。紧急危险请先联系现实救助。</p>
@@ -293,7 +293,7 @@ onMounted(load);
   flex-direction: column;
   gap: 12px;
   overflow-x: hidden;
-  padding: 8px 16px calc(var(--gn-tabbar-reserve) + 78px + env(safe-area-inset-bottom));
+  padding: 8px 16px calc(80px + env(safe-area-inset-bottom));
   background: var(--gn-bg);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
@@ -572,11 +572,15 @@ onMounted(load);
   font-size: 11px;
 }
 
+:global(.phone-shell:has(.support-plan-page)) {
+  padding-bottom: 0;
+}
+
 .save-plan {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  bottom: calc(16px + env(safe-area-inset-bottom));
   z-index: 20;
   display: block;
   width: auto;

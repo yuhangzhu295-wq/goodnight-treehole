@@ -162,7 +162,7 @@ onMounted(load);
 <template>
   <section class="goodnight-page recovery-page">
     <header class="recovery-bar">
-      <button class="back-btn" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
+      <button class="back-btn" data-testid="recovery-back" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
       <h1 class="recovery-bar-title">生活恢复</h1>
     </header>
     <section v-if="privacyBlocked" class="privacy-gate" data-testid="recovery-privacy-gate">
@@ -754,6 +754,10 @@ onMounted(load);
   color: var(--gn-muted);
 }
 
+:global(.phone-shell:has(.recovery-page)) {
+  padding-bottom: 0;
+}
+
 .history-list {
   display: grid;
 }
@@ -764,10 +768,7 @@ onMounted(load);
   justify-content: space-between;
   gap: 10px;
   padding: 14px 0;
-}
-
-.history-row + .history-row {
-  border-top: 1px solid var(--gn-line);
+  border-bottom: 1px solid var(--gn-line);
 }
 
 .history-copy {
@@ -798,24 +799,25 @@ onMounted(load);
 .recovery-cta {
   position: fixed;
   right: 0;
-  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  bottom: env(safe-area-inset-bottom);
   left: 0;
   padding: 12px 16px;
   border-top: 1px solid var(--gn-line);
   background: var(--gn-bg);
+  z-index: 20;
 }
 
 /* The design's primary action spans the bar. */
 .recovery-cta .recovery-save {
   width: 100%;
-  min-height: 46px;
+  min-height: 48px;
   border: 0;
-  border-radius: var(--gn-radius-small, 8px);
-  background: var(--gn-leaf);
+  border-radius: 12px;
+  background: #275f56;
   color: #ffffff;
   font: inherit;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -825,6 +827,6 @@ onMounted(load);
 }
 
 .recovery-page {
-  padding-bottom: calc(var(--gn-tabbar-reserve) + 110px + env(safe-area-inset-bottom));
+  padding-bottom: calc(88px + env(safe-area-inset-bottom));
 }
 </style>

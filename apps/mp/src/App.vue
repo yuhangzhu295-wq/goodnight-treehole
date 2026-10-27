@@ -15,7 +15,6 @@ const tabbarPaths = new Set([
   '/pages/peer/conversation',
   '/pages/peer/graduate',
   '/pages/action/index',
-  '/pages/support-plan/index',
   '/pages/future-self/index',
   '/pages/me/index',
   '/pages/diary/index',
@@ -30,8 +29,6 @@ const tabbarPaths = new Set([
   '/pages/settings/privacy',
   '/pages/help/feedback',
   '/pages/feedback/index',
-  '/pages/journey/detail',
-  '/pages/recovery/index',
 ]);
 /**
  * The tab bar hides while the soft keyboard is open.

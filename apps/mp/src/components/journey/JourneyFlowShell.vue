@@ -21,11 +21,15 @@ const emit = defineEmits<{ back: [] }>();
 </template>
 
 <style scoped>
+:global(.phone-shell:has(.journey-flow-page)) {
+  padding-bottom: 0;
+}
+
 .journey-flow-page {
   box-sizing: border-box;
   width: 100%;
   min-height: 100vh;
-  padding: 0 16px calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  padding: 0 16px calc(24px + env(safe-area-inset-bottom));
   background: var(--gn-bg, #ffffff);
   color: var(--gn-text, #242a32);
   font-family: var(--gn-font-body);
