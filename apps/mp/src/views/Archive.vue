@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
 import AppIcon from '../components/icons/AppIcon.vue';
 import LoadErrorBanner from '../components/LoadErrorBanner.vue';
@@ -8,9 +8,11 @@ import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 type ArchiveTab = 'diary' | 'post' | 'letter' | 'journey';
 type TimeScope = 'all' | 'week' | 'month';
 
+const route = useRoute();
 const router = useRouter();
 const activeTab = ref<ArchiveTab>('diary');
 const scope = ref<TimeScope>('all');
+const journeyDomain = ref<string>('all');
 /** Text filter for the loaded rows. It filters what is already here - there is no server search. */
 const query = ref('');
 const diaries = ref<any[]>([]);
@@ -46,7 +48,12 @@ const filteredDiaries = computed(() => diaries.value.filter((item) => isInScope(
 const filteredPosts = computed(() => posts.value.filter((item) => isInScope(item) && matchesQuery([item.content, item.text, item.emotion])));
 const filteredLetters = computed(() => letters.value.filter((item) => isInScope(item) && matchesQuery([item.title, item.content])));
 const filteredJourneys = computed(() =>
-  journeys.value.filter((item) => isInScope(item.journey) && matchesQuery([item.journey?.title, ...(Array.isArray(item.happened) ? item.happened : [])])),
+  journeys.value.filter(
+    (item) =>
+      (journeyDomain.value === 'all' || item.journey?.domain === journeyDomain.value) &&
+      isInScope(item.journey) &&
+      matchesQuery([item.journey?.title, ...(Array.isArray(item.happened) ? item.happened : [])]),
+  ),
 );
 
 /** Case-insensitive "contains" over the fields a row actually shows. Empty query matches everything. */
@@ -234,7 +241,10 @@ async function deleteJourney() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  if (route.query.tab === 'journey') activeTab.value = 'journey';
+  load();
+});
 </script>
 
 <template>
@@ -243,7 +253,7 @@ onMounted(load);
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <h1 class="archive-bar-title">归档</h1>
+      <h1 class="archive-bar-title">{{ activeTab === 'journey' ? '旅程归档' : '归档' }}</h1>
       <input
         v-model="query"
         class="archive-search"
@@ -254,7 +264,7 @@ onMounted(load);
       >
     </header>
 
-    <div class="archive-tabs" role="tablist" aria-label="内容分类">
+    <div v-if="activeTab !== 'journey'" class="archive-tabs" role="tablist" aria-label="内容分类">
       <button
         v-for="tab in tabs"
         :key="tab.key"
@@ -278,7 +288,19 @@ onMounted(load);
       </button>
     </div>
 
-    <div class="archive-scopes" aria-label="时间范围">
+    <div v-if="activeTab === 'journey'" class="archive-scopes" aria-label="领域范围">
+      <button
+        v-for="item in ([['all', '全部'], ['关系', '关系'], ['工作', '工作'], ['生活', '生活']] as const)"
+        :key="item[0]"
+        :data-testid="`archive-domain-${item[0]}`"
+        :class="{ active: journeyDomain === item[0] }"
+        type="button"
+        @click="journeyDomain = item[0]"
+      >
+        {{ item[1] }}
+      </button>
+    </div>
+    <div v-else class="archive-scopes" aria-label="时间范围">
       <button v-for="item in ([['all', '全部'], ['week', '本周'], ['month', '本月']] as const)" :key="item[0]" :data-testid="`archive-scope-${item[0]}`" :class="{ active: scope === item[0] }" @click="scope = item[0]">{{ item[1] }}</button>
       <button class="archive-filter" data-testid="archive-filter-reset" aria-label="重置时间筛选" @click="scope = 'all'">▽</button>
     </div>
@@ -377,7 +399,8 @@ onMounted(load);
 </template>
 
 <style scoped>
-.archive-page { display: block; box-sizing: border-box; width: 100%; max-width: 100%; overflow-x: hidden; min-height: 100vh; padding: 0 16px calc(var(--gn-tabbar-reserve) + 24px + env(safe-area-inset-bottom)); background: var(--gn-bg); color: var(--gn-ink); font-family: var(--gn-font-body); }
+:global(.phone-shell:has(.archive-page)) { padding-bottom: 0; }
+.archive-page { display: block; box-sizing: border-box; width: 100%; max-width: 100%; overflow-x: hidden; min-height: 100vh; padding: 0 16px calc(24px + env(safe-area-inset-bottom)); background: var(--gn-bg); color: var(--gn-ink); font-family: var(--gn-font-body); }
 .archive-page * { box-sizing: border-box; }
 
 /* The V2 bar: a bare chevron and the page title, closed by a full-bleed hairline. */

@@ -23,7 +23,6 @@ const tabbarPaths = new Set([
   '/pages/report/month',
   '/pages/me/month-report',
   '/pages/letter/list',
-  '/pages/archive/index',
   '/pages/favorite/index',
   '/pages/favorite/list',
   '/pages/settings/privacy',
