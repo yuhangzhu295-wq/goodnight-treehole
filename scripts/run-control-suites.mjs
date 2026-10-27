@@ -118,7 +118,6 @@ if (!skipFixtures) {
   // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
   letterFixture = runFixture('letter', 'reset-letter.mjs', [], { required: false, blockedExitCodes: [3] });
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
-  runFixture('memory', 'seed-memory-for-review.mjs', []);
 }
 
 // This one is not optional even under `--no-fixtures`: the profile suite's revoke case is
@@ -130,6 +129,18 @@ if (selected.some((suite) => suite.name === 'me-profile')) {
 
 if (selected.some((suite) => suite.name === 'recovery')) {
   runFixture('recovery-privacy', 'seed-recovery-privacy.mjs', [], { required: false });
+}
+
+if (selected.some((suite) => suite.name === 'memory-center')) {
+  runFixture('memory', 'seed-memory-for-review.mjs', [], { required: false });
+}
+
+if (selected.some((suite) => suite.name === 'notifications')) {
+  runFixture('notifications', 'seed-notifications-for-review.mjs', [], { required: false });
+}
+
+if (selected.some((suite) => suite.name === 'journey-detail')) {
+  runFixture('journey', 'seed-journey-for-review.mjs', [], { required: false });
 }
 
 // The inbox suite asserts today/date/更早 groups and both read states, so it needs its own rows;
