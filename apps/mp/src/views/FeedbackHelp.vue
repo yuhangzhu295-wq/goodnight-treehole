@@ -19,6 +19,10 @@ const openedFaq = ref('');
 const support = ref(false);
 const loading = ref(true);
 const loadError = ref('');
+const faqLoading = ref(true);
+const faqError = ref('');
+const ticketLoading = ref(true);
+const ticketError = ref('');
 const formMessage = ref('');
 // The same paragraph carries both outcomes; without a flag every failure was rendered in the success
 // colour, which told the reader the opposite of what had happened.
@@ -27,6 +31,7 @@ const submitting = ref(false);
 const uploadingSlot = ref<number | null>(null);
 const removingSlot = ref<number | null>(null);
 const pendingSlot = ref(0);
+let ticketSeq = 0;
 // Assets that were replaced but whose delete request failed. They are no longer referenced by this
 // form, so they are invisible on screen; keeping their ids lets the reader retry the cleanup instead
 // of leaving an orphan on the server with no way to reach it.
@@ -37,24 +42,38 @@ const characterCount = computed(() => content.value.length);
 const attachmentCount = computed(() => assets.value.filter(Boolean).length);
 const assetIds = computed(() => assets.value.flatMap((asset) => asset ? [asset.id] : []));
 
+async function loadFaqs() {
+  faqLoading.value = true;
+  faqError.value = '';
+  try {
+    const res = await api.get<any>('/api/v1/feedback/faqs');
+    faqs.value = res.items ?? [];
+  } catch (err: any) {
+    faqError.value = err?.message ?? '常见问题加载失败，请稍后重试。';
+  } finally {
+    faqLoading.value = false;
+  }
+}
+
 async function load() {
   loading.value = true;
   loadError.value = '';
+  // Categories are the primary dependency for rendering the form; fetch them first so the form unlocks quickly.
   try {
-    const [faqResponse, categoryResponse, ticketResponse] = await Promise.all([
-      api.get<any>('/api/v1/feedback/faqs'),
-      api.get<any>('/api/v1/feedback/categories'),
-      api.get<any>('/api/v1/feedback'),
-    ]);
-    faqs.value = faqResponse.items ?? [];
+    const categoryResponse = await api.get<any>('/api/v1/feedback/categories');
     cats.value = categoryResponse.items ?? [];
-    tickets.value = ticketResponse.items ?? [];
-    if (!cats.value.some((category) => category.id === categoryId.value)) categoryId.value = cats.value[0]?.id ?? '';
+    if (!cats.value.some((category) => category.id === categoryId.value)) {
+      categoryId.value = cats.value[0]?.id ?? '';
+    }
   } catch (error: any) {
-    loadError.value = error?.message ?? '帮助内容加载失败，请稍后重试。';
+    loadError.value = error?.message ?? '反馈分类加载失败，请稍后重试。';
   } finally {
     loading.value = false;
   }
+
+  // FAQs and ticket history load independently with explicit error tracking.
+  void loadFaqs();
+  void refreshTickets();
 }
 
 function statusLabel(status?: string) {
@@ -66,7 +85,7 @@ function formatTime(value?: string) {
 }
 
 function chooseUploadSlot(slot: number) {
-  if (uploadingSlot.value !== null || removingSlot.value !== null) return;
+  if (uploadingSlot.value !== null || removingSlot.value !== null || submitting.value) return;
   pendingSlot.value = slot;
   fileInput.value?.click();
 }
@@ -75,7 +94,7 @@ async function chooseFile(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
-  if (!file || uploadingSlot.value !== null) return;
+  if (!file || uploadingSlot.value !== null || submitting.value) return;
 
   const slot = pendingSlot.value;
   uploadingSlot.value = slot;
@@ -106,7 +125,7 @@ async function chooseFile(event: Event) {
 
 async function removeAsset(slot: number) {
   const asset = assets.value[slot];
-  if (!asset || removingSlot.value !== null) return;
+  if (!asset || removingSlot.value !== null || submitting.value) return;
   removingSlot.value = slot;
   formMessage.value = '';
   formError.value = false;
@@ -179,15 +198,16 @@ async function submit() {
       await refreshTickets();
       return;
     }
-    content.value = '';
-    contact.value = '';
+    const submittedContent = text;
+    const submittedContact = note;
+    if (content.value.trim() === submittedContent) content.value = '';
+    if (contact.value.trim() === submittedContact) contact.value = '';
     assets.value = [null, null];
-    orphanAssets.value = [];
     formMessage.value = `反馈已提交，工单号 ${ticketId}。`;
     formError.value = false;
-    // A failure to reload the history is not a failure to submit. Keeping the two apart stops the
-    // success message from turning into "提交失败" and inviting a duplicate ticket.
-    await refreshTickets();
+    // A failure to reload the history is not a failure to submit, and a slow history read must not
+    // keep the form locked. Fire it in the background so the form unlocks as soon as the POST succeeds.
+    void refreshTickets();
   } catch (error: any) {
     formMessage.value = error?.message ?? '提交失败，请确认网络后重试。';
     formError.value = true;
@@ -197,11 +217,22 @@ async function submit() {
 }
 
 async function refreshTickets() {
+  const seq = ++ticketSeq;
+  ticketLoading.value = true;
+  ticketError.value = '';
   try {
     const ticketResponse = await api.get<any>('/api/v1/feedback');
-    tickets.value = ticketResponse.items ?? [];
-  } catch {
-    // The submit result is already known; the history can be reloaded by reopening the page.
+    if (seq === ticketSeq) {
+      tickets.value = ticketResponse.items ?? [];
+    }
+  } catch (err: any) {
+    if (seq === ticketSeq) {
+      ticketError.value = err?.message ?? '反馈记录加载失败，请稍后重试。';
+    }
+  } finally {
+    if (seq === ticketSeq) {
+      ticketLoading.value = false;
+    }
   }
 }
 
@@ -271,6 +302,7 @@ onMounted(load);
               class="form-textarea"
               maxlength="500"
               rows="4"
+              :disabled="submitting"
               placeholder="在哪个页面遇到了问题？当时点了什么？"
             ></textarea>
           </div>
@@ -303,7 +335,7 @@ onMounted(load);
                     class="upload-remove-btn"
                     type="button"
                     :aria-label="`删除截图 ${slot}`"
-                    :disabled="removingSlot === slot - 1"
+                    :disabled="removingSlot === slot - 1 || submitting"
                     @click="removeAsset(slot - 1)"
                   >
                     {{ removingSlot === slot - 1 ? '…' : '×' }}
@@ -314,7 +346,7 @@ onMounted(load);
                   class="upload-add-btn"
                   :data-testid="slot === 1 ? 'btn-feedback-upload' : 'btn-feedback-upload-2'"
                   type="button"
-                  :disabled="uploadingSlot !== null"
+                  :disabled="uploadingSlot !== null || submitting"
                   @click="chooseUploadSlot(slot - 1)"
                 >
                   <span class="upload-plus" aria-hidden="true">+</span>
@@ -345,6 +377,7 @@ onMounted(load);
               class="form-input"
               type="text"
               maxlength="120"
+              :disabled="submitting"
               placeholder="希望我们如何回复你（如功能支持）"
             />
             <p class="field-note">不要填写他人的真实身份或敏感联系方式。提交后以服务器返回状态为准。</p>
@@ -376,7 +409,12 @@ onMounted(load);
             查看全部 ›
           </button>
         </div>
-        <div v-if="visibleFaqs.length" class="group-surface">
+        <p v-if="faqLoading" class="status-msg info">正在读取常见问题…</p>
+        <p v-else-if="faqError" class="status-msg error" role="status">
+          {{ faqError }}
+          <button class="inline-retry" type="button" @click="loadFaqs">重试</button>
+        </p>
+        <div v-else-if="visibleFaqs.length" class="group-surface">
           <article
             v-for="(faq, index) in visibleFaqs"
             :key="faq.id"
@@ -425,7 +463,12 @@ onMounted(load);
       <!-- Section 4: Ticket History -->
       <section class="group-section" data-testid="feedback-ticket-history" aria-label="我的反馈记录">
         <div class="section-label">我的反馈 ({{ tickets.length }})</div>
-        <div v-if="tickets.length" class="group-surface">
+        <p v-if="ticketLoading" class="status-msg info">正在读取反馈记录…</p>
+        <p v-else-if="ticketError" class="status-msg error" role="status">
+          {{ ticketError }}
+          <button class="inline-retry" type="button" @click="refreshTickets">重试</button>
+        </p>
+        <div v-else-if="tickets.length" class="group-surface">
           <article
             v-for="ticket in tickets"
             :key="ticket.id"

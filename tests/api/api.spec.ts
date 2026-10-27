@@ -159,6 +159,55 @@ describe('api contracts', () => {
   });
 
   /**
+   * UI-V2-37: `DELETE /api/v1/me/data` must delete private moods so they cannot be re-projected
+   * onto the diary list, and must clean up server-side export files.
+   */
+  it('clearData completely cleans up private moods and server export downloads', async () => {
+    const server = app.getHttpServer();
+    const issued = await request(server).post('/api/v1/auth/anonymous').send({ deviceLabel: 'api spec clearData' }).expect(201);
+    const user = { 'x-goodnight-user-id': issued.body.item.credential as string };
+
+    // 1. Upload an image and create a private mood with that attachment (projects as a diary)
+    const upload = await request(server)
+      .post('/api/v1/media/upload')
+      .set(user)
+      .attach('file', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), 'test.png')
+      .field('usageType', 'mood')
+      .expect(201);
+    const assetId = upload.body.item.id as string;
+    const assetUrl = upload.body.item.url as string;
+
+    await request(server)
+      .post('/api/v1/moods')
+      .set(user)
+      .send({ content: '私密心情待删除', emotion: '工作', visibility: 'PRIVATE', assetIds: [assetId] })
+      .expect(201);
+
+    // 2. Export diaries (creates server-side export file)
+    await request(server).patch('/api/v1/settings/privacy').set(user).send({ allowDataExport: true }).expect(200);
+    const exported = await request(server).post('/api/v1/diaries/export').set(user).expect(201);
+    const downloadUrl = exported.body.item.downloadUrl as string;
+    expect(downloadUrl).toBeTruthy();
+
+    // Verify diary list shows the projected private mood and export file can be read
+    const diariesBefore = await request(server).get('/api/v1/diaries').set(user).expect(200);
+    expect(diariesBefore.body.items.some((d: any) => d.content === '私密心情待删除')).toBe(true);
+    await request(server).get(downloadUrl).set(user).expect(200);
+    await request(server).get(assetUrl).expect(200);
+
+    // 3. Clear data
+    await request(server).delete('/api/v1/me/data').set(user).expect(200);
+
+    // 4. Verify private mood is gone and diary list is completely empty
+    const diariesAfter = await request(server).get('/api/v1/diaries').set(user).expect(200);
+    expect(diariesAfter.body.items).toHaveLength(0);
+
+    // 5. Verify server export download and deleted attachment file return 404
+    await request(server).get(downloadUrl).set(user).expect(404);
+    await request(server).get(assetUrl).expect(404);
+  });
+
+  /**
    * UI-V2-29: the profile editor and the session list are the two real actions behind the page.
    * These assertions are the contract the page is allowed to rely on - the nickname must survive a
    * fresh read from the database, and a session revocation must actually cut that credential off.

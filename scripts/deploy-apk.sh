@@ -27,6 +27,7 @@ fi
 echo "[deploy] reinstalling"
 MSYS_NO_PATHCONV=1 "$ADB" uninstall com.goodnight.treehole >/dev/null 2>&1 || true
 MSYS_NO_PATHCONV=1 "$ADB" install "$APK" >/dev/null
+MSYS_NO_PATHCONV=1 "$ADB" shell pm enable com.goodnight.treehole >/dev/null 2>&1 || true
 
 if MSYS_NO_PATHCONV=1 "$ADB" shell cmd package resolve-activity --brief com.goodnight.treehole 2>/dev/null | grep -q MainActivity; then
   echo "[deploy] launcher resolves"

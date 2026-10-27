@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -2563,21 +2564,53 @@ export class StoreService implements OnModuleInit {
   }
 
   async createDiaryExport(userId: string) {
-    await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
-    const generatedAt = now();
-    const diaryRows = DIRECT_DB_MODELS.Diary ? await this.diariesDb.listForUser(userId) : this.diaries;
-    const diaries = (
-      await Promise.all(
-        diaryRows.map(async (item: any) => ({
-          ...item,
-          attachmentIds:
-            item.attachmentIds ??
-            (item.moodId && DIRECT_DB_MODELS.Mood
-              ? await this.moodsDb.attachmentIdsFor(item.moodId)
-              : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [])),
-        })),
-      )
-    );
+    return await this.withUserDataLock(userId, async () => {
+      await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
+      const generatedAt = now();
+      const diaryRows = DIRECT_DB_MODELS.Diary ? await this.diariesDb.listForUser(userId) : this.diaries;
+      const linkedMoodIds = new Set(diaryRows.map((item: any) => item.moodId).filter((id): id is string => Boolean(id)));
+      const moodRows = DIRECT_DB_MODELS.Mood ? await this.moodsDb.listForUser(userId) : this.moods;
+      const letterByMoodId = DIRECT_DB_MODELS.Letter
+        ? await this.lettersDb.latestBySourceMoods(
+            (moodRows as Array<{ id: string }>).map((item) => item.id),
+            userId,
+          )
+        : new Map<string, { generationStatus?: string; id?: string } | null>();
+      const projectedMoods = (moodRows as any[])
+        .filter((item) => item.userId === userId && item.visibility === 'PRIVATE' && item.status === 'active' && !linkedMoodIds.has(item.id))
+        .map((mood) => {
+          const letter = DIRECT_DB_MODELS.Letter
+            ? letterByMoodId.get(mood.id)
+            : this.letters.find((item) => item.userId === userId && item.sourceMoodId === mood.id);
+          const hasLetter = Boolean(
+            letter && (!letter.generationStatus || ['succeeded', 'fallback'].includes(letter.generationStatus)),
+          );
+          return {
+            id: mood.id,
+            userId: mood.userId,
+            moodId: mood.id,
+            letterId: hasLetter ? letter?.id : undefined,
+            hasLetter,
+            source: 'private-mood-projection',
+            content: mood.content,
+            emotion: mood.emotion,
+            createdAt: mood.createdAt,
+            attachmentIds: mood.attachmentIds,
+          };
+        });
+      const allEntries = [...diaryRows, ...projectedMoods];
+      const diaries = (
+        await Promise.all(
+          allEntries.map(async (item: any) => ({
+            ...item,
+            attachmentIds:
+              item.attachmentIds ??
+              (item.moodId && DIRECT_DB_MODELS.Mood
+                ? await this.moodsDb.attachmentIdsFor(item.moodId)
+                : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [])),
+          })),
+        )
+      );
     // `attachmentIds` are ids, not rows. Mapping over them as if they were `MediaAsset` objects
     // produced an attachments array of all-undefined fields whenever a diary actually had
     // attachments, so the exported file could not describe the images it was exporting.
@@ -2657,66 +2690,69 @@ export class StoreService implements OnModuleInit {
       throw error;
     }
 
-    return {
-      count: diaries.length,
-      generatedAt,
-      downloadUrl: asset.url,
-      asset: { ...asset, filename: diaryExportFilename(generatedAt) },
-    };
+        return {
+          count: diaries.length,
+          generatedAt,
+          downloadUrl: asset.url,
+          asset: { ...asset, filename: diaryExportFilename(generatedAt) },
+        };
+      });
   }
 
   async createJourneyArchiveExport(journeyId: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
-    const archive = await this.journeyArchiveDetail(journeyId, userId);
-    const generatedAt = now();
-    const assetId = id('export');
-    const storageKey = `journey-archive-export-${journeyId}-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
-    const target = path.join(uploadsDirectory, storageKey);
-    const asset: MediaAsset = {
-      id: assetId,
-      userId,
-      storageKey,
-      url: `/api/v1/exports/${assetId}/download`,
-      mimeType: 'application/json; charset=utf-8',
-      size: 0,
-      width: 0,
-      height: 0,
-      usageType: 'journey-archive-export',
-      status: 'ready',
-      createdAt: generatedAt,
-    };
-    const document = {
-      format: 'goodnight-treehole-journey-archive-export/v1',
-      generatedAt,
-      archive,
-    };
-    const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
-    asset.size = contents.length;
-    fs.mkdirSync(uploadsDirectory, { recursive: true });
-    fs.writeFileSync(target, contents);
-    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
-    else this.assets.unshift(asset);
-    this.persist();
-    try {
-      await this.flush();
-    } catch (error) {
-      // The row was written before the flush failed, so undoing the export means removing it from the
-      // table as well: leaving it would keep a URL that points at a file the next line deletes.
-      if (DIRECT_DB_MODELS.MediaAsset) {
-        await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
-      } else {
-        this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+    return await this.withUserDataLock(userId, async () => {
+      await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
+      const archive = await this.journeyArchiveDetail(journeyId, userId);
+      const generatedAt = now();
+      const assetId = id('export');
+      const storageKey = `journey-archive-export-${journeyId}-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
+      const target = path.join(uploadsDirectory, storageKey);
+      const asset: MediaAsset = {
+        id: assetId,
+        userId,
+        storageKey,
+        url: `/api/v1/exports/${assetId}/download`,
+        mimeType: 'application/json; charset=utf-8',
+        size: 0,
+        width: 0,
+        height: 0,
+        usageType: 'journey-archive-export',
+        status: 'ready',
+        createdAt: generatedAt,
+      };
+      const document = {
+        format: 'goodnight-treehole-journey-archive-export/v1',
+        generatedAt,
+        archive,
+      };
+      const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+      asset.size = contents.length;
+      fs.mkdirSync(uploadsDirectory, { recursive: true });
+      fs.writeFileSync(target, contents);
+      if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+      else this.assets.unshift(asset);
+      this.persist();
+      try {
+        await this.flush();
+      } catch (error) {
+        // The row was written before the flush failed, so undoing the export means removing it from the
+        // table as well: leaving it would keep a URL that points at a file the next line deletes.
+        if (DIRECT_DB_MODELS.MediaAsset) {
+          await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+        } else {
+          this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+        }
+        if (fs.existsSync(target)) fs.unlinkSync(target);
+        throw error;
       }
-      if (fs.existsSync(target)) fs.unlinkSync(target);
-      throw error;
-    }
 
-    return {
-      generatedAt,
-      downloadUrl: asset.url,
-      asset: { ...asset, filename: journeyArchiveExportFilename(generatedAt) },
-    };
+      return {
+        generatedAt,
+        downloadUrl: asset.url,
+        asset: { ...asset, filename: journeyArchiveExportFilename(generatedAt) },
+      };
+    });
   }
 
   async getDiaryExportDownload(assetId: string, userId: string) {
@@ -2768,6 +2804,121 @@ export class StoreService implements OnModuleInit {
           ? userExportFilename(asset.createdAt)
           : diaryExportFilename(asset.createdAt);
     return { asset, filePath: target, filename };
+  }
+
+  private readonly inMemoryUserDataLocks = new Set<string>();
+
+  async withUserDataLock<T>(userId: string, action: () => Promise<T>): Promise<T> {
+    const deadline = Date.now() + 10_000;
+    while (this.inMemoryUserDataLocks.has(userId)) {
+      if (Date.now() > deadline) throw new ConflictException('数据正在导出或清理中，请稍后再试');
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    this.inMemoryUserDataLocks.add(userId);
+
+    try {
+      const lockKey = crypto.createHash('md5').update(`user_data_lock:${userId}`).digest().readInt32BE(0);
+      if (typeof this.prisma?.$transaction === 'function') {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+            return await action();
+          },
+          { timeout: 30_000 },
+        );
+      }
+      return await action();
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (typeof this.prisma?.$transaction !== 'function') {
+        return await action();
+      }
+      throw error;
+    } finally {
+      this.inMemoryUserDataLocks.delete(userId);
+    }
+  }
+
+  /**
+   * Cleans up all user-owned derivative files and unattached media assets when `clearData` is called.
+   *
+   * Covers:
+   *   - diary-export & journey-archive-export files
+   *   - letter-poster & monthly-report-poster files (which contain letter/report text)
+   *   - orphaned mood and diary attachments that are no longer referenced by any remaining row
+   *
+   * By querying the MediaAsset table by userId directly, this is idempotent and succeeds even if
+   * clearData is retried after a previous partial failure.
+   */
+  async cleanupUserMediaAndExports(userId: string) {
+    const cleanableTypes = [
+      'diary-export',
+      'journey-archive-export',
+      'letter-poster',
+      'monthly-report-poster',
+      'mood',
+      'diary',
+    ];
+
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const candidates = await this.prisma.mediaAsset.findMany({
+        where: { userId, status: 'ready', usageType: { in: cleanableTypes } },
+      });
+      for (const asset of candidates) {
+        let inUse = false;
+        if (asset.usageType === 'mood' || asset.usageType === 'diary') {
+          const [attachedToMood, attachedToDiary, inTicket] = await Promise.all([
+            this.mediaAssetsDb.isAttachedToAnyRow(asset.id),
+            DIRECT_DB_MODELS.Diary
+              ? this.diariesDb.isAttachedToAnyRow(asset.id)
+              : this.diaries.some((d: any) => (d.attachmentIds ?? []).includes(asset.id)),
+            DIRECT_DB_MODELS.FeedbackTicket
+              ? this.feedbackPersistence.isScreenshotReferencedByAnyTicket(asset.id)
+              : this.feedbackTickets.some((t) => this.storedFeedbackScreenshotIds(t.screenshots).includes(asset.id)),
+          ]);
+          inUse = attachedToMood || attachedToDiary || inTicket;
+        }
+        if (!inUse) {
+          const target = path.resolve(uploadsDirectory, asset.storageKey);
+          if (fs.existsSync(target)) {
+            fs.unlinkSync(target);
+          }
+          await this.mediaAssetsDb.markDeleted(asset.id);
+        }
+      }
+      return;
+    }
+
+    const memoryExports = this.assets.filter(
+      (asset) => asset.userId === userId && asset.status === 'ready' && cleanableTypes.includes(asset.usageType),
+    );
+    for (const asset of memoryExports) {
+      let inUse = false;
+      if (asset.usageType === 'mood' || asset.usageType === 'diary') {
+        const inMood = this.moods.some((m) => (m.attachmentIds ?? []).includes(asset.id));
+        const inDiary = this.diaries.some((d: any) => (d.attachmentIds ?? []).includes(asset.id));
+        const inTicket = this.feedbackTickets.some((t) => this.storedFeedbackScreenshotIds(t.screenshots).includes(asset.id));
+        inUse = inMood || inDiary || inTicket;
+      }
+      if (!inUse) {
+        const target = path.resolve(uploadsDirectory, asset.storageKey);
+        if (fs.existsSync(target)) {
+          fs.unlinkSync(target);
+        }
+        asset.status = 'deleted';
+      }
+    }
+    this.data.assets = this.data.assets.filter((a) => a.status !== 'deleted');
+  }
+
+  async deletePrivateMoodsForUser(userId: string): Promise<string[]> {
+    if (DIRECT_DB_MODELS.Mood) {
+      return await this.moodsDb.deletePrivateForUser(userId);
+    }
+    const privateMoods = this.moods.filter((item) => item.userId === userId && item.visibility === 'PRIVATE');
+    const assetIds = privateMoods.flatMap((m) => m.attachmentIds ?? []);
+    this.data.moods = this.data.moods.filter((item) => !(item.userId === userId && item.visibility === 'PRIVATE'));
+    return assetIds;
   }
 
   /**
@@ -2872,59 +3023,63 @@ export class StoreService implements OnModuleInit {
   }
 
   async createLetterPoster(letter: Letter): Promise<MediaAsset> {
-    const assetId = id('media');
-    const storageKey = `poster_${letter.id}_${Date.now()}.svg`;
-    const title = escapeSvgText(letter.title || '给现在的你');
-    const content = escapeSvgText(letter.content || '愿你今晚被温柔接住。').slice(0, 420);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#fff8eb"/><circle cx="920" cy="150" r="190" fill="#e5f2d3"/><path d="M0 1180 Q240 1030 460 1190 T1080 1160 V1440 H0Z" fill="#d8ead4"/><text x="100" y="210" font-family="sans-serif" font-size="42" fill="#76916f">晚安树洞 · 今日回信</text><text x="100" y="340" font-family="sans-serif" font-weight="700" font-size="66" fill="#4a5a48">${title}</text><foreignObject x="100" y="440" width="880" height="720"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:38px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${content}</div></foreignObject><text x="100" y="1300" font-family="sans-serif" font-size="34" fill="#76916f">把此刻轻轻收好</text></svg>`;
-    const buffer = Buffer.from(svg, 'utf8');
-    fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
-    const asset: MediaAsset = {
-      id: assetId,
-      userId: letter.userId,
-      storageKey,
-      url: `/uploads/${storageKey}`,
-      mimeType: 'image/svg+xml',
-      size: buffer.length,
-      width: 1080,
-      height: 1440,
-      usageType: 'letter-poster',
-      status: 'ready',
-      createdAt: now(),
-    };
-    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
-    else this.assets.unshift(asset);
-    this.persist();
-    await this.flush();
-    return asset;
+    return await this.withUserDataLock(letter.userId, async () => {
+      const assetId = id('media');
+      const storageKey = `poster_${letter.userId}_${letter.id}_${assetId}.svg`;
+      const title = escapeSvgText(letter.title || '给现在的你');
+      const content = escapeSvgText(letter.content || '愿你今晚被温柔接住。').slice(0, 420);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#fff8eb"/><circle cx="920" cy="150" r="190" fill="#e5f2d3"/><path d="M0 1180 Q240 1030 460 1190 T1080 1160 V1440 H0Z" fill="#d8ead4"/><text x="100" y="210" font-family="sans-serif" font-size="42" fill="#76916f">晚安树洞 · 今日回信</text><text x="100" y="340" font-family="sans-serif" font-weight="700" font-size="66" fill="#4a5a48">${title}</text><foreignObject x="100" y="440" width="880" height="720"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:38px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${content}</div></foreignObject><text x="100" y="1300" font-family="sans-serif" font-size="34" fill="#76916f">把此刻轻轻收好</text></svg>`;
+      const buffer = Buffer.from(svg, 'utf8');
+      fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
+      const asset: MediaAsset = {
+        id: assetId,
+        userId: letter.userId,
+        storageKey,
+        url: `/uploads/${storageKey}`,
+        mimeType: 'image/svg+xml',
+        size: buffer.length,
+        width: 1080,
+        height: 1440,
+        usageType: 'letter-poster',
+        status: 'ready',
+        createdAt: now(),
+      };
+      if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+      else this.assets.unshift(asset);
+      this.persist();
+      await this.flush();
+      return asset;
+    });
   }
 
   async createMonthlyReportPoster(userId: string, month: string, summary: string): Promise<MediaAsset> {
-    const assetId = id('media');
-    const storageKey = `report_${month.replace(/[^0-9-]/g, '')}_${Date.now()}.svg`;
-    const safeMonth = escapeSvgText(month);
-    const safeSummary = escapeSvgText(summary || '本月的情绪记录正在汇总中。').slice(0, 420);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#f6fbf1"/><circle cx="160" cy="170" r="170" fill="#fff0c9"/><path d="M0 1240 Q220 1080 490 1220 T1080 1190 V1440 H0Z" fill="#dcebd4"/><text x="100" y="250" font-family="sans-serif" font-size="42" fill="#6f8c72">晚安树洞 · 情绪月报</text><text x="100" y="365" font-family="sans-serif" font-weight="700" font-size="70" fill="#3f5541">${safeMonth}</text><foreignObject x="100" y="470" width="880" height="670"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:40px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${safeSummary}</div></foreignObject><text x="100" y="1310" font-family="sans-serif" font-size="34" fill="#6f8c72">看见情绪，也看见正在努力的自己</text></svg>`;
-    const buffer = Buffer.from(svg, 'utf8');
-    fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
-    const asset: MediaAsset = {
-      id: assetId,
-      userId,
-      storageKey,
-      url: `/uploads/${storageKey}`,
-      mimeType: 'image/svg+xml',
-      size: buffer.length,
-      width: 1080,
-      height: 1440,
-      usageType: 'monthly-report-poster',
-      status: 'ready',
-      createdAt: now(),
-    };
-    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
-    else this.assets.unshift(asset);
-    this.persist();
-    await this.flush();
-    return asset;
+    return await this.withUserDataLock(userId, async () => {
+      const assetId = id('media');
+      const storageKey = `report_${userId}_${month.replace(/[^0-9-]/g, '')}_${assetId}.svg`;
+      const safeMonth = escapeSvgText(month);
+      const safeSummary = escapeSvgText(summary || '本月的情绪记录正在汇总中。').slice(0, 420);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#f6fbf1"/><circle cx="160" cy="170" r="170" fill="#fff0c9"/><path d="M0 1240 Q220 1080 490 1220 T1080 1190 V1440 H0Z" fill="#dcebd4"/><text x="100" y="250" font-family="sans-serif" font-size="42" fill="#6f8c72">晚安树洞 · 情绪月报</text><text x="100" y="365" font-family="sans-serif" font-weight="700" font-size="70" fill="#3f5541">${safeMonth}</text><foreignObject x="100" y="470" width="880" height="670"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:40px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${safeSummary}</div></foreignObject><text x="100" y="1310" font-family="sans-serif" font-size="34" fill="#6f8c72">看见情绪，也看见正在努力的自己</text></svg>`;
+      const buffer = Buffer.from(svg, 'utf8');
+      fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
+      const asset: MediaAsset = {
+        id: assetId,
+        userId,
+        storageKey,
+        url: `/uploads/${storageKey}`,
+        mimeType: 'image/svg+xml',
+        size: buffer.length,
+        width: 1080,
+        height: 1440,
+        usageType: 'monthly-report-poster',
+        status: 'ready',
+        createdAt: now(),
+      };
+      if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+      else this.assets.unshift(asset);
+      this.persist();
+      await this.flush();
+      return asset;
+    });
   }
 
   async deleteMediaAsset(assetId: string, requestedUserId?: string) {
@@ -5753,6 +5908,29 @@ export class StoreService implements OnModuleInit {
     } else {
       messages = this.peerMessages.filter((message) => message.conversationId === conversation.id);
     }
+    // Resolve the viewer's associated journey: starter -> match.journeyId; receiver -> experience.journeyId.
+    let journeyId: string | null = null;
+    if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerExperience) {
+      const match = await this.peerPersistence.getMatchById(conversation.matchId);
+      if (match) {
+        if (conversation.starterUserId === viewerUserId) {
+          journeyId = match.journeyId ?? null;
+        } else if (conversation.receiverUserId === viewerUserId) {
+          const exp = await this.peerPersistence.getExperienceById(match.peerExperienceId);
+          journeyId = exp?.journeyId ?? null;
+        }
+      }
+    } else {
+      const match = this.peerMatches.find((m) => m.id === conversation.matchId);
+      if (match) {
+        if (conversation.starterUserId === viewerUserId) {
+          journeyId = match.journeyId ?? null;
+        } else if (conversation.receiverUserId === viewerUserId) {
+          const exp = this.peerExperiences.find((e) => e.id === match.peerExperienceId);
+          journeyId = exp?.journeyId ?? null;
+        }
+      }
+    }
     return {
       id: conversation.id,
       matchId: conversation.matchId,
@@ -5763,6 +5941,7 @@ export class StoreService implements OnModuleInit {
       createdAt: conversation.createdAt,
       closedAt: conversation.closedAt,
       closedReason: conversation.closedReason,
+      journeyId,
       messages: messages.map((message) => this.peerMessageForUser(message, viewerUserId)),
     };
   }

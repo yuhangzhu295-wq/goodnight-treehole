@@ -36,6 +36,7 @@ const form = reactive({
 });
 /** Once the reader picks a row, a late settings response must not overwrite that choice. */
 const visibilityTouched = ref(false);
+let settingsPromise: Promise<void> | null = null;
 const assets = ref<Array<{ id: string; url: string; preview: string; name: string; uploading: boolean }>>([]);
 const fileInput = ref<HTMLInputElement>();
 const error = ref('');
@@ -109,14 +110,20 @@ function validate() {
 }
 
 async function submit() {
-  // Re-entrancy guard at the entry, not just a disabled attribute: a second tap while the first
-  // request is still in flight used to start a second POST, and the same mood was written twice.
-  // (Verified by the input matrix: two clicks produced two rows.)
+  // Re-entrancy guard at the entry: lock immediately before any async wait so rapid double-taps
+  // cannot both pass the check while settingsPromise is resolving.
   if (submitting.value) return;
-  error.value = validate();
-  if (error.value) return;
   submitting.value = true;
   try {
+    if (settingsPromise && !visibilityTouched.value) {
+      try {
+        await settingsPromise;
+      } catch {
+        // Safe fallback: keep PRIVATE if settings query fails
+      }
+    }
+    error.value = validate();
+    if (error.value) return;
     const res = await api.post<any>('/api/v1/moods', {
       content: form.content.trim(),
       emotion: form.emotion,
@@ -142,14 +149,18 @@ async function submit() {
  * while the policy page said the setting decides it, so the statement was false for anyone who had
  * switched the default to PUBLIC. A failed read keeps the safe PRIVATE default.
  */
-onMounted(async () => {
-  try {
-    const response = await api.get<{ item: { defaultVisibility?: string } }>('/api/v1/settings/privacy');
-    const next = response.item?.defaultVisibility;
-    if (!visibilityTouched.value && (next === 'PUBLIC' || next === 'PRIVATE')) form.visibility = next;
-  } catch {
-    // Keep PRIVATE: an unavailable preference must not silently make a mood public.
-  }
+onMounted(() => {
+  settingsPromise = (async () => {
+    try {
+      const response = await api.get<{ item: { defaultVisibility?: string } }>('/api/v1/settings/privacy');
+      const next = response.item?.defaultVisibility;
+      if (!visibilityTouched.value && (next === 'PUBLIC' || next === 'PRIVATE')) {
+        form.visibility = next;
+      }
+    } catch {
+      // Keep PRIVATE: an unavailable preference must not silently make a mood public.
+    }
+  })();
 });
 </script>
 

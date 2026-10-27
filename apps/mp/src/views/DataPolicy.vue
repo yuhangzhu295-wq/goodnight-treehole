@@ -105,8 +105,8 @@ function openPrivacy() {
       </button>
       <div v-if="openSections.manage" class="policy-body" data-testid="policy-body-manage">
         <p>可在隐私与数据中查看授权和数据管理操作。删除范围和保留规则以实际界面说明为准。</p>
-        <p>“删除我的数据”会从服务端删除日记、回信与收藏记录，此操作不可撤销。</p>
-        <p>已经导出到本机或分享给别人的副本不在这项操作范围内，需要你自行删除。</p>
+        <p>“删除我的数据”会从服务端删除日记、私密心情、回信与收藏记录，并同步清理存放在服务端的导出文件副本，此操作不可撤销。</p>
+        <p>已经下载保存到本机设备或分享给别人的本地副本不在此范围内，需要你自行管理与删除。</p>
         <button class="policy-link" type="button" data-testid="btn-data-policy-open-privacy" @click="openPrivacy">
           前往隐私与数据
         </button>

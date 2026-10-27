@@ -1,0 +1,33 @@
+[
+ {
+  "selector": "front-handoff-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "btn-manage-contacts",
+  "settleMs": 500,
+  "expect": { "present": "[data-testid=\"trusted-contacts-sheet\"]" }
+ },
+ {
+  "selector": "btn-edit-message",
+  "settleMs": 400,
+  "expect": { "present": ".message-textarea" }
+ },
+ {
+  "selector": "handoff-save",
+  "settleMs": 2500,
+  "expect": { "present": "[data-testid=\"handoff-mark-shared\"]", "text": "求助卡已保存" }
+ },
+ {
+  "selector": "handoff-copy",
+  "prefill": { "click": "handoff-save", "waitFor": "handoff-copy" },
+  "settleMs": 1000,
+  "expect": { "text": "已复制到剪贴板" }
+ },
+ {
+  "selector": "handoff-mark-shared",
+  "prefill": { "click": "handoff-save", "waitFor": "handoff-mark-shared" },
+  "settleMs": 2000,
+  "expect": { "text": "已经记下" }
+ }
+]

@@ -11,63 +11,68 @@ const feedback = ref('helpful');
 const note = ref('');
 const panelOpen = ref(false);
 const busy = ref(false);
-const error = ref('');
+const loading = ref(true);
+const loadError = ref('');
+const saveError = ref('');
 const complete = ref(false);
 const savedNote = ref('');
 const conversation = ref<any>(null);
 const journeyId = ref('');
 
-/** The reader's own journey, so the timeline row leads somewhere they actually have. */
-async function loadJourney() {
-  try {
-    const response = await api.get<{ items: Array<{ journey?: { id?: string }; id?: string }> }>('/api/v1/journeys');
-    const first = response.items?.[0];
-    journeyId.value = String(first?.journey?.id ?? first?.id ?? '');
-  } catch {
-    journeyId.value = '';
+async function load() {
+  if (!matchId.value) {
+    loading.value = false;
+    loadError.value = '缺少匹配编号，无法查看交流结束记录。';
+    return;
   }
-}
-
-async function loadConversation() {
+  loading.value = true;
+  loadError.value = '';
   try {
-    const response = await api.get<{ items: any[] }>('/api/v1/peer-conversations');
-    conversation.value = response.items.find((item) => item.matchId === matchId.value) ?? null;
-  } catch {
-    conversation.value = null;
+    const convRes = await api.get<{ items: any[] }>('/api/v1/peer-conversations');
+    const foundConv = (convRes.items ?? []).find((item: any) => item.matchId === matchId.value);
+    if (!foundConv) {
+      loadError.value = '未找到对应的会话记录，该同行可能尚未开启或不存在。';
+      return;
+    }
+    if (foundConv.status === 'active') {
+      await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(matchId.value)}`);
+      return;
+    }
+    conversation.value = foundConv;
+    journeyId.value = foundConv.journeyId ? String(foundConv.journeyId) : '';
+  } catch (cause: any) {
+    loadError.value = cause?.message ?? '会话信息加载失败，请检查网络后重试。';
+  } finally {
+    loading.value = false;
   }
 }
 
 function goJourney() {
   if (journeyId.value) router.push(`/pages/journey/detail?id=${encodeURIComponent(journeyId.value)}`);
-  else router.push('/pages/me/index');
+  else router.push('/pages/peers/index');
 }
 
 async function save(shareLater: boolean) {
   if (!matchId.value) return;
   busy.value = true;
-  error.value = '';
+  saveError.value = '';
   try {
     await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/feedback`, {
       feedback: feedback.value,
-      note: note.value,
+      note: note.value.trim(),
       shareLater,
     });
     complete.value = true;
     savedNote.value = note.value.trim();
-    // The design's single forward action is "回到我的旅程"; saving is not a reason to strand the
-    // reader on an end screen.
     goJourney();
   } catch (cause: any) {
-    error.value = cause?.message ?? '这份感受暂时没有保存成功';
+    saveError.value = cause?.message ?? '这份感受暂时没有保存成功，请重试';
   } finally {
     busy.value = false;
   }
 }
 
-onMounted(() => {
-  loadConversation();
-  loadJourney();
-});
+onMounted(load);
 </script>
 
 <template>
@@ -87,105 +92,111 @@ onMounted(() => {
     </header>
 
     <div class="end-body">
-      <section class="end-hero" aria-label="交流已结束">
-        <span class="end-check" aria-hidden="true">✓</span>
-        <h2>这次交流已结束</h2>
-        <p>你们分享过的经历仍会按约定保留。</p>
-      </section>
+      <p v-if="loading" class="end-state" data-testid="peer-graduate-loading">正在读取交流记录…</p>
+      <LoadErrorBanner v-else-if="loadError" :message="loadError" retry-label="重新加载" @retry="load" />
 
-      <section class="records" aria-label="留给自己的记录">
-        <h3 class="records-title">留给自己的记录</h3>
+      <template v-else-if="conversation">
+        <section class="end-hero" aria-label="交流已结束">
+          <span class="end-check" aria-hidden="true">✓</span>
+          <h2>这次交流已结束</h2>
+          <p>你们分享过的经历仍会按约定保留。</p>
+        </section>
 
-        <button
-          class="record-row"
-          data-testid="peer-graduate-note"
-          type="button"
-          :aria-expanded="panelOpen"
-          @click="panelOpen = !panelOpen"
-        >
-          <span class="record-copy">
-            <strong>这段交流中有用的一句话</strong>
-            <small>{{ savedNote || '来自已结束的匿名会话' }}</small>
-          </span>
-          <span class="record-chevron" aria-hidden="true">›</span>
-        </button>
+        <section class="records" aria-label="留给自己的记录">
+          <h3 class="records-title">留给自己的记录</h3>
 
-        <div v-if="panelOpen" class="record-panel">
-          <span class="panel-label">这次交流的体验</span>
-          <div class="feelings-row" role="group" aria-label="这次交流的体验">
-            <button
-              v-for="option in [
-                { value: 'helpful', label: '有帮助' },
-                { value: 'unchanged', label: '没有变化' },
-                { value: 'uncomfortable', label: '有点不适' },
-              ]"
-              :key="option.value"
-              type="button"
-              :class="['btn-feeling', { selected: feedback === option.value }]"
-              :data-testid="`peer-graduate-feeling-${option.value}`"
-              @click="feedback = option.value"
-            >
-              {{ option.label }}
-            </button>
+          <button
+            class="record-row"
+            data-testid="peer-graduate-note"
+            type="button"
+            :aria-expanded="panelOpen"
+            @click="panelOpen = !panelOpen"
+          >
+            <span class="record-copy">
+              <strong>这段交流中有用的一句话</strong>
+              <small>{{ savedNote || '点击展开，写下一句留给自己的话（可选）' }}</small>
+            </span>
+            <span class="record-chevron" aria-hidden="true">›</span>
+          </button>
+
+          <div v-if="panelOpen" class="record-panel">
+            <span class="panel-label">这次交流的体验</span>
+            <div class="feelings-row" role="group" aria-label="这次交流的体验">
+              <button
+                v-for="option in [
+                  { value: 'helpful', label: '有帮助' },
+                  { value: 'unchanged', label: '没有变化' },
+                  { value: 'uncomfortable', label: '有点不适' },
+                ]"
+                :key="option.value"
+                type="button"
+                :class="['btn-feeling', { selected: feedback === option.value }]"
+                :data-testid="`peer-graduate-feeling-${option.value}`"
+                @click="feedback = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+            <label class="note-field">
+              <span>想留下的一句话（可选）</span>
+              <textarea
+                v-model="note"
+                maxlength="500"
+                data-testid="peer-graduate-note-input"
+                placeholder="只会在你明确选择匿名分享后，作为后来的一部分。"
+              ></textarea>
+            </label>
+            <p v-if="complete" class="saved-note" role="status">已保存本次反馈。</p>
           </div>
-          <label class="note-field">
-            <span>想留下的一句话（可选）</span>
-            <textarea
-              v-model="note"
-              maxlength="500"
-              data-testid="peer-graduate-note-input"
-              placeholder="只会在你明确选择匿名分享后，作为后来的一部分。"
-            ></textarea>
-          </label>
-          <p v-if="complete" class="saved-note" role="status">已保存本次反馈。</p>
+
+          <button
+            class="record-row"
+            data-testid="peer-graduate-timeline"
+            type="button"
+            @click="goJourney"
+          >
+            <span class="record-copy">
+              <strong>查看旅程时间线</strong>
+              <small>{{ journeyId ? '回到关联的旅程进展' : '回到同路页面' }}</small>
+            </span>
+            <span class="record-chevron" aria-hidden="true">›</span>
+          </button>
+        </section>
+
+        <p class="end-note">没有必要为了继续联系而保持这段会话。</p>
+        <p v-if="saveError" class="save-error" role="status" data-testid="peer-graduate-save-error">
+          {{ saveError }}
+        </p>
+
+        <div class="end-actions">
+          <button
+            class="btn-primary"
+            data-testid="peer-graduate-save"
+            type="button"
+            :disabled="busy || complete"
+            @click="save(false)"
+          >
+            {{ busy ? '正在保存…' : '保存并回到我的旅程' }}
+          </button>
+          <button
+            class="btn-text"
+            data-testid="peer-graduate-share"
+            type="button"
+            :disabled="busy || complete"
+            @click="save(true)"
+          >
+            愿意匿名分享
+          </button>
+          <button
+            class="btn-text muted"
+            data-testid="peer-graduate-skip"
+            type="button"
+            @click="goJourney"
+          >
+            先不分享
+          </button>
         </div>
-
-        <button
-          class="record-row"
-          data-testid="peer-graduate-timeline"
-          type="button"
-          @click="goJourney"
-        >
-          <span class="record-copy">
-            <strong>查看旅程时间线</strong>
-            <small>{{ journeyId ? '回到自己的进展' : '回到我的页面' }}</small>
-          </span>
-          <span class="record-chevron" aria-hidden="true">›</span>
-        </button>
-      </section>
-
-      <p class="end-note">没有必要为了继续联系而保持这段会话。</p>
-
-      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="loadConversation" />
-
-      <div class="end-actions">
-        <button
-          class="btn-primary"
-          data-testid="peer-graduate-save"
-          type="button"
-          :disabled="busy || complete"
-          @click="save(false)"
-        >
-          {{ busy ? '正在保存…' : '保存并回到我的旅程' }}
-        </button>
-        <button
-          class="btn-text"
-          data-testid="peer-graduate-share"
-          type="button"
-          :disabled="busy || complete"
-          @click="save(true)"
-        >
-          愿意匿名分享
-        </button>
-        <button
-          class="btn-text muted"
-          data-testid="peer-graduate-skip"
-          type="button"
-          @click="goJourney"
-        >
-          先不分享
-        </button>
-      </div>
+      </template>
     </div>
   </section>
 </template>
@@ -204,7 +215,6 @@ onMounted(() => {
   font-family: var(--gn-font-body);
 }
 
-/* This route has no tab bar, but the shell reserves 88px for one. */
 :global(.phone-shell:has(.peer-graduation-page)) {
   padding-bottom: 0;
 }
@@ -253,6 +263,13 @@ onMounted(() => {
   flex: 1;
   flex-direction: column;
   padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.end-state {
+  margin: 32px 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 .end-hero {
@@ -412,6 +429,16 @@ onMounted(() => {
 .saved-note {
   margin: 0;
   color: var(--gn-leaf-deep);
+  font-size: 13px;
+}
+
+.save-error {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--gn-paper);
+  border: 1px solid var(--gn-line);
+  color: var(--gn-danger, #d32f2f);
   font-size: 13px;
 }
 

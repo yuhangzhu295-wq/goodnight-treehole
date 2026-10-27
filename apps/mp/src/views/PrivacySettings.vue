@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, resolveApiUrl } from '../api';
+import { api, downloadBlob, resolveApiUrl } from '../api';
 import { IDENTITY_CREDENTIAL_KEY, IDENTITY_USER_KEY } from '../identity';
 import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
@@ -47,6 +47,7 @@ const saving = ref(false);
 const clearingCache = ref(false);
 const exporting = ref(false);
 const deleting = ref(false);
+const downloading = ref(false);
 const exportResult = ref<DiaryExport | null>(null);
 const exportUrl = ref('');
 
@@ -148,6 +149,27 @@ async function exportDiaries() {
   }
 }
 
+async function downloadExportFile() {
+  if (!exportUrl.value || downloading.value) return;
+  downloading.value = true;
+  message.value = '';
+  try {
+    const blob = await downloadBlob(exportUrl.value);
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = exportResult.value?.asset?.filename || '我的日记导出.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  } catch (error: any) {
+    message.value = error?.message ?? '下载文件失败，请稍后重试。';
+  } finally {
+    downloading.value = false;
+  }
+}
+
 async function deleteMyData() {
   if (deleting.value) return;
   deleting.value = true;
@@ -155,6 +177,8 @@ async function deleteMyData() {
   try {
     await api.delete('/api/v1/me/data');
     deleteConfirm.value = false;
+    exportResult.value = null;
+    exportUrl.value = '';
     message.value = '你的日记、回信和收藏记录已经从服务端删除。已导出的副本仍在你的设备上。';
     await load();
   } catch (error: any) {
@@ -490,7 +514,15 @@ onMounted(load);
           </button>
           <div v-if="exportResult && exportUrl" class="export-download-strip" role="status">
             <span class="export-download-text">导出文件已就绪（共 {{ exportResult.count ?? 0 }} 条）</span>
-            <a class="export-download-link" :href="exportUrl" :download="exportResult.asset?.filename || '我的日记导出'">下载文件</a>
+            <button
+              class="export-download-link"
+              data-testid="btn-download-export-file"
+              type="button"
+              :disabled="downloading"
+              @click="downloadExportFile"
+            >
+              {{ downloading ? '正在下载…' : '下载文件' }}
+            </button>
           </div>
         </div>
 
@@ -555,7 +587,7 @@ onMounted(load);
     >
       <div class="dialog-box">
         <h2 id="privacy-delete-title" class="dialog-title">确认删除我的数据？</h2>
-        <p class="dialog-desc">这会从服务端删除你的日记、回信和收藏记录，无法恢复。已经导出或分享出去的副本不会被删除。</p>
+        <p class="dialog-desc">这会从服务端删除你的日记、私密心情、回信和收藏记录，并清理服务端的导出文件，无法恢复。已下载到本机的副本不会被删除。</p>
         <div class="dialog-actions">
           <button
             class="dialog-btn dialog-cancel"
@@ -797,8 +829,10 @@ onMounted(load);
   background: var(--gn-leaf);
   color: #fff;
   text-decoration: none;
+  font: inherit;
   font-weight: 500;
   font-size: 12px;
+  cursor: pointer;
 }
 
 /* Destructive */

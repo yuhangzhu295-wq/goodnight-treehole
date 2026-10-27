@@ -2139,13 +2139,24 @@ export class PublicController {
   @Delete('me/data')
   async clearData(@Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
-    await this.store.clearFavoritesForUser(runtimeId);
-    if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
-    else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
-    if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(runtimeId);
-    else this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
-    await this.store.persistAndFlush();
-    return { ok: true };
+    return await this.store.withUserDataLock(runtimeId, async () => {
+      await this.store.clearFavoritesForUser(runtimeId);
+      if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
+      else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
+      if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(runtimeId);
+      else this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
+
+      // Private moods project as diary entries when companion Diary rows are absent; deleting
+      // them ensures the diary list is completely clean after a data clear.
+      await this.store.deletePrivateMoodsForUser(runtimeId);
+
+      // Comprehensive media asset & file cleanup:
+      // Cleans up all orphaned user uploads (mood/diary images), exports, and posters
+      await this.store.cleanupUserMediaAndExports(runtimeId);
+
+      await this.store.persistAndFlush();
+      return { ok: true };
+    });
   }
 
   @Post('diaries')
@@ -4068,8 +4079,8 @@ export class AdminController {
   async ticketReply(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { reply: string }) {
     const admin = this.admin(auth);
     if (DIRECT_DB_MODELS.FeedbackTicket) {
-      const { before, after } = await this.feedbackPersistence.replyToTicketAsAdmin(id, body.reply, admin.id);
-      await this.store.audit(admin.id, 'FEEDBACK_REPLY', 'FeedbackTicket', id, before, after);
+      // The persistence method writes the AuditLog row inside the same transaction as the ticket update.
+      const { after } = await this.feedbackPersistence.replyToTicketAsAdmin(id, body.reply, admin.id);
       return { item: await this.store.decorateFeedbackTicket(after) };
     }
     const ticket = await this.store.replyToFeedbackTicket(admin.id, id, body.reply);
@@ -4102,8 +4113,8 @@ export class AdminController {
   ) {
     const admin = this.admin(auth);
     if (DIRECT_DB_MODELS.FeedbackTicket) {
-      const { before, after, changed } = await this.feedbackPersistence.updateTicketStatusAsAdmin(id, body.status, admin.id);
-      if (changed) await this.store.audit(admin.id, 'FEEDBACK_STATUS', 'FeedbackTicket', id, before, after);
+      // The persistence method writes the AuditLog row inside the same transaction as the ticket update.
+      const { after } = await this.feedbackPersistence.updateTicketStatusAsAdmin(id, body.status, admin.id);
       return { item: await this.store.decorateFeedbackTicket(after) };
     }
     const ticket = await this.store.updateFeedbackTicketStatus(admin.id, id, body.status);

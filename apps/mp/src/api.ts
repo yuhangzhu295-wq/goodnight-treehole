@@ -74,6 +74,23 @@ export async function deleteMedia(assetId: string) {
   }
 }
 
+export async function downloadBlob(urlOrPath: string): Promise<Blob> {
+  try {
+    const credential = await ensureIdentity();
+    const targetUrl = resolveApiUrl(urlOrPath);
+    const response = await fetch(targetUrl, {
+      headers: credential ? { 'x-goodnight-user-id': credential } : undefined,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload?.message ?? `下载失败 (HTTP ${response.status})`);
+    }
+    return await response.blob();
+  } catch (cause) {
+    throw friendlyError(cause);
+  }
+}
+
 export function resolveApiUrl(url: string) {
   if (/^(?:https?:|blob:|data:)/i.test(url)) return url;
   if (!baseUrl) return url;

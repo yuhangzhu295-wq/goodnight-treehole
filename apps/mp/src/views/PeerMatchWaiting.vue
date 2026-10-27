@@ -19,9 +19,11 @@ const route = useRoute();
 const router = useRouter();
 const matchId = computed(() => String(route.query.matchId ?? ''));
 const match = ref<Match | null>(null);
+const isOwner = ref(false);
 const loading = ref(true);
 const error = ref('');
 let timer: number | undefined;
+let isUnmounted = false;
 /** Discards a poll that started before the page was left or reloaded by hand. */
 let loadSeq = 0;
 
@@ -31,30 +33,38 @@ const isClosed = computed(() =>
 );
 const hasRequesterConsented = computed(() => Boolean(match.value?.requesterConsentAt));
 const hasOwnerConsented = computed(() => Boolean(match.value?.ownerConsentAt));
+const hasMyConsent = computed(() =>
+  isOwner.value ? hasOwnerConsented.value : hasRequesterConsented.value,
+);
+const hasOtherConsent = computed(() =>
+  isOwner.value ? hasRequesterConsented.value : hasOwnerConsented.value,
+);
 const bothConsented = computed(() => Boolean(hasRequesterConsented.value && hasOwnerConsented.value));
 /** The reader's own consent is the only action this page can offer. */
-const needsConsent = computed(() => isConnected.value && !hasRequesterConsented.value);
+const needsConsent = computed(() => !isClosed.value && isConnected.value && !hasMyConsent.value);
 
 const statusText = computed(() => {
-  if (bothConsented.value) return '双方已确认边界，会话已开启';
-  if (isConnected.value && hasRequesterConsented.value) return '你已确认边界，等待对方确认';
-  if (isConnected.value) return '对方已同意，等待你确认边界';
   if (isClosed.value) return '这次请求没有继续';
+  if (bothConsented.value) return '双方已确认边界，会话已开启';
+  if (isConnected.value && hasMyConsent.value) return '你已确认边界，等待对方确认';
+  if (isConnected.value) return '对方已同意，等待你确认边界';
   return '等待对方回应';
 });
 
 const badge = computed<{ text: string; tone: 'waiting' | 'action' | 'closed' | 'ready' }>(() => {
+  if (isClosed.value) return { text: '已结束', tone: 'closed' };
   if (bothConsented.value) return { text: '已开启', tone: 'ready' };
   if (isConnected.value) return { text: '待确认', tone: 'action' };
-  if (isClosed.value) return { text: '已结束', tone: 'closed' };
   return { text: '待回复', tone: 'waiting' };
 });
 
 const note = computed(() => {
+  if (isClosed.value) return '这次请求没有继续。你仍可以浏览其他经历，或重新选择一段想聊的经历。';
   if (bothConsented.value) return '会话已建立，正在进入对话。';
   if (isConnected.value) return '对方已同意。双方确认边界后，会话才会开启。';
-  if (isClosed.value) return '这次请求没有继续。你仍可以浏览其他经历，或重新选择一段想聊的经历。';
-  return '等待期间仍可以浏览其他经历。尚未建立聊天会话。';
+  return isOwner.value
+    ? '你已同意交流，双方均确认匿名边界后，会话方可正式开启。'
+    : '等待期间仍可以浏览其他经历。尚未建立聊天会话。';
 });
 
 const targetText = computed(() => {
@@ -67,30 +77,64 @@ const targetText = computed(() => {
 });
 
 async function load() {
+  if (timer) {
+    window.clearTimeout(timer);
+    timer = undefined;
+  }
   const ticket = ++loadSeq;
   error.value = '';
   try {
-    // `matchId` is passed so the server includes this match even when the capped discovery list
-    // would have dropped it — otherwise the page falls back to its empty state.
-    const payload = (
-      await api.get<{ item: { matches: Match[] } }>(
-        `/api/v1/peers?matchId=${encodeURIComponent(matchId.value)}`,
-      )
-    ).item;
+    // 1. Check conversations first: once both parties consent, the conversation opens for both roles,
+    // so both requester and owner navigate to the chat without depending on pending inbox queries.
+    const conversations = await api.get<{ items: Array<{ matchId: string; status?: string }> }>('/api/v1/peer-conversations');
     if (ticket !== loadSeq) return;
-    match.value = payload.matches.find((item) => item.id === matchId.value) ?? null;
-    if (match.value?.status === 'connected') {
-      const conversations = await api.get<{ items: Array<{ matchId: string }> }>('/api/v1/peer-conversations');
-      if (ticket !== loadSeq) return;
-      if (conversations.items.some((item) => item.matchId === matchId.value)) {
-        await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(matchId.value)}`);
+    const activeConv = (conversations.items ?? []).find((c) => c.matchId === matchId.value);
+    if (activeConv) {
+      await router.replace(`/pages/peer/conversation?matchId=${encodeURIComponent(matchId.value)}`);
+      return;
+    }
+
+    // 2. Check both peers (requester view) and peer-requests (experience owner view), so an owner
+    // navigated here after consenting sees their pending state rather than "request not found".
+    const [peersRes, requestsRes] = await Promise.allSettled([
+      api.get<{ item: { matches: Match[] } }>(
+        `/api/v1/peers?matchId=${encodeURIComponent(matchId.value)}`,
+      ),
+      api.get<{ items: any[] }>('/api/v1/peer-requests?scope=received'),
+    ]);
+    if (ticket !== loadSeq) return;
+
+    const fromPeers =
+      peersRes.status === 'fulfilled'
+        ? peersRes.value.item?.matches?.find((item) => item.id === matchId.value) ?? null
+        : null;
+    const fromRequests =
+      requestsRes.status === 'fulfilled'
+        ? requestsRes.value.items?.find((item: any) => item.id === matchId.value) ?? null
+        : null;
+
+    // Distinguish network/server errors from true absence: if neither list yielded the match but
+    // a query was rejected, render a retryable error instead of falsely claiming the request does not exist.
+    if (!fromPeers && !fromRequests) {
+      if (peersRes.status === 'rejected' || requestsRes.status === 'rejected') {
+        const failure: any = peersRes.status === 'rejected' ? peersRes.reason : (requestsRes as any).reason;
+        throw new Error(failure?.message ?? '请求状态暂时无法更新，请稍后重试。');
       }
     }
+
+    isOwner.value = Boolean(fromRequests && !fromPeers);
+    match.value = fromRequests ?? fromPeers ?? null;
   } catch (cause: any) {
     if (ticket !== loadSeq) return;
     error.value = cause?.message ?? '等待状态暂时无法更新';
   } finally {
-    if (ticket === loadSeq) loading.value = false;
+    if (ticket === loadSeq) {
+      loading.value = false;
+      // Strictly serialized: schedule next poll only after this request has fully settled.
+      if (!isUnmounted) {
+        timer = window.setTimeout(load, 7000);
+      }
+    }
   }
 }
 
@@ -106,12 +150,13 @@ function back() {
 
 onMounted(() => {
   load();
-  timer = window.setInterval(load, 7000);
 });
 
 onBeforeUnmount(() => {
+  isUnmounted = true;
   loadSeq += 1;
-  if (timer) window.clearInterval(timer);
+  if (timer) window.clearTimeout(timer);
+  timer = undefined;
 });
 </script>
 
@@ -132,7 +177,7 @@ onBeforeUnmount(() => {
       <template v-else-if="match">
         <section class="wait-hero" aria-label="请求状态">
           <span class="wait-ring" aria-hidden="true"></span>
-          <h2>{{ bothConsented ? '会话已开启' : isClosed ? '请求已结束' : '请求已发出' }}</h2>
+          <h2>{{ isClosed ? '请求已结束' : bothConsented ? '会话已开启' : '请求已发出' }}</h2>
           <p>{{ isClosed ? '这次没有继续，也不会建立聊天会话。' : '对方同意后，还需要双方确认交流边界。' }}</p>
         </section>
 

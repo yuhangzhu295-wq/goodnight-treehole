@@ -129,7 +129,8 @@ describe('domain services', () => {
     };
     // Mood is database-authoritative, so a diary with no attachments of its own resolves them
     // through the mood service. These fixtures carry none, which is what the stub answers.
-    (store as any).moodsDb = { attachmentIdsFor: async () => [], isAttachedToAny: async () => false };
+    (store as any).moodsDb = { listForUser: async () => [], attachmentIdsFor: async () => [], isAttachedToAny: async () => false };
+    (store as any).lettersDb = { latestBySourceMoods: async () => new Map() };
     // Diary is too, so the export's diary list comes from the table. The fixtures hold none.
     (store as any).diariesDb = { listForUser: async () => [], attachmentIdsFor: async () => [] };
     // MediaAsset is too: the export writes an asset row for the generated document.

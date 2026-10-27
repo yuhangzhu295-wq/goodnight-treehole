@@ -157,7 +157,20 @@ export class DiaryPersistenceService {
     return existing;
   }
 
-  async deleteAllForUser(userId: string) {
+  async deleteAllForUser(userId: string): Promise<string[]> {
+    const diaries = await this.prisma.diary.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const diaryIds = diaries.map((d) => d.id);
+    if (!diaryIds.length) return [];
+    const attachments = await this.prisma.diaryAttachment.findMany({
+      where: { diaryId: { in: diaryIds } },
+      select: { mediaAssetId: true },
+    });
+    const assetIds = attachments.map((a) => a.mediaAssetId);
+    await this.prisma.diaryAttachment.deleteMany({ where: { diaryId: { in: diaryIds } } });
     await this.prisma.diary.deleteMany({ where: { userId } });
+    return assetIds;
   }
 }

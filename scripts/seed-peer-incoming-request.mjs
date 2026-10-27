@@ -212,7 +212,7 @@ async function requestAsStranger(reason, question) {
     credential: stranger.credential,
     body: { status: 'requested', requestReason: reason, requestQuestion: question },
   });
-  return { matchId: match.id, strangerUserId: stranger.userId };
+  return { matchId: match.id, strangerUserId: stranger.userId, strangerCredential: stranger.credential };
 }
 
 const inbox = async () => (await call('GET', '/peer-requests', { credential: owner })).items ?? [];
@@ -360,6 +360,31 @@ if (!waitingMatch) {
 }
 if (!waitingMatch) throw new Error('no waiting match could be produced for the owner');
 
+// ---- an ended (closed) conversation, so 交流结束 has a real ended conversation ------------------
+let closedConv = await prisma.peerConversation.findFirst({
+  where: {
+    OR: [{ starterUserId: APP_USER }, { receiverUserId: APP_USER }],
+    status: { in: ['closed', 'expired', 'graduated'] },
+  },
+  orderBy: { createdAt: 'desc' },
+});
+if (!closedConv) {
+  const { matchId, strangerCredential } = await requestAsStranger('想聊聊这一段后来是怎么走过来的。', '最难的时候是怎么度过的？');
+  await call('POST', `/peer-matches/${matchId}/respond`, { credential: owner, body: { status: 'connected' } });
+  await call('POST', `/peer-matches/${matchId}/consent`, { credential: strangerCredential, body: {} });
+  await call('POST', `/peer-matches/${matchId}/consent`, { credential: owner, body: {} });
+  await prisma.peerConversation.updateMany({
+    where: { matchId },
+    data: { status: 'closed', closedAt: new Date(), closedReason: 'natural_close' },
+  });
+  await prisma.peerMatch.updateMany({
+    where: { id: matchId },
+    data: { status: 'closed' },
+  });
+  closedConv = await prisma.peerConversation.findFirst({ where: { matchId } });
+}
+if (!closedConv) throw new Error('no closed conversation could be produced for the owner');
+
 // ---- report ------------------------------------------------------------------------------------
 items = await inbox();
 const pending = items.filter((item) => item.status === 'requested');
@@ -372,12 +397,15 @@ for (const item of accepted) log(`  accepted ${item.id}`);
 for (const item of declined) log(`  declined ${item.id}`);
 log(`  suggested ${detailMatch.id} on ${detailMatch.peerExperienceId}`);
 log(`  waiting   ${waitingMatch.id} on ${waitingMatch.peerExperienceId}`);
+log(`  closed    ${closedConv.matchId} on conv ${closedConv.id}`);
 const detailRoute = `/pages/peer/detail?id=${detailMatch.peerExperienceId}&matchId=${detailMatch.id}`;
 const consentRoute = accepted[0] ? `/pages/peer/consent?matchId=${accepted[0].id}` : '';
 const waitRoute = `/pages/peer/wait?matchId=${waitingMatch.id}`;
+const graduateRoute = `/pages/peer/graduate?matchId=${closedConv.matchId}`;
 log(`\nPEER_DETAIL_ROUTE=${detailRoute}`);
 log(`PEER_CONSENT_ROUTE=${consentRoute}`);
 log(`PEER_WAIT_ROUTE=${waitRoute}`);
+log(`PEER_GRADUATE_ROUTE=${graduateRoute}`);
 
 // Written down because these ids are generated per run: a suite that hardcoded one would be testing
 // a record from a previous fixture. `run-control-suites.mjs` reads this file.
@@ -394,6 +422,7 @@ writeFileSync(
       detailRoute,
       consentRoute,
       waitRoute,
+      graduateRoute,
     },
     null,
     2,

@@ -146,4 +146,31 @@ export class MoodPersistenceService {
     if (!moodIds.length) return;
     await this.prisma.mood.updateMany({ where: { id: { in: moodIds } }, data: { journeyId: null } });
   }
+
+  /**
+   * Delete private moods for a user when clearing their data.
+   *
+   * A private mood is personal to the author, and is what the diary list projects when no companion
+   * Diary row exists. When the user requests `clearData`, deleting Diary alone leaves these private
+   * moods intact, so the diary projection re-creates them on the next read.
+   * Returns the asset IDs referenced by deleted private moods so their physical files can be cleaned.
+   */
+  async deletePrivateForUser(userId: string): Promise<string[]> {
+    const privateMoods = await this.prisma.mood.findMany({
+      where: { userId, visibility: 'PRIVATE' },
+      select: { id: true },
+    });
+    const ids = privateMoods.map((m) => m.id);
+    if (!ids.length) return [];
+    const attachments = await this.prisma.moodAttachment.findMany({
+      where: { moodId: { in: ids } },
+      select: { mediaAssetId: true },
+    });
+    const assetIds = attachments.map((a) => a.mediaAssetId);
+    await this.prisma.moodAttachment.deleteMany({ where: { moodId: { in: ids } } });
+    await this.prisma.diary.deleteMany({ where: { moodId: { in: ids } } });
+    await this.prisma.letter.updateMany({ where: { sourceMoodId: { in: ids } }, data: { sourceMoodId: null } });
+    await this.prisma.mood.deleteMany({ where: { id: { in: ids } } });
+    return assetIds;
+  }
 }

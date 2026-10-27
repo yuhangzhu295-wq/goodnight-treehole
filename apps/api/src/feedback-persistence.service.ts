@@ -401,9 +401,9 @@ export class FeedbackPersistenceService {
   /**
    * Record the operator's reply and move an untouched ticket to `processing`.
    *
-   * The read and the write share one transaction so a concurrent status change cannot be silently
-   * overwritten, and the caller gets both rows back so the audit entry describes what actually
-   * changed instead of a guess made before the write.
+   * Row lock (`FOR UPDATE`) inside the transaction prevents concurrent reply/close operations from
+   * overwriting each other, and the AuditLog row is written in the same transaction so the audit
+   * trail is atomic with the state change.
    */
   async replyToTicketAsAdmin(id: string, value: unknown, adminId: string) {
     const reply = typeof value === 'string' ? value.trim() : '';
@@ -411,6 +411,10 @@ export class FeedbackPersistenceService {
     if (reply.length > 1000) throw new BadRequestException('回复内容不能超过 1000 字');
 
     return await this.prisma.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "FeedbackTicket" WHERE "id" = ${id} FOR UPDATE
+      `;
+      if (!locked) throw new NotFoundException('反馈工单不存在');
       const before = await tx.feedbackTicket.findUnique({ where: { id }, include: { category: true } });
       if (!before) throw new NotFoundException('反馈工单不存在');
       if (before.status === 'closed') throw new BadRequestException('已关闭的工单不能再回复');
@@ -425,6 +429,18 @@ export class FeedbackPersistenceService {
         },
         include: { category: true },
       });
+      await tx.auditLog.create({
+        data: {
+          adminUserId: adminId,
+          action: 'FEEDBACK_REPLY',
+          resourceType: 'FeedbackTicket',
+          resourceId: id,
+          beforeJson: JSON.parse(JSON.stringify(before)),
+          afterJson: JSON.parse(JSON.stringify(after)),
+          ip: '127.0.0.1',
+          userAgent: 'local-dev',
+        },
+      });
       return { before, after };
     });
   }
@@ -432,16 +448,20 @@ export class FeedbackPersistenceService {
   /**
    * Apply the console's status transition to the row.
    *
-   * `changed: false` means the requested status already held; the caller then skips the audit entry
-   * rather than recording a no-op as an operator action.
+   * Row lock (`FOR UPDATE`) inside the transaction prevents concurrent writes, and the AuditLog row
+   * is written in the same transaction when changed.
    */
-  async updateTicketStatusAsAdmin(id: string, value: unknown, _adminId: string) {
+  async updateTicketStatusAsAdmin(id: string, value: unknown, adminId: string) {
     const status = typeof value === 'string' ? value : '';
     const allowed: FeedbackStatus[] = ['open', 'processing', 'resolved', 'closed'];
     if (!allowed.includes(status as FeedbackStatus)) throw new BadRequestException('反馈工单状态不合法');
     const nextStatus = status as FeedbackStatus;
 
     return await this.prisma.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "FeedbackTicket" WHERE "id" = ${id} FOR UPDATE
+      `;
+      if (!locked) throw new NotFoundException('反馈工单不存在');
       const before = await tx.feedbackTicket.findUnique({ where: { id }, include: { category: true } });
       if (!before) throw new NotFoundException('反馈工单不存在');
       if (before.status === nextStatus) return { before, after: before, changed: false };
@@ -463,6 +483,18 @@ export class FeedbackPersistenceService {
         where: { id },
         data: { status: nextStatus },
         include: { category: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          adminUserId: adminId,
+          action: 'FEEDBACK_STATUS',
+          resourceType: 'FeedbackTicket',
+          resourceId: id,
+          beforeJson: JSON.parse(JSON.stringify(before)),
+          afterJson: JSON.parse(JSON.stringify(after)),
+          ip: '127.0.0.1',
+          userAgent: 'local-dev',
+        },
       });
       return { before, after, changed: true };
     });
