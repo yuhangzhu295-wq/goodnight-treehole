@@ -46,6 +46,7 @@ const sceneCopy = computed(() => {
 });
 
 function inferStep() {
+  if (route.query.mode === 'timeline') { flowStep.value = 'timeline'; return; }
   if (route.query.mode === 'stabilize') { flowStep.value = 'stabilize'; return; }
   if (route.query.mode === 'intent') { flowStep.value = 'intent'; return; }
   if (!detail.value?.snapshot || detail.value.snapshot.confidence !== 'user_confirmed') { flowStep.value = 'confirm'; return; }

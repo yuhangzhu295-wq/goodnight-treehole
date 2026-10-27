@@ -11,7 +11,7 @@ const emit = defineEmits<{ back: [] }>();
        bar does not change wording as the flow moves. -->
   <section class="goodnight-page journey-flow-page" :class="`journey-flow--${mode}`">
     <header class="journey-flow-bar">
-      <button class="back-control" type="button" aria-label="返回" @click="emit('back')">
+      <button class="back-control" data-testid="journey-back" type="button" aria-label="返回" @click="emit('back')">
         <AppIcon name="back" :size="20" />
       </button>
       <h1>{{ title }}</h1>

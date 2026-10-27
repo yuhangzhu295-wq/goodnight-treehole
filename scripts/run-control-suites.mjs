@@ -47,6 +47,7 @@ const SUITES = [
   { name: 'notifications', route: '/pages/notifications/index', cases: 'notifications.json', runner: 'controls' },
   { name: 'recovery', route: '/pages/recovery/index', cases: 'recovery.json', runner: 'controls' },
   { name: 'support-plan', route: '/pages/support-plan/index', cases: 'support-plan.json', runner: 'controls' },
+  { name: 'journey-detail', route: '/pages/journey/detail?id=journey_review_timeline&mode=timeline', cases: 'journey-detail.json', runner: 'controls' },
   { name: 'square-effects', route: '/pages/square/index', cases: 'square-effects.json', runner: 'effects' },
   { name: 'tool-run', route: '/pages/tool/run', cases: 'tool-run.json', runner: 'controls' },
   { name: 'tool-index', route: '/pages/tool/index', cases: 'tool-index.json', runner: 'controls' },

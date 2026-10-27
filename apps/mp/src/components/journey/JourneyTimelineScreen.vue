@@ -89,7 +89,10 @@ const date = (value: string) => {
     </section>
 
     <section class="timeline-block">
-      <h2>经历时间线</h2>
+      <div class="timeline-header">
+        <h2>经历时间线</h2>
+        <span class="all-records-link">全部记录 ›</span>
+      </div>
       <ol class="timeline-list">
         <li v-for="item in updates" :key="item.id" class="timeline-row">
           <span class="timeline-mark" aria-hidden="true" />
@@ -121,7 +124,7 @@ const date = (value: string) => {
 
     <section class="next-block">
       <h2>接下来</h2>
-      <button class="next-row" type="button" :disabled="busy" @click="emit('action')">
+      <button class="next-row" data-testid="journey-action" type="button" :disabled="busy" @click="emit('action')">
         <span class="next-copy">
           <strong>查看当前行动</strong>
           <small>可以完成的一小步</small>
@@ -167,7 +170,7 @@ const date = (value: string) => {
 
 .status-card {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   padding: 16px;
   border: 1px solid var(--gn-border, #e8ebef);
   border-radius: var(--gn-radius-card, 12px);
@@ -185,6 +188,7 @@ const date = (value: string) => {
 
 .status-stage {
   font-size: 20px;
+  font-weight: 700;
   color: var(--gn-text, #242a32);
 }
 
@@ -194,10 +198,29 @@ const date = (value: string) => {
   color: var(--gn-subtext, #757d87);
 }
 
-.timeline-block h2,
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.timeline-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--gn-text, #242a32);
+}
+
+.all-records-link {
+  font-size: 13px;
+  color: var(--gn-muted, #757d87);
+}
+
 .next-block h2 {
-  margin: 0 0 10px;
-  font-size: 15px;
+  margin: 16px 0 10px;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--gn-text, #242a32);
 }
 
@@ -222,17 +245,17 @@ const date = (value: string) => {
   top: 20px;
   bottom: 0;
   left: 12px;
-  width: 1px;
-  background: var(--gn-green-light, #eaf4ee);
+  width: 1.5px;
+  background: #e5e7eb;
 }
 
 .timeline-mark {
   z-index: 1;
   justify-self: center;
-  width: 16px;
-  height: 16px;
-  margin-top: 3px;
-  border: 2px solid var(--gn-green, #275f56);
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border: 2px solid #8fa89b;
   border-radius: 50%;
   background: var(--gn-bg, #ffffff);
 }
