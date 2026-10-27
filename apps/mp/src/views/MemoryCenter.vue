@@ -33,24 +33,43 @@ const busyId = ref('');
 const error = ref('');
 const notice = ref('');
 const memoryAllowed = ref(false);
-/** Whether an AI task may read these memories. Distinct from `memoryAllowed`. */
+/** Whether an AI task may read these memories. */
 const aiMemoryAllowed = ref(false);
+const togglingAi = ref(false);
+
 const composerOpen = ref(false);
+const selectedItem = ref<MemoryItem | null>(null);
 const editingId = ref('');
 const pendingDeleteId = ref('');
-const openedUsageId = ref('');
-const createDraft = reactive({ title: '', content: '', days: 90, scope: 'all_ai' });
-const editDraft = reactive({ title: '', content: '', days: 90, scope: 'all_ai' });
+const showInfoModal = ref(false);
+const showInactiveSheet = ref(false);
+const showRetentionSheet = ref(false);
+const defaultRetentionDays = ref(30);
 
-const activeCount = computed(
-  () => items.value.filter((item) => effectiveState(item) === 'active').length,
+const createDraft = reactive({ title: '', content: '', days: 30, scope: 'all_ai' });
+const editDraft = reactive({ title: '', content: '', days: 30, scope: 'all_ai' });
+
+const displayItems = computed(() => {
+  return items.value
+    .filter((item) => effectiveState(item) !== 'deleted')
+    .sort((a, b) => {
+      const aRank = effectiveState(a) === 'active' ? 0 : 1;
+      const bRank = effectiveState(b) === 'active' ? 0 : 1;
+      return aRank - bRank;
+    });
+});
+const activeItems = computed(() => items.value.filter((item) => effectiveState(item) === 'active'));
+const inactiveItems = computed(() =>
+  items.value.filter((item) => ['disabled', 'expired'].includes(effectiveState(item))),
 );
+
 const sourceLabel: Record<string, string> = {
   user_saved: '用户主动保存',
   journey_summary: 'Journey 总结',
   recovery_confirmed: 'Recovery 确认',
   support_plan: '低谷预案',
 };
+
 const scopeLabel: Record<string, string> = {
   all_ai: '所有允许的 AI 任务',
   journey: '仅 Journey',
@@ -61,23 +80,10 @@ const scopeLabel: Record<string, string> = {
 function daysLeft(item: MemoryItem) {
   const state = effectiveState(item);
   if (state === 'deleted') return '已删除';
-  if (state === 'expired') return '已到期';
+  if (state === 'expired') return '已到期 · 可重新同意';
+  if (state === 'disabled') return '已停用 · 可单独重新授权';
   const days = Math.max(1, Math.ceil((Date.parse(item.expiresAt) - Date.now()) / 86_400_000));
-  return `${days} 天后自动删除`;
-}
-
-function statusBadgeLabel(item: MemoryItem) {
-  const state = effectiveState(item);
-  if (state === 'active') return '允许使用';
-  if (state === 'disabled') return '已暂停';
-  if (state === 'deleted') return '已删除';
-  return '已到期';
-}
-
-function showUsage(item: MemoryItem) {
-  const text = `最近由 ${item.usages?.[0]?.taskType} 使用，任务 ${item.usages?.[0]?.jobId}`;
-  notice.value = text;
-  openedUsageId.value = openedUsageId.value === item.id ? '' : item.id;
+  return `有效期：还剩${days}天`;
 }
 
 async function load() {
@@ -98,6 +104,22 @@ async function load() {
   }
 }
 
+async function toggleAiMemory() {
+  if (togglingAi.value) return;
+  togglingAi.value = true;
+  error.value = '';
+  const next = !aiMemoryAllowed.value;
+  try {
+    await api.put('/api/v1/settings/privacy', { allowAiMemoryUse: next });
+    aiMemoryAllowed.value = next;
+    notice.value = next ? '已允许新请求读取已保留的记忆。' : '已关闭 AI 记忆读取，新请求将不再使用。';
+  } catch (cause: any) {
+    error.value = cause?.message ?? '设置保存失败，请稍后重试';
+  } finally {
+    togglingAi.value = false;
+  }
+}
+
 async function createMemory() {
   if (!createDraft.title.trim() || !createDraft.content.trim()) {
     error.value = '标题和内容都需要由你确认';
@@ -108,7 +130,7 @@ async function createMemory() {
   notice.value = '';
   try {
     await api.post('/api/v1/memory', { ...createDraft, category: '用户主动保存' });
-    Object.assign(createDraft, { title: '', content: '', days: 90, scope: 'all_ai' });
+    Object.assign(createDraft, { title: '', content: '', days: defaultRetentionDays.value, scope: 'all_ai' });
     composerOpen.value = false;
     notice.value = '这条记忆已经按你的范围与期限保存。';
     await load();
@@ -119,6 +141,10 @@ async function createMemory() {
   }
 }
 
+function openDetail(item: MemoryItem) {
+  selectedItem.value = item;
+}
+
 function beginEdit(item: MemoryItem) {
   if (effectiveState(item) !== 'active') return;
   editingId.value = item.id;
@@ -126,13 +152,21 @@ function beginEdit(item: MemoryItem) {
   Object.assign(editDraft, { title: item.title, content: item.content, days: remaining, scope: item.scope });
 }
 
-async function reactivate(item: MemoryItem, days = 90) {
+async function saveEdit() {
+  if (!editingId.value || !editDraft.title.trim() || !editDraft.content.trim()) return;
+  const item = items.value.find((i) => i.id === editingId.value);
+  if (!item) return;
+  await update(item, { ...editDraft }, '记忆修改已保存。');
+}
+
+async function reactivate(item: MemoryItem, days = 30) {
   busyId.value = item.id;
   error.value = '';
   notice.value = '';
   try {
     await api.post(`/api/v1/me/memories/${item.id}/reactivate`, { days });
     notice.value = '这条记忆已重新确认并恢复使用。';
+    if (selectedItem.value?.id === item.id) selectedItem.value = null;
     await load();
   } catch (cause: any) {
     error.value = cause?.message ?? '记忆重新确认失败';
@@ -149,6 +183,7 @@ async function update(item: MemoryItem, patch: Record<string, unknown>, message:
     await api.patch(`/api/v1/me/memories/${item.id}`, patch);
     editingId.value = '';
     pendingDeleteId.value = '';
+    if (selectedItem.value?.id === item.id) selectedItem.value = null;
     notice.value = message;
     await load();
   } catch (cause: any) {
@@ -159,14 +194,12 @@ async function update(item: MemoryItem, patch: Record<string, unknown>, message:
 }
 
 async function remove(item: MemoryItem) {
-  if (pendingDeleteId.value !== item.id) {
-    pendingDeleteId.value = item.id;
-    return;
-  }
   busyId.value = item.id;
+  error.value = '';
   try {
     await api.delete(`/api/v1/me/memories/${item.id}`);
     pendingDeleteId.value = '';
+    if (selectedItem.value?.id === item.id) selectedItem.value = null;
     notice.value = '这条记忆已经删除。';
     await load();
   } catch (cause: any) {
@@ -182,284 +215,343 @@ onMounted(load);
 <template>
   <section class="goodnight-page memory-page">
     <header class="memory-bar">
-      <button class="back-btn" type="button" aria-label="返回上一页" @click="router.back()">‹</button>
-      <h1 class="memory-bar-title">AI 记忆中心</h1>
+      <button
+        class="back-btn"
+        data-testid="front-memory-back"
+        type="button"
+        aria-label="返回上一页"
+        @click="router.back()"
+      >
+        ‹
+      </button>
+      <h1 class="memory-bar-title">AI 记忆</h1>
+      <span aria-hidden="true"></span>
     </header>
 
-    <p class="memory-lead">管理系统记录的信息与使用范围</p>
-
-    <div class="memory-status-strip">
-      <div class="status-strip-info">
-        <strong class="status-strip-title">记忆使用权限</strong>
-        <span class="status-strip-note">当前 {{ activeCount }} 条记忆在允许范围内供 AI 参考</span>
-      </div>
-    </div>
-
-    <!-- Disabled State Notices -->
-    <section v-if="!aiMemoryAllowed" class="permission-notice" data-testid="memory-ai-off">
-      <div class="notice-body">
-        <strong class="notice-title">AI 暂时不能读取这些记忆</strong>
-        <p class="notice-desc">内容仅对你可见。如需允许 AI 参考，可在隐私设置中开启。</p>
-      </div>
-      <button class="notice-btn" type="button" @click="router.push('/pages/settings/privacy')">去隐私设置</button>
-    </section>
-
-    <section v-if="!memoryAllowed" class="permission-notice" data-testid="memory-privacy-off">
-      <div class="notice-body">
-        <strong class="notice-title">AI 记忆当前已关闭</strong>
-        <p class="notice-desc">现有内容仅对你可见，任何 AI 任务都不能读取。</p>
-      </div>
-      <button class="notice-btn" type="button" @click="router.push('/pages/settings/privacy')">去隐私设置</button>
-    </section>
-
-    <p v-if="loading" class="status-msg info">正在读取记忆记录…</p>
-    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
-    <p v-if="notice" class="status-msg success" role="status">{{ notice }}</p>
-
-    <!-- Create Memory Form -->
-    <form v-if="composerOpen" class="form-surface" @submit.prevent="createMemory">
-      <div class="form-header">
-        <strong class="form-title">添加新记忆</strong>
-        <button class="form-close-btn" type="button" aria-label="关闭" @click="composerOpen = false">×</button>
-      </div>
-      <div class="form-field">
-        <label class="form-label" for="create-memory-title">标题</label>
-        <input
-          id="create-memory-title"
-          v-model="createDraft.title"
-          class="form-input"
-          maxlength="100"
-          placeholder="记忆名称"
-        />
-      </div>
-      <div class="form-field">
-        <label class="form-label" for="create-memory-content">内容</label>
-        <textarea
-          id="create-memory-content"
-          v-model="createDraft.content"
-          class="form-textarea"
-          maxlength="500"
-          placeholder="输入希望系统记住的具体内容"
-        ></textarea>
-      </div>
-      <div class="form-row-2">
-        <div class="form-field">
-          <label class="form-label" for="create-memory-scope">使用范围</label>
-          <select id="create-memory-scope" v-model="createDraft.scope" class="form-select">
-            <option value="all_ai">所有允许的 AI 任务</option>
-            <option value="journey">仅 Journey</option>
-            <option value="recovery">仅 Recovery</option>
-            <option value="support">仅现实支持</option>
-          </select>
+    <div class="memory-body">
+      <!-- Master Switch -->
+      <section class="master-switch-section">
+        <div class="switch-copy">
+          <strong class="switch-title">允许使用 AI 记忆</strong>
+          <span class="switch-desc">关闭后新请求不能读取已保留内容</span>
         </div>
-        <div class="form-field">
-          <label class="form-label" for="create-memory-days">保留天数</label>
-          <input
-            id="create-memory-days"
-            v-model.number="createDraft.days"
-            class="form-input"
-            type="number"
-            min="1"
-            max="3650"
-          />
-        </div>
-      </div>
-      <div class="form-actions">
-        <button class="btn-cancel" type="button" @click="composerOpen = false">取消</button>
         <button
-          class="btn-submit"
-          data-testid="memory-create-save"
-          type="submit"
-          :disabled="busyId === 'create'"
+          class="switch-track"
+          data-testid="toggle-ai-memory"
+          type="button"
+          role="switch"
+          :aria-checked="aiMemoryAllowed"
+          :class="{ on: aiMemoryAllowed }"
+          :disabled="togglingAi"
+          @click="toggleAiMemory"
         >
-          确认并保存
+          <span class="switch-thumb"></span>
         </button>
-      </div>
-    </form>
+      </section>
 
-    <!-- Create Button -->
-    <div v-if="memoryAllowed && !composerOpen" class="create-bar">
-      <button
-        class="create-btn"
-        data-testid="memory-create-open"
-        type="button"
-        @click="composerOpen = true"
-      >
-        添加一条新记忆
-      </button>
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
+      <p v-if="notice" class="status-msg success" role="status">{{ notice }}</p>
+
+      <!-- Section 1: 记住的内容 -->
+      <section class="memory-section" data-testid="section-active-memories" aria-label="记住的内容">
+        <div class="section-header">
+          <h3>记住的内容</h3>
+          <button
+            class="section-link"
+            data-testid="btn-memory-usage-info"
+            type="button"
+            @click="showInfoModal = true"
+          >
+            了解使用方式 ›
+          </button>
+        </div>
+
+        <div v-if="loading" class="state-note">正在读取记忆记录…</div>
+        <div v-else-if="displayItems.length" class="memory-list">
+          <button
+            v-for="(item, index) in displayItems"
+            :key="item.id"
+            class="memory-item"
+            :data-testid="index === 0 ? 'memory-card-first' : `memory-card-${item.id}`"
+            type="button"
+            @click="openDetail(item)"
+          >
+            <span class="doc-icon" aria-hidden="true">
+              <svg
+                class="doc-svg"
+                viewBox="0 0 20 24"
+                width="18"
+                height="22"
+                fill="none"
+                stroke="#9ca3af"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="2" y="2" width="16" height="20" rx="2" />
+                <line x1="6" y1="7" x2="14" y2="7" />
+                <line x1="6" y1="12" x2="14" y2="12" />
+                <line x1="6" y1="17" x2="14" y2="17" />
+              </svg>
+            </span>
+            <span class="memory-copy">
+              <strong class="memory-title">{{ item.title }}</strong>
+              <span class="memory-expiry">{{ daysLeft(item) }}</span>
+            </span>
+            <span class="memory-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
+        <div v-else class="empty-surface">
+          <p class="empty-note">暂无生效中的记忆内容。</p>
+        </div>
+      </section>
+
+      <!-- Section 2: 管理 -->
+      <section class="memory-section" data-testid="section-memory-management" aria-label="管理">
+        <div class="section-header">
+          <h3>管理</h3>
+        </div>
+
+        <div class="management-group">
+          <button
+            class="management-row"
+            data-testid="btn-manage-retention"
+            type="button"
+            @click="showRetentionSheet = true"
+          >
+            <span class="mgmt-copy">
+              <strong class="mgmt-title">默认保留期限</strong>
+              <span class="mgmt-desc">{{ defaultRetentionDays }}天 · 可按项目修改</span>
+            </span>
+            <span class="memory-chevron" aria-hidden="true">›</span>
+          </button>
+
+          <button
+            class="management-row"
+            data-testid="btn-manage-inactive"
+            type="button"
+            @click="showInactiveSheet = true"
+          >
+            <span class="mgmt-copy">
+              <strong class="mgmt-title">已停用或过期</strong>
+              <span class="mgmt-desc">{{ inactiveItems.length ? '查看与重新同意' : '暂无已停用或过期记录' }}</span>
+            </span>
+            <span class="memory-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Notice Bubble -->
+      <p class="memory-notice">
+        删除后的内容不能通过普通编辑恢复。授权以服务器当前状态为准。
+      </p>
     </div>
 
-    <!-- Memory Records List -->
-    <section v-if="!loading" class="group-section" aria-label="记忆记录列表">
-      <div class="section-label">记录列表 ({{ items.length }})</div>
-      <div v-if="items.length" class="records-container">
-        <article
-          v-for="item in items"
-          :key="item.id"
-          class="record-surface"
-        >
-          <div class="record-header">
-            <div class="record-title-wrap">
-              <h2 class="record-title">{{ item.title }}</h2>
-              <span class="status-badge" :class="effectiveState(item)">{{ statusBadgeLabel(item) }}</span>
+    <!-- Create Memory Dialog / Sheet -->
+    <Teleport to="body">
+      <div v-if="composerOpen" class="modal-mask" @click.self="composerOpen = false">
+        <form class="modal-card" @submit.prevent="createMemory">
+          <div class="modal-header">
+            <h3>添加新记忆</h3>
+            <button class="modal-close" type="button" @click="composerOpen = false">×</button>
+          </div>
+          <div class="field-wrap">
+            <label for="create-title">标题</label>
+            <input
+              id="create-title"
+              v-model="createDraft.title"
+              class="field-input"
+              maxlength="100"
+              placeholder="例如：最近在准备换工作"
+            />
+          </div>
+          <div class="field-wrap">
+            <label for="create-content">具体内容</label>
+            <textarea
+              id="create-content"
+              v-model="createDraft.content"
+              class="field-textarea"
+              maxlength="500"
+              placeholder="输入希望系统记住的具体内容"
+            ></textarea>
+          </div>
+          <div class="field-row">
+            <div class="field-wrap flex-1">
+              <label for="create-scope">使用范围</label>
+              <select id="create-scope" v-model="createDraft.scope" class="field-select">
+                <option value="all_ai">所有允许的 AI 任务</option>
+                <option value="journey">仅 Journey</option>
+                <option value="recovery">仅 Recovery</option>
+                <option value="support">仅现实支持</option>
+              </select>
             </div>
-            <button
-              v-if="effectiveState(item) === 'active'"
-              class="edit-memory"
-              data-testid="memory-edit-btn"
-              type="button"
-              :aria-label="`编辑${item.title}`"
-              @click="beginEdit(item)"
-            >
-              编辑
-            </button>
-          </div>
-
-          <p class="record-content">{{ item.content }}</p>
-
-          <div class="record-meta-strip">
-            <span class="meta-tag">来源: {{ sourceLabel[item.source] ?? item.source }}</span>
-            <span class="meta-sep">·</span>
-            <span class="meta-tag">范围: {{ scopeLabel[item.scope] ?? item.scope }}</span>
-            <span class="meta-sep">·</span>
-            <span class="meta-tag">{{ daysLeft(item) }}</span>
-          </div>
-
-          <!-- Explanation affordance -->
-          <div v-if="item.usages?.length" class="disclosure-strip">
-            <button
-              class="usage-note"
-              type="button"
-              @click="showUsage(item)"
-            >
-              为什么 AI 知道这个？
-            </button>
-            <p v-if="openedUsageId === item.id" class="disclosure-text">
-              最近由 {{ item.usages[0]?.taskType }} 使用，任务 {{ item.usages[0]?.jobId }}
-            </p>
-          </div>
-
-          <!-- Actions -->
-          <div v-if="effectiveState(item) !== 'deleted'" class="record-actions">
-            <template v-if="effectiveState(item) === 'active'">
-              <button
-                class="action-link"
-                type="button"
-                @click="update(item, { status: 'disabled' }, '这条记忆已禁止未来使用。')"
-              >
-                以后不要用
-              </button>
-              <button
-                class="action-link"
-                type="button"
-                @click="update(item, { status: 'expired' }, '这条记忆已立即到期。')"
-              >
-                立即过期
-              </button>
-            </template>
-            <template v-else-if="effectiveState(item) === 'disabled'">
-              <button
-                class="action-link"
-                type="button"
-                @click="update(item, { status: 'active' }, '这条记忆已恢复使用。')"
-              >
-                恢复使用
-              </button>
-              <button
-                class="action-link"
-                type="button"
-                @click="update(item, { status: 'expired' }, '这条记忆已立即到期。')"
-              >
-                立即过期
-              </button>
-            </template>
-            <template v-else-if="effectiveState(item) === 'expired'">
-              <button
-                class="action-link action-reconsent"
-                data-testid="memory-reconsent"
-                type="button"
-                :disabled="busyId === item.id"
-                @click="reactivate(item)"
-              >
-                重新确认使用
-              </button>
-            </template>
-            <button
-              class="action-link action-danger"
-              type="button"
-              :disabled="busyId === item.id"
-              @click="remove(item)"
-            >
-              {{ pendingDeleteId === item.id ? '确认删除' : '删除' }}
-            </button>
-          </div>
-
-          <!-- In-place Edit Form -->
-          <form
-            v-if="editingId === item.id && effectiveState(item) === 'active'"
-            class="edit-inline-form"
-            @submit.prevent="update(item, { ...editDraft }, '这条记忆已经更新。')"
-          >
-            <div class="form-field">
-              <label class="form-label" :for="`edit-title-${item.id}`">标题</label>
+            <div class="field-wrap flex-1">
+              <label for="create-days">保留天数</label>
               <input
-                :id="`edit-title-${item.id}`"
-                v-model="editDraft.title"
-                class="form-input"
-                aria-label="编辑记忆标题"
-                maxlength="100"
+                id="create-days"
+                v-model.number="createDraft.days"
+                class="field-input"
+                type="number"
+                min="1"
+                max="3650"
               />
             </div>
-            <div class="form-field">
-              <label class="form-label" :for="`edit-content-${item.id}`">内容</label>
-              <textarea
-                :id="`edit-content-${item.id}`"
-                v-model="editDraft.content"
-                class="form-textarea"
-                aria-label="编辑记忆内容"
-                maxlength="500"
-              ></textarea>
-            </div>
-            <div class="form-row-2">
-              <div class="form-field">
-                <label class="form-label" :for="`edit-scope-${item.id}`">使用范围</label>
-                <select
-                  :id="`edit-scope-${item.id}`"
-                  v-model="editDraft.scope"
-                  class="form-select"
-                  aria-label="编辑记忆范围"
-                >
-                  <option value="all_ai">所有允许的 AI 任务</option>
-                  <option value="journey">仅 Journey</option>
-                  <option value="recovery">仅 Recovery</option>
-                  <option value="support">仅现实支持</option>
-                </select>
-              </div>
-              <div class="form-field">
-                <label class="form-label" :for="`edit-days-${item.id}`">保留天数</label>
-                <input
-                  :id="`edit-days-${item.id}`"
-                  v-model.number="editDraft.days"
-                  class="form-input"
-                  aria-label="编辑记忆保留天数"
-                  type="number"
-                  min="1"
-                  max="3650"
-                />
-              </div>
-            </div>
-            <div class="form-actions">
-              <button class="btn-cancel" type="button" @click="editingId = ''">取消</button>
-              <button class="btn-submit" type="submit" :disabled="busyId === item.id">保存修改</button>
-            </div>
-          </form>
-        </article>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-secondary" type="button" @click="composerOpen = false">取消</button>
+            <button class="btn-primary" data-testid="memory-create-save" type="submit" :disabled="busyId === 'create'">
+              确认并保存
+            </button>
+          </div>
+        </form>
       </div>
+    </Teleport>
 
-      <div v-else class="empty-surface">
-        <p class="empty-note">这里还没有记忆记录。系统不会从日常对话中收集你的个人画像。</p>
+    <!-- Detail & Edit Modal -->
+    <Teleport to="body">
+      <div v-if="selectedItem" class="modal-mask" @click.self="selectedItem = null; editingId = ''">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>{{ editingId ? '编辑记忆' : '记忆详情' }}</h3>
+            <button class="modal-close" type="button" @click="selectedItem = null; editingId = ''">×</button>
+          </div>
+
+          <template v-if="!editingId">
+            <div class="detail-body">
+              <strong class="detail-title">{{ selectedItem.title }}</strong>
+              <p class="detail-content">{{ selectedItem.content }}</p>
+              <div class="detail-meta">
+                <span>来源: {{ sourceLabel[selectedItem.source] ?? selectedItem.source }}</span>
+                <span>范围: {{ scopeLabel[selectedItem.scope] ?? selectedItem.scope }}</span>
+                <span>{{ daysLeft(selectedItem) }}</span>
+              </div>
+            </div>
+
+            <div class="modal-actions-col">
+              <button
+                v-if="effectiveState(selectedItem) === 'active'"
+                class="btn-outline"
+                data-testid="memory-edit-btn"
+                type="button"
+                @click="beginEdit(selectedItem)"
+              >
+                编辑内容
+              </button>
+              <button
+                v-if="effectiveState(selectedItem) === 'active'"
+                class="btn-outline"
+                type="button"
+                @click="update(selectedItem, { status: 'disabled' }, '这条记忆已暂停使用。')"
+              >
+                暂停使用
+              </button>
+              <button
+                v-if="['disabled', 'expired'].includes(effectiveState(selectedItem))"
+                class="btn-primary"
+                type="button"
+                @click="reactivate(selectedItem, 30)"
+              >
+                重新授权 (30天)
+              </button>
+              <button
+                class="btn-danger-outline"
+                type="button"
+                @click="remove(selectedItem)"
+              >
+                彻底删除
+              </button>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="field-wrap">
+              <label>标题</label>
+              <input v-model="editDraft.title" class="field-input" maxlength="100" />
+            </div>
+            <div class="field-wrap">
+              <label>内容</label>
+              <textarea v-model="editDraft.content" class="field-textarea" maxlength="500"></textarea>
+            </div>
+            <div class="modal-actions">
+              <button class="btn-secondary" type="button" @click="editingId = ''">取消</button>
+              <button class="btn-primary" type="button" :disabled="busyId === selectedItem.id" @click="saveEdit">
+                保存修改
+              </button>
+            </div>
+          </template>
+        </div>
       </div>
-    </section>
+    </Teleport>
+
+    <!-- Inactive Memories Sheet -->
+    <Teleport to="body">
+      <div v-if="showInactiveSheet" class="modal-mask" @click.self="showInactiveSheet = false">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>已停用或过期的记忆</h3>
+            <button class="modal-close" type="button" @click="showInactiveSheet = false">×</button>
+          </div>
+          <div v-if="inactiveItems.length" class="memory-list">
+            <div v-for="item in inactiveItems" :key="item.id" class="inactive-item-card">
+              <div class="inactive-info">
+                <strong>{{ item.title }}</strong>
+                <span class="inactive-state-tag" :class="effectiveState(item)">
+                  {{ effectiveState(item) === 'disabled' ? '已停用' : '已过期' }}
+                </span>
+                <p class="inactive-desc">{{ item.content }}</p>
+              </div>
+              <div class="inactive-actions">
+                <button class="btn-primary btn-sm" type="button" @click="reactivate(item, 30)">重新授权</button>
+                <button class="btn-secondary btn-sm" type="button" @click="remove(item)">删除</button>
+              </div>
+            </div>
+          </div>
+          <p v-else class="empty-note pad-v">没有已停用或过期的记忆。</p>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Retention Settings Sheet -->
+    <Teleport to="body">
+      <div v-if="showRetentionSheet" class="modal-mask" @click.self="showRetentionSheet = false">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>默认保留期限</h3>
+            <button class="modal-close" type="button" @click="showRetentionSheet = false">×</button>
+          </div>
+          <p class="sheet-desc">新保存的记忆默认保留此天数，到期后将自动停用并需要你重新授权。</p>
+          <div class="retention-options">
+            <button
+              v-for="days in [7, 30, 90, 180]"
+              :key="days"
+              type="button"
+              class="retention-chip"
+              :class="{ active: defaultRetentionDays === days }"
+              @click="defaultRetentionDays = days; showRetentionSheet = false"
+            >
+              {{ days }} 天
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Info Modal -->
+    <Teleport to="body">
+      <div v-if="showInfoModal" class="modal-mask" @click.self="showInfoModal = false">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>AI 记忆使用说明</h3>
+            <button class="modal-close" type="button" @click="showInfoModal = false">×</button>
+          </div>
+          <div class="info-content">
+            <p><strong>完全由你掌控：</strong>系统只会在你明确允许的情况下，将此处的记忆用于生成更贴合你过往经历的回信或建议。</p>
+            <p><strong>有界保留：</strong>每条记忆均有严格的到期时间，到期后自动失效，不会永久沉淀。</p>
+            <p><strong>随时撤回：</strong>关闭顶部的「允许使用 AI 记忆」开关，即可随时全局停用所有记忆的读取。</p>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -470,489 +562,581 @@ onMounted(load);
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
+  min-height: 100%;
   overflow-x: hidden;
-  /* No bottom tab bar on /pages/memory/index, so the page only reserves the safe area. */
-  padding: 0 16px calc(32px + env(safe-area-inset-bottom));
-  background: var(--gn-bg);
+  background: var(--gn-paper);
   color: var(--gn-text);
   font-family: var(--gn-font-body);
 }
 
-/* The V2 bar: a bare chevron and the page title, closed by a full-bleed hairline. */
+:global(.phone-shell:has(.memory-page)) {
+  padding-bottom: 0;
+}
+
 .memory-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 10px;
-  min-height: 56px;
-  margin: 0 -16px;
-  padding: 8px 16px;
+  gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+}
+
+.memory-bar-title {
+  margin: 0;
+  color: var(--gn-ink);
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
 }
 
 .back-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0 0 2px;
+  justify-content: flex-start;
+  width: 24px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
   border: 0;
-  background: transparent;
+  border-radius: 0;
+  background: none;
   color: var(--gn-ink);
-  font-size: 26px;
+  font-size: 22px;
   line-height: 1;
   cursor: pointer;
-  flex-shrink: 0;
 }
 
-.memory-bar-title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--gn-ink);
-}
-
-/* The page's own subtitle, as content under the bar instead of inside it. */
-.memory-lead {
-  margin: 14px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gn-muted);
-}
-
-/* Permission state: a bare row (bold title, muted note) closed by a hairline, not a card. */
-.memory-status-strip {
+.memory-body {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--gn-line);
-}
-
-.status-strip-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   flex: 1;
-  min-width: 0;
+  flex-direction: column;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
 }
 
-.status-strip-title {
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.35;
-  color: var(--gn-ink);
-}
-
-.status-strip-note {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gn-muted);
-}
-
-.permission-notice {
+.master-switch-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 0;
+  gap: 16px;
+  padding: 24px 0 20px;
   border-bottom: 1px solid var(--gn-line);
 }
 
-.notice-body {
+.switch-copy {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
   min-width: 0;
 }
 
-.notice-title {
-  font-size: 15px;
+.switch-title {
+  color: var(--gn-ink);
+  font-size: 17px;
   font-weight: 700;
-  line-height: 1.4;
-  color: var(--gn-ink);
+  line-height: 1.35;
 }
 
-.notice-desc {
-  margin: 0;
-  font-size: 13px;
+.switch-desc {
   color: var(--gn-muted);
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
-.notice-btn {
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
-  color: var(--gn-ink);
-  font-size: 13px;
-  font-weight: 500;
+.switch-track {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: #cbd3da;
+  padding: 2px;
   cursor: pointer;
   flex-shrink: 0;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease;
+}
+
+.switch-track.on {
+  background: #275f56;
+}
+
+.switch-thumb {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.switch-track.on .switch-thumb {
+  transform: translateX(18px);
 }
 
 .status-msg {
   margin: 12px 0 0;
   padding: 10px 14px;
-  border-radius: var(--gn-radius-card);
-  border: 1px solid var(--gn-line);
-  background: var(--gn-paper-warm);
+  border-radius: 8px;
   font-size: 13px;
-  line-height: 1.5;
 }
 
 .status-msg.success {
+  background: var(--gn-leaf-soft);
   color: var(--gn-leaf-deep);
 }
 
-.status-msg.info {
-  color: var(--gn-muted);
-}
-
-/* Forms: bare blocks separated by hairlines, matching the rest of the page. */
-.form-surface {
+.memory-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--gn-line);
+  margin-top: 24px;
 }
 
-.form-header {
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-header h3 {
+  margin: 0;
+  color: var(--gn-ink);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.section-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.state-note,
+.empty-note {
+  margin: 16px 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.empty-surface {
+  padding: 20px 0;
+  text-align: center;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 68px;
+  padding: 14px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--gn-line);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.doc-icon {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  border: 0;
+  background: #f4f5f7;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.doc-line {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: #9ca3af;
+}
+
+.memory-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.memory-title {
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.memory-expiry {
+  color: var(--gn-muted);
+  font-size: 13px;
+}
+
+.memory-chevron {
+  color: #b6bcc4;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.management-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.management-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--gn-line);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mgmt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mgmt-title {
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.mgmt-desc {
+  color: var(--gn-muted);
+  font-size: 13px;
+}
+
+.memory-notice {
+  margin: 28px 0 0;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: #f4f6f8;
+  color: #88929c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Modals */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+}
+
+.modal-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  background: var(--gn-paper);
+  padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.form-title {
-  font-size: 17px;
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
   font-weight: 700;
-  line-height: 1.35;
   color: var(--gn-ink);
 }
 
-.form-close-btn {
+.modal-close {
   border: 0;
-  background: transparent;
-  font-size: 22px;
+  background: none;
+  font-size: 24px;
   color: var(--gn-muted);
   cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
 }
 
-.form-field {
+.field-wrap {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.form-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--gn-muted);
+.field-wrap label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-ink);
 }
 
-.form-input,
-.form-textarea,
-.form-select {
+.field-input,
+.field-select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 42px;
+  height: 42px;
+  padding: 0 12px;
   border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  padding: 9px 12px;
-  background: var(--gn-paper);
+  border-radius: 8px;
+  background: var(--gn-bg);
   color: var(--gn-ink);
-  font-family: inherit;
+  font: inherit;
   font-size: 14px;
 }
 
-.form-textarea {
-  min-height: 96px;
-  resize: vertical;
-  line-height: 1.6;
-}
-
-.form-row-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.btn-cancel {
-  min-height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper);
-  color: var(--gn-ink);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.btn-submit {
-  min-height: 40px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-leaf);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn-submit:disabled {
-  opacity: 0.6;
-}
-
-/* Create trigger: the page's own add control, kept in flow above the records. */
-.create-bar {
-  display: flex;
-  padding: 16px 0 4px;
-}
-
-.create-btn {
+.field-textarea {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 48px;
-  border: 1px dashed var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper);
-  color: var(--gn-leaf-deep);
+  min-height: 90px;
+  padding: 10px 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-bg);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.modal-actions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.btn-primary {
+  flex: 1;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gn-leaf);
+  color: #ffffff;
+  font: inherit;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
 }
 
-.create-btn:active {
-  background: var(--gn-paper-warm);
-}
-
-/* Group section & Records: bare rows closed by hairlines, no card borders. */
-.group-section {
-  display: flex;
-  flex-direction: column;
-}
-
-/* The section's own heading text, kept verbatim, restyled as a bold section title. */
-.section-label {
-  padding: 18px 0 10px;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.35;
-  color: var(--gn-ink);
-}
-
-.records-container {
-  display: flex;
-  flex-direction: column;
-}
-
-.record-surface {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--gn-line);
-}
-
-.record-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.record-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.btn-secondary {
   flex: 1;
-  min-width: 0;
-}
-
-.record-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--gn-ink);
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-/* Colour-code the state so 允许使用 / 已暂停 / 已到期 / 已删除 never read alike. */
-.status-badge {
-  flex-shrink: 0;
-  padding: 2px 7px;
+  min-height: 44px;
   border: 1px solid var(--gn-line);
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  color: var(--gn-muted);
-}
-
-.status-badge.active {
-  color: var(--gn-leaf-deep);
-  background: var(--gn-leaf-soft);
-  border-color: transparent;
-}
-
-.status-badge.disabled {
-  color: var(--gn-gold);
-}
-
-.status-badge.expired {
-  color: var(--gn-muted);
-}
-
-.status-badge.deleted {
-  color: var(--gn-danger);
-}
-
-.edit-memory {
-  flex-shrink: 0;
-  min-height: 32px;
-  border: 0;
-  background: transparent;
-  color: var(--gn-muted);
-  font-size: 13px;
+  border-radius: 8px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 15px;
   cursor: pointer;
-  padding: 2px 0;
 }
 
-.record-content {
-  margin: 0;
+.btn-outline {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font: inherit;
   font-size: 14px;
-  color: var(--gn-text);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
+  font-weight: 500;
+  cursor: pointer;
 }
 
-.record-meta-strip {
+.btn-danger-outline {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: var(--gn-danger, #dc2626);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-sm {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.detail-title {
+  font-size: 17px;
+  color: var(--gn-ink);
+}
+
+.detail-content {
+  margin: 0;
+  color: var(--gn-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.detail-meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
+  gap: 10px;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--gn-muted);
 }
 
-.meta-sep {
-  color: var(--gn-line);
-}
-
-.disclosure-strip {
+.inactive-item-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  margin-bottom: 8px;
 }
 
-.usage-note {
+.inactive-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inactive-state-tag {
   align-self: flex-start;
-  border: 0;
-  background: transparent;
-  padding: 2px 0;
-  color: var(--gn-leaf-deep);
-  font-size: 13px;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.disclosure-text {
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: var(--gn-radius-small);
-  background: var(--gn-paper-warm);
-  font-size: 12px;
+.inactive-state-tag.disabled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.inactive-state-tag.expired {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.inactive-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
   color: var(--gn-muted);
   line-height: 1.5;
 }
 
-.record-actions {
+.inactive-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  border-top: 1px solid var(--gn-line);
-  padding-top: 10px;
+  gap: 8px;
 }
 
-.action-link {
-  border: 0;
-  background: transparent;
-  padding: 4px 0;
-  color: var(--gn-muted);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.action-link:hover,
-.action-link:active {
-  color: var(--gn-ink);
-}
-
-/* Re-consent is the only route back from 已到期, so it reads as the row's primary action. */
-.action-link.action-reconsent {
-  color: var(--gn-leaf-deep);
-  font-weight: 600;
-}
-
-.action-link.action-danger {
-  color: var(--gn-danger);
-  margin-left: auto;
-}
-
-.edit-inline-form {
-  display: flex;
-  flex-direction: column;
+.retention-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
-  border-top: 1px solid var(--gn-line);
-  padding-top: 12px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
-.empty-surface {
-  padding: 24px 16px;
+.retention-chip {
+  padding: 12px;
   border: 1px solid var(--gn-line);
-  border-radius: var(--gn-radius-card);
-  background: var(--gn-paper-warm);
+  border-radius: 8px;
+  background: var(--gn-paper);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-ink);
+  cursor: pointer;
   text-align: center;
 }
 
-.empty-note {
-  margin: 0;
-  font-size: 13px;
-  color: var(--gn-muted);
-  line-height: 1.6;
+.retention-chip.active {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+  color: var(--gn-leaf-deep);
 }
 
-@media (max-width: 374px) {
-  .memory-page {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
+.info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--gn-text);
+}
 
-  .memory-bar {
-    margin-right: -12px;
-    margin-left: -12px;
-    padding-right: 12px;
-    padding-left: 12px;
-  }
+.sheet-desc {
+  margin: 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pad-v {
+  padding: 24px 0;
 }
 </style>

@@ -43,6 +43,7 @@ const SUITES = [
   { name: 'privacy-effects', route: '/pages/settings/privacy', cases: 'privacy-effects.json', runner: 'controls' },
   { name: 'safety-support', route: '/pages/safety/index', cases: 'safety-support.json', runner: 'controls' },
   { name: 'reality-handoff', route: '/pages/reality-handoff/index', cases: 'reality-handoff.json', runner: 'controls' },
+  { name: 'memory-center', route: '/pages/memory/index', cases: 'memory-center.json', runner: 'controls' },
   { name: 'square-effects', route: '/pages/square/index', cases: 'square-effects.json', runner: 'effects' },
   { name: 'tool-run', route: '/pages/tool/run', cases: 'tool-run.json', runner: 'controls' },
   { name: 'tool-index', route: '/pages/tool/index', cases: 'tool-index.json', runner: 'controls' },
@@ -113,6 +114,7 @@ if (!skipFixtures) {
   // The letter must be generated *after* the diary, or it has no source and 原始记录 never renders.
   letterFixture = runFixture('letter', 'reset-letter.mjs', [], { required: false, blockedExitCodes: [3] });
   runFixture('peer', 'seed-peer-incoming-request.mjs', []);
+  runFixture('memory', 'seed-memory-for-review.mjs', []);
 }
 
 // This one is not optional even under `--no-fixtures`: the profile suite's revoke case is
