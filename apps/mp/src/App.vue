@@ -30,7 +30,6 @@ const tabbarPaths = new Set([
   '/pages/settings/privacy',
   '/pages/help/feedback',
   '/pages/feedback/index',
-  '/pages/notifications/index',
   '/pages/journey/detail',
   '/pages/recovery/index',
 ]);

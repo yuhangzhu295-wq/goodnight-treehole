@@ -1,0 +1,21 @@
+[
+ {
+  "selector": "notifications-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "notifications-tab-unread",
+  "settleMs": 400,
+  "expect": { "present": "[data-testid=\"notifications-tab-unread\"].active" }
+ },
+ {
+  "selector": "notifications-tab-all",
+  "settleMs": 400,
+  "expect": { "present": "[data-testid=\"notifications-tab-all\"].active" }
+ },
+ {
+  "selector": "notifications-mark-all",
+  "settleMs": 600,
+  "expect": { "present": "[data-testid=\"notifications-mark-all\"]" }
+ }
+]

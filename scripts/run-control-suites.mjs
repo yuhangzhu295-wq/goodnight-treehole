@@ -44,6 +44,7 @@ const SUITES = [
   { name: 'safety-support', route: '/pages/safety/index', cases: 'safety-support.json', runner: 'controls' },
   { name: 'reality-handoff', route: '/pages/reality-handoff/index', cases: 'reality-handoff.json', runner: 'controls' },
   { name: 'memory-center', route: '/pages/memory/index', cases: 'memory-center.json', runner: 'controls' },
+  { name: 'notifications', route: '/pages/notifications/index', cases: 'notifications.json', runner: 'controls' },
   { name: 'square-effects', route: '/pages/square/index', cases: 'square-effects.json', runner: 'effects' },
   { name: 'tool-run', route: '/pages/tool/run', cases: 'tool-run.json', runner: 'controls' },
   { name: 'tool-index', route: '/pages/tool/index', cases: 'tool-index.json', runner: 'controls' },
