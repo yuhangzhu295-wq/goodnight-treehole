@@ -1,0 +1,1417 @@
+{
+  "generatedAt": "2026-10-18T06:21:42.483Z",
+  "acceptanceRun": "run-acceptance-20261018-060412",
+  "sweepRun": "run-acceptance-20261018-060412",
+  "pages": [
+    {
+      "id": "UI-V2-01",
+      "page": "TonightHome",
+      "route": "/pages/tonight/index",
+      "round": 1,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "yes",
+        "visualApproved": "partial",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "visualApproved"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_tonight_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 130
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-02",
+      "page": "PeerNetwork",
+      "route": "/pages/peers/index",
+      "round": 1,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "partial",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peers_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 86
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-03",
+      "page": "ActionCenter",
+      "route": "/pages/action/index",
+      "round": 1,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_action_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 160
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-04",
+      "page": "Me",
+      "route": "/pages/me/index",
+      "round": 1,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "partial",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_me_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 333
+      },
+      "manifestEntry": {
+        "selector": "btn-clear-cancel"
+      }
+    },
+    {
+      "id": "UI-V2-05",
+      "page": "JourneyDetail",
+      "route": "/pages/journey/detail",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_journey_detail.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 104
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-06",
+      "page": "PeerExperienceDetail",
+      "route": "/pages/peer/detail",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "yes",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peer_detail.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 46
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-07",
+      "page": "PeerRequests",
+      "route": "/pages/peer/requests",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peer_requests.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 93
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-08",
+      "page": "PeerMatchWaiting",
+      "route": "/pages/peer/wait",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "yes",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peer_wait.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 250
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-09",
+      "page": "PeerConsent",
+      "route": "/pages/peer/consent",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peer_consent.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 294
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-10",
+      "page": "PeerConversation",
+      "route": "/pages/peer/conversation",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "WAITING_REVIEW",
+        "codeReviewApproved": "WAITING_REVIEW",
+        "done": "no"
+      },
+      "disagreements": [
+        "visualApproved",
+        "codeReviewApproved"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peer_conversation.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 66
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-11",
+      "page": "PeerGraduation",
+      "route": "/pages/peer/graduate",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_peer_graduate.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 137
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-12",
+      "page": "RealityHandoff",
+      "route": "/pages/reality-handoff/index",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_reality_handoff_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 257
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-13",
+      "page": "SafetySupport",
+      "route": "/pages/safety/index",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "partial",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_safety_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 316
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-14",
+      "page": "NotificationCenter",
+      "route": "/pages/notifications/index",
+      "round": 2,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "partial",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_notifications_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 67
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-15",
+      "page": "FutureSelf",
+      "route": "/pages/future-self/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_future_self_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 223
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-16",
+      "page": "Recovery",
+      "route": "/pages/recovery/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_recovery_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 54
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-17",
+      "page": "SupportPlan",
+      "route": "/pages/support-plan/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_support_plan_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 178
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-18",
+      "page": "StableSelf",
+      "route": "/pages/stable-self/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "partial",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_stable_self_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 180
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-19",
+      "page": "MemoryCenter",
+      "route": "/pages/memory/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_memory_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 191
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-20",
+      "page": "DecisionVault",
+      "route": "/pages/decision/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_decision_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 218
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-21",
+      "page": "Archive",
+      "route": "/pages/archive/index",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_archive_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 186
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-22",
+      "page": "Square",
+      "route": "/pages/square/index",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_square_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 607
+      },
+      "manifestEntry": {
+        "selector": "square-menu-hide"
+      }
+    },
+    {
+      "id": "UI-V2-23",
+      "page": "MoodCreate",
+      "route": "/pages/mood/create",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_mood_create.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 215
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-24",
+      "page": "PostDetail",
+      "route": "/pages/post/detail",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_post_detail.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 189
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-25",
+      "page": "LetterToday",
+      "route": "/pages/letter/index",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_letter_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 216
+      },
+      "manifestEntry": {
+        "selector": "btn-letter-poster"
+      }
+    },
+    {
+      "id": "UI-V2-26",
+      "page": "ToolIndex",
+      "route": "/pages/tool/index",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_tool_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 231
+      },
+      "manifestEntry": {
+        "selector": "tool-report"
+      }
+    },
+    {
+      "id": "UI-V2-27",
+      "page": "ToolDecompose",
+      "route": "/pages/tool/decompose",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_tool_decompose.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 52
+      },
+      "manifestEntry": {
+        "selector": "btn-decompose-save"
+      }
+    },
+    {
+      "id": "UI-V2-28",
+      "page": "ToolRun",
+      "route": "/pages/tool/run",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_tool_run.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 36
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-29",
+      "page": "MeProfile",
+      "route": "/pages/me/profile",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_me_profile.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 115
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-30",
+      "page": "DiaryList",
+      "route": "/pages/diary/index",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_diary_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 197
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-31",
+      "page": "DiaryDetail",
+      "route": "/pages/diary/detail",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_diary_detail.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 30
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-32",
+      "page": "ReportMonth",
+      "route": "/pages/report/month",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "partial",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_report_month.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 334
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-33",
+      "page": "LetterList",
+      "route": "/pages/letter/list",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_letter_list.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 99
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-34",
+      "page": "LetterDetail",
+      "route": "/pages/letter/detail",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_letter_detail.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 64
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-35",
+      "page": "FavoriteList",
+      "route": "/pages/favorite/index",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_favorite_index.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 103
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-36",
+      "page": "PrivacySettings",
+      "route": "/pages/settings/privacy",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_settings_privacy.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 513
+      },
+      "manifestEntry": {
+        "selector": "btn-data-policy-route"
+      }
+    },
+    {
+      "id": "UI-V2-37",
+      "page": "DataPolicy",
+      "route": "/pages/settings/data-policy",
+      "round": 3,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "yes",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_settings_data_policy.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 269
+      },
+      "manifestEntry": null
+    },
+    {
+      "id": "UI-V2-38",
+      "page": "FeedbackHelp",
+      "route": "/pages/help/feedback",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_help_feedback.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 190
+      },
+      "manifestEntry": {
+        "selector": "btn-feedback-submit"
+      }
+    },
+    {
+      "id": "UI-V2-39",
+      "page": "HelpFaqs",
+      "route": "/pages/help/faqs",
+      "round": 4,
+      "measured": {
+        "implemented": "yes",
+        "rendered": "yes",
+        "interactionTested": "yes",
+        "businessVerified": "yes",
+        "visualApproved": "no",
+        "codeReviewApproved": "no"
+      },
+      "measuredDone": "no",
+      "queue": {
+        "implemented": "no",
+        "rendered": "no",
+        "interactionTested": "no",
+        "businessVerified": "no",
+        "visualApproved": "no",
+        "codeReviewApproved": "no",
+        "done": "no"
+      },
+      "disagreements": [
+        "implemented",
+        "rendered",
+        "interactionTested",
+        "businessVerified"
+      ],
+      "screenshot": "artifacts\\acceptance\\run-acceptance-20261018-060412\\F16\\screens\\pages_help_faqs.png",
+      "swept": true,
+      "f16": {
+        "verdict": "PASS",
+        "textLength": 34
+      },
+      "manifestEntry": null
+    }
+  ]
+}

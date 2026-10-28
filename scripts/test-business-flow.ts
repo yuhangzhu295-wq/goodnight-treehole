@@ -46,8 +46,15 @@ function clearTestPort(port: number) {
   spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore' });
 }
 
+// Admin routes require a bearer token; the token is captured from the real UI login below
+// and attached here, so these calls are the same ones the admin app makes rather than an
+// unauthenticated shortcut that used to work only because the guard was missing.
+let adminToken: string | null = null;
+
 async function json(path: string, init?: RequestInit) {
-  const res = await fetch(`${apiBase}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  const headers: Record<string, string> = { 'content-type': 'application/json', ...((init?.headers as Record<string, string>) ?? {}) };
+  if (adminToken && path.startsWith('/api/admin/')) headers.authorization = `Bearer ${adminToken}`;
+  const res = await fetch(`${apiBase}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} => ${res.status}`);
   return res.json();
 }
@@ -58,6 +65,7 @@ async function loginAdmin(page: Page) {
   await page.getByTestId('admin-login-password').fill('admin123');
   await page.getByTestId('admin-login-submit').click();
   await page.waitForURL('**/dashboard', { timeout: 10000 });
+  adminToken = await page.evaluate(() => localStorage.getItem('goodnight-admin-token'));
 }
 
 async function waitForAriaPressed(page: Page, testId: string, expected: boolean) {

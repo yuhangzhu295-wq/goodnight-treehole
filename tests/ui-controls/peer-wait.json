@@ -1,0 +1,29 @@
+[
+ {
+  "selector": "wait-status-badge",
+  "settleMs": 1200,
+  "expect": {
+   "text": "待回复",
+   "present": "[data-testid=\"wait-target\"]"
+  }
+ },
+ {
+  "selector": "wait-note",
+  "expect": {
+   "text": "等待期间仍可以浏览其他经历"
+  }
+ },
+ {
+  "selector": "peer-wait-back",
+  "expect": {
+   "urlChanged": true
+  }
+ },
+ {
+  "selector": "wait-primary",
+  "settleMs": 2500,
+  "expect": {
+   "url": "/pages/peers/index"
+  }
+ }
+]

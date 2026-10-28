@@ -1,69 +1,778 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { Clipboard } from '@capacitor/clipboard';
 import { api } from '../api';
-import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
 type Contact = { id: string; nickname: string; relation: string; contactHint: string };
 type Handoff = { id: string; recipient: string; summary: string; status: string };
+
 const route = useRoute();
 const router = useRouter();
 const journeyId = computed(() => String(route.query.journeyId ?? ''));
-const recipients = ['朋友', '家人', '伴侣', '室友', '同事', '其他'];
-const needs = ['听我说 10 分钟', '陪我出去走走', '今晚问问我怎么样', '提醒我吃饭/睡觉', '帮我处理一件具体事情', '不需要建议，只陪一下'];
-const recipient = ref('朋友');
-const need = ref('听我说 10 分钟');
+
+const selectedContact = ref<Contact | null>(null);
 const cardText = ref('');
+const defaultMessage = '最近有件事让我有点难受。你方便听我说几句吗？';
+const generatedText = computed(() => cardText.value || defaultMessage);
 const editing = ref(false);
+
+const quickTemplates = [
+  { label: '只想找人待会儿', text: '今晚心里有点乱，不用特意安慰我，你有空的话能陪我随便聊两句或者待一会儿吗？' },
+  { label: '想说说卡住的事', text: '最近遇到点卡住的事，脑子有点转不过来，你方便的时候能听我说几句吗？' },
+  { label: '需要朋友陪陪', text: '我今天状态不太好，心里有点难受，有空的话方便听我说几句吗？' },
+];
+
+function selectTemplate(text: string) {
+  cardText.value = text;
+  editing.value = true;
+  saved.value = null;
+  status.value = '';
+}
+
 const saved = ref<Handoff | null>(null);
 const contactSheet = ref(false);
 const contacts = ref<Contact[]>([]);
+const loading = ref(true);
 const error = ref('');
 const status = ref('');
 const busy = ref(false);
 const contactForm = ref({ nickname: '', relation: '', contactHint: '' });
-const needMessages: Record<string, string> = {
-  '听我说 10 分钟': '我最近有点撑不住，如果你今晚有空，能不能听我说十分钟？我不一定需要建议，只想先把心里的话说出来。',
-  '陪我出去走走': '我今天状态不太好，如果你方便的话，可以陪我出去走一小会吗？我现在不太想一个人待着。',
-  '今晚问问我怎么样': '我今天状态有点低落，如果你今晚方便的话，可以问问我现在怎么样吗？有你记得这件事，对我很重要。',
-  '提醒我吃饭/睡觉': '我最近有点乱，容易忘记照顾自己。今晚可以提醒我吃点东西、早点休息吗？',
-  '帮我处理一件具体事情': '我现在有一件具体的事有点处理不过来。如果你方便，我想请你陪我一起想想或帮我分担一点。',
-  '不需要建议，只陪一下': '我现在不需要建议，只想有人陪我一下。你不用解决什么，陪我待一会儿就好。',
-};
-const defaultText = computed(() => needMessages[need.value] ?? needMessages['听我说 10 分钟']);
-const generatedText = computed(() => cardText.value || defaultText.value);
 
 async function load() {
-  try { contacts.value = (await api.get<{ items: Contact[] }>('/api/v1/trusted-contacts')).items; } catch { error.value = '支持联系人暂时没有加载出来'; }
+  loading.value = true;
+  error.value = '';
+  try {
+    const res = await api.get<{ items: Contact[] }>('/api/v1/trusted-contacts');
+    contacts.value = res.items ?? [];
+    if (contacts.value.length && !selectedContact.value) {
+      selectedContact.value = contacts.value[0];
+    }
+  } catch (cause: any) {
+    error.value = cause?.message ?? '支持联系人暂时没有加载出来';
+  } finally {
+    loading.value = false;
+  }
 }
-function selectRecipient(value: string) { recipient.value = value; }
-function selectNeed(value: string) { need.value = value; }
+
+function selectContact(c: Contact) {
+  selectedContact.value = c;
+  contactSheet.value = false;
+}
+
 async function saveCard() {
-  if (!generatedText.value.trim()) return;
-  busy.value = true; error.value = ''; status.value = '';
-  try { const response = await api.post<{ item: Handoff }>('/api/v1/handoffs', { journeyId: journeyId.value || undefined, recipient: recipient.value, channel: '由我选择联系', summary: generatedText.value.trim() }); saved.value = response.item; cardText.value = response.item.summary; editing.value = false; status.value = '求助卡已经保存到现实支持里，系统不会替你发送。'; } catch (cause) { error.value = cause instanceof Error ? cause.message : '求助卡没有保存成功'; } finally { busy.value = false; }
-}
-async function copyCard() {
-  try { await navigator.clipboard.writeText(generatedText.value); status.value = '已复制到剪贴板，请由你亲自发给信任的人。'; } catch { error.value = '浏览器没有允许复制，请手动选择文字复制。'; }
-}
-async function saveContact() {
-  if (!contactForm.value.nickname.trim() || !contactForm.value.contactHint.trim()) return;
+  if (!generatedText.value.trim() || busy.value) return;
   busy.value = true;
-  try { const response = await api.post<{ item: Contact }>('/api/v1/trusted-contacts', contactForm.value); contacts.value.unshift(response.item); contactForm.value = { nickname: '', relation: '', contactHint: '' }; status.value = '支持联系人已保存。'; } catch (cause) { error.value = cause instanceof Error ? cause.message : '联系人没有保存成功'; } finally { busy.value = false; }
+  error.value = '';
+  status.value = '';
+  try {
+    const recipient = selectedContact.value?.nickname || '信任的朋友';
+    const response = await api.post<{ item: Handoff }>('/api/v1/handoffs', {
+      journeyId: journeyId.value || undefined,
+      recipient,
+      channel: '由我选择联系',
+      summary: generatedText.value.trim(),
+    });
+    saved.value = response.item;
+    cardText.value = response.item.summary;
+    editing.value = false;
+    // Copy to clipboard for easy pasting into messaging app
+    try {
+      await Clipboard.write({ string: generatedText.value });
+      status.value = '求助卡已保存并复制到剪贴板，请由你亲自发给信任的人。';
+    } catch {
+      try {
+        await navigator.clipboard.writeText(generatedText.value);
+        status.value = '求助卡已保存并复制到剪贴板，请由你亲自发给信任的人。';
+      } catch {
+        status.value = '求助卡已保存。系统不会替你发送，请手动选择文字发给信任的人。';
+      }
+    }
+  } catch (cause: any) {
+    error.value = cause?.message ?? '求助卡没有保存成功';
+  } finally {
+    busy.value = false;
+  }
 }
+
+async function copyCard() {
+  try {
+    await Clipboard.write({ string: generatedText.value });
+    status.value = '已复制到剪贴板，请由你亲自发给信任的人。';
+  } catch {
+    try {
+      await navigator.clipboard.writeText(generatedText.value);
+      status.value = '已复制到剪贴板，请由你亲自发给信任的人。';
+    } catch {
+      error.value = '浏览器未允许复制，请长按选择文字复制。';
+    }
+  }
+}
+
+async function markShared() {
+  if (!saved.value || busy.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const response = await api.post<{ item: Handoff }>(`/api/v1/handoffs/${saved.value.id}/share`, {});
+    saved.value = response.item;
+    status.value = '已经记下：你真的把这张卡告诉了现实中的人。';
+  } catch (cause: any) {
+    error.value = cause?.message ?? '这个状态暂时没有保存成功';
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function saveContact() {
+  if (!contactForm.value.nickname.trim() || !contactForm.value.contactHint.trim() || busy.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const response = await api.post<{ item: Contact }>('/api/v1/trusted-contacts', contactForm.value);
+    contacts.value.unshift(response.item);
+    selectedContact.value = response.item;
+    contactForm.value = { nickname: '', relation: '', contactHint: '' };
+    status.value = '支持联系人已保存。';
+  } catch (cause: any) {
+    error.value = cause?.message ?? '联系人没有保存成功';
+  } finally {
+    busy.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
 <template>
-  <section class="goodnight-page handoff-page">
-    <header class="handoff-hero"><button aria-label="返回" @click="router.back()"><AppIcon name="back" /></button><AppIcon class="handoff-moon" name="moon" :size="23" /><h1>帮我告诉现实中的一个人</h1><span>如果你愿意，我们可以把求助的话整理得更容易说出口。</span></header>
-    <section class="handoff-card" data-testid="reality-support-card"><h2>现实求助卡</h2><p class="step-title">1 <strong>你想告诉谁？</strong></p><div class="choice-grid"><button v-for="item in recipients" :key="item" :class="{ selected: recipient === item }" @click="selectRecipient(item)">{{ item }}</button></div><p class="step-title">2 <strong>你希望 TA 怎么帮你？</strong></p><div class="choice-grid need-grid"><button v-for="item in needs" :key="item" :class="{ selected: need === item }" @click="selectNeed(item)">{{ item }}</button></div><div class="card-preview"><p>为你生成的求助话术预览</p><textarea v-if="editing" v-model="cardText" maxlength="1000" aria-label="编辑求助卡" /><blockquote v-else>{{ generatedText }}</blockquote></div><div class="card-actions"><button class="primary-button" :disabled="busy" data-testid="handoff-save" @click="saveCard">{{ saved ? '保存这一版求助卡' : '生成并保存求助卡' }}</button><button class="outline-button" :disabled="!saved" data-testid="handoff-copy" @click="copyCard">复制这张求助卡</button><button class="text-button" @click="editing = !editing">{{ editing ? '完成编辑' : '我自己改一下' }}</button></div><small class="privacy-note">只保存你确认过的内容，系统不会自动联系任何人。</small></section>
-    <p v-if="status" class="status" role="status">{{ status }}</p><p v-if="error" class="error-text" role="alert">{{ error }}</p>
-    <button class="contacts-trigger" type="button" @click="contactSheet = true"><AppIcon name="people" :size="18" /><span>管理信任联系人</span><AppIcon name="arrow" :size="18" /></button>
-    <Teleport to="body"><div v-if="contactSheet" class="contact-mask" @click.self="contactSheet = false"><section class="contacts-sheet" data-testid="trusted-contacts-sheet"><span class="sheet-handle" /><header><div><h2>信任联系人</h2><p>只保存在你的支持卡里，不会自动联系任何人。</p></div><button class="sheet-close" type="button" aria-label="关闭" @click="contactSheet = false">×</button></header><div v-if="contacts.length" class="contact-list"><article v-for="person in contacts" :key="person.id"><strong>{{ person.nickname }}</strong><span>{{ person.relation || '联系人' }} · {{ person.contactHint }}</span></article></div><p v-else class="muted">还没有保存联系人。</p><div class="contact-form"><input v-model="contactForm.nickname" placeholder="称呼" /><input v-model="contactForm.relation" placeholder="关系" /><input v-model="contactForm.contactHint" placeholder="联系方式提示" /><button class="outline-button" :disabled="busy" @click="saveContact">保存联系人</button></div></section></div></Teleport>
+  <section class="goodnight-page reality-handoff-page">
+    <header class="handoff-bar">
+      <button
+        class="back-btn"
+        data-testid="front-handoff-back"
+        type="button"
+        aria-label="返回"
+        @click="router.back()"
+      >
+        ‹
+      </button>
+      <h1>现实支持</h1>
+      <span aria-hidden="true"></span>
+    </header>
+
+    <div class="handoff-body">
+      <div class="page-lead">
+        <h2>找一个现实中的人</h2>
+        <p>可以先准备一句话，是否联系由你自己决定。</p>
+      </div>
+
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
+      <p v-if="status" class="status-note" role="status">{{ status }}</p>
+
+      <!-- Section 1: 准备联系的人 -->
+      <section class="handoff-section" aria-label="准备联系的人">
+        <div class="section-header">
+          <h3>准备联系的人</h3>
+          <button
+            class="section-link"
+            data-testid="btn-manage-contacts"
+            type="button"
+            @click="contactSheet = true"
+          >
+            管理联系人 ›
+          </button>
+        </div>
+
+        <button
+          class="contact-card"
+          data-testid="btn-select-contact"
+          type="button"
+          @click="contactSheet = true"
+        >
+          <span class="contact-avatar" aria-hidden="true">
+            <span class="avatar-dot"></span>
+          </span>
+          <span class="contact-info">
+            <strong class="contact-name">
+              {{ selectedContact ? selectedContact.nickname : '一位信任的朋友' }}
+            </strong>
+            <span class="contact-desc">
+              {{
+                selectedContact
+                  ? `${selectedContact.relation || '联系人'} · ${selectedContact.contactHint}`
+                  : '尚未发送任何消息'
+              }}
+            </span>
+          </span>
+          <span class="contact-chevron" aria-hidden="true">›</span>
+        </button>
+      </section>
+
+      <!-- Section 2: 想说的话 -->
+      <section class="handoff-section" data-testid="reality-support-card" aria-label="想说的话">
+        <div class="section-header">
+          <h3>想说的话</h3>
+          <button
+            class="section-link"
+            data-testid="btn-edit-message"
+            type="button"
+            @click="editing = !editing"
+          >
+            {{ editing ? '完成 ›' : '编辑 ›' }}
+          </button>
+        </div>
+
+        <div class="template-chips" role="group" aria-label="快捷便条选择">
+          <button
+            v-for="tpl in quickTemplates"
+            :key="tpl.label"
+            type="button"
+            class="template-chip"
+            :class="{ active: cardText === tpl.text }"
+            @click="selectTemplate(tpl.text)"
+          >
+            {{ tpl.label }}
+          </button>
+        </div>
+
+        <div class="message-card">
+          <textarea
+            v-if="editing"
+            v-model="cardText"
+            class="message-textarea"
+            maxlength="500"
+            rows="4"
+            aria-label="编辑求助文本"
+          ></textarea>
+          <p v-else class="message-text">{{ generatedText }}</p>
+        </div>
+      </section>
+
+      <!-- Notice Bubble -->
+      <p class="handoff-notice">
+        点击下一步只会打开系统分享或联系界面，不会替你发送。
+      </p>
+
+      <!-- Actions -->
+      <div class="handoff-actions">
+        <button
+          class="btn-primary"
+          data-testid="handoff-save"
+          type="button"
+          :disabled="busy"
+          @click="saveCard"
+        >
+          {{ busy ? '正在保存…' : saved ? '重新保存求助卡' : '准备联系' }}
+        </button>
+
+        <div v-if="saved" class="secondary-actions">
+          <button
+            class="btn-outline"
+            data-testid="handoff-copy"
+            type="button"
+            @click="copyCard"
+          >
+            复制求助文本
+          </button>
+          <button
+            class="btn-ghost"
+            data-testid="handoff-mark-shared"
+            type="button"
+            :disabled="busy"
+            @click="markShared"
+          >
+            我已向对方说明
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contact Drawer / Sheet -->
+    <Teleport to="body">
+      <div v-if="contactSheet" class="contact-mask" @click.self="contactSheet = false">
+        <section class="contacts-sheet" data-testid="trusted-contacts-sheet">
+          <header class="sheet-header">
+            <div>
+              <h2>信任联系人</h2>
+              <p>仅用于个人求助参考，系统不会自动联系任何人。</p>
+            </div>
+            <button class="sheet-close" type="button" aria-label="关闭" @click="contactSheet = false">×</button>
+          </header>
+
+          <div v-if="contacts.length" class="contact-list">
+            <button
+              v-for="person in contacts"
+              :key="person.id"
+              class="contact-item"
+              type="button"
+              :class="{ active: selectedContact?.id === person.id }"
+              @click="selectContact(person)"
+            >
+              <div class="person-copy">
+                <strong>{{ person.nickname }}</strong>
+                <span>{{ person.relation || '联系人' }} · {{ person.contactHint }}</span>
+              </div>
+              <span v-if="selectedContact?.id === person.id" class="check-mark">✓</span>
+            </button>
+          </div>
+          <p v-else class="muted-note">还没有保存联系人。</p>
+
+          <div class="contact-form">
+            <h3 class="form-title">添加新联系人</h3>
+            <input v-model="contactForm.nickname" class="sheet-input" placeholder="称呼（如：阿明、姐姐）" maxlength="40" />
+            <input v-model="contactForm.relation" class="sheet-input" placeholder="关系（如：好友、家人）" maxlength="40" />
+            <input v-model="contactForm.contactHint" class="sheet-input" placeholder="联系方式提示（如：微信、电话）" maxlength="80" />
+            <button class="btn-primary sheet-submit" :disabled="busy" type="button" @click="saveContact">
+              保存联系人
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </section>
 </template>
 
 <style scoped>
-.handoff-page{display:grid;gap:12px;padding:0 14px calc(36px + env(safe-area-inset-bottom));background:#f4efe4}.handoff-hero{position:relative;box-sizing:border-box;min-height:142px;height:142px;margin:0 -14px;padding:18px 22px;overflow:hidden;background:radial-gradient(circle at 72% 70%,rgba(232,170,122,.42),transparent 25%),linear-gradient(165deg,#102030,#263b49 53%,#74645b)}.handoff-hero::after{position:absolute;right:-10px;bottom:-22px;width:186px;height:186px;background:url('../assets/goodnight/tree-top-cutout.png') right bottom/contain no-repeat;opacity:.34;content:'';filter:brightness(.7);pointer-events:none}.handoff-hero>*{position:relative;z-index:1}.handoff-hero button{display:grid;place-items:center;width:34px;min-width:34px;height:34px;min-height:34px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:50%;background:rgba(255,255,255,.08);color:#fff;cursor:pointer}.handoff-hero h1{max-width:340px;margin:0 0 5px;color:#fffaf2;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:24px;line-height:1.25}.handoff-hero span{display:block;max-width:320px;color:rgba(255,250,240,.8);font-size:13px;line-height:1.55}.handoff-card{display:grid;gap:8px;margin-top:-8px;border-radius:24px;background:#fffdf8;padding:15px;box-shadow:0 16px 32px rgba(34,43,34,.1)}.handoff-card h2{margin:0;color:#4d6541;text-align:center;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:22px}.step-title{margin:2px 0 0;color:#71806a;font-size:13px}.step-title strong{margin-left:7px;color:#40563b;font-size:16px}.choice-grid{display:flex;flex-wrap:wrap;gap:6px}.choice-grid button{min-height:36px;border:1px solid rgba(95,127,62,.18);border-radius:12px;background:#fffdf8;padding:6px 10px;color:#4d6545;font:inherit;cursor:pointer}.choice-grid:not(.need-grid) button{flex:0 0 calc(25% - 6px)}.choice-grid button.selected{border-color:#496c49;background:#496c49;color:#fff}.need-grid button{flex:1 1 calc(33.333% - 6px);min-height:44px;padding-inline:7px;text-align:left;font-size:13px}.card-preview{position:relative;min-height:132px;overflow:hidden;border-radius:16px;background:linear-gradient(135deg,#faf4df,#f1ead8);padding:11px 102px 11px 13px}.card-preview::after{position:absolute;right:-5px;bottom:-8px;width:112px;height:118px;background:url('../assets/goodnight/illustrations/handoff-phone-scene.png') right bottom/contain no-repeat;content:'';opacity:.58;pointer-events:none;mix-blend-mode:multiply}.card-preview>*{position:relative;z-index:1}.card-preview p{margin:0 0 7px;color:#70805f;font-size:12px}.card-preview blockquote{margin:0;color:#45533f;font-size:14px;line-height:1.65;white-space:pre-wrap}.card-preview textarea{width:100%;min-height:124px;border:1px solid rgba(95,127,62,.18);border-radius:12px;background:#fffdf8;padding:9px;color:#3e4e3c;font:inherit;line-height:1.6;resize:none}.card-actions{display:grid;gap:7px}.primary-button,.outline-button,.text-button{min-height:47px;border-radius:999px;padding:9px 13px;font:inherit;cursor:pointer}.primary-button{border:0;background:#496d49;color:#fff}.outline-button{border:1px solid rgba(95,127,62,.25);background:transparent;color:#4b6846}.text-button{border:0;background:transparent;color:#5c7452}.privacy-note{color:#8a9086;text-align:center}.status{margin:0;border-radius:13px;background:#eaf0e2;padding:10px;color:#506a48;line-height:1.5}.error-text{margin:0;color:var(--gn-danger)}.contacts-trigger{display:grid;grid-template-columns:22px minmax(0,1fr) 20px;align-items:center;gap:8px;width:100%;min-height:47px;border:1px solid rgba(95,127,62,.18);border-radius:16px;background:rgba(255,253,247,.8);padding:10px 13px;color:#4a6543;text-align:left;font:inherit;cursor:pointer}.contacts-trigger>svg:last-child{justify-self:end}.contact-mask{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(16,28,34,.45);padding:0 12px}.contacts-sheet{position:relative;width:min(430px,100%);max-height:78vh;overflow:auto;border-radius:26px 26px 0 0;background:#fffaf1;padding:26px 18px calc(22px + env(safe-area-inset-bottom));box-shadow:0 -18px 46px rgba(0,0,0,.24)}.sheet-handle{position:absolute;top:10px;left:50%;width:44px;height:4px;border-radius:999px;background:#d8dad1;transform:translateX(-50%)}.contacts-sheet header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.contacts-sheet h2{margin:0;color:#405b3d;font-family:"Songti SC","Noto Serif SC",serif;font-size:22px}.contacts-sheet header p{margin:5px 0 0;color:#7a8379;font-size:12px;line-height:1.5}.sheet-close{display:grid;place-items:center;width:30px;height:30px;min-height:30px;border:0;border-radius:50%;background:#edf1e4;color:#405c3d;font-size:20px;cursor:pointer}.contact-list{display:grid;gap:8px;margin-top:13px}.contact-list article{display:grid;gap:4px;border-bottom:1px solid rgba(95,127,62,.12);padding:9px 0}.contact-list span{color:#7b8379;font-size:12px}.contact-form{display:grid;gap:8px;margin-top:15px}.contact-form input{width:100%;min-height:42px;border:1px solid rgba(95,127,62,.18);border-radius:11px;background:#fffdf8;padding:9px;color:#334233;font:inherit}.contact-form button{width:100%}.muted{color:#7b8379;font-size:13px}
+.reality-handoff-page {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  background: var(--gn-paper);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
+}
+
+:global(.phone-shell:has(.reality-handoff-page)) {
+  padding-bottom: 0;
+}
+
+.handoff-bar {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line);
+  background: var(--gn-paper);
+}
+
+.handoff-bar h1 {
+  margin: 0;
+  color: var(--gn-ink);
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 24px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gn-ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.handoff-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.page-lead {
+  padding: 24px 0 16px;
+}
+
+.page-lead h2 {
+  margin: 0;
+  color: var(--gn-ink);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.page-lead p {
+  margin: 6px 0 0;
+  color: var(--gn-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.status-note {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--gn-radius-card);
+  background: var(--gn-paper-warm);
+  color: var(--gn-leaf-deep);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.handoff-section {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 20px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.section-header h3 {
+  margin: 0;
+  color: var(--gn-ink);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.section-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.contact-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--gn-line);
+  border-radius: 12px;
+  background: var(--gn-paper);
+  text-align: left;
+  cursor: pointer;
+}
+
+.contact-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #f0f3f4;
+  flex-shrink: 0;
+}
+
+.avatar-dot {
+  width: 14px;
+  height: 14px;
+  border: 3px solid #82909a;
+  border-radius: 50%;
+}
+
+.contact-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.contact-name {
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.contact-desc {
+  color: var(--gn-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-chevron {
+  color: #b6bcc4;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.template-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.template-chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.template-chip.active {
+  border-color: #275f56;
+  background: #eaf4ee;
+  color: #1e4d45;
+  font-weight: 600;
+}
+
+.message-card {
+  border: 1px solid var(--gn-line);
+  border-radius: 12px;
+  background: var(--gn-paper);
+  padding: 16px;
+  min-height: 110px;
+}
+
+.message-text {
+  margin: 0;
+  color: var(--gn-ink);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.message-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100px;
+  border: 0;
+  background: transparent;
+  color: var(--gn-ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.handoff-notice {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f2f4f6;
+  color: var(--gn-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.handoff-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.btn-primary {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gn-leaf);
+  color: #ffffff;
+  font-family: var(--gn-font-body);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+}
+
+.secondary-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-outline {
+  flex: 1;
+  min-height: 40px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font-family: var(--gn-font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-ghost {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  background: none;
+  color: var(--gn-leaf-deep);
+  font-family: var(--gn-font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Contact Mask / Sheet */
+.contact-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+}
+
+.contacts-sheet {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  background: var(--gn-paper);
+  padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.sheet-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gn-ink);
+}
+
+.sheet-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.sheet-close {
+  border: 0;
+  background: none;
+  font-size: 24px;
+  color: var(--gn-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-paper);
+  text-align: left;
+  cursor: pointer;
+}
+
+.contact-item.active {
+  border-color: var(--gn-leaf);
+  background: var(--gn-leaf-soft);
+}
+
+.person-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.person-copy strong {
+  font-size: 14px;
+  color: var(--gn-ink);
+}
+
+.person-copy span {
+  font-size: 12px;
+  color: var(--gn-muted);
+}
+
+.check-mark {
+  color: var(--gn-leaf-deep);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.muted-note {
+  margin: 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gn-line);
+}
+
+.form-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-ink);
+}
+
+.sheet-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-bg);
+  color: var(--gn-ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.sheet-submit {
+  min-height: 42px;
+  font-size: 14px;
+  margin-top: 4px;
+}
 </style>

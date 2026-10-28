@@ -1,42 +1,395 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import AppIcon from '../icons/AppIcon.vue';
-import journeyRain from '../../assets/goodnight/illustrations/timeline-rain-scene.png';
-import journeyRecovery from '../../assets/goodnight/illustrations/timeline-moon-scene.png';
-import journeyStart from '../../assets/goodnight/illustrations/timeline-tree-scene.png';
-import journeyStep from '../../assets/goodnight/illustrations/timeline-home-scene.png';
+
 type TimelineItem = { id: string; kind: string; content: string; createdAt: string; intensity?: number; payload?: Record<string, unknown> };
-const props = defineProps<{ title: string; createdAt: string; initialIntensity?: number; currentIntensity?: number; updates: TimelineItem[]; later: string; busy?: boolean }>();
+const props = defineProps<{
+  title: string;
+  createdAt: string;
+  domain?: string;
+  stage?: string;
+  status?: string;
+  initialIntensity?: number;
+  currentIntensity?: number;
+  updates: TimelineItem[];
+  later: string;
+  busy?: boolean;
+}>();
 const emit = defineEmits<{ 'update:later': [value: string]; 'save-later': []; action: []; 'change-support': [] }>();
+
 const days = computed(() => Math.max(1, Math.ceil((Date.now() - Date.parse(props.createdAt)) / 86_400_000) + 1));
-const writingLater = ref(false);
-const visual = (item: TimelineItem) => {
-  if (item.kind === 'created') return { icon: 'journey', title: '事情发生', art: journeyStart };
-  if (item.kind === 'commitment_created') return item.payload?.parentActionId ? { icon: 'step', title: '把行动又缩小了一点', art: journeyStep } : { icon: 'moon', title: '今晚定下了一小步', art: journeyStart };
-  if (item.kind === 'checkin_missed' || (item.kind === 'checkin' && item.payload?.barrier)) return { icon: 'rain', title: '这一步没有做到', art: journeyRain };
-  if (item.kind === 'adaptive_action') return { icon: 'step', title: '把行动又缩小了一点', art: journeyStep };
-  if (item.kind === 'checkin') return { icon: 'journey', title: '回来看了看这一步', art: journeyRecovery };
-  if (item.kind === 'intensity') return { icon: 'trend', title: '状态发生了变化', art: journeyRecovery };
-  if (item.kind === 'stabilize_breath') return { icon: 'breath', title: '让呼吸慢下来', art: journeyRecovery };
-  if (item.kind === 'stabilize_note') return { icon: 'pen', title: '给自己留了一句话', art: journeyStep };
-  if (item.kind === 'safety_acknowledged') return { icon: 'heart', title: '选择继续留在支持里', art: journeyRecovery };
-  if (item.kind === 'fingerprint_reanalysis_requested') return { icon: 'leaf', title: '重新看见这段经历', art: journeyStart };
-  return { icon: 'leaf', title: '后来有了一点变化', art: journeyRecovery };
+
+/** The design asks for Chinese statuses; these are the only English values the API sends. */
+const STAGE_LABEL: Record<string, string> = {
+  clarifying: '正在整理',
+  planning: '正在计划',
+  acting: '行动中',
+  recovering: '恢复中',
+  graduated: '已完成',
 };
-const isMajor = (item: TimelineItem) => ['created', 'commitment_created', 'adaptive_action', 'checkin_missed', 'intensity'].includes(item.kind) || (item.kind === 'checkin' && Boolean(item.payload?.barrier));
-const date = (value: string) => new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date(value));
+const STATUS_LABEL: Record<string, string> = {
+  active: '正在经历',
+  paused: '暂停中',
+  completed: '已完成',
+  archived: '已归档',
+};
+const stageLabel = computed(() => STAGE_LABEL[props.stage ?? ''] ?? '正在整理');
+const statusLabel = computed(() => STATUS_LABEL[props.status ?? ''] ?? '正在经历');
+
+/** Whether the intensity actually moved, so the card does not claim a change that did not happen. */
+const intensityMoved = computed(
+  () =>
+    props.initialIntensity !== undefined &&
+    props.currentIntensity !== undefined &&
+    props.initialIntensity !== props.currentIntensity,
+);
+
+const writingLater = ref(false);
+
+/** What each recorded kind is called. The art each one used to carry went with the V1 cards. */
+const visual = (item: TimelineItem): { icon: string; title: string } => {
+  if (item.kind === 'created') return { icon: 'journey', title: '最初写下这件事' };
+  if (item.kind === 'commitment_created')
+    return item.payload?.parentActionId
+      ? { icon: 'step', title: '把行动又缩小了一点' }
+      : { icon: 'moon', title: '今晚定下了一小步' };
+  if (item.kind === 'checkin_missed' || (item.kind === 'checkin' && item.payload?.barrier))
+    return { icon: 'rain', title: '这一步没有做到' };
+  if (item.kind === 'adaptive_action') return { icon: 'step', title: '把行动又缩小了一点' };
+  if (item.kind === 'checkin') return { icon: 'journey', title: '回来看了看这一步' };
+  if (item.kind === 'intensity') return { icon: 'trend', title: '状态发生了变化' };
+  if (item.kind === 'stabilize_breath') return { icon: 'breath', title: '让呼吸慢下来' };
+  if (item.kind === 'stabilize_note') return { icon: 'pen', title: '给自己留了一句话' };
+  if (item.kind === 'safety_acknowledged') return { icon: 'heart', title: '选择继续留在支持里' };
+  if (item.kind === 'fingerprint_reanalysis_requested') return { icon: 'leaf', title: '重新看见这段经历' };
+  return { icon: 'leaf', title: '后来有了一点变化' };
+};
+
+const date = (value: string) => {
+  const when = new Date(value);
+  const sameDay = when.toDateString() === new Date().toDateString();
+  return sameDay ? '今天' : new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(when);
+};
 </script>
 
 <template>
   <section class="timeline-screen" data-testid="journey-timeline">
-    <header class="journey-summary"><div class="summary-art"><img :src="journeyStart" alt="" /></div><div><span>第 {{ days }} 天</span><h2>{{ title }}</h2><p>先看见发生了什么，再慢慢往前走。</p></div><div v-if="initialIntensity !== undefined" class="intensity-summary"><strong>{{ initialIntensity }}</strong><AppIcon name="arrow" :size="16" /><strong>{{ currentIntensity ?? initialIntensity }}</strong><span class="trend-spark" aria-hidden="true" /><small>/10</small></div></header>
-    <div class="timeline-paper"><div class="timeline-heading"><AppIcon name="leaf" :size="19" /><h2>后来呢</h2></div><div class="timeline-list"><article v-for="item in updates" :key="item.id" :class="{ 'is-major': isMajor(item) }"><div class="line-mark"><span /><i /></div><div class="timeline-entry"><time>{{ date(item.createdAt) }}</time><div class="entry-title"><span class="entry-icon"><img :src="visual(item).art" alt="" /></span><h3>{{ visual(item).title }}</h3></div><p>{{ item.content }}</p><small v-if="item.intensity !== undefined">此刻感受 {{ item.intensity }}/10</small></div></article><p v-if="!updates.length" class="empty">第一条真实记录会在这里留下来。</p></div></div>
-    <section v-if="writingLater" class="later-paper"><label><span>写下后来呢</span><textarea :value="later" maxlength="1000" placeholder="不需要完整，写下一点变化或这一步带来的感觉。" @input="emit('update:later', ($event.target as HTMLTextAreaElement).value)" /></label><div><small>{{ later.length }}/1000</small><button :disabled="busy || !later.trim()" @click="emit('save-later')">保存</button></div></section>
-    <div class="timeline-actions"><button :disabled="busy" @click="writingLater = true">写下后来呢</button><button :disabled="busy" @click="emit('action')">看看今晚的小行动</button><button class="change-support" :disabled="busy" @click="emit('change-support')">换一种支持</button></div>
+    <header class="journey-head">
+      <h1>{{ title }}</h1>
+      <p>{{ domain || '匿名经历' }} · {{ stageLabel }}</p>
+    </header>
+
+    <section class="status-card">
+      <span class="status-chip">{{ statusLabel }}</span>
+      <strong class="status-stage">{{ stageLabel }}</strong>
+      <p v-if="intensityMoved" class="status-detail">
+        最近变化：主观强度 {{ initialIntensity }} → {{ currentIntensity }}
+      </p>
+      <p v-else class="status-detail">第 {{ days }} 天 · 先看见发生了什么，再慢慢往前走。</p>
+    </section>
+
+    <section class="timeline-block">
+      <div class="timeline-header">
+        <h2>经历时间线</h2>
+        <span class="all-records-link">全部记录 ›</span>
+      </div>
+      <ol class="timeline-list">
+        <li v-for="item in updates" :key="item.id" class="timeline-row">
+          <span class="timeline-mark" aria-hidden="true" />
+          <div class="timeline-body">
+            <p class="timeline-when">{{ date(item.createdAt) }} · {{ visual(item).title }}</p>
+            <p class="timeline-text">{{ item.content }}</p>
+            <small v-if="item.intensity !== undefined">此刻感受 {{ item.intensity }}/10</small>
+          </div>
+        </li>
+      </ol>
+      <p v-if="!updates.length" class="timeline-empty">第一条真实记录会在这里留下来。</p>
+    </section>
+
+    <section v-if="writingLater" class="later-block">
+      <label>
+        <span>写下后来呢</span>
+        <textarea
+          :value="later"
+          maxlength="1000"
+          placeholder="不需要完整，写下一点变化或这一步带来的感觉。"
+          @input="emit('update:later', ($event.target as HTMLTextAreaElement).value)"
+        />
+      </label>
+      <div class="later-foot">
+        <small>{{ later.length }}/1000</small>
+        <button :disabled="busy || !later.trim()" type="button" @click="emit('save-later')">保存</button>
+      </div>
+    </section>
+
+    <section class="next-block">
+      <h2>接下来</h2>
+      <button class="next-row" data-testid="journey-action" type="button" :disabled="busy" @click="emit('action')">
+        <span class="next-copy">
+          <strong>查看当前行动</strong>
+          <small>可以完成的一小步</small>
+        </span>
+        <span class="row-chevron" aria-hidden="true">›</span>
+      </button>
+      <button v-if="!writingLater" class="next-row" type="button" :disabled="busy" @click="writingLater = true">
+        <span class="next-copy">
+          <strong>写下后来呢</strong>
+          <small>留下这一步带来的变化</small>
+        </span>
+        <span class="row-chevron" aria-hidden="true">›</span>
+      </button>
+      <button class="next-row" type="button" :disabled="busy" @click="emit('change-support')">
+        <span class="next-copy">
+          <strong>换一种支持</strong>
+          <small>重新选择现在最需要的方式</small>
+        </span>
+        <span class="row-chevron" aria-hidden="true">›</span>
+      </button>
+    </section>
   </section>
 </template>
 
 <style scoped>
-.timeline-screen{display:grid;gap:11px}.journey-summary{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:10px;align-items:center;border-radius:22px;background:linear-gradient(145deg,#fffdf7,#f4ede0);padding:13px 14px;box-shadow:0 13px 28px rgba(20,32,27,.1)}.summary-art{display:grid;place-items:center;width:44px;height:44px;overflow:hidden;border-radius:50%;background:#e8eddd;color:#59744d}.summary-art img{width:44px;height:44px;object-fit:contain;mix-blend-mode:multiply}.journey-summary span{color:#71806b;font-size:12px}.journey-summary h2{margin:2px 0;color:#38523a;font-size:17px;line-height:1.28}.journey-summary p{margin:3px 0 0;color:#747b72;font-size:12px;line-height:1.38}.intensity-summary{display:grid;grid-template-columns:auto auto auto;align-items:center;gap:3px;border-radius:13px;background:#ebf0e1;padding:7px;color:#4f7048}.intensity-summary strong{font-size:15px}.trend-spark{grid-column:1/-1;display:block;width:38px;height:9px;margin:2px auto 0;border-bottom:2px solid #769368;transform:skewX(-35deg) rotate(-7deg);transform-origin:center}.intensity-summary small{grid-column:1/-1;color:#75836f;font-size:10px;text-align:center}.timeline-paper{border:1px solid rgba(102,121,85,.17);border-radius:24px;background:rgba(255,253,247,.96);padding:17px 16px 1px;box-shadow:0 14px 29px rgba(20,32,27,.09)}.timeline-heading{display:flex;align-items:center;gap:8px;color:#4b6946}.timeline-heading h2{margin:0;font-size:19px;font-family:"Songti SC","Noto Serif SC",serif}.timeline-list{display:grid;margin-top:14px}.timeline-list article{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px}.line-mark{position:relative;display:grid;justify-items:center}.line-mark span{z-index:1;width:10px;height:10px;margin-top:6px;border-radius:50%;background:#5b7954;box-shadow:0 0 0 4px #edf2e5}.line-mark i{position:absolute;top:20px;bottom:-1px;width:1px;background:#d2dcc8}.timeline-list article:last-child .line-mark i{display:none}.timeline-entry{padding:0 0 15px}.timeline-entry time{color:#7b827a;font-size:12px}.entry-title{display:flex;align-items:center;gap:7px;margin:3px 0;color:#466240}.entry-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#e9eedf}.entry-title h3{margin:0;font-size:15px;line-height:1.35}.timeline-entry p{margin:3px 0;color:#5f685f;font-size:13px;line-height:1.58}.timeline-entry small{color:#6b835c;font-size:12px}.timeline-list article.is-major{grid-template-columns:44px minmax(0,1fr);gap:10px}.timeline-list article.is-major .line-mark span{width:12px;height:12px;margin-top:13px;box-shadow:0 0 0 5px #edf2e5}.timeline-list article.is-major .line-mark i{top:26px}.timeline-list article.is-major .timeline-entry{padding-bottom:18px}.timeline-list article.is-major .entry-title{gap:8px;margin-top:2px}.timeline-list article.is-major .entry-icon{width:40px;height:40px;box-shadow:0 6px 13px rgba(64,86,55,.08)}.timeline-list article.is-major .entry-icon img{width:38px;height:38px}.timeline-list article.is-major .entry-title h3{font-size:16px}.empty{margin:0 0 18px;color:#7e847b}.later-paper{display:grid;gap:9px;border-radius:20px;background:rgba(255,253,247,.9);padding:16px;box-shadow:0 11px 24px rgba(20,32,27,.07)}.later-paper label{display:grid;gap:8px;color:#45613f;font-size:15px}.later-paper textarea{min-height:86px;width:100%;border:1px solid rgba(95,127,62,.17);border-radius:13px;background:#fffefa;padding:10px;color:#2e3e32;font:inherit;line-height:1.55;resize:none}.later-paper>div{display:flex;align-items:center;justify-content:space-between;color:#7c8579;font-size:12px}.later-paper button{min-width:76px;min-height:35px;border:0;border-radius:11px;background:#4e714d;color:#fff;font:inherit;cursor:pointer}.later-paper button:disabled{opacity:.55;cursor:wait}.timeline-actions{display:grid;gap:7px;padding:0 12px}.timeline-actions button{min-height:43px;border-radius:999px;border:0;background:#416a50;color:#fff;font:inherit;cursor:pointer}.timeline-actions button+button{border:1px solid rgba(95,127,62,.28);background:rgba(255,253,247,.7);color:#4e673f}.timeline-actions .change-support{min-height:32px;border:0;background:transparent;color:#5d7555;font-size:13px}
-.timeline-screen .entry-icon{overflow:hidden}.timeline-screen .entry-icon img{width:30px;height:30px;object-fit:contain;mix-blend-mode:multiply}
+.timeline-screen {
+  display: grid;
+  gap: 18px;
+}
+
+.journey-head h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.28;
+  color: var(--gn-text, #242a32);
+}
+
+.journey-head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gn-muted, #757d87);
+}
+
+.status-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--gn-border, #e8ebef);
+  border-radius: var(--gn-radius-card, 12px);
+  background: var(--gn-card, #ffffff);
+}
+
+.status-chip {
+  justify-self: start;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--gn-green-light, #eaf4ee);
+  color: var(--gn-green-dark, #1e4d45);
+  font-size: 11px;
+}
+
+.status-stage {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gn-text, #242a32);
+}
+
+.status-detail {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gn-subtext, #757d87);
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.timeline-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--gn-text, #242a32);
+}
+
+.all-records-link {
+  font-size: 13px;
+  color: var(--gn-muted, #757d87);
+}
+
+.next-block h2 {
+  margin: 16px 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--gn-text, #242a32);
+}
+
+.timeline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 16px;
+}
+
+/* The connector runs between the marks; the last row keeps none so the line does not trail off. */
+.timeline-row:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  left: 12px;
+  width: 1.5px;
+  background: #e5e7eb;
+}
+
+.timeline-mark {
+  z-index: 1;
+  justify-self: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border: 2px solid #8fa89b;
+  border-radius: 50%;
+  background: var(--gn-bg, #ffffff);
+}
+
+.timeline-when {
+  margin: 3px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-text, #242a32);
+}
+
+.timeline-text {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--gn-subtext, #757d87);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.timeline-body small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--gn-green-dark, #1e4d45);
+}
+
+.timeline-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gn-muted, #757d87);
+}
+
+.later-block {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--gn-border, #e8ebef);
+  border-radius: var(--gn-radius-card, 12px);
+  background: var(--gn-card, #ffffff);
+}
+
+.later-block label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--gn-text, #242a32);
+}
+
+.later-block textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--gn-paper-warm, #f7f8fa);
+  color: var(--gn-text, #242a32);
+  font: inherit;
+  line-height: 1.55;
+  resize: none;
+}
+
+.later-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--gn-muted, #757d87);
+  font-size: 12px;
+}
+
+.later-foot button {
+  min-height: 36px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--gn-radius-small, 8px);
+  background: var(--gn-leaf, #275f56);
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.later-foot button:disabled {
+  opacity: 0.5;
+}
+
+.next-block {
+  display: grid;
+  gap: 8px;
+}
+
+/* The design shows these as bare list rows — title, subtitle, chevron — not as bordered cards. */
+.next-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-text, #242a32);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.next-row + .next-row {
+  border-top: 1px solid var(--gn-border, #e8ebef);
+}
+
+.next-row:disabled {
+  opacity: 0.55;
+}
+
+.next-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.next-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.next-copy small {
+  font-size: 12px;
+  color: var(--gn-subtext, #757d87);
+}
+
+.row-chevron {
+  color: #b6bcc4;
+  font-size: 20px;
+  flex-shrink: 0;
+}
 </style>

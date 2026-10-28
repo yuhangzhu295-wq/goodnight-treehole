@@ -1,0 +1,9 @@
+[
+  { "selector": "future-content", "expect": {} },
+  { "selector": "future-time-tomorrow", "expect": {} },
+  { "selector": "future-time-week", "expect": {} },
+  { "selector": "future-time-custom", "expect": {} },
+  { "selector": "future-notify-row", "expect": { "url": "/pages/settings/privacy" } },
+  { "selector": "future-context-journey", "expect": {} },
+  { "selector": "future-self-save", "expect": {} }
+]

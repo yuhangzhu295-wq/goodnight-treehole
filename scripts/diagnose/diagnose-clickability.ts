@@ -34,6 +34,60 @@ type Result = ManifestItem & {
 
 const storeFile = 'apps/api/data/goodnight-store.diagnose-clickability.json';
 
+async function enableMonthlyReportActions() {
+  const privacyResponse = await fetch(`${urls.api}/api/v1/me/privacy`);
+  if (!privacyResponse.ok) throw new Error(`Could not read monthly-report privacy: ${privacyResponse.status}`);
+  const privacyPayload = await privacyResponse.json() as { item?: Record<string, unknown> };
+  const updateResponse = await fetch(`${urls.api}/api/v1/me/privacy`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...privacyPayload.item,
+      allowJourneyLongTermAnalysis: true,
+      allowMonthlyReportShare: true,
+    }),
+  });
+  if (!updateResponse.ok) throw new Error(`Could not grant explicit monthly-report consent: ${updateResponse.status}`);
+
+  const month = new Date().toISOString().slice(0, 7);
+  const deadline = Date.now() + 120000;
+  let lastStatus = 'unavailable';
+  while (Date.now() < deadline) {
+    const response = await fetch(`${urls.api}/api/v1/reports/monthly?month=${month}`);
+    if (!response.ok) throw new Error(`Could not prepare monthly report: ${response.status}`);
+    const payload = await response.json() as { item?: { summary?: string; aiJobStatus?: string } };
+    const report = payload.item;
+    lastStatus = String(report?.aiJobStatus ?? 'unavailable');
+    // This diagnosis is about whether the monthly-report actions are clickable, so it needs a
+    // report that carries a summary - not a funded provider. With an unfunded or unreachable
+    // provider the product degrades to a safe template ('fallback'), which is a real,
+    // user-visible state that the report renders like any other summary (and which the mp now
+    // labels as a fallback). Treating that as a hard failure conflated "DAPI has a balance"
+    // with "the report actions work", and made this gate unrunnable in the documented
+    // degraded environment. A job that produced no summary is still a genuine blocker.
+    if (report?.summary && ['succeeded', 'fallback'].includes(lastStatus)) return;
+    if (['failed', 'cancelled'].includes(lastStatus)) {
+      throw new Error(`Monthly report job produced no summary: ${lastStatus}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  }
+  throw new Error(`Monthly report job did not complete before clickability diagnosis: ${lastStatus}`);
+}
+
+async function createAdminReviewCandidate() {
+  const response = await fetch(`${urls.api}/api/v1/moods`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      content: `点击诊断待审核内容 ${Date.now()}`,
+      emotion: 'anxious',
+      visibility: 'PUBLIC',
+      replyStyle: 'warm',
+    }),
+  });
+  if (!response.ok) throw new Error(`Could not create an isolated admin review candidate: ${response.status}`);
+}
+
 function apiMatcher(expected?: string | null) {
   if (!expected) return undefined;
   const [method, rawPath] = expected.split(' ');
@@ -231,6 +285,7 @@ async function main() {
       });
       if (!enableResponse.ok) throw new Error(`Could not enable human replies for clickability precondition: ${enableResponse.status}`);
     }
+    await enableMonthlyReportActions();
 
     for (const item of frontManifest) {
       const result = await runItem(front, urls.front, item, 'front');
@@ -239,6 +294,9 @@ async function main() {
       await fs.writeFile('artifacts/diagnosis/clickability-report.md', toMarkdown(results));
     }
 
+    // A front click-through legitimately hides content. Give moderation its
+    // own persisted pending record rather than relying on a mutable seed row.
+    await createAdminReviewCandidate();
     for (const item of adminManifest.filter((entry) => entry.route === '/login')) {
       const result = await runItem(admin, urls.admin, item, 'admin');
       results.push(result);

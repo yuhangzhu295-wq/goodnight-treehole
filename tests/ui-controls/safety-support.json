@@ -1,0 +1,19 @@
+[
+  {
+    "selector": "safety-back",
+    "expect": { "urlChanged": true }
+  },
+  {
+    "selector": "safety-emergency-medical",
+    "settleMs": 500,
+    "expect": { "present": "[data-testid=\"safety-emergency\"][href=\"tel:120\"]" }
+  },
+  {
+    "selector": "safety-handoff",
+    "expect": { "urlChanged": true }
+  },
+  {
+    "selector": "safety-stay",
+    "expect": { "urlChanged": true }
+  }
+]

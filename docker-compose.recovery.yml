@@ -1,0 +1,40 @@
+# Recovery-environment override. Does NOT modify docker-compose.yml.
+#
+# Why this file exists (see docs/disaster-recovery-baseline.md):
+#   This workstation has no Docker Desktop and no administrator rights, so the
+#   containers run on the Docker Engine that ships inside the WSL2 Ubuntu distro.
+#   Windows reaches them through WSL2 localhost forwarding, which cannot bind a
+#   port that a native Windows process already owns. Two native Windows services
+#   occupy the compose defaults:
+#      127.0.0.1:5432  -> native PostgreSQL 18 (superuser credentials unknown)
+#      127.0.0.1:6379  -> native Redis 3.0.504 (too old for BullMQ)
+#   Neither is usable by this project, but neither may be stopped without admin.
+#   Remapping the published ports to the 1xxxx range keeps the `localhost` URLs in
+#   .env stable (no dependency on the WSL IP, which changes on every WSL restart).
+#
+# MinIO image pin (environment deviation, see docs/disaster-recovery-inventory.md):
+#   docker-compose.yml pins minio/minio:RELEASE.2026-06-13T11-33-47Z. This network
+#   cannot reach registry-1.docker.io or hub.docker.com, so the pin can be neither
+#   pulled nor verified; the only reachable registry mirror (docker.1panel.live)
+#   answers 403 for that tag while serving minio/minio:latest normally. `latest` is
+#   therefore used here. The pinned tag is kept in docker-compose.yml untouched so
+#   it is restored as soon as a registry that has it is reachable.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.recovery.yml up -d postgres redis minio
+
+services:
+  postgres:
+    restart: unless-stopped
+    ports:
+      - "15432:5432"
+  redis:
+    restart: unless-stopped
+    ports:
+      - "16379:6379"
+  minio:
+    restart: unless-stopped
+    image: minio/minio:latest
+    ports:
+      - "19000:9000"
+      - "19001:9001"

@@ -1,0 +1,15 @@
+[
+  {
+    "selector": "btn-data-explain",
+    "expect": { "text": "账号与数据说明" }
+  },
+  {
+    "selector": "btn-data-policy-route",
+    "setup": "btn-data-explain",
+    "expect": { "url": "/pages/settings/data-policy" }
+  },
+  {
+    "selector": "btn-export-diaries",
+    "expect": { "text": "导出" }
+  }
+]

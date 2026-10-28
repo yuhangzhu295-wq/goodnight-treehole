@@ -3,11 +3,22 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { copyText } from '../clipboard';
-import { useDeviceClock } from '../composables/useDeviceClock';
 
 const route = useRoute();
 const router = useRouter();
-const { timeLabel } = useDeviceClock();
+
+/** The post's real creation time. This used to print a hardcoded "2 小时前". */
+function relativeTime(value?: string) {
+  if (!value) return '时间未记录';
+  const minutes = Math.floor((Date.now() - Date.parse(value)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(value));
+}
 
 const post = ref<any>();
 const replies = ref<any[]>([]);
@@ -30,11 +41,11 @@ const posterStatus = ref('');
 const allowHumanReplies = ref(true);
 
 const styleButtons = [
-  { style: 'warm', label: '暖心陪伴', icon: '♡', testId: 'detail-style-warm' },
-  { style: 'rational', label: '理性分析', icon: '▥', testId: 'detail-style-rational' },
-  { style: 'light', label: '轻松一下', icon: '☺', testId: 'detail-style-light' },
-  { style: 'clear', label: '清醒提醒', icon: '♢', testId: 'detail-style-clear' },
-  { style: 'poetic', label: '诗意治愈', icon: '♧', testId: 'detail-style-poetic' },
+  { style: 'warm', label: '暖心陪伴', testId: 'detail-style-warm' },
+  { style: 'rational', label: '理性分析', testId: 'detail-style-rational' },
+  { style: 'light', label: '轻松一下', testId: 'detail-style-light' },
+  { style: 'clear', label: '清醒提醒', testId: 'detail-style-clear' },
+  { style: 'poetic', label: '诗意治愈', testId: 'detail-style-poetic' },
 ];
 
 const defaultPresets = [
@@ -46,7 +57,7 @@ const defaultPresets = [
 ];
 
 const quickHugs = ['抱抱你', '我懂', '加油', '陪着你', '会好起来的'];
-const replyCountText = computed(() => post.value ? `已收到 ${post.value.replyCount} 条温柔回应` : '正在读取回应');
+const replyCountText = computed(() => post.value ? `回应（${post.value.replyCount}）` : '正在读取回应');
 
 function postId() {
   return String(route.query.id || 'post_1');
@@ -57,17 +68,39 @@ function safeBack() {
   else router.push('/pages/square/index');
 }
 
+const loadError = ref('');
+const repliesError = ref('');
+
 async function load() {
   const id = postId();
+  loadError.value = '';
   try {
     const config = (await api.get<any>('/api/v1/config')).item;
     allowHumanReplies.value = config.allowHumanRepliesDefault !== false;
   } catch {
     allowHumanReplies.value = true;
   }
-  post.value = (await api.get<any>(`/api/v1/posts/${id}`)).item;
+  try {
+    post.value = (await api.get<any>(`/api/v1/posts/${id}`)).item;
+  } catch (cause: any) {
+    // A 404 is "this post is gone", which the empty state describes. Anything else is a failed read,
+    // and telling the reader it was deleted sends them looking for a post that still exists.
+    if (cause?.status === 404) {
+      post.value = undefined;
+      return;
+    }
+    loadError.value = cause?.message ?? '这条树洞暂时打不开';
+    return;
+  }
   allowHumanReplies.value = post.value.allowHumanReplies ?? allowHumanReplies.value;
-  replies.value = (await api.get<any>(`/api/v1/posts/${id}/replies`)).items;
+  try {
+    replies.value = (await api.get<any>(`/api/v1/posts/${id}/replies`)).items;
+    repliesError.value = '';
+  } catch (cause: any) {
+    // The post itself is readable; an empty list here would read as "no one replied yet".
+    replies.value = [];
+    repliesError.value = cause?.message ?? '回应暂时读取不到';
+  }
 }
 
 async function loadPresets() {
@@ -124,6 +157,21 @@ async function blockPost() {
   await router.replace('/pages/square/index');
 }
 
+/**
+ * Rows written before the fallback templates stopped prefixing the body with the style label.
+ *
+ * The label belongs to the reply's `style`, which is stored separately; showing it inside the text made
+ * every fallback reply read like a labelled AI field ("暖心陪伴：我听见你提到…"). New rows no longer
+ * carry it, and these four still do.
+ */
+const LEGACY_STYLE_PREFIX = /^(?:暖心陪伴|理性分析|轻松一点|清醒提醒|诗意疗愈)：/;
+function replyText(reply: { content?: unknown; style?: unknown }) {
+  const content = String(reply?.content ?? '');
+  // Only the AI templates prefixed the body with the style label; a person may have typed it, and their
+  // words are not ours to trim.
+  return String(reply?.style ?? '') === 'human' ? content : content.replace(LEGACY_STYLE_PREFIX, '');
+}
+
 function usePreset(index: number) {
   const text = presets.value[index]?.text;
   if (text) replyContent.value = text;
@@ -175,30 +223,30 @@ onMounted(async () => {
 
 <template>
   <section class="page goodnight-page detail-page" v-if="post">
-    <header class="detail-top">
-      <div class="status-row">
-        <span>{{ timeLabel }}</span>
-        <span aria-hidden="true"></span>
-      </div>
+    <header class="detail-topbar bleed-bar">
       <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
-      <h1>树洞详情</h1>
-      <div class="tree-scene detail-tree" aria-hidden="true">
-        <span class="tree-heart">♡</span>
-      </div>
-      <span class="detail-hero-baby" aria-hidden="true" />
+      <h1>一条动态</h1>
+      <button class="more-icon" data-testid="btn-open-more" aria-label="更多" @click="showMore = true">⋯</button>
     </header>
 
-    <article class="detail-card">
-      <button class="card-more" data-testid="btn-open-more" aria-label="更多" @click="showMore = true">...</button>
+    <article class="detail-post">
       <div class="detail-author">
-        <div class="avatar-bubble large">♧</div>
-        <div>
+        <span class="author-avatar" aria-hidden="true">匿</span>
+        <div class="author-copy">
           <strong>匿名树洞</strong>
-          <p><span>2 小时前</span><span class="tag green">{{ post.emotion }}</span></p>
+          <p>{{ relativeTime(post.createdAt) }} · {{ post.emotion }}</p>
         </div>
       </div>
       <p class="detail-content">{{ post.content }}</p>
-      <button class="reply-link" data-testid="detail-reply-count" :disabled="!allowHumanReplies" @click="openReplySheet()">{{ allowHumanReplies ? replyCountText : '真人回应已关闭' }} ›</button>
+      <div class="detail-actions">
+        <button data-testid="btn-hug" class="text-action" @click="hug">抱抱 {{ post.hugCount }}</button>
+        <button data-testid="btn-open-reply" class="text-action" :disabled="!allowHumanReplies" @click="openReplySheet()">
+          {{ allowHumanReplies ? `回应 ${post.replyCount}` : '回应关闭' }}
+        </button>
+        <button data-testid="btn-favorite" class="text-action" @click="favorite">
+          {{ post?.favoritedByCurrentUser ? '已收藏' : '收藏' }}
+        </button>
+      </div>
       <div class="style-row no-wrap">
         <button
           v-for="item in styleButtons"
@@ -208,44 +256,51 @@ onMounted(async () => {
           :disabled="!allowHumanReplies"
           @click="openReplySheet(item.label)"
         >
-          <span>{{ item.icon }}</span>
-          <span>{{ item.label }}</span>
+          {{ item.label }}
         </button>
-      </div>
-      <div class="detail-actions">
-        <button data-testid="btn-hug" class="plain-action big" @click="hug">♡ 抱抱 {{ post.hugCount }}</button>
-        <button data-testid="btn-open-reply" class="plain-action big" :disabled="!allowHumanReplies" @click="openReplySheet()">☻ {{ allowHumanReplies ? `回应 ${post.replyCount}` : '回应关闭' }}</button>
       </div>
     </article>
 
     <section class="reply-section">
-      <h2>♧ 温柔回应</h2>
-      <article v-for="(reply, index) in replies.slice(0, 5)" :key="reply.id" class="reply-card">
-        <div class="avatar-bubble">{{ index === 1 ? '◌' : '♡' }}</div>
-        <div>
-          <strong>{{ reply.style === 'rational' ? '理性分析' : index === 2 ? '轻松一下' : '暖心陪伴' }}</strong>
-          <p>{{ reply.content }}</p>
+      <!--
+        The heading is also the way into the composer, which is why it is a button: the design puts
+        the count here, and a heading that looks clickable but is not would be the worse trade.
+      -->
+      <button class="reply-heading" data-testid="detail-reply-count" :disabled="!allowHumanReplies" @click="openReplySheet()">
+        {{ allowHumanReplies ? replyCountText : '真人回应已关闭' }}
+      </button>
+      <article v-for="(reply, index) in replies.slice(0, 5)" :key="reply.id" class="reply-row">
+        <span class="reply-avatar" aria-hidden="true" />
+        <div class="reply-body">
+          <strong>匿名旅人</strong>
+          <!--
+            No style label here. It used to read `index === 2 ? '轻松一下' : '暖心陪伴'`, so every
+            third reply was labelled 轻松一下 no matter what it said - a label invented from the row's
+            position. The reply's own `style` is the composer's hint, not something a reader needs, and
+            the design shows name + text only.
+          -->
+          <p>{{ replyText(reply) }}</p>
         </div>
         <button
-          v-if="index === 0"
-          data-testid="reply-like-first"
+          :data-testid="index === 0 ? 'reply-like-first' : undefined"
           class="reply-like"
           @click="likeReply(reply)"
         >
           ♡ {{ reply.likeCount ?? 0 }}
         </button>
-        <button v-else class="reply-like" @click="likeReply(reply)">♡ {{ reply.likeCount ?? 0 }}</button>
       </article>
+      <p v-if="repliesError" class="reply-empty" data-testid="reply-load-error">{{ repliesError }}，可以下拉重试。</p>
+      <p v-else-if="!replies.length" class="reply-empty">还没有公开的回应。写下第一条，审核通过后会出现在这里。</p>
     </section>
 
     <section class="hug-section">
-      <h2>♧ 大家的抱抱</h2>
-      <div class="style-row">
+      <h2>想说的话</h2>
+      <div class="quick-row">
         <button
           v-for="(item, index) in quickHugs"
           :key="item"
           :data-testid="index === 0 ? 'quick-hug-0' : `quick-hug-${index}`"
-          class="style-pill"
+          class="quick-chip"
           :disabled="!allowHumanReplies"
           @click="openReplySheet(item)"
         >
@@ -257,7 +312,6 @@ onMounted(async () => {
     <div class="reply-dock">
       <button data-testid="reply-entry" class="reply-input-button" :disabled="!allowHumanReplies" @click="openReplySheet()">{{ allowHumanReplies ? '写下你的回应...' : '真人回应已关闭' }}</button>
       <button data-testid="btn-hug-dock" class="dock-main" @click="hug">♡ 抱抱</button>
-      <button data-testid="btn-favorite" class="dock-outline" @click="favorite">☆ {{ post?.favoritedByCurrentUser ? '已收藏' : '收藏' }}</button>
     </div>
 
     <p v-if="submittedNotice" class="floating-status">{{ submittedNotice }}</p>
@@ -296,16 +350,32 @@ onMounted(async () => {
           <span>匿名回复</span>
           <input data-testid="toggle-reply-anonymous" type="checkbox" v-model="anonymous" />
         </label>
+        <!--
+          "仅作者可见" is offered by the composer but the Reply table has no visibility column, so the
+          server cannot honour it and now refuses it outright. Rather than hide the choice (which would
+          remove a control the reader expects) or keep it as a silent lie, it stays and says what it
+          does; submitting is blocked while it is selected.
+        -->
         <label class="setting-row">
           <span>可见范围：</span>
           <select data-testid="select-reply-visibility" v-model="replyVisibility">
             <option value="PUBLIC">所有人可见</option>
-            <option value="PRIVATE">仅作者可见</option>
+            <option value="PRIVATE">仅作者可见（暂不支持）</option>
           </select>
         </label>
+        <p v-if="replyVisibility === 'PRIVATE'" class="reply-visibility-note" role="status">
+          回应审核后会公开显示，"仅作者可见"尚未支持，服务端会拒绝这条回应。
+        </p>
         <div class="sheet-actions">
           <button data-testid="btn-close-reply" class="outline-wide" @click="closeReplySheet">取消</button>
-          <button data-testid="btn-submit-reply" class="submit-wide" @click="submitReply">发布回应</button>
+          <button
+            data-testid="btn-submit-reply"
+            class="submit-wide"
+            :disabled="replyVisibility === 'PRIVATE'"
+            @click="submitReply"
+          >
+            发布回应
+          </button>
         </div>
       </div>
     </div>
@@ -320,118 +390,357 @@ onMounted(async () => {
       </div>
     </div>
   </section>
+
+  <!-- Opened without a resolvable id the page rendered nothing: no header, no back button, no way
+       out. Offer the route back the way LetterDetail does. -->
+  <section v-else class="page goodnight-page detail-page">
+    <!-- The compact bar, not the hero. `detail-top` is a 190px hero with a 44px title, meant for a
+         post that exists; in this branch there is no post, and the hero stacked the back chevron
+         under the title instead of beside it. Every other detail page's empty state uses
+         `rest-topbar`, which is a 3-column grid: back | centred title | spacer. -->
+    <header class="rest-topbar">
+      <button class="back-icon" data-testid="front-post-back" aria-label="返回" @click="safeBack">‹</button>
+      <h1>树洞详情</h1>
+      <span aria-hidden="true"></span>
+    </header>
+    <article class="detail-card">
+      <h2>{{ loadError ? '这条树洞暂时打不开' : '没有找到这条树洞' }}</h2>
+      <p class="detail-content is-empty">{{ loadError || '它可能已经被删除或屏蔽。可以从广场重新打开一条。' }}</p>
+      <div class="detail-actions">
+        <button v-if="loadError" class="primary" data-testid="detail-retry" @click="load">重新读取</button>
+        <button class="primary" data-testid="detail-goto-square" @click="router.push('/pages/square/index')">回到树洞广场</button>
+      </div>
+    </article>
+  </section>
 </template>
 
 <style scoped>
-.detail-page .status-row {
-  visibility: hidden;
+/*
+ * This page is one reading column, not the shared detail grid.
+ *
+ * `styles.scss` gives `.detail-page` a grid with `gap: 14px`, `margin: 0 18px`, a 154px bottom
+ * padding and a `.reply-section` with 110px of its own bottom padding. Measured on the device, that
+ * put a blank screen between the replies and 想说的话, made every child 15px wider than its parent
+ * (text ran to the screen edge) and left the fixed dock sitting on top of the chip row.
+ */
+.detail-page.goodnight-page {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  margin: 0;
+  /* `main.phone-shell` already insets every page by 18px; a second 20px here narrowed this column by
+     38px a side while every other page used 18. The top bar takes the same 18px back out. */
+  padding: 0 0 calc(112px + env(safe-area-inset-bottom));
 }
 
-.detail-hero-baby {
-  position: absolute;
-  right: 89px;
-  bottom: -1px;
-  z-index: 2;
-  width: 72px;
-  height: 68px;
-  background: url("../assets/goodnight/square-baby-cutout.png") center / contain no-repeat;
-  pointer-events: none;
+.reply-visibility-note {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  border: 1px solid #f2e4ce;
+  border-radius: 8px;
+  background: #fff8ee;
+  color: #8a6a34;
+  font-size: 11.5px;
+  line-height: 1.6;
 }
 
-/* Bring the first live detail card back to the compact header without
-   removing any post, reply, hug, or favourite controls. */
-.detail-page {
-  gap: 3px;
+/* The post is the page: a plain top bar, then the content. The old header was a 190px hero with a
+   44px title, a tree scene and a mascot cutout above the post body. */
+.detail-topbar {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 52px;
+  border-bottom: 1px solid #e8eaed;
+  background: #ffffff;
 }
 
-.detail-page .detail-card {
-  /* Keep a stable reading surface when the live post happens to be shorter
-     than the supplied reference.  Long server content still grows naturally;
-     this only prevents the reply section from jumping into the hero area. */
-  min-height: 228px;
-  padding-top: 10px;
+.detail-topbar h1 {
+  color: #242a32;
+  font-size: 17px;
+  font-weight: 650;
+  text-align: left;
 }
 
-.detail-page .detail-author > div {
-  min-width: 0;
-  padding-right: 44px;
+.detail-topbar .more-icon {
+  justify-self: end;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #39454c;
+  font-size: 18px;
+  line-height: 1;
 }
 
-.detail-page .detail-content {
-  margin-block: 6px;
-  line-height: 1.5;
+.detail-topbar .back-icon {
+  place-items: center start;
+  /* Flush with the content axis: centred in its 32px track the glyph sat 35 device px inside it. */
+  justify-self: start;
+  width: 32px;
+  height: 32px;
+  padding-left: 0;
+  /* The chevron's own side bearing was the last 20-30 device px of the inset. */
+  text-align: left;
+  border: 0;
+  background: none;
+  color: #39454c;
+  font-size: 24px;
+  line-height: 1;
 }
 
-.detail-page .reply-link {
-  min-height: 26px;
-  margin-top: 4px;
+.detail-post {
+  padding: 18px 0 4px;
 }
 
+/* The author row is metadata above the post, not a card header: the design's hierarchy is
+   name + time, then the body. */
+.detail-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.author-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e7efe9;
+  color: #275f56;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.author-copy { min-width: 0; }
+
+.author-copy strong {
+  display: block;
+  color: #242a32;
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.author-copy p {
+  margin: 3px 0 0;
+  color: #8b939c;
+  font-size: 12px;
+}
+
+/* The post is the page. 16px/1.75 is the reading size the design uses; the old 15px inside a card
+   with a 228px floor made a short post look like a poster. */
+.detail-content {
+  margin: 18px 0 0;
+  color: #242a32;
+  font-size: 16px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Plain text actions between two hairlines: the design has no bordered buttons above the replies. */
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 20px;
+  padding: 12px 0;
+  border-top: 1px solid #ebedf0;
+  border-bottom: 1px solid #ebedf0;
+}
+
+.text-action {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #5c656f;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.text-action:disabled { color: #b3b9c0; }
+
+/* Five tone shortcuts at 12px do not fit one 375px row, and a horizontally scrolling row cut the
+   last chip at the screen edge. Wrapping keeps all five visible without removing any. */
 .detail-page .style-row.no-wrap {
-  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  /* 6px/9px keeps all five tone chips on one line at 375px; 8px/11px pushed the fifth onto a line of
+     its own. */
+  gap: 6px;
+  margin-top: 14px;
 }
 
 .detail-page .style-row.no-wrap .style-pill {
-  min-height: 28px;
-  padding-block: 3px;
-  font-size: 10px;
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 0;
+  padding: 6px 9px;
+  border: 1px solid #e8eaed;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #6c747d;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.detail-page .detail-actions {
-  min-height: 31px;
-  margin-top: 3px;
-  padding-top: 2px;
+/* 回应（N） sits where the design puts it: a section heading, not a link inside the post card. The
+   shared rule pads this section by 110px, which is the blank screen that used to sit above 想说的话. */
+.detail-page .reply-section {
+  margin-top: 26px;
+  padding-bottom: 0;
 }
 
-.detail-page .detail-actions .plain-action {
-  min-height: 29px;
+.reply-heading {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #242a32;
+  font-size: 15px;
+  font-weight: 650;
+  text-align: left;
 }
 
-/* A real short reply should not occupy the vertical space intended for five
-   server-backed replies. Its full text stays in the DOM and is still readable. */
-.detail-page .reply-card {
-  min-height: 72px;
-  padding: 8px 10px;
-  grid-template-columns: 48px minmax(0, 1fr) 52px;
+.reply-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid #ebedf0;
 }
 
-.detail-page .reply-card .avatar-bubble {
-  width: 46px;
-  height: 46px;
+.reply-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f2f4f5;
 }
 
-.detail-page .reply-card p {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+/* The dashed circle the design puts inside the tile, drawn rather than shipped as an asset. */
+.reply-avatar::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border: 1px dashed #c4cad0;
+  border-radius: 50%;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.reply-body { flex: 1; min-width: 0; }
+
+.reply-body strong {
+  display: block;
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.reply-body p {
+  margin: 4px 0 0;
+  color: #6c747d;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.detail-page .reply-like {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 0 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #9aa1a9;
+  font-size: 12px;
+}
+
+.reply-empty {
+  margin: 0;
+  padding: 16px 0 0;
+  border-top: 1px solid #ebedf0;
+  color: #8b939c;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.hug-section { margin-top: 24px; }
+
+/* The shared rule pads this section by 96px at the bottom; on this page the dock is the last thing,
+   so that padding only produced a blank strip under the chips. */
+.detail-page .hug-section {
+  padding-bottom: 0;
+}
+
+.detail-page .hug-section h2 {
+  margin: 0 0 10px;
+  color: #242a32;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-chip {
+  min-height: 0;
+  padding: 6px 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #6c747d;
+  font-size: 12.5px;
+}
+
+/*
+ * The shared dock is a fixed three-column grid (input | 抱抱 | 收藏) with V1 olive and cream colours.
+ * This page renders two buttons, so the third track stayed empty and the bar stopped two-thirds of the
+ * way across, and the olive 抱抱 button is not the design's accent.
+ */
+.detail-page .reply-dock {
+  grid-template-columns: minmax(0, 1fr) 86px;
+  gap: 8px;
+  padding: 0 0 0 2px;
+}
+
+.detail-page .reply-dock .reply-input-button {
+  border: 1px solid #e4e7ea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #8b939c;
+}
+
+.detail-page .reply-dock .dock-main {
+  border: 0;
+  border-radius: 10px;
+  background: #275f56;
+  color: #ffffff;
 }
 
 /* Keep the real reply sheet at its functional height, but use the softer
    backdrop and native toggle treatment from the supplied state. */
 .reply-sheet-mask {
   background: rgba(40, 52, 42, 0.22);
-}
-
-.reply-compose::after {
-  position: absolute;
-  right: 12px;
-  bottom: 2px;
-  z-index: 2;
-  width: 68px;
-  height: 62px;
-  background: url("../assets/goodnight/square-baby-cutout.png") center bottom / contain no-repeat;
-  content: "";
-  pointer-events: none;
-}
-
-.reply-compose textarea {
-  padding-right: 76px;
-}
-
-.reply-compose .counter {
-  right: 86px;
-  z-index: 3;
 }
 
 .reply-sheet .setting-row input[type="checkbox"] {
@@ -460,10 +769,6 @@ onMounted(async () => {
 /* The reply state keeps the live post readable behind the sheet. Tighten only
    the composing controls to the supplied mobile rhythm; all reply inputs,
    visibility choices, and submission actions remain unchanged. */
-.detail-page:has(.reply-sheet-mask) .detail-hero-baby {
-  display: none;
-}
-
 .detail-page .reply-compose textarea {
   height: 108px;
   min-height: 108px;

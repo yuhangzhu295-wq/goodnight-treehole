@@ -1,0 +1,50 @@
+[
+  {
+    "selector": "filter-diary-month",
+    "expect": {
+      "text": "选择月份"
+    }
+  },
+  {
+    "selector": "btn-diary-filter",
+    "expect": {
+      "text": "筛选日记"
+    }
+  },
+  {
+    "selector": "filter-diary-emotion-jiaolv",
+    "setup": "btn-diary-filter",
+    "expect": {}
+  },
+  {
+    "selector": "filter-diary-letter-false",
+    "setup": "btn-diary-filter",
+    "expect": {}
+  },
+  {
+    "selector": "btn-diary-filter-confirm",
+    "setup": "btn-diary-filter",
+    "expect": {}
+  },
+  {
+    "selector": "btn-diary-filter-reset",
+    "setup": "btn-diary-filter",
+    "expect": {}
+  },
+  {
+    "selector": "btn-new-diary",
+    "expect": {
+      "url": "/pages/mood/create"
+    }
+  },
+  {
+    "selector": "diary-card-first",
+    "expect": {
+      "url": "/pages/diary/detail"
+    }
+  },
+  {
+    "selector": "front-diary-back",
+    "expect": {}
+  }
+]
