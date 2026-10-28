@@ -134,7 +134,7 @@ async function load() {
   try {
     const [diaryResult, postResult, letterResult, journeyResult] = await Promise.all([
       api.get<any>('/api/v1/diaries'),
-      api.get<any>('/api/v1/posts'),
+      api.get<any>('/api/v1/posts?mine=1'),
       api.get<any>('/api/v1/letters'),
       api.get<any>('/api/v1/archive/journeys'),
     ]);
@@ -253,7 +253,7 @@ onMounted(() => {
       <button class="back-btn" type="button" aria-label="返回" @click="router.back()">
         <AppIcon name="back" :size="20" />
       </button>
-      <h1 class="archive-bar-title">{{ activeTab === 'journey' ? '旅程归档' : '归档' }}</h1>
+      <h1 class="archive-bar-title">{{ activeTab === 'journey' ? '旅程归档' : '我的内容归档' }}</h1>
       <input
         v-model="query"
         class="archive-search"
@@ -334,7 +334,7 @@ onMounted(() => {
           </button>
         </article>
       </section>
-      <article v-if="!filteredPosts.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的公开树洞` : '这个时间范围里还没有公开树洞' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '这里显示公开并在展示中的树洞。' }}</p></article>
+      <article v-if="!filteredPosts.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的公开树洞` : '这个时间范围里还没有你发布的公开树洞' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '你公开发布的树洞会留在这里。' }}</p></article>
     </div>
 
     <div v-else-if="activeTab === 'letter' && !loading" class="archive-list">

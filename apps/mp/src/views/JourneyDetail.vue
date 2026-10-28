@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { SupportIntent } from '@goodnight/shared-types';
 import { api } from '../api';
@@ -61,13 +61,20 @@ async function load({ infer = true } = {}) {
   try { detail.value = (await api.get<{ item: Detail }>(`/api/v1/journeys/${journeyId.value}`)).item; if (infer) inferStep(); } catch (cause) { error.value = cause instanceof Error ? cause.message : '这段经历暂时没有打开'; } finally { loading.value = false; }
 }
 
+let isUnmounted = false;
+onBeforeUnmount(() => {
+  isUnmounted = true;
+});
+
 const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 async function waitForAnalysis(jobId: string) {
   analysisBusy.value = true;
   aiNotice.value = '';
   try {
     for (let attempt = 0; attempt < 36; attempt += 1) {
+      if (isUnmounted) return;
       const task = await api.get<{ status: string }>(`/api/v1/ai/tasks/${jobId}`);
+      if (isUnmounted) return;
       if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
         if (task.status === 'failed') error.value = '这次整理暂时没有完成，你可以根据原话自己改一处。';
         aiNotice.value = aiDegradationNotice(task);
@@ -75,7 +82,14 @@ async function waitForAnalysis(jobId: string) {
       }
       await sleep(500);
     }
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '经历整理状态没有更新'; } finally { analysisBusy.value = false; await load(); }
+  } catch (cause) {
+    if (!isUnmounted) error.value = cause instanceof Error ? cause.message : '经历整理状态没有更新';
+  } finally {
+    if (!isUnmounted) {
+      analysisBusy.value = false;
+      await load();
+    }
+  }
 }
 
 async function confirmSituation(payload: { facts: string[]; feelings: string[]; needs: string[]; constraints: string[] }) {

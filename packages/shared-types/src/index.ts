@@ -87,6 +87,18 @@ export interface PrivacySetting {
   allowDataExport?: boolean;
 }
 
+export interface MemoryItem {
+  id: string;
+  userId: string;
+  title: string;
+  content: string;
+  scope: string;
+  status: 'active' | 'archived' | 'deleted';
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LifeJourney {
   id: string;
   userId: string;

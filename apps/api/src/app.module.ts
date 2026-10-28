@@ -20,6 +20,8 @@ import { MediaAssetPersistenceService } from './media-asset-persistence.service.
 import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
 import { AnonymousSessionService } from './anonymous-session.service.js';
 import { IdentityMiddleware } from './identity.middleware.js';
+import { SocialMultimediaService } from './social-multimedia.service.js';
+import { AiPersonaService } from './ai-persona.service.js';
 
 @Module({
   controllers: [HealthController, PublicController, AdminController],
@@ -44,6 +46,8 @@ import { IdentityMiddleware } from './identity.middleware.js';
     FollowUpWorkerService,
     AnonymousSessionService,
     IdentityMiddleware,
+    SocialMultimediaService,
+    AiPersonaService,
   ],
 })
 export class AppModule implements NestModule {

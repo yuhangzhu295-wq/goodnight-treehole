@@ -1,0 +1,766 @@
+{
+  "schemaVersion": "3.0.0",
+  "project": "goodnight-treehole",
+  "phase": "PHASE_1_FINAL_DESIGN_ADJUDICATION",
+  "reviewedAt": "2026-10-29",
+  "reviewer": "final-gate",
+  "inputs": {
+    "v2DesignPackage": "C:/Users/zyu33/Downloads/V2 完整交付包",
+    "externalAuditDoc": "C:/Users/zyu33/Downloads/晚安树洞_49界面_社媒风格冲突与逐页视觉审计.md",
+    "r2ScreenshotsDir": "artifacts/ui-v2/r2",
+    "round1Reviewer": "architecture-reviewer",
+    "round2Reviewer": "reviewer-glm"
+  },
+  "allowedVerdicts": [
+    "KEEP",
+    "MINOR_REFINE",
+    "REDESIGN_REQUIRED",
+    "NEEDS_RUNTIME_EVIDENCE",
+    "REJECT_AUDIT_FINDING"
+  ],
+  "summaryCounts": {
+    "total": 39,
+    "KEEP": 23,
+    "MINOR_REFINE": 8,
+    "REDESIGN_REQUIRED": 0,
+    "NEEDS_RUNTIME_EVIDENCE": 2,
+    "REJECT_AUDIT_FINDING": 6,
+    "approvedForDevCount": 8
+  },
+  "substantiveDefects": {
+    "S1": {
+      "pageId": "UI-V2-24",
+      "page": "PostDetail",
+      "file": "apps/mp/src/views/PostDetail.vue",
+      "line": 272,
+      "title": "PostDetail 前 5 条回应无分页/无展开死截断",
+      "description": "模板使用 replies.slice(0, 5) 渲染回应列表，超过 5 条的已审核回应被静默截断，无展开或分页控件。"
+    },
+    "S2": {
+      "pageId": "UI-V2-25",
+      "page": "LetterToday",
+      "file": "apps/mp/src/views/LetterToday.vue",
+      "line": 241,
+      "title": "LetterToday 收藏与存日记语义混淆及伪导航箭头",
+      "description": "btn-letter-save 按钮显示为“收藏/已收藏”并带跳转箭头 ›，但点击调用 /api/v1/letters/:id/save-to-diary 并提示“已保存到日记”，混淆 Favorite 与 Diary 语义且误用导航箭头（关联 34_LetterDetail 原地按钮伪箭头）。"
+    },
+    "S3": {
+      "pageId": "UI-V2-21",
+      "page": "Archive",
+      "file": "apps/mp/src/views/Archive.vue",
+      "line": 137,
+      "title": "Archive 个人档案“公开树洞”混入全站公共流",
+      "description": "Archive.vue 直接调用 api.get('/api/v1/posts') 获取全站公开树洞，未按当前用户身份过滤，导致他人公开树洞混入个人内容档案。"
+    },
+    "S4": {
+      "pageIds": [
+        "UI-V2-03",
+        "UI-V2-05",
+        "UI-V2-10",
+        "UI-V2-25",
+        "UI-V2-32"
+      ],
+      "title": "异步 AI 任务轮询定时器在组件卸载时未解绑",
+      "description": "ActionCenter、JourneyDetail、PeerConversation(AI辅助)、LetterToday、ReportMonth 中的 setTimeout 轮询循环缺少 onBeforeUnmount 卸载中止守卫。"
+    }
+  },
+  "runtimeEvidenceItems": {
+    "E1": {
+      "pageId": "UI-V2-10",
+      "page": "PeerConversation",
+      "description": "长会话滚动、软键盘弹起避让、72 小时到期只读关闭与断网恢复真机/模拟器采样验证。"
+    },
+    "E2": {
+      "pageId": "UI-V2-13",
+      "page": "SafetySupport",
+      "description": "后端不可达/离线状态下首屏危机区块与 tel:120 / tel:12356 拨号可达性验证。"
+    },
+    "E3": {
+      "pageId": "UI-V2-14",
+      "page": "NotificationCenter",
+      "description": "核查数据库中同类通知重复系测试 seed 叠加还是业务事件触发缺少幂等去重。"
+    },
+    "E4": {
+      "pageId": "UI-V2-31",
+      "page": "DiaryDetail",
+      "description": "私密心情自动投影生成的日记（backedByMood）与独立日记在删除契约与月报统计口径上的一致性验证。"
+    },
+    "E5": {
+      "pageId": "UI-V2-36",
+      "page": "PrivacySettings",
+      "description": "14 项隐私设置开关关闭后，所有受控读写与 AI 异步任务路由的服务端 403 负向拦截验证。"
+    }
+  },
+  "pages": [
+    {
+      "id": "UI-V2-01",
+      "page": "TonightHome",
+      "title": "今晚主页",
+      "route": "/pages/tonight/index",
+      "viewFile": "apps/mp/src/views/TonightHome.vue",
+      "designRef": "设计图/01_TonightHome.png",
+      "latestScreenshot": "artifacts/ui-v2/android/R1_TonightHome_after_RECAPTURED.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已完成紧凑化输入、草稿自动恢复、Capacitor 键盘监听与卸载清理，并在 360/390/430 三档宽度及大字体下通过溢出检测，控件套件 tonight-home 2/2 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-02",
+      "page": "PeerNetwork",
+      "title": "同路网络",
+      "route": "/pages/peers/index",
+      "viewFile": "apps/mp/src/views/PeerNetwork.vue",
+      "designRef": "设计图/02_PeerNetwork.png",
+      "latestScreenshot": "artifacts/ui-v2/android/R2_PeerNetwork_after.png",
+      "auditPriority": "B",
+      "finalVerdict": "REJECT_AUDIT_FINDING",
+      "rationale": "正式驳回外部审计“对标 Soul 广场强化社交识别度”的建议。同路网络严禁暴露固定人设或个性化头像以防跨帖追踪；现有代码已实现按经历标题去重合并展示（“另有 N 位同行者留下过相同的经历”）及 scope=sent 请求过滤。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-03",
+      "page": "ActionCenter",
+      "title": "行动中心",
+      "route": "/pages/action/index",
+      "viewFile": "apps/mp/src/views/ActionCenter.vue",
+      "designRef": "设计图/03_ActionCenter.png",
+      "latestScreenshot": "artifacts/ui-v2/android/R1_ActionCenter_current.png",
+      "auditPriority": "B",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "页面主体结构、最小行动卡片与“换更小一步”交互符合 V2 规范，但存在 S4 缺陷：waitForJob 轮询循环（第 98-113 行）在组件卸载时未解绑中断。",
+      "requiredChanges": [
+        "修复 S4：在 ActionCenter.vue 中引入 onBeforeUnmount 卸载守卫与 clearTimeout，组件卸载时立即终止 waitForJob 轮询并阻止状态写入。"
+      ],
+      "defectIds": [
+        "S4"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-04",
+      "page": "Me",
+      "title": "我的主页",
+      "route": "/pages/me/index",
+      "viewFile": "apps/mp/src/views/Me.vue",
+      "designRef": "设计图/04_Me.png",
+      "latestScreenshot": "artifacts/ui-v2/android/R1_Me_after_RECAPTURED.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "高频记录与核心支持分组清晰，低频工具已通过 moreSupportSheetOpen 底部抽屉折叠收纳，控件测试 me 2/2 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-05",
+      "page": "JourneyDetail",
+      "title": "旅程详情",
+      "route": "/pages/journey/detail",
+      "viewFile": "apps/mp/src/views/JourneyDetail.vue",
+      "designRef": "设计图/05_JourneyDetail.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/journey-detail-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "五阶段流转与垂直时间线视觉已对齐 05_JourneyDetail.png（journey-detail 2/2 PASS），但存在 S4 缺陷：waitForAnalysis（第 64-79 行）在组件卸载后仍会继续 36 次轮询并在 finally 中调用 load()。",
+      "requiredChanges": [
+        "修复 S4：在 JourneyDetail.vue 中增加 onBeforeUnmount 卸载中止守卫，组件卸载时中断 waitForAnalysis 循环且不再调用 load()。"
+      ],
+      "defectIds": [
+        "S4"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-06",
+      "page": "PeerExperienceDetail",
+      "title": "匿名经历详情",
+      "route": "/pages/peer/detail",
+      "viewFile": "apps/mp/src/views/PeerExperienceDetail.vue",
+      "designRef": "设计图/06_PeerExperienceDetail.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/peer-detail-check2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已采用“经历全文—后来是这样走过来的—申请同路交流”连续三段式故事排版，且申请错误与加载错误隔离，控件测试 peer-detail 4/4 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-07",
+      "page": "PeerRequests",
+      "title": "同路请求",
+      "route": "/pages/peer/requests",
+      "viewFile": "apps/mp/src/views/PeerRequests.vue",
+      "designRef": "设计图/07_PeerRequests.png",
+      "latestScreenshot": "artifacts/ui-v2/android/R2_PeerRequests_after.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已重构为“待回应/已接受/已结束”三态生命周期 Tab，移除了重复面板并验证了同意跳转知情同意页闭环，控件测试 peer-requests 5/5 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-08",
+      "page": "PeerMatchWaiting",
+      "title": "等待回应",
+      "route": "/pages/peer/wait",
+      "viewFile": "apps/mp/src/views/PeerMatchWaiting.vue",
+      "designRef": "设计图/08_PeerMatchWaiting.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/peer-wait-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已按 08_PeerMatchWaiting.png 实现静态点环与真实待回应状态卡，7 秒串行轮询已在 onBeforeUnmount 严格清理，控件测试 peer-wait 4/4 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-09",
+      "page": "PeerConsent",
+      "title": "同行知情同意",
+      "route": "/pages/peer/consent",
+      "viewFile": "apps/mp/src/views/PeerConsent.vue",
+      "designRef": "设计图/09_PeerConsent.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/peer-consent-r2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已去除头像装饰与多层冗余框，四条边界规则清晰，双边独立授权契约与控件测试 peer-consent 3/3 均已验证通过，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-10",
+      "page": "PeerConversation",
+      "title": "私密聊天",
+      "route": "/pages/peer/conversation",
+      "viewFile": "apps/mp/src/views/PeerConversation.vue",
+      "designRef": "设计图/10_PeerConversation.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/peer-conversation-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "主消息轮询 pollTimer 已在 onBeforeUnmount 清理且界面对齐 10_PeerConversation.png，但 requestAiAssist 内的 wait(400) 轮询未检查组件卸载标志（S4）；同时长会话/软键盘/过期状态纳入 E1 运行时验证。",
+      "requiredChanges": [
+        "修复 S4：在 PeerConversation.vue 的 requestAiAssist 轮询循环中检查组件卸载状态并清理未决 setTimeout。"
+      ],
+      "defectIds": [
+        "S4"
+      ],
+      "runtimeEvidenceItems": [
+        "E1"
+      ],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-11",
+      "page": "PeerGraduation",
+      "title": "结伴结束",
+      "route": "/pages/peer/graduate",
+      "viewFile": "apps/mp/src/views/PeerGraduation.vue",
+      "designRef": "设计图/11_PeerGraduation.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/peer-graduate-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已按 11_PeerGraduation.png 实现无彩纸勋章的温和告别、折叠式自我记录与跳转旅程时间线主次按钮，控件测试 4/4 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-12",
+      "page": "RealityHandoff",
+      "title": "现实求助",
+      "route": "/pages/reality-handoff/index",
+      "viewFile": "apps/mp/src/views/RealityHandoff.vue",
+      "designRef": "设计图/12_RealityHandoff.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/reality-handoff-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "严格遵循“选联系人→口语化模板拟稿→复制到剪贴板由用户自主发送”的三步结构，绝不越权代发，控件测试 reality-handoff 6/6 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-13",
+      "page": "SafetySupport",
+      "title": "安全支持",
+      "route": "/pages/safety/index",
+      "viewFile": "apps/mp/src/views/SafetySupport.vue",
+      "designRef": "设计图/13_SafetySupport.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/safety-r2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "首屏已实现区域中立危机入口（点击展开“如果你在中国大陆：120 / 12356”及官方说明），并与低谷预案联动，控件测试 safety-support 4/4 PASS，UI 维持现状（配合 E2 离线可达性确认）。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [
+        "E2"
+      ],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-14",
+      "page": "NotificationCenter",
+      "title": "通知中心",
+      "route": "/pages/notifications/index",
+      "viewFile": "apps/mp/src/views/NotificationCenter.vue",
+      "designRef": "设计图/14_NotificationCenter.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/notifications-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "NEEDS_RUNTIME_EVIDENCE",
+      "rationale": "UI 已具备“全部/未读”Tab、“今天/昨天/更早”分组与已读状态同步（控件测试 4/4 PASS）；截图中同类通知重复需通过 E3 运行时数据库采样核验是否为测试夹具重复 seed 所致。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [
+        "E3"
+      ],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-15",
+      "page": "FutureSelf",
+      "title": "未来信",
+      "route": "/pages/future-self/index",
+      "viewFile": "apps/mp/src/views/FutureSelf.vue",
+      "designRef": "设计图/15_FutureSelf.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/future-self-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已按 15_FutureSelf.png 完成输入优先布局、时间胶囊、送达正文展示及可选上下文独立降级，控件测试 future-self 7/7 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-16",
+      "page": "Recovery",
+      "title": "生活恢复",
+      "route": "/pages/recovery/index",
+      "viewFile": "apps/mp/src/views/Recovery.vue",
+      "designRef": "设计图/16_Recovery.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/recovery-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已采用单话题切换记录、非打分制七日实况格与隐私授权门禁，完全对齐 16_Recovery.png，控件测试 recovery 2/2 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-17",
+      "page": "SupportPlan",
+      "title": "低谷预案",
+      "route": "/pages/support-plan/index",
+      "viewFile": "apps/mp/src/views/SupportPlan.vue",
+      "designRef": "设计图/17_SupportPlan.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/support-plan-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已具备分节内联编辑、有序徽章、折叠附加项与保存状态反馈，且与 SafetySupport 实时联动，控件测试 support-plan 3/3 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-18",
+      "page": "StableSelf",
+      "title": "稳定自我",
+      "route": "/pages/stable-self/index",
+      "viewFile": "apps/mp/src/views/StableSelf.vue",
+      "designRef": "设计图/18_StableSelf.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/stable-self-v5.png",
+      "auditPriority": "B",
+      "finalVerdict": "REJECT_AUDIT_FINDING",
+      "rationale": "正式驳回关于“呼吸法标签宣称临床标准”的误判。外部审计系受打包脚本 README 错误描述误导；StableSelf.vue 实为“清醒时候的我”稳定状态参考卡，且全仓呼吸组件（StabilizeScreen.vue）从未包含“临床标准”字样。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-19",
+      "page": "MemoryCenter",
+      "title": "记忆管理",
+      "route": "/pages/memory/index",
+      "viewFile": "apps/mp/src/views/MemoryCenter.vue",
+      "designRef": "设计图/19_MemoryCenter.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/memory-center-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已实现 AI 记忆总开关、四态记忆管理、单条停用/删除/过期重授权及自然语言化说明，控件测试 memory-center 6/6 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-20",
+      "page": "DecisionVault",
+      "title": "决定保险箱",
+      "route": "/pages/decision/index",
+      "viewFile": "apps/mp/src/views/DecisionVault.vue",
+      "designRef": "设计图/20_DecisionVault.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/decision-vault-v8.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已完成列表前置、单按钮控制新增决定面板、冷静期倒计时（含 onBeforeUnmount 清理 timer）及错误态与空态分离，verify-decision-vault.mjs 7/7 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-21",
+      "page": "Archive",
+      "title": "旅程归档",
+      "route": "/pages/archive/index",
+      "viewFile": "apps/mp/src/views/Archive.vue",
+      "designRef": "设计图/21_Archive.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/archive-v6.png",
+      "auditPriority": "B",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "存在实质业务缺陷 S3：Archive.vue 第 137 行在加载个人档案“公开树洞”Tab 时直接调用 api.get('/api/v1/posts')，将全站所有用户的公开树洞混入当前用户的个人归档中。",
+      "requiredChanges": [
+        "修复 S3：将个人档案“公开树洞”Tab 的数据源严格过滤为当前用户本人发布的公开树洞（如 /api/v1/posts?mine=1 或服务端按当前身份过滤），禁止混入全站他人帖子。",
+        "校准 Archive.vue 顶栏标题与四个 Tab 的个人归档语义。"
+      ],
+      "defectIds": [
+        "S3"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-22",
+      "page": "Square",
+      "title": "树洞广场",
+      "route": "/pages/square/index",
+      "viewFile": "apps/mp/src/views/Square.vue",
+      "designRef": "设计图/22_Square.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/square-v8.png",
+      "auditPriority": "A",
+      "finalVerdict": "REJECT_AUDIT_FINDING",
+      "rationale": "正式驳回。外部审计所指“巨大深绿标题与每帖重复吉祥物”源于打包脚本导出的旧截图 R4_Square_capture.png；现行 Square.vue 与 square-v8.png 早已完成白底细线列表、最新/热门服务端排序重构（墨量 12.0%），且严禁做成微博/Soul 式高刺激社媒流。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-23",
+      "page": "MoodCreate",
+      "title": "发布心情",
+      "route": "/pages/mood/create",
+      "viewFile": "apps/mp/src/views/MoodCreate.vue",
+      "designRef": "设计图/23_MoodCreate.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/mood-v8.png",
+      "auditPriority": "A",
+      "finalVerdict": "REJECT_AUDIT_FINDING",
+      "rationale": "正式驳回。外部审计基于旧截图 R4_MoodCreate_capture.png；现行 MoodCreate.vue 与 mood-v8.png 早已移除全部吉祥物立绘与多重卡片，以文本编辑框与可见范围（默认同步隐私设置并安全回退 PRIVATE）为核心，首屏 CTA 清晰直达。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-24",
+      "page": "PostDetail",
+      "title": "树洞动态详情",
+      "route": "/pages/post/detail",
+      "viewFile": "apps/mp/src/views/PostDetail.vue",
+      "designRef": "设计图/24_PostDetail.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/post-v8.png",
+      "auditPriority": "A",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "正常内容态虽已在 post-v8.png 验证，但代码存在实质缺陷 S1：PostDetail.vue 第 272 行硬编码 replies.slice(0, 5)，超过 5 条的回应被死截断且无展开/分页入口；同时回应抽屉中可见范围的“仅作者可见（暂不支持）”下拉项需收敛优化。",
+      "requiredChanges": [
+        "修复 S1：移除 replies.slice(0, 5) 的无条件死截断，当回应超过 5 条时提供“展开全部 N 条回应 / 查看更多”或分页加载控件。",
+        "优化回应抽屉中可见范围说明，避免提供选中即报错禁用的无效下拉选项。"
+      ],
+      "defectIds": [
+        "S1"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-25",
+      "page": "LetterToday",
+      "title": "今日回信",
+      "route": "/pages/letter/index",
+      "viewFile": "apps/mp/src/views/LetterToday.vue",
+      "designRef": "设计图/25_LetterToday.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/letter-v8.png",
+      "auditPriority": "A",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "信封插画与胶囊截断已在 letter-v8.png 中消除，但存在 S2 与 S4 两项实质缺陷：1) btn-letter-save 按钮显示“收藏/已收藏”并带跳转箭头 ›，实际却调用 save-to-diary 接口并提示“已保存到日记”；2) waitForAiJob 轮询循环缺少 onBeforeUnmount 卸载中止守卫。",
+      "requiredChanges": [
+        "修复 S2：对齐 btn-letter-save 的文案与实际动作语义（明确为“存入日记/已存入日记”或提供独立收藏动作），并移除非跳转操作行右侧的 › 箭头。",
+        "修复 S4：为 LetterToday.vue 的 waitForAiJob 轮询增加 onBeforeUnmount 卸载清理与中止守卫。"
+      ],
+      "defectIds": [
+        "S2",
+        "S4"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-26",
+      "page": "ToolIndex",
+      "title": "情绪工具箱",
+      "route": "/pages/tool/index",
+      "viewFile": "apps/mp/src/views/ToolIndex.vue",
+      "designRef": "设计图/26_ToolIndex.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/tool-v8.png",
+      "auditPriority": "A",
+      "finalVerdict": "REJECT_AUDIT_FINDING",
+      "rationale": "正式驳回。外部审计基于旧截图 R4_ToolIndex_capture.png；现行 ToolIndex.vue 与 tool-v8.png 早已重构为“整理事情/短暂停顿/留一份记录”三组白底细线列表，无任何吉祥物主卡或彩色九宫格，且 tool-index 9/9 控件测试已全部通过。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-27",
+      "page": "ToolDecompose",
+      "title": "拆解工具",
+      "route": "/pages/tool/decompose",
+      "viewFile": "apps/mp/src/views/ToolDecompose.vue",
+      "designRef": "设计图/27_ToolDecompose.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/tool-decompose-minimal.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已完成最小一步模式、完整分步模式与安全升级提示三态验证（tool-decompose 10/10 PASS），且 onBeforeUnmount 已通过 runSeq 清理在途轮询，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-28",
+      "page": "ToolRun",
+      "title": "即时整理工具",
+      "route": "/pages/tool/run",
+      "viewFile": "apps/mp/src/views/ToolRun.vue",
+      "designRef": "设计图/28_ToolRun.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/tool-run-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已按 28_ToolRun.png 完成重构，具备 inputSnapshot 校验（仅当前运行结果可存日记）、runSeq 卸载清理、便签微调与风险升级跳转，控件测试 tool-run 7/7 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-29",
+      "page": "MeProfile",
+      "title": "个人资料",
+      "route": "/pages/me/profile",
+      "viewFile": "apps/mp/src/views/MeProfile.vue",
+      "designRef": "设计图/29_MeProfile.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/me-profile-v4.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "昵称编辑校验、匿名编号脱敏说明、真实设备会话列表与非当前会话吊销均已闭环，控件测试 8/8 与 F01 4/4 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-30",
+      "page": "DiaryList",
+      "title": "日记列表",
+      "route": "/pages/diary/index",
+      "viewFile": "apps/mp/src/views/DiaryList.vue",
+      "designRef": "设计图/30_DiaryList.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/diary-list-v6.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已采用按月分组、紧凑细线行布局（无圆角卡片嵌套），仅在关联有效 letterId 时显示查看回信入口，diary-list 9/9 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-31",
+      "page": "DiaryDetail",
+      "title": "日记详情",
+      "route": "/pages/diary/detail",
+      "viewFile": "apps/mp/src/views/DiaryDetail.vue",
+      "designRef": "设计图/31_DiaryDetail.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/diary-detail-v4.png",
+      "auditPriority": "A",
+      "finalVerdict": "REJECT_AUDIT_FINDING",
+      "rationale": "正式驳回。外部审计因旧包路径错配看到无 ID 的 404 空态图；真实详情态截图 diary-detail-v4.png 与 verify-diary-detail.mjs 6/6 已完整验证日期、标题、正文与关联回信入口（心情投影日记删除契约归 E4 核验）。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [
+        "E4"
+      ],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-32",
+      "page": "ReportMonth",
+      "title": "月报",
+      "route": "/pages/report/month",
+      "viewFile": "apps/mp/src/views/ReportMonth.vue",
+      "designRef": "设计图/32_ReportMonth.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/report-month-v5.png",
+      "auditPriority": "A",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "外部审计所批“米黄色背景、植物纹样与折线图”早已在 report-month-v5.png 中废除并改为纯白底事实清单（verify-month-report.mjs 8/8 PASS），视觉版式无需重做；但代码存在 S4 缺陷：waitForAiJob（第 26-34 行）120 秒轮询缺少 onBeforeUnmount 卸载中止守卫。",
+      "requiredChanges": [
+        "修复 S4：在 ReportMonth.vue 中增加 onBeforeUnmount 卸载中止守卫，组件卸载时立即终止 waitForAiJob 轮询。"
+      ],
+      "defectIds": [
+        "S4"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-33",
+      "page": "LetterList",
+      "title": "信箱列表",
+      "route": "/pages/letter/list",
+      "viewFile": "apps/mp/src/views/LetterList.vue",
+      "designRef": "设计图/33_LetterList.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/letter-list-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已具备全部/未读/已读筛选、生成中状态提示、未读绿点、loadSeq 竞态保护及 onUnmounted 定时器清理，控件测试 letter-list 9/9 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-34",
+      "page": "LetterDetail",
+      "title": "信件详情",
+      "route": "/pages/letter/detail",
+      "viewFile": "apps/mp/src/views/LetterDetail.vue",
+      "designRef": "设计图/34_LetterDetail.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/letter-detail-v4.png",
+      "auditPriority": "A",
+      "finalVerdict": "MINOR_REFINE",
+      "rationale": "正文态已在 letter-detail-v4.png 与 verify-letter-detail.mjs 5/5 中验证完备；但第 166-181 行“收藏这封信”（btn-letter-detail-fav）与“喜欢这封信”（btn-letter-detail-like）两个原地操作按钮右侧误带了跳转箭头 ›，需做去箭头微调。",
+      "requiredChanges": [
+        "去伪导航箭头：移除 LetterDetail.vue 中 btn-letter-detail-fav 与 btn-letter-detail-like 两个原地操作按钮右侧的 › 箭头，仅在跳转行保留 ›。"
+      ],
+      "defectIds": [
+        "S2"
+      ],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": true
+    },
+    {
+      "id": "UI-V2-35",
+      "page": "FavoriteList",
+      "title": "收藏",
+      "route": "/pages/favorite/index",
+      "viewFile": "apps/mp/src/views/FavoriteList.vue",
+      "designRef": "设计图/35_FavoriteList.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/favorite-list-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已实现四分类筛选、乐观取消收藏与失败回滚、失效源过滤及 onUnmounted 定时器清理，控件测试 favorite-list 12/12 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-36",
+      "page": "PrivacySettings",
+      "title": "隐私设置",
+      "route": "/pages/settings/privacy",
+      "viewFile": "apps/mp/src/views/PrivacySettings.vue",
+      "designRef": "设计图/36_PrivacySettings.png",
+      "latestScreenshot": "artifacts/ui-v2/android/R4_PrivacySettings_capture.png",
+      "auditPriority": "B",
+      "finalVerdict": "NEEDS_RUNTIME_EVIDENCE",
+      "rationale": "前端 UI 分组、导出与保留匿名身份的缓存清理均已符合 36_PrivacySettings.png（privacy-effects 3/3 PASS）；需通过 E5 运行时测试补齐 14 项隐私开关在全站读写路由上的服务端负向拦截证明。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [
+        "E5"
+      ],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-37",
+      "page": "DataPolicy",
+      "title": "数据政策",
+      "route": "/pages/settings/data-policy",
+      "viewFile": "apps/mp/src/views/DataPolicy.vue",
+      "designRef": "设计图/37_DataPolicy.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/data-policy-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已采用可折叠分节结构并校准默认可见度与本地导出副本说明，控件测试 data-policy 6/6 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-38",
+      "page": "FeedbackHelp",
+      "title": "帮助反馈",
+      "route": "/pages/help/feedback",
+      "viewFile": "apps/mp/src/views/FeedbackHelp.vue",
+      "designRef": "设计图/38_FeedbackHelp.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/feedback-help-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已完整接入 PostgreSQL FeedbackPersistenceService，打通 C 端提交、真实工单号回显与管理端处理闭环，控件测试 feedback-help 10/10 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    },
+    {
+      "id": "UI-V2-39",
+      "page": "HelpFaqs",
+      "title": "常见问题",
+      "route": "/pages/help/faqs",
+      "viewFile": "apps/mp/src/views/HelpFaqs.vue",
+      "designRef": "设计图/39_HelpFaqs.png",
+      "latestScreenshot": "artifacts/ui-v2/r2/help-faqs-v2.png",
+      "auditPriority": "B",
+      "finalVerdict": "KEEP",
+      "rationale": "已实现常驻圆角搜索框、关键词过滤、折叠双行摘要与独立于错误分支的底部反馈入口，控件测试 help-faqs 6/6 PASS，维持现状。",
+      "requiredChanges": [],
+      "defectIds": [],
+      "runtimeEvidenceItems": [],
+      "approvedForDev": false
+    }
+  ]
+}

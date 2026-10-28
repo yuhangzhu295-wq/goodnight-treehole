@@ -43,6 +43,8 @@ import { FeedbackPersistenceService } from './feedback-persistence.service.js';
 import { DiaryPersistenceService } from './diary-persistence.service.js';
 import { LetterPersistenceService } from './letter-persistence.service.js';
 import { MediaAssetPersistenceService } from './media-asset-persistence.service.js';
+import { SocialMultimediaService } from './social-multimedia.service.js';
+import { AiPersonaService, type PersonaId } from './ai-persona.service.js';
 import { DIRECT_DB_MODELS } from './direct-db-models.js';
 import {
   DAPI_BASE_URL,
@@ -679,6 +681,16 @@ type PeerMessageRecord = {
   reportedAt?: string;
   blockedAt?: string;
   piiFlags?: string[];
+  msgType?: string;
+  replyToId?: string;
+  replyToContent?: string;
+  mediaUrl?: string;
+  mediaDuration?: number;
+  mediaSize?: number;
+  thumbnailUrl?: string;
+  recalledAt?: string;
+  seq?: number;
+  clientMsgId?: string;
 };
 
 interface StoreData {
@@ -1326,6 +1338,10 @@ export class StoreService implements OnModuleInit {
     public readonly lettersDb: LetterPersistenceService = new LetterPersistenceService(prisma as any),
     @Inject(MediaAssetPersistenceService)
     public readonly mediaAssetsDb: MediaAssetPersistenceService = new MediaAssetPersistenceService(prisma as any),
+    @Inject(SocialMultimediaService)
+    public readonly socialMultimedia: SocialMultimediaService = new SocialMultimediaService(),
+    @Inject(AiPersonaService)
+    public readonly aiPersona: AiPersonaService = new AiPersonaService(),
   ) {
     this.data = seedData();
     this.isolateDirectDbModels(this.data);
@@ -5892,14 +5908,25 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  private peerMessageForUser(message: PeerMessageRecord, viewerUserId: string) {
+  peerMessageForUser(message: PeerMessageRecord, viewerUserId: string) {
+    const isRecalled = Boolean(message.recalledAt);
     return {
       id: message.id,
       author: message.senderUserId === viewerUserId ? 'self' : 'peer',
       authorType: message.authorType,
       // The write path rejects PII, but historic records must never bypass that boundary.
-      content: this.redactPeerPublicText(message.content),
+      content: isRecalled ? '一条消息已撤回' : this.redactPeerPublicText(message.content),
       createdAt: message.createdAt,
+      msgType: message.msgType || 'TEXT',
+      replyToId: message.replyToId,
+      replyToContent: message.replyToContent ? this.redactPeerPublicText(message.replyToContent) : undefined,
+      mediaUrl: isRecalled ? undefined : message.mediaUrl,
+      mediaDuration: message.mediaDuration,
+      mediaSize: message.mediaSize,
+      thumbnailUrl: isRecalled ? undefined : message.thumbnailUrl,
+      recalledAt: message.recalledAt,
+      seq: message.seq,
+      clientMsgId: message.clientMsgId,
     };
   }
 
@@ -6604,20 +6631,94 @@ export class StoreService implements OnModuleInit {
     );
   }
 
-  async sendPeerMessage(matchId: string, content: unknown, requestedUserId?: string) {
+  async sendPeerMessage(matchId: string, input: unknown, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    let rawContent = '';
+    let msgType = 'TEXT';
+    let replyToId: string | undefined;
+    let replyToContent: string | undefined;
+    let mediaUrl: string | undefined;
+    let mediaDuration: number | undefined;
+    let mediaSize: number | undefined;
+    let thumbnailUrl: string | undefined;
+    let clientMsgId: string | undefined;
+
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const obj = input as Record<string, any>;
+      rawContent = typeof obj.content === 'string' ? obj.content : '';
+      msgType = typeof obj.msgType === 'string' ? obj.msgType : 'TEXT';
+      replyToId = typeof obj.replyToId === 'string' ? obj.replyToId : undefined;
+      replyToContent = typeof obj.replyToContent === 'string' ? obj.replyToContent : undefined;
+      mediaUrl = typeof obj.mediaUrl === 'string' ? obj.mediaUrl : undefined;
+      mediaDuration = typeof obj.mediaDuration === 'number' ? obj.mediaDuration : undefined;
+      mediaSize = typeof obj.mediaSize === 'number' ? obj.mediaSize : undefined;
+      thumbnailUrl = typeof obj.thumbnailUrl === 'string' ? obj.thumbnailUrl : undefined;
+      clientMsgId = typeof obj.clientMsgId === 'string' ? obj.clientMsgId : undefined;
+    } else {
+      rawContent = String(input ?? '');
+    }
+
+    if (!rawContent.trim()) {
+      if (msgType === 'STICKER') rawContent = '[表情包]';
+      else if (msgType === 'IMAGE') rawContent = '[图片]';
+      else if (msgType === 'VIDEO') rawContent = '[视频]';
+      else if (msgType === 'AUDIO') rawContent = '[语音]';
+      else if (msgType === 'CALL_LOG') rawContent = '[通话记录]';
+      else rawContent = ' ';
+    }
+
+    const text = this.text(rawContent, '消息内容', 1000);
+    this.assertPeerDraftSafe(text);
+
     if (DIRECT_DB_MODELS.PeerMessage && DIRECT_DB_MODELS.PeerConversation) {
       await this.expirePeerConversations();
-      const text = this.text(content, '消息内容', 1000);
-      this.assertPeerDraftSafe(text);
-      const msg = await this.peerPersistence.sendMessage(matchId, userId, text);
+      const conv = await this.peerPersistence.getConversationByMatchId(matchId);
+      if (!conv) throw new NotFoundException('匿名会话不存在');
+
+      // Deduplication check
+      if (clientMsgId) {
+        const existingId = this.socialMultimedia.isDuplicateMessage(conv.id, clientMsgId);
+        if (existingId) {
+          const all = await this.peerPersistence.getMessagesForConversation(conv.id);
+          const found = all.find((m) => m.id === existingId);
+          if (found) return { item: this.peerMessageForUser(found, userId) };
+        }
+      }
+
+      const seq = this.socialMultimedia.getNextSeq(conv.id);
+      const extraMeta = {
+        msgType,
+        replyToId,
+        replyToContent,
+        mediaUrl,
+        mediaDuration,
+        mediaSize,
+        thumbnailUrl,
+        seq,
+        clientMsgId,
+      };
+
+      const msg = await this.peerPersistence.sendMessage(matchId, userId, text, extraMeta);
+      if (clientMsgId) {
+        this.socialMultimedia.recordClientMessage(conv.id, clientMsgId, msg.id);
+      }
       return { item: this.peerMessageForUser(msg, userId) };
     }
+
     const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now())
       throw new BadRequestException('这段 72 小时会话已经结束');
-    const text = this.text(content, '消息内容', 1000);
-    this.assertPeerDraftSafe(text);
+
+    // Deduplication check
+    if (clientMsgId) {
+      const existingId = this.socialMultimedia.isDuplicateMessage(conversation.id, clientMsgId);
+      if (existingId) {
+        const found = this.peerMessages.find((m) => m.id === existingId);
+        if (found) return { item: this.peerMessageForUser(found, userId) };
+      }
+    }
+
+    const seq = this.socialMultimedia.getNextSeq(conversation.id);
     const item: PeerMessageRecord = {
       id: id('peer_message'),
       conversationId: conversation.id,
@@ -6626,10 +6727,138 @@ export class StoreService implements OnModuleInit {
       authorType: 'HUMAN',
       createdAt: now(),
       piiFlags: [],
+      msgType,
+      replyToId,
+      replyToContent,
+      mediaUrl,
+      mediaDuration,
+      mediaSize,
+      thumbnailUrl,
+      seq,
+      clientMsgId,
     };
     this.peerMessages.unshift(item);
+    if (clientMsgId) {
+      this.socialMultimedia.recordClientMessage(conversation.id, clientMsgId, item.id);
+    }
     await this.persistAndFlush();
     return { item: this.peerMessageForUser(item, userId) };
+  }
+
+  async recallPeerMessage(matchId: string, messageId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerMessage && DIRECT_DB_MODELS.PeerConversation) {
+      const recalled = await this.peerPersistence.recallMessage(matchId, userId, messageId);
+      return { item: this.peerMessageForUser(recalled, userId) };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const msg = this.peerMessages.find((m) => m.id === messageId && m.conversationId === conversation.id);
+    if (!msg) throw new NotFoundException('消息不存在');
+    if (msg.senderUserId !== userId) throw new BadRequestException('只有发送方可以撤回消息');
+    const elapsed = Date.now() - Date.parse(msg.createdAt);
+    if (elapsed > 120_000) throw new BadRequestException('超过 2 分钟的消息不能撤回');
+    msg.recalledAt = now();
+    msg.content = '一条消息已撤回';
+    await this.persistAndFlush();
+    return { item: this.peerMessageForUser(msg, userId) };
+  }
+
+  async syncPeerConversation(matchId: string, afterSeq = 0, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const convData = await this.conversationList(userId);
+    const conversation = convData.find((c: any) => c.matchId === matchId);
+    if (!conversation) throw new NotFoundException('匿名会话不存在');
+
+    const newMessages = (conversation.messages ?? []).filter((m: any) => {
+      const mSeq = typeof m.seq === 'number' ? m.seq : 0;
+      return mSeq > afterSeq;
+    });
+
+    const callStatus = this.socialMultimedia.getCallStatus(matchId, userId);
+
+    return {
+      conversationStatus: conversation.status,
+      expiresAt: conversation.expiresAt,
+      messages: newMessages,
+      call: callStatus,
+      lastSeq: (conversation.messages ?? []).reduce(
+        (max: number, m: any) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+        0,
+      ),
+    };
+  }
+
+  async createPeerCallOffer(matchId: string, callType: 'AUDIO' | 'VIDEO', requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) {
+      throw new BadRequestException('这段 72 小时会话已经结束');
+    }
+    const otherUserId = conversation.starterUserId === userId ? conversation.receiverUserId : conversation.starterUserId;
+    const call = this.socialMultimedia.createCallOffer(matchId, conversation.id, userId, otherUserId, callType);
+    return { call };
+  }
+
+  async respondPeerCall(matchId: string, offerId: string, action: 'ACCEPT' | 'DECLINED', requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const call = this.socialMultimedia.respondCall(matchId, userId, offerId, action);
+    if (action === 'DECLINED') {
+      // Append a call log message
+      await this.sendPeerMessage(
+        matchId,
+        {
+          content: `${call.callType === 'VIDEO' ? '视频通话' : '语音通话'} 已拒绝`,
+          msgType: 'CALL_LOG',
+        },
+        userId,
+      );
+    }
+    return { call };
+  }
+
+  async endPeerCall(matchId: string, callId: string, reason?: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const { call, durationSeconds } = this.socialMultimedia.endCall(matchId, userId, callId, reason);
+    const label = call.callType === 'VIDEO' ? '视频通话' : '语音通话';
+    let summary = `${label} 已结束`;
+    if (durationSeconds > 0) {
+      const min = Math.floor(durationSeconds / 60);
+      const sec = durationSeconds % 60;
+      summary = `${label} ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    } else if (call.status === 'CANCELLED') {
+      summary = `${label} 已取消`;
+    } else if (call.status === 'MISSED') {
+      summary = `${label} 未接听`;
+    }
+    await this.sendPeerMessage(
+      matchId,
+      {
+        content: summary,
+        msgType: 'CALL_LOG',
+      },
+      userId,
+    );
+    return { call, durationSeconds };
+  }
+
+  getPeerCallStatus(matchId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const call = this.socialMultimedia.getCallStatus(matchId, userId);
+    return { call };
+  }
+
+  getAiPersona(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return {
+      persona: this.aiPersona.getUserPersona(userId),
+      available: this.aiPersona.getPersonaList(),
+    };
+  }
+
+  setAiPersona(personaId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const updated = this.aiPersona.setUserPersona(userId, personaId as PersonaId);
+    return { persona: updated };
   }
 
   async requestPeerResponseAssist(matchId: string, content: unknown, requestedUserId?: string) {
@@ -7833,6 +8062,24 @@ export class StoreService implements OnModuleInit {
         post.reviewStatus === 'published' &&
         (!emotion || normalizedValue === '全部' || post.emotion === normalized),
     );
+  }
+
+  async myPublicPosts(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.Post) {
+      const all = await this.postsDb.listRecent(500);
+      return all
+        .filter((post) => post.userId === userId && post.status === 'active')
+        .map((post) => ({
+          ...post,
+          publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+          allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+          favoritedByCurrentUser: false,
+        }));
+    }
+    const feedContext = await this.buildPostDecorationContext(this.posts);
+    this.posts.forEach((post) => this.decoratePost(post, feedContext));
+    return this.posts.filter((post) => post.userId === userId && post.status === 'active');
   }
 
   async hidePostForCurrentUser(postId: string) {

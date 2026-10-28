@@ -58,6 +58,8 @@ const defaultPresets = [
 
 const quickHugs = ['抱抱你', '我懂', '加油', '陪着你', '会好起来的'];
 const replyCountText = computed(() => post.value ? `回应（${post.value.replyCount}）` : '正在读取回应');
+const showAllReplies = ref(false);
+const visibleReplies = computed(() => showAllReplies.value ? replies.value : replies.value.slice(0, 5));
 
 function postId() {
   return String(route.query.id || 'post_1');
@@ -269,7 +271,7 @@ onMounted(async () => {
       <button class="reply-heading" data-testid="detail-reply-count" :disabled="!allowHumanReplies" @click="openReplySheet()">
         {{ allowHumanReplies ? replyCountText : '真人回应已关闭' }}
       </button>
-      <article v-for="(reply, index) in replies.slice(0, 5)" :key="reply.id" class="reply-row">
+      <article v-for="(reply, index) in visibleReplies" :key="reply.id" class="reply-row">
         <span class="reply-avatar" aria-hidden="true" />
         <div class="reply-body">
           <strong>匿名旅人</strong>
@@ -289,6 +291,14 @@ onMounted(async () => {
           ♡ {{ reply.likeCount ?? 0 }}
         </button>
       </article>
+      <button
+        v-if="replies.length > 5"
+        class="btn-expand-replies"
+        type="button"
+        @click="showAllReplies = !showAllReplies"
+      >
+        {{ showAllReplies ? '收起部分回应' : `查看全部 ${replies.length} 条回应` }}
+      </button>
       <p v-if="repliesError" class="reply-empty" data-testid="reply-load-error">{{ repliesError }}，可以下拉重试。</p>
       <p v-else-if="!replies.length" class="reply-empty">还没有公开的回应。写下第一条，审核通过后会出现在这里。</p>
     </section>
@@ -553,6 +563,24 @@ onMounted(async () => {
   padding: 12px 0;
   border-top: 1px solid #ebedf0;
   border-bottom: 1px solid #ebedf0;
+}
+
+.btn-expand-replies {
+  display: block;
+  width: 100%;
+  padding: 8px 0;
+  margin: 6px 0;
+  background: transparent;
+  border: 1px dashed #e2e8f0;
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+}
+.btn-expand-replies:hover {
+  color: #275f56;
+  border-color: #cbd5e1;
 }
 
 .text-action {

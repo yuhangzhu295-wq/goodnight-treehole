@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { ActionBarrier, ActionRecommendation, AdaptiveActionResult } from '@goodnight/shared-types';
 import { api } from '../api';
@@ -95,14 +95,23 @@ async function load() {
   }
 }
 
+let isUnmounted = false;
+
+onBeforeUnmount(() => {
+  isUnmounted = true;
+});
+
 function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 async function waitForJob<T extends Record<string, unknown>>(jobId: string) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (isUnmounted) throw new Error('组件已卸载');
     await wait(400);
+    if (isUnmounted) throw new Error('组件已卸载');
     const task = await api.get<{ status: string; result?: string; structured?: T }>(`/api/v1/ai/tasks/${jobId}`);
+    if (isUnmounted) throw new Error('组件已卸载');
     if (['succeeded', 'fallback', 'failed'].includes(task.status)) {
       if (task.status === 'failed') throw new Error('这次没有形成可确认的行动');
       aiNotice.value = aiDegradationNotice(task);

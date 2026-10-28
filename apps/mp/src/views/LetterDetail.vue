@@ -168,7 +168,6 @@ const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(lette
         <span class="detail-row-copy">
           <strong>{{ letter.favorite ? '已收藏这封信' : '收藏这封信' }}</strong>
         </span>
-        <span class="detail-chev" aria-hidden="true">›</span>
       </button>
 
       <button class="detail-row" type="button" data-testid="btn-letter-detail-like" :disabled="busy" @click="like">
@@ -177,7 +176,6 @@ const sourceDiaryId = computed(() => (letter.value?.sourceDiaryId ? String(lette
           <strong>喜欢这封信</strong>
           <small>{{ letter.likeCount ? `${letter.likeCount} 人喜欢` : '送出一次喜欢' }}</small>
         </span>
-        <span class="detail-chev" aria-hidden="true">›</span>
       </button>
 
       <button class="detail-row" type="button" data-testid="btn-letter-detail-save" @click="router.push('/pages/letter/today')">

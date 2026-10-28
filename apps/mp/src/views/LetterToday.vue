@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
@@ -113,10 +113,17 @@ function safeBack() {
   else router.push('/pages/square/index');
 }
 
+let isUnmounted = false;
+onBeforeUnmount(() => {
+  isUnmounted = true;
+});
+
 async function waitForAiJob(jobId: string) {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
+    if (isUnmounted) return { status: 'cancelled' };
     const state = await api.get<any>(`/api/v1/ai/tasks/${jobId}`);
+    if (isUnmounted) return { status: 'cancelled' };
     if (!['queued', 'running'].includes(state.status)) {
       if (!['succeeded', 'fallback'].includes(state.status)) throw new Error(state.job?.errorMessage ?? 'AI 回信生成失败');
       return state;
@@ -180,10 +187,15 @@ async function regenerate(nextStyle = style.value) {
 async function saveToDiary() {
   if (!letter.value) return;
   busyAction.value = 'diary';
-  const res = await api.post<{ item: Letter }>(`/api/v1/letters/${letter.value.id}/save-to-diary`);
-  letter.value = res.item;
-  statusText.value = '已保存到日记';
-  busyAction.value = '';
+  try {
+    const res = await api.post<{ item: Letter }>(`/api/v1/letters/${letter.value.id}/save-to-diary`);
+    letter.value = res.item;
+    statusText.value = '已存入私密日记';
+  } catch (error: any) {
+    statusText.value = error instanceof Error ? error.message : '存入日记失败';
+  } finally {
+    busyAction.value = '';
+  }
 }
 
 async function makeShareImage() {
@@ -238,13 +250,12 @@ onMounted(load);
         <span class="row-copy"><strong>原始记录</strong><small>查看这封回信回应的那件事</small></span>
         <span class="row-chevron" aria-hidden="true">›</span>
       </button>
-      <button class="letter-row" data-testid="btn-letter-save" type="button" :disabled="busyAction === 'diary'" @click="saveToDiary">
+      <button class="letter-row action-row" data-testid="btn-letter-save" type="button" :disabled="busyAction === 'diary'" @click="saveToDiary">
         <span class="row-icon" aria-hidden="true">♡</span>
         <span class="row-copy">
-          <strong>{{ busyAction === 'diary' ? '正在保存' : letter.savedToDiary ? '已收藏' : '收藏' }}</strong>
-          <small>以后想再看时可以找回来</small>
+          <strong>{{ busyAction === 'diary' ? '正在保存' : letter.savedToDiary ? '已存入日记' : '存入日记' }}</strong>
+          <small>保存至私密日记，以后想看时可以随时找回</small>
         </span>
-        <span class="row-chevron" aria-hidden="true">›</span>
       </button>
     </section>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, resolveApiUrl } from '../api';
 import { aiDegradationNotice } from '../aiStatus';
@@ -23,10 +23,17 @@ const adviceLoading = ref(false);
 const loadError = ref('');
 const aiNotice = ref('');
 
+let isUnmounted = false;
+onBeforeUnmount(() => {
+  isUnmounted = true;
+});
+
 async function waitForAiJob(jobId: string) {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
+    if (isUnmounted) return { status: 'cancelled' };
     const state = await api.get<any>(`/api/v1/ai/tasks/${jobId}`);
+    if (isUnmounted) return { status: 'cancelled' };
     if (!['queued', 'running'].includes(state.status)) return state;
     await new Promise((resolve) => window.setTimeout(resolve, 450));
   }

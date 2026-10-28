@@ -77,6 +77,16 @@ export type PeerMessageRecord = {
   reportedAt?: string;
   blockedAt?: string;
   piiFlags?: string[];
+  msgType?: string;
+  replyToId?: string;
+  replyToContent?: string;
+  mediaUrl?: string;
+  mediaDuration?: number;
+  mediaSize?: number;
+  thumbnailUrl?: string;
+  recalledAt?: string;
+  seq?: number;
+  clientMsgId?: string;
 };
 
 export type PeerReportRecord = {
@@ -174,6 +184,8 @@ export function mapPeerConversationRow(row: any): PeerConversationRecord {
 }
 
 export function mapPeerMessageRow(row: any): PeerMessageRecord {
+  const flags = row.piiFlags;
+  const meta = flags && typeof flags === 'object' && !Array.isArray(flags) ? (flags as any) : {};
   return {
     id: row.id,
     conversationId: row.conversationId,
@@ -184,6 +196,16 @@ export function mapPeerMessageRow(row: any): PeerMessageRecord {
     reportedAt: row.reportedAt ? iso(row.reportedAt) : undefined,
     blockedAt: row.blockedAt ? iso(row.blockedAt) : undefined,
     piiFlags: Array.isArray(row.piiFlags) ? row.piiFlags.map(String) : [],
+    msgType: meta.msgType ?? 'TEXT',
+    replyToId: meta.replyToId,
+    replyToContent: meta.replyToContent,
+    mediaUrl: meta.mediaUrl,
+    mediaDuration: meta.mediaDuration,
+    mediaSize: meta.mediaSize,
+    thumbnailUrl: meta.thumbnailUrl,
+    recalledAt: meta.recalledAt,
+    seq: meta.seq,
+    clientMsgId: meta.clientMsgId,
   };
 }
 
@@ -1206,6 +1228,7 @@ export class PeerPersistenceService {
     matchId: string,
     senderUserId: string,
     content: string,
+    extraMeta?: Record<string, any>,
     hooks: PeerWriteHooks = {},
   ): Promise<PeerMessageRecord> {
     const outcome = await this.prisma.$transaction(async (tx) => {
@@ -1250,15 +1273,17 @@ export class PeerPersistenceService {
       }
 
       const msgId = genId('peer_message');
+      const authorType = (extraMeta?.authorType as 'HUMAN' | 'AI_ASSIST') ?? 'HUMAN';
+      const piiData = extraMeta ? (extraMeta as any) : [];
       const created = await tx.peerMessage.create({
         data: {
           id: msgId,
           conversationId: conv.id,
           senderUserId,
           content,
-          authorType: 'HUMAN',
+          authorType,
           createdAt: dbNow,
-          piiFlags: [],
+          piiFlags: piiData,
         },
       });
 
@@ -1267,6 +1292,47 @@ export class PeerPersistenceService {
 
     if (outcome.expired) throw new BadRequestException('这段 72 小时会话已经结束');
     return outcome.message;
+  }
+
+  async recallMessage(
+    matchId: string,
+    senderUserId: string,
+    messageId: string,
+  ): Promise<PeerMessageRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      await lockPeerWriteRoots(tx, [senderUserId]);
+      const msg = await tx.peerMessage.findUnique({
+        where: { id: messageId },
+        include: { conversation: true },
+      });
+      if (!msg || msg.conversation.matchId !== matchId) {
+        throw new NotFoundException('消息不存在');
+      }
+      if (msg.senderUserId !== senderUserId) {
+        throw new BadRequestException('只有发送方可以撤回消息');
+      }
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;
+      const dbNow = new Date(timeRow.db_now);
+      const createdTime = new Date(msg.createdAt).getTime();
+      if (dbNow.getTime() - createdTime > 120_000) {
+        throw new BadRequestException('超过 2 分钟的消息不能撤回');
+      }
+      const existingMeta =
+        msg.piiFlags && typeof msg.piiFlags === 'object' && !Array.isArray(msg.piiFlags)
+          ? (msg.piiFlags as any)
+          : {};
+      const updated = await tx.peerMessage.update({
+        where: { id: messageId },
+        data: {
+          content: '一条消息已撤回',
+          piiFlags: {
+            ...existingMeta,
+            recalledAt: dbNow.toISOString(),
+          },
+        },
+      });
+      return mapPeerMessageRow(updated);
+    });
   }
 
   async getMessagesForConversation(conversationId: string): Promise<PeerMessageRecord[]> {

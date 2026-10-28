@@ -389,13 +389,24 @@ export class PublicController {
     @Query('emotion') emotion?: string,
     @Query('mood') mood?: string,
     @Query('sort') sort?: string,
+    @Query('mine') mine?: string,
+    @Headers('x-goodnight-user-id') userIdHeader?: string,
   ) {
-    // Only two orders exist and both are real: publication order, and the order the community's own
-    // responses produce. An unknown value falls back to the default instead of erroring, so an older
-    // client that sends something else keeps working.
     const order = sort === 'hot' ? 'hot' : 'latest';
+    if (mine === 'true' || mine === '1') {
+      const runtimeId = requireRuntimeUserId(userIdHeader);
+      const items = await this.store.myPublicPosts(runtimeId);
+      return { items, total: items.length, sort: order };
+    }
     const items = await this.store.publicPosts(mood ?? emotion, order);
     return { items, total: items.length, sort: order };
+  }
+
+  @Get('me/posts')
+  async myPosts(@Headers('x-goodnight-user-id') userIdHeader?: string) {
+    const runtimeId = requireRuntimeUserId(userIdHeader);
+    const items = await this.store.myPublicPosts(runtimeId);
+    return { items, total: items.length };
   }
 
   @Get('debug/fingerprint')
@@ -1253,6 +1264,112 @@ export class PublicController {
   ) {
     const runtimeId = requireRuntimeUserId(userId);
     return await this.store.savePeerConversationFeedback(matchId, body, runtimeId);
+  }
+
+  @Post('peer-conversations/:matchId/messages/:messageId/recall')
+  async recallPeerMessage(
+    @Param('matchId') matchId: string,
+    @Param('messageId') messageId: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.recallPeerMessage(matchId, messageId, runtimeId);
+  }
+
+  @Get('peer-conversations/:matchId/sync')
+  async syncPeerConversation(
+    @Param('matchId') matchId: string,
+    @Query('afterSeq') afterSeq?: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const seq = parseInt(afterSeq ?? '0', 10) || 0;
+    return await this.store.syncPeerConversation(matchId, seq, runtimeId);
+  }
+
+  @Post('peer-conversations/:matchId/call/offer')
+  async createPeerCallOffer(
+    @Param('matchId') matchId: string,
+    @Body() body: { callType?: 'AUDIO' | 'VIDEO' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const callType = body?.callType === 'VIDEO' ? 'VIDEO' : 'AUDIO';
+    return await this.store.createPeerCallOffer(matchId, callType, runtimeId);
+  }
+
+  @Post('peer-conversations/:matchId/call/respond')
+  async respondPeerCall(
+    @Param('matchId') matchId: string,
+    @Body() body: { offerId: string; action: 'ACCEPT' | 'DECLINED' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.respondPeerCall(matchId, body.offerId, body.action, runtimeId);
+  }
+
+  @Post('peer-conversations/:matchId/call/end')
+  async endPeerCall(
+    @Param('matchId') matchId: string,
+    @Body() body: { callId: string; reason?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.endPeerCall(matchId, body.callId, body.reason, runtimeId);
+  }
+
+  @Get('peer-conversations/:matchId/call/status')
+  async getPeerCallStatus(
+    @Param('matchId') matchId: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.getPeerCallStatus(matchId, runtimeId);
+  }
+
+  @Get('stickers')
+  async listStickers(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: this.store.socialMultimedia.listStickers(runtimeId) };
+  }
+
+  @Get('stickers/favorites')
+  async getFavoriteStickers(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { favoriteIds: this.store.socialMultimedia.getUserFavoriteStickerIds(runtimeId) };
+  }
+
+  @Post('stickers/favorites')
+  async addFavoriteSticker(
+    @Body() body: { stickerId: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.socialMultimedia.addFavoriteSticker(runtimeId, body.stickerId);
+  }
+
+  @Delete('stickers/favorites/:id')
+  async removeFavoriteSticker(
+    @Param('id') stickerId: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.socialMultimedia.removeFavoriteSticker(runtimeId, stickerId);
+  }
+
+  @Get('me/ai-persona')
+  async getAiPersona(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.getAiPersona(runtimeId);
+  }
+
+  @Post('me/ai-persona')
+  async setAiPersona(
+    @Body() body: { personaId: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.setAiPersona(body.personaId, runtimeId);
   }
 
   @Get('memory')
