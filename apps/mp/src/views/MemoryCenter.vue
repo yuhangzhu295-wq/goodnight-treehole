@@ -64,17 +64,17 @@ const inactiveItems = computed(() =>
 );
 
 const sourceLabel: Record<string, string> = {
-  user_saved: '用户主动保存',
-  journey_summary: 'Journey 总结',
-  recovery_confirmed: 'Recovery 确认',
-  support_plan: '低谷预案',
+  user_saved: '自己主动记下',
+  journey_summary: '过往经历回顾',
+  recovery_confirmed: '生活恢复记录',
+  support_plan: '低谷预案备忘',
 };
 
 const scopeLabel: Record<string, string> = {
-  all_ai: '所有允许的 AI 任务',
-  journey: '仅 Journey',
-  recovery: '仅 Recovery',
-  support: '仅现实支持',
+  all_ai: '所有整理与回信',
+  journey: '仅梳理事情时',
+  recovery: '仅生活恢复时',
+  support: '仅现实支持时',
 };
 
 function daysLeft(item: MemoryItem) {
@@ -112,7 +112,7 @@ async function toggleAiMemory() {
   try {
     await api.put('/api/v1/settings/privacy', { allowAiMemoryUse: next });
     aiMemoryAllowed.value = next;
-    notice.value = next ? '已允许新请求读取已保留的记忆。' : '已关闭 AI 记忆读取，新请求将不再使用。';
+    notice.value = next ? '已允许在整理与回信中参考已保存的备忘。' : '已关闭备忘参考。';
   } catch (cause: any) {
     error.value = cause?.message ?? '设置保存失败，请稍后重试';
   } finally {
@@ -379,10 +379,10 @@ onMounted(load);
             <div class="field-wrap flex-1">
               <label for="create-scope">使用范围</label>
               <select id="create-scope" v-model="createDraft.scope" class="field-select">
-                <option value="all_ai">所有允许的 AI 任务</option>
-                <option value="journey">仅 Journey</option>
-                <option value="recovery">仅 Recovery</option>
-                <option value="support">仅现实支持</option>
+                <option value="all_ai">所有整理与回信</option>
+                <option value="journey">仅梳理事情时</option>
+                <option value="recovery">仅生活恢复时</option>
+                <option value="support">仅现实支持时</option>
               </select>
             </div>
             <div class="field-wrap flex-1">
@@ -545,9 +545,9 @@ onMounted(load);
             <button class="modal-close" type="button" @click="showInfoModal = false">×</button>
           </div>
           <div class="info-content">
-            <p><strong>完全由你掌控：</strong>系统只会在你明确允许的情况下，将此处的记忆用于生成更贴合你过往经历的回信或建议。</p>
-            <p><strong>有界保留：</strong>每条记忆均有严格的到期时间，到期后自动失效，不会永久沉淀。</p>
-            <p><strong>随时撤回：</strong>关闭顶部的「允许使用 AI 记忆」开关，即可随时全局停用所有记忆的读取。</p>
+            <p><strong>完全由你决定：</strong>只有在你打开开关时，树洞才会参考这里的内容，用来写出更贴合你近况的回信或便签。</p>
+            <p><strong>有明确期限：</strong>每条备忘都有到期时间，到期后自己失效，不会永久留存。</p>
+            <p><strong>随时可以关掉：</strong>关闭顶部的开关，树洞就只看你当下写的话，不再参考任何过往记录。</p>
           </div>
         </div>
       </div>

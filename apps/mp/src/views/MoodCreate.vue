@@ -191,7 +191,7 @@ onMounted(() => {
         </button>
         <button data-testid="mood-visibility-public" class="visibility-row" :class="{ active: form.visibility === 'PUBLIC' }" @click="visibilityTouched = true; form.visibility = 'PUBLIC'">
           <span class="radio-dot" aria-hidden="true" />
-          <span class="visibility-copy"><strong>申请公开</strong><small>提交后进入真实审核流程</small></span>
+          <span class="visibility-copy"><strong>申请公开</strong><small>提交后将在审核后公开</small></span>
           <span class="visibility-check" aria-hidden="true">{{ form.visibility === 'PUBLIC' ? '✓' : '' }}</span>
         </button>
       </div>
@@ -200,7 +200,7 @@ onMounted(() => {
     <!-- The design calls this 话题; this product stores an emotion, and the monthly report and the
          letter are built from that value, so the heading keeps saying what the choice really is. -->
     <section class="mood-section">
-      <h2>话题 <small>会用来生成月报和回信</small></h2>
+      <h2>话题 <small>用于月报和回信参考</small></h2>
       <div class="emotion-row">
         <button
           v-for="item in emotions.slice(0, 6)"

@@ -13,8 +13,8 @@ export type AiTaskState = {
   job?: { errorMessage?: string; providerId?: string; fallbackUsed?: boolean } | null;
 };
 
-const AI_FALLBACK_NOTICE = '当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。';
-const AI_FAILED_NOTICE = '这次生成没有完成，你可以根据自己原来的话改一处再继续。';
+const AI_FALLBACK_NOTICE = '当前在线整理较慢，先为你留下一段基础参考；你可以直接改写，或稍后再试。';
+const AI_FAILED_NOTICE = '这次没能完成整理，不是你的问题，请稍后再试。';
 
 export function isAiDegraded(state?: AiTaskState | null): boolean {
   if (!state) return false;

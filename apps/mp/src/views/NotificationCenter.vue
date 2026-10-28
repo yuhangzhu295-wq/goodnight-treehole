@@ -227,7 +227,7 @@ onMounted(load);
         <p v-if="!visibleNotices.length" class="empty-note">
           {{ tab === 'unread' ? '没有未读的提醒。' : '这里暂时没有需要你回应的提醒。' }}
         </p>
-        <p class="notice-foot">仅显示真实通知 · 已读状态会同步保存</p>
+        <p class="notice-foot">已读状态会自动保存</p>
       </template>
     </div>
   </section>

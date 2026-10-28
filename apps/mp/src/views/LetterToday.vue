@@ -52,7 +52,7 @@ const letterTitle = computed(() => letter.value?.title || '给现在的你');
  */
 const letterIntro = computed(() => {
   if (!letter.value) return '';
-  if (!letter.value.content) return '树洞正在根据你最近写下的心情生成回信。';
+  if (!letter.value.content) return '正在根据你最近写下的心情，慢慢整理这封回信……';
   const when = letter.value.createdAt
     ? new Intl.DateTimeFormat('zh-CN', {
         month: 'numeric',
@@ -76,10 +76,7 @@ const LEGACY_STYLE_PREFIX = /^(?:暖心陪伴|理性分析|轻松一点|清醒�
 const letterBody = computed(() => String(letter.value?.content ?? '').replace(LEGACY_STYLE_PREFIX, ''));
 
 const signatureText = computed(() => {
-  if (style.value === 'rational') return '今晚先处理可控的一小步。';
-  if (style.value === 'light') return '先让心里的音量低一点。';
-  if (style.value === 'poetic') return '愿这一页替你安放一点夜色。';
-  return '今晚先把自己轻轻接住。';
+  return '晚安。';
 });
 /**
  * The suggestions the API returned, and only those.

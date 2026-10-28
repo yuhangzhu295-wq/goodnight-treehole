@@ -71,8 +71,8 @@ function openPrivacy() {
         <span class="policy-chevron" aria-hidden="true">›</span>
       </button>
       <div v-if="openSections.ai" class="policy-body" data-testid="policy-body-ai">
-        <p>在你使用需要 AI 的功能、且符合相关授权与隐私条件时，系统才会提交必要的信息。</p>
-        <p>当模型暂时不可用时，页面会说明结果来自安全兜底内容，不会把它伪装成实时生成。</p>
+        <p>在你使用需要 AI 整理的功能、且符合相关授权与隐私条件时，系统才会提交必要的信息。</p>
+        <p>当在线整理较慢或不可用时，页面会诚实说明内容来自基础参考，不会把它伪装成针对性整理。</p>
       </div>
     </section>
 

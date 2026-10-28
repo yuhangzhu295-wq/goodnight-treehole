@@ -129,7 +129,7 @@ const steps = [
       </button>
       <button data-testid="safety-stay" type="button" :disabled="busy" @click="stayHere">
         <span class="action-icon"><AppIcon name="leaf" /></span>
-        <div><strong>我暂时安全，继续留在这里</strong><small>先做一轮稳定支持，再慢慢看接下来的事</small></div>
+        <div><strong>我暂时安全，继续留在这里</strong><small>先陪我待一会儿，再慢慢看接下来的事</small></div>
         <span class="row-chevron" aria-hidden="true">›</span>
       </button>
     </section>
@@ -139,7 +139,7 @@ const steps = [
         <strong>你提前为自己留过的预案</strong>
         <button type="button" @click="router.push('/pages/support-plan/index')">查看全部</button>
       </div>
-      <p class="saved-note">这里只显示你主动保存的内容。</p>
+      <p class="saved-note">这里显示你提前留下的预案。</p>
       <ul>
         <li v-for="item in savedSupport" :key="item">{{ item }}</li>
       </ul>

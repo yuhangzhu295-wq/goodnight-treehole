@@ -19,6 +19,20 @@ const saving = ref(false);
 const loading = ref(false);
 const error = ref('');
 const aiNotice = ref('');
+const isEditingResult = ref(false);
+
+type SafetyResult = { message: string; nextSmallStep: string };
+const safety = ref<SafetyResult | null>(null);
+
+function toSafety(state: any): SafetyResult | null {
+  const structured = state?.structured;
+  const escalated = structured?.escalation === true || structured?.riskLevel === 'high';
+  if (!escalated) return null;
+  const message = String(state?.result ?? '').trim();
+  const nextSmallStep = String(structured?.nextSmallStep ?? '').trim();
+  if (!message && !nextSmallStep) return null;
+  return { message, nextSmallStep };
+}
 
 /** Snapshot of the input text used to produce the current result */
 const resultInputSnapshot = ref('');
@@ -56,11 +70,11 @@ const meta = computed<ToolMeta>(() => {
   const map: Record<string, ToolMeta> = {
     negative_rewrite: {
       title: '整理工具',
-      leadTitle: '整理一下这段话',
-      subtitle: '把刺痛自己的话，换成更温和而不虚假的表达。',
-      placeholder: '先把你想说的文字放在这里……',
+      leadTitle: '把话改得不扎人',
+      subtitle: '保留真实感受，换成可以坦然发出的温和表达。',
+      placeholder: '把你想发出去、但觉得太冲的话贴在这里……',
       emotion: '焦虑',
-      action: '开始整理',
+      action: '帮我改写',
       modes: [
         { key: 'clear', label: '说得更清楚' },
         { key: 'shorter', label: '缩短一点' },
@@ -69,23 +83,23 @@ const meta = computed<ToolMeta>(() => {
     },
     rant: {
       title: '发泄表达',
-      leadTitle: '把堵住的情绪写下来',
-      subtitle: '允许自己把堵住的话痛快写出来，不做评判。',
+      leadTitle: '先别发，写这里',
+      subtitle: '允许自己把堵住的话痛快倒出来，不做评判。',
       placeholder: '写下心里堵着的那句话，不需要讲道理……',
       emotion: '委屈',
-      action: '帮我释放一下',
+      action: '倒出情绪',
       modes: [
         { key: 'raw', label: '痛快说' },
-        { key: 'deep', label: '找根源' },
+        { key: 'deep', label: '理理卡点' },
       ],
     },
     healing_phrase: {
       title: '安放卡片',
       leadTitle: '给此刻留一句安放',
-      subtitle: '为此刻的你生成一句简短、平实、可落地的陪伴。',
+      subtitle: '为此刻的你留一句简短、平实、能落地的陪伴。',
       placeholder: '此刻脑子里最沉的一句话是什么？',
       emotion: '委屈',
-      action: '生成一句话',
+      action: '回我一句',
       modes: [
         { key: 'gentle', label: '温和一点' },
         { key: 'solid', label: '踏实一点' },
@@ -97,7 +111,7 @@ const meta = computed<ToolMeta>(() => {
       subtitle: '夜里想不通的事，不需要在睡前全解决。',
       placeholder: '今晚躺下时，脑子里反复出现什么？',
       emotion: '失眠',
-      action: '陪我缓一缓',
+      action: '放下来',
       modes: [
         { key: 'breath', label: '慢慢放平' },
         { key: 'tomorrow', label: '留到明天' },
@@ -118,7 +132,7 @@ const meta = computed<ToolMeta>(() => {
     future_letter: {
       title: '未来信件',
       leadTitle: '给未来的自己留句话',
-      subtitle: '把今天的你，整理成一封可以编辑的信。',
+      subtitle: '把今天的你，整理成一封可以随手修改的信。',
       placeholder: '给以后的自己留下一句真实的心情……',
       emotion: '焦虑',
       action: '帮我整理成信',
@@ -160,6 +174,7 @@ async function restoreLatestResult() {
   error.value = '';
   failure.value = 'restore';
   aiNotice.value = '';
+  safety.value = null;
 
   try {
     const latest = await api.get<any>(
@@ -168,7 +183,17 @@ async function restoreLatestResult() {
     if (currentSeq !== runSeq.value) return;
     if (!latest.item?.result) return;
     jobId.value = latest.item.id;
-    result.value = latest.item.result;
+    const safetyCheck = toSafety({
+      result: latest.item.result,
+      structured: latest.item.structuredResult,
+    });
+    if (safetyCheck) {
+      safety.value = safetyCheck;
+      result.value = '';
+    } else {
+      safety.value = null;
+      result.value = latest.item.result;
+    }
     aiNotice.value = aiDegradationNotice({ status: latest.item.status, job: latest.item });
     if (latest.item.promptSummary && !input.value) {
       input.value = latest.item.promptSummary;
@@ -178,7 +203,7 @@ async function restoreLatestResult() {
     }
   } catch (cause: any) {
     if (currentSeq !== runSeq.value) return;
-    error.value = cause?.message ?? '无法恢复最近的生成结果';
+    error.value = cause?.message ?? '无法恢复最近的整理结果';
     failure.value = 'restore';
   }
 }
@@ -192,6 +217,10 @@ watch(
   { immediate: true },
 );
 
+watch(result, () => {
+  saved.value = false;
+});
+
 async function poll(id: string, seq: number) {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
@@ -200,13 +229,13 @@ async function poll(id: string, seq: number) {
     if (seq !== runSeq.value) throw new Error('任务已被取消');
     if (!['queued', 'running'].includes(state.status)) {
       if (!['succeeded', 'fallback'].includes(state.status)) {
-        throw new Error(state.job?.errorMessage ?? 'AI 任务未完成');
+        throw new Error(state.job?.errorMessage ?? '整理未完成，请稍后重试');
       }
       return state;
     }
     await new Promise((resolve) => window.setTimeout(resolve, 400));
   }
-  throw new Error(`AI 任务超时：${id}`);
+  throw new Error('整理超时，请稍后再试');
 }
 
 async function runTool() {
@@ -220,6 +249,7 @@ async function runTool() {
   aiNotice.value = '';
   result.value = '';
   jobId.value = '';
+  safety.value = null;
 
   const snapshot = input.value.trim();
 
@@ -227,18 +257,27 @@ async function runTool() {
     const queued = await api.post<any>('/api/v1/ai/tasks', {
       taskType: type.value,
       content: snapshot,
+      mode: activeMode.value,
       sourceId: `tool_${Date.now()}`,
     });
     if (currentSeq !== runSeq.value) return;
     jobId.value = queued.jobId;
     const completed = await poll(queued.jobId, currentSeq);
     if (currentSeq !== runSeq.value) return;
-    result.value = completed.result;
-    resultInputSnapshot.value = snapshot;
-    aiNotice.value = aiDegradationNotice(completed);
+
+    const safetyCheck = toSafety(completed);
+    if (safetyCheck) {
+      safety.value = safetyCheck;
+      result.value = '';
+    } else {
+      safety.value = null;
+      result.value = completed.result;
+      resultInputSnapshot.value = snapshot;
+      aiNotice.value = aiDegradationNotice(completed);
+    }
   } catch (cause: any) {
     if (currentSeq !== runSeq.value) return;
-    error.value = cause?.message ?? '生成失败，请稍后再试';
+    error.value = cause?.message ?? '整理失败，请稍后再试';
   } finally {
     if (currentSeq === runSeq.value) {
       loading.value = false;
@@ -298,6 +337,7 @@ function closeResult() {
   resultInputSnapshot.value = '';
   saved.value = false;
   copied.value = false;
+  isEditingResult.value = false;
 }
 
 onBeforeUnmount(() => {
@@ -346,11 +386,27 @@ onBeforeUnmount(() => {
 
       <AiDegradationNotice :notice="aiNotice" />
 
+      <!-- Safety Escalation Card if detected -->
+      <section v-if="safety" class="tool-safety-card" data-testid="tool-run-safety-card">
+        <h2>先照顾现在的安全</h2>
+        <p v-if="safety.message" class="safety-message">{{ safety.message }}</p>
+        <p v-if="safety.nextSmallStep" class="safety-step"><strong>现在可以做：</strong>{{ safety.nextSmallStep }}</p>
+        <button class="action-btn primary" type="button" @click="router.push('/pages/safety/index')">查看现实支持</button>
+      </section>
+
       <!-- Result Card -->
-      <section v-if="result" class="tool-result-section" data-testid="tool-run-result-card">
-        <h3 class="section-title">最近一次结果</h3>
-        <article class="tool-result-card">
-          <p class="tool-result-text">{{ result }}</p>
+      <section v-else-if="result" class="tool-result-section">
+        <h3 class="section-title">整理好的便签</h3>
+        <article class="tool-result-card" data-testid="tool-run-result-card">
+          <p class="tool-result-text" :class="{ 'is-editing': isEditingResult }">
+            <textarea
+              v-if="isEditingResult"
+              v-model="result"
+              class="tool-result-editor"
+              rows="5"
+            ></textarea>
+            <template v-else>{{ result }}</template>
+          </p>
           <div class="tool-card-actions">
             <button
               class="action-btn primary"
@@ -364,25 +420,32 @@ onBeforeUnmount(() => {
             <button class="action-btn" data-testid="btn-tool-run-copy" type="button" @click="copyResult">
               {{ copied ? '已复制' : '复制结果' }}
             </button>
+            <button
+              class="action-btn"
+              type="button"
+              @click="isEditingResult = !isEditingResult"
+            >
+              {{ isEditingResult ? '完成修改' : '随手改两句' }}
+            </button>
             <button class="action-btn" data-testid="btn-tool-run-close" type="button" @click="closeResult">
               收起结果
             </button>
           </div>
-          <p v-if="resultStale" class="result-stale" data-testid="tool-run-stale">内容已修改，请重新生成后再保存。</p>
+          <p v-if="resultStale" class="result-stale" data-testid="tool-run-stale">内容已修改，请重新整理后再保存。</p>
         </article>
       </section>
 
       <!-- Empty state when no result yet -->
       <section v-else class="tool-result-section">
-        <h3 class="section-title">最近一次结果</h3>
+        <h3 class="section-title">整理好的便签</h3>
         <div class="empty-result-box">
-          这里显示真实保存或成功生成的结果。还没有结果时，不会展示示例成功文案。
+          写下你想理清的话，整理好的便签会留在这里。
         </div>
       </section>
 
       <LoadErrorBanner
         :message="error"
-        :retry-label="failure === 'copy' ? '重新复制' : failure === 'generate' ? '重新生成' : '重新加载'"
+        :retry-label="failure === 'copy' ? '重新复制' : failure === 'generate' ? '重新整理' : '重新加载'"
         @retry="retryFailedAction"
       />
     </div>
@@ -396,7 +459,7 @@ onBeforeUnmount(() => {
         :disabled="loading || !canRun"
         @click="runTool"
       >
-        {{ loading ? '生成中…' : meta.action }}
+        {{ loading ? '整理中…' : meta.action }}
       </button>
     </div>
   </section>
@@ -410,7 +473,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 100%;
   min-height: 100vh;
-  padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  padding-bottom: calc(130px + env(safe-area-inset-bottom));
   overflow-x: hidden;
   background: var(--gn-paper, #ffffff);
   color: var(--gn-text, #242a32);
@@ -525,6 +588,27 @@ onBeforeUnmount(() => {
   color: var(--gn-ink, #242a32);
 }
 
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.result-header .section-title {
+  margin-bottom: 0;
+}
+
+.edit-toggle-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #275f56;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .mode-chips {
   display: flex;
   flex-wrap: wrap;
@@ -580,6 +664,19 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
+.tool-result-editor {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #275f56;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--gn-ink, #242a32);
+  resize: vertical;
+}
+
 .tool-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -617,6 +714,33 @@ onBeforeUnmount(() => {
   margin: 8px 0 0;
   color: #b45309;
   font-size: 12px;
+}
+
+.tool-safety-card {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fff5f5;
+  margin-top: 20px;
+}
+
+.tool-safety-card h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: #991b1b;
+}
+
+.safety-message {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #7f1d1d;
+}
+
+.safety-step {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #7f1d1d;
 }
 
 .submit-dock {

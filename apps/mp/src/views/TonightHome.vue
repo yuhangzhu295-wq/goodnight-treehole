@@ -310,13 +310,13 @@ onUnmounted(() => {
             @click="router.push(`/pages/journey/detail?id=${home?.journey?.id}`)"
           >
             <div class="row-text">
-              <div class="row-title">继续上次的旅程</div>
+              <div class="row-title">继续上次没说完的事</div>
               <div class="row-sub">{{ home.journey.domain }} · {{ home.journey.title }}</div>
             </div>
             <span class="row-chev" aria-hidden="true">›</span>
           </button>
         </div>
-        <div v-else class="empty-hint">暂无进行中的旅程记录</div>
+        <div v-else class="empty-hint">还没有写过，写下一句就能开始</div>
       </section>
 
       <!-- Next Actions Section -->
@@ -332,7 +332,7 @@ onUnmounted(() => {
           >
             <div class="row-text">
               <div class="row-title">{{ home.activeActions[0].title }}</div>
-              <div class="row-sub">来自最近的旅程</div>
+              <div class="row-sub">来自最近记下的事</div>
             </div>
             <span class="row-chev" aria-hidden="true">›</span>
           </button>

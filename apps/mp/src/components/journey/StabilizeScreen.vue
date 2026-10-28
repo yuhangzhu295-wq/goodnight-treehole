@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../../api';
 import AppIcon from '../icons/AppIcon.vue';
@@ -12,6 +12,28 @@ const status = ref('');
 const busy = ref(false);
 let timer: number | undefined;
 function stopTimer() { if (timer) window.clearInterval(timer); timer = undefined; }
+
+const breathingPhase = computed(() => {
+  if (!seconds.value) return 0;
+  const elapsed = 30 - seconds.value;
+  const cycleTime = elapsed % 16;
+  if (cycleTime < 4) return 1;
+  if (cycleTime < 8) return 2;
+  if (cycleTime < 14) return 3;
+  return 4;
+});
+
+const breathingGuide = computed(() => {
+  if (!seconds.value) return '慢慢吸气，跟着节奏，把呼吸带回来。';
+  switch (breathingPhase.value) {
+    case 1: return `吸气中…… (${seconds.value}s)`;
+    case 2: return `轻轻屏息…… (${seconds.value}s)`;
+    case 3: return `慢慢呼气…… (${seconds.value}s)`;
+    case 4: return `自然停顿…… (${seconds.value}s)`;
+    default: return `还剩 ${seconds.value} 秒`;
+  }
+});
+
 async function beginBreathing() {
   if (seconds.value) return;
   seconds.value = 30; status.value = '跟着节奏慢慢呼吸就好。';
@@ -38,7 +60,7 @@ onBeforeUnmount(stopTimer);
     </div>
 
     <div class="stabilize-options">
-      <button class="support-option breathing-option" data-testid="stabilize-breath" @click="beginBreathing"><span class="support-icon"><AppIcon name="breath" :size="19" /></span><span><strong>跟我呼吸30秒</strong><small>{{ seconds ? `还剩 ${seconds} 秒` : '慢慢吸气，跟着节奏，把呼吸带回来。' }}</small><span class="breath-stages" aria-hidden="true"><i><b>1</b>吸气 4秒</i><i><b>2</b>停留 4秒</i><i><b>3</b>呼气 6秒</i><i><b>4</b>停留 2秒</i></span></span><AppIcon name="arrow" :size="18" /></button>
+      <button class="support-option breathing-option" data-testid="stabilize-breath" @click="beginBreathing"><span class="support-icon"><AppIcon name="breath" :size="19" /></span><span><strong>跟我呼吸30秒</strong><small>{{ breathingGuide }}</small><span class="breath-stages" aria-hidden="true"><i :class="{ active: breathingPhase === 1 }"><b>1</b>吸气 4秒</i><i :class="{ active: breathingPhase === 2 }"><b>2</b>停留 4秒</i><i :class="{ active: breathingPhase === 3 }"><b>3</b>呼气 6秒</i><i :class="{ active: breathingPhase === 4 }"><b>4</b>停留 2秒</i></span></span><AppIcon name="arrow" :size="18" /></button>
       <button class="support-option pause-option" :disabled="busy" data-testid="stabilize-pause" @click="pauseImpulse"><span class="support-icon"><AppIcon name="pause" :size="19" /></span><span><strong>先把想做的事情放一下</strong><small>给大脑降降温，稍晚再决定。</small><span class="cooldown-tags" aria-hidden="true"><i>暂停计划</i><i>延迟决定</i><i>不给回应</i></span></span><AppIcon name="arrow" :size="18" /></button>
       <label class="write-option"><span class="support-icon"><AppIcon name="pen" :size="19" /></span><span><strong>写一句也可以</strong><input v-model="note" maxlength="300" placeholder="比如，你想说点什么呢……" @keyup.enter="saveNote" /></span><button :disabled="busy || !note.trim()" @click="saveNote">留下</button></label>
     </div>
@@ -69,8 +91,10 @@ onBeforeUnmount(stopTimer);
 .support-option small { margin-top: 3px; color: var(--gn-subtext, #757d87); font-size: 11px; line-height: 1.4; }
 .support-option > svg { justify-self: end; color: var(--gn-muted, #757d87); }
 .breath-stages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-top: 8px; color: var(--gn-muted, #757d87); font-size: 9px; text-align: center; }
-.breath-stages i { display: grid; justify-items: center; gap: 1px; font-style: normal; white-space: nowrap; }
-.breath-stages b { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--gn-green-light, #eaf4ee); color: var(--gn-green-dark, #1e4d45); font-size: 9px; }
+.breath-stages i { display: grid; justify-items: center; gap: 1px; font-style: normal; white-space: nowrap; transition: color 0.2s ease; }
+.breath-stages i.active { color: var(--gn-green-dark, #1e4d45); font-weight: 700; }
+.breath-stages b { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--gn-green-light, #eaf4ee); color: var(--gn-green-dark, #1e4d45); font-size: 9px; transition: all 0.2s ease; }
+.breath-stages i.active b { background: var(--gn-leaf, #275f56); color: #ffffff; transform: scale(1.2); }
 .cooldown-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .cooldown-tags i { border-radius: 999px; background: var(--gn-paper-warm, #f7f8fa); padding: 3px 7px; color: var(--gn-subtext, #757d87); font-size: 9px; font-style: normal; white-space: nowrap; }
 .write-option { grid-template-columns: 38px minmax(0, 1fr) auto; }

@@ -380,7 +380,7 @@ onMounted(load);
               :disabled="submitting"
               placeholder="希望我们如何回复你（如功能支持）"
             />
-            <p class="field-note">不要填写他人的真实身份或敏感联系方式。提交后以服务器返回状态为准。</p>
+            <p class="field-note">不要填写他人的真实身份或敏感联系方式，我们会尽快查看并处理。</p>
           </div>
 
           <!-- Submit -->

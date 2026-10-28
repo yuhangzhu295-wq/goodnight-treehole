@@ -18,6 +18,19 @@ const defaultMessage = '最近有件事让我有点难受。你方便听我说�
 const generatedText = computed(() => cardText.value || defaultMessage);
 const editing = ref(false);
 
+const quickTemplates = [
+  { label: '只想找人待会儿', text: '今晚心里有点乱，不用特意安慰我，你有空的话能陪我随便聊两句或者待一会儿吗？' },
+  { label: '想说说卡住的事', text: '最近遇到点卡住的事，脑子有点转不过来，你方便的时候能听我说几句吗？' },
+  { label: '需要朋友陪陪', text: '我今天状态不太好，心里有点难受，有空的话方便听我说几句吗？' },
+];
+
+function selectTemplate(text: string) {
+  cardText.value = text;
+  editing.value = true;
+  saved.value = null;
+  status.value = '';
+}
+
 const saved = ref<Handoff | null>(null);
 const contactSheet = ref(false);
 const contacts = ref<Contact[]>([]);
@@ -207,6 +220,19 @@ onMounted(load);
             @click="editing = !editing"
           >
             {{ editing ? '完成 ›' : '编辑 ›' }}
+          </button>
+        </div>
+
+        <div class="template-chips" role="group" aria-label="快捷便条选择">
+          <button
+            v-for="tpl in quickTemplates"
+            :key="tpl.label"
+            type="button"
+            class="template-chip"
+            :class="{ active: cardText === tpl.text }"
+            @click="selectTemplate(tpl.text)"
+          >
+            {{ tpl.label }}
           </button>
         </div>
 
@@ -487,6 +513,33 @@ onMounted(load);
   color: #b6bcc4;
   font-size: 20px;
   flex-shrink: 0;
+}
+
+.template-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.template-chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: 8px;
+  background: var(--gn-paper);
+  color: var(--gn-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.template-chip.active {
+  border-color: #275f56;
+  background: #eaf4ee;
+  color: #1e4d45;
+  font-weight: 600;
 }
 
 .message-card {

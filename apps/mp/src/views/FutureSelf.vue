@@ -165,7 +165,7 @@ async function save() {
     contextType.value = 'none';
     contextRefId.value = '';
     changePreset('tomorrow');
-    notice.value = '这封话已交给未来。到时间后，真实随访队列会把它送回给你。';
+    notice.value = '这封信已经替你收好，会在你选定的时间准时送回给你。';
     await load();
   } catch (cause: any) {
     error.value = cause?.message ?? '这封未来信没有保存成功';
@@ -273,6 +273,7 @@ onMounted(() => {
             <small>
               {{ item.deliveredAt ? '已送达' : '已保存 · 尚未到期' }}<template v-if="item.contextLabel"> · {{ item.contextLabel }}</template>
             </small>
+            <p v-if="item.content" class="delivered-content">{{ item.content }}</p>
           </span>
         </article>
       </div>
@@ -427,6 +428,18 @@ onMounted(() => {
   color: var(--gn-muted);
 }
 
+.delivered-content {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--gn-paper-warm, #f7f8fa);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gn-ink, #242a32);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .saved-letter {
   display: flex;
   align-items: center;
@@ -442,21 +455,26 @@ onMounted(() => {
    `position: fixed` rather than sticky: `.goodnight-page` sets `overflow-x: hidden`, which makes it
    the scroll container, so a sticky child has no scrollport to stick to and stays at the content end
    underneath the tab bar. */
+:global(.phone-shell:has(.future-page)) {
+  padding-bottom: 0;
+}
+
 .future-cta {
   position: fixed;
   right: 0;
-  bottom: calc(var(--gn-tabbar-reserve) + env(safe-area-inset-bottom));
+  bottom: env(safe-area-inset-bottom);
   left: 0;
   display: grid;
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--gn-line, #e8ebef);
   background: var(--gn-bg, #ffffff);
+  z-index: 20;
 }
 
 /* Room for the fixed action so the last saved letter is never covered. */
 .future-page {
-  padding-bottom: calc(var(--gn-tabbar-reserve) + 120px + env(safe-area-inset-bottom));
+  padding-bottom: calc(130px + env(safe-area-inset-bottom));
 }
 
 .header-titles {

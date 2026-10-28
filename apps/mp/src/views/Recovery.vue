@@ -827,6 +827,6 @@ onMounted(load);
 }
 
 .recovery-page {
-  padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  padding-bottom: calc(130px + env(safe-area-inset-bottom));
 }
 </style>

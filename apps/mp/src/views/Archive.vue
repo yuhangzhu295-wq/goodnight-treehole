@@ -321,7 +321,7 @@ onMounted(() => {
           </button>
         </article>
       </section>
-      <article v-if="!filteredDiaries.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的日记` : '这个时间范围里还没有私密日记' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '写下的内容会在这里按真实时间出现。' }}</p></article>
+      <article v-if="!filteredDiaries.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的日记` : '这个时间范围里还没有私密日记' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '写下的日记会按时间留在这里。' }}</p></article>
     </div>
 
     <div v-else-if="activeTab === 'post' && !loading" class="archive-list">
@@ -334,7 +334,7 @@ onMounted(() => {
           </button>
         </article>
       </section>
-      <article v-if="!filteredPosts.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的公开树洞` : '这个时间范围里还没有公开树洞' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '这里只显示真实发布并可查看的内容。' }}</p></article>
+      <article v-if="!filteredPosts.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的公开树洞` : '这个时间范围里还没有公开树洞' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '这里显示公开并在展示中的树洞。' }}</p></article>
     </div>
 
     <div v-else-if="activeTab === 'letter' && !loading" class="archive-list">
@@ -347,7 +347,7 @@ onMounted(() => {
           </button>
         </article>
       </section>
-      <article v-if="!filteredLetters.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的回信` : '这个时间范围里还没有回信' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '当你收到真实回信，它会在这里保存。' }}</p></article>
+      <article v-if="!filteredLetters.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的回信` : '这个时间范围里还没有回信' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '收到的回信会留在这里。' }}</p></article>
     </div>
 
     <div v-else-if="activeTab === 'journey' && !loading" class="archive-list">
@@ -361,7 +361,7 @@ onMounted(() => {
           <button class="archive-row-actions" :data-testid="entry.index === 0 ? 'archive-journey-actions-first' : undefined" aria-label="归档操作" @click="openActions(entry.item)">···</button>
         </article>
       </section>
-      <article v-if="!filteredJourneys.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的旅程归档` : '这个时间范围里还没有旅程归档' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '完成或手动归档后的 Journey 会在这里完整回看。' }}</p></article>
+      <article v-if="!filteredJourneys.length" class="archive-empty"><strong>{{ activeQuery ? `没有匹配「${activeQuery}」的旅程归档` : '这个时间范围里还没有旅程归档' }}</strong><p>{{ activeQuery ? '可以清空搜索框，或换一个词。' : '完成或归档后的旅程会留在这里完整回看。' }}</p></article>
       <p v-else class="archive-footnote" data-testid="archive-journey-footnote">这里只显示实际已归档的旅程</p>
     </div>
 

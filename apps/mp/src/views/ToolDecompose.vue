@@ -291,7 +291,7 @@ onBeforeUnmount(() => { runSeq.value += 1; });
           @click="mode = 'list'"
         >列出几步</button>
       </div>
-      <p class="decompose-note">如需使用 AI，结果会在任务真实完成后出现；失败会显示原因。</p>
+      <p class="decompose-note">写下卡住的地方，帮你拆成今晚能先做的一小步。</p>
     </section>
 
     <AiDegradationNotice :notice="aiNotice" />

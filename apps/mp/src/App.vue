@@ -10,7 +10,6 @@ const tabbarPaths = new Set([
   '/pages/peers/index',
   '/pages/peer/requests',
   '/pages/action/index',
-  '/pages/future-self/index',
   '/pages/me/index',
   '/pages/diary/index',
   '/pages/diary/list',

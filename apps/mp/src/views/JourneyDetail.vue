@@ -36,10 +36,10 @@ const chronologicalUpdates = computed(() => [...(detail.value?.updates ?? [])].s
 const sceneCopy = computed(() => {
   const journeyTitle = detail.value?.journey.title || '这段经历';
   const copy: Record<FlowStep, { title: string; subtitle: string }> = {
-    confirm: { title: '确认以下记录是否准确', subtitle: '核对确认后继续后续流程。' },
-    temperature: { title: '当前感受强度如何？', subtitle: '记录当前状态，暂不做分析。' },
-    intent: { title: '当前最需要的支持方式？', subtitle: '选择最符合当前需要的一项。' },
-    stabilize: { title: '情绪平复支持', subtitle: '暂时放下问题，先平复当前情绪。' },
+    confirm: { title: '先看看我有没有听对', subtitle: '如果不准，你可以随手改掉或删掉。' },
+    temperature: { title: '现在心里有多沉？', subtitle: '只记下此刻的感受，不用分析原因。' },
+    intent: { title: '今晚你想怎么待一会儿？', subtitle: '选一个最让你感到舒服的方式。' },
+    stabilize: { title: '先缓一缓', subtitle: '今晚不用把事情想通，先照顾好呼吸和身体。' },
     timeline: { title: journeyTitle, subtitle: '回顾事件经过与后续进展记录。' },
   };
   return copy[flowStep.value];

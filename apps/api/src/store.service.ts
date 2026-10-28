@@ -160,6 +160,7 @@ export interface AIGenerateInput {
   style?: AIStyle;
   userId?: string;
   sourceId?: string;
+  mode?: string;
   simulatePrimaryFail?: boolean;
   simulateBackupFail?: boolean;
 }
@@ -337,6 +338,7 @@ export interface AIJob {
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'fallback' | 'cancelled';
   promptSummary: string;
   promptVersion?: string;
+  mode?: string;
   result: string;
   structuredResult?: Record<string, unknown>;
   errorMessage?: string;
@@ -8237,6 +8239,7 @@ export class StoreService implements OnModuleInit {
       mood,
       style,
       promptSummary: content,
+      mode: input.mode,
       simulatePrimaryFail: input.simulatePrimaryFail,
       simulateBackupFail: input.simulateBackupFail,
     });
@@ -8267,6 +8270,7 @@ export class StoreService implements OnModuleInit {
     mood?: string;
     style: AIStyle;
     promptSummary: string;
+    mode?: string;
     simulatePrimaryFail?: boolean;
     simulateBackupFail?: boolean;
     retryCount?: number;
@@ -8295,6 +8299,7 @@ export class StoreService implements OnModuleInit {
       taskType: this.jobTypeLabel(taskType),
       jobType: this.jobTypeLabel(taskType),
       style: input.style,
+      mode: input.mode,
       providerId: peerDraftProvider?.id ?? (route?.primaryProviderId || 'provider_template'),
       modelName: peerDraftProvider?.modelName ?? '',
       status: 'queued',
@@ -8449,6 +8454,7 @@ export class StoreService implements OnModuleInit {
     mood?: string;
     style: AIStyle;
     promptSummary: string;
+    mode?: string;
     simulatePrimaryFail?: boolean;
     simulateBackupFail?: boolean;
     jobId?: string;
@@ -8675,6 +8681,7 @@ export class StoreService implements OnModuleInit {
       route: route as AIStyleRoute,
       content: `${input.promptSummary}${memoryPrompt}`,
       mood: input.mood ?? this.inferMood(input.promptSummary),
+      mode: input.mode ?? job.mode,
     });
     const needsStructuredResult = [
       'breakdown',
@@ -8934,6 +8941,7 @@ export class StoreService implements OnModuleInit {
       mood: input.mood ?? this.inferMood(input.promptSummary),
       style: input.style,
       routeLabel: route.label,
+      mode: input.mode ?? job.mode,
     });
     const fallbackProviderId = route.fallbackTemplateId || this.templateProvider().id;
     const fallbackProvider = await this.findAiProviderRecord(fallbackProviderId);
@@ -9040,20 +9048,21 @@ export class StoreService implements OnModuleInit {
     route: AIStyleRoute;
     content: string;
     mood: string;
+    mode?: string;
   }) {
     const safety =
-      '你是晚安树洞的中文情绪陪伴助手。你不是医生，不做心理疾病诊断、不冒充专业人员、不做绝对承诺。语气温和、具体、不过度说教。若用户提及即时人身危险，提醒其联系身边可信任的人和当地紧急支持。';
+      '你是晚安树洞的中文情绪陪伴助手。你不是医生，不做心理疾病诊断、不冒充专业人员、不做绝对承诺。语气如同深夜朋友手写便条，简短真挚，平实具体，绝不带说教感。严禁使用心理咨询套话、客服腔或机械前缀标签。若用户提及即时人身危险，提醒其联系身边可信任的人和当地紧急支持。';
     const taskInstructions: Record<AITaskType, string> = {
       post_reply: '为匿名树洞写一段 90 到 160 字的公开温柔回应，不泄露或推测身份。',
       today_letter: '写一封给此刻用户的 140 到 220 字今日回信，紧贴其最近记录，给出一个很小且可执行的行动。',
       breakdown:
         '只输出严格 JSON，不要 Markdown。字段必须完整：{"triggerEvent":"","coreEmotions":[""],"realNeeds":[""],"nextSmallStep":"","summary":"","advice":["","",""]}。',
-      rewrite: '把用户的负面表达改写成不否认感受、也不攻击自己的 80 到 150 字表达。',
-      rant: '写一段允许释放情绪、但不煽动伤害自己或他人的 80 到 150 字文案。',
-      heal: '写一句简短、自然、不过度承诺的治愈短句。',
-      sleep: '给失眠中的用户一段 80 到 140 字安慰，聚焦当下放松和一个小动作。',
-      work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。',
-      future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。',
+      rewrite: '把用户的表达改写得更温和、平实，保留真实意思但不带刺痛与攻击性，像可以放心发出的便签，100 字左右。直接输出改写结果，严禁加前缀标签。',
+      rant: '写一段允许释放情绪、但不煽动伤害自己或他人的 80 到 150 字文案。直接输出文案，严禁加前缀标签。',
+      heal: '写一句简短、自然、不过度承诺的治愈短句，直接输出一句话，严禁加前缀标签。',
+      sleep: '给失眠中的用户一段 80 到 140 字安慰，聚焦当下放松和一个小动作。直接输出文案，严禁加前缀标签。',
+      work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。直接输出文案，严禁加前缀标签。',
+      future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。直接输出信件，严禁加前缀标签。',
       month_report: '根据提供的真实统计写一段月度观察，不改写或虚构其中的数字。',
       monthly_recovery_summary:
         '根据用户已同意提供的本月旅程、行动、生活恢复、同路和决定事实，写一段 160 到 260 字的回顾。只能总结事实，不诊断、不预测、不贴标签，也不虚构数字。',
@@ -9082,7 +9091,23 @@ export class StoreService implements OnModuleInit {
         '只输出严格 JSON：{"summary":"","trend":"up|steady|down|unknown","observations":[]}。只做生活观察，不做医疗诊断。',
       peer_response_assist: '只输出严格 JSON：{"draft":"","reminders":[]}。这是给真人编辑的草稿，不能自动发送。',
     };
-    return `${safety}\n任务：${taskInstructions[input.taskType]}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
+    const modeInstructions: Record<string, string> = {
+      clear: '说得更清楚直白，不带刺痛感。',
+      shorter: '缩短成一两句话，简明易懂。',
+      action: '转化为可以执行的具体一小步。',
+      raw: '痛快倾诉，不做评判。',
+      deep: '理清背后真正的卡点。',
+      gentle: '语气温和细腻。',
+      solid: '踏实、有陪伴感。',
+      breath: '简短，引导慢下来呼吸。',
+      tomorrow: '把事情留到明天，今晚先休息。',
+      boundary: '区分责任边界。',
+      step: '只给出一小步具体行动。',
+      future_week: '写给下周的自己。',
+      future_year: '写给明年的自己。',
+    };
+    const modePrompt = input.mode && modeInstructions[input.mode] ? `\n处理偏好要求：${modeInstructions[input.mode]}` : '';
+    return `${safety}\n任务：${taskInstructions[input.taskType]}${modePrompt}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
   }
 
   private parseBreakdownResult(value: string) {
@@ -9532,31 +9557,81 @@ export class StoreService implements OnModuleInit {
     mood: string;
     style: AIStyle;
     routeLabel: string;
+    mode?: string;
   }) {
     const topic = this.extractTopic(input.content);
     const structured = this.buildStructured(input);
     const action = structured.nextStep as string;
-    const styleText: Record<AIStyle, string> = {
-      warm: `我听见你提到“${topic}”。这份${input.mood}不是矫情，它是在提醒你已经撑了一会儿。今晚先不用急着证明自己，先做一件很小的事：${action}。`,
-      rational: `围绕“${topic}”，现在可以先分成三层看：事实是事情发生了，情绪是${structured.coreEmotion}，需要是${structured.realNeed}。下一步只保留一个动作：${action}。`,
-      light: `关于“${topic}”，先把脑内音量调低一点。你不用一口气处理完，先把最卡住的地方写出来，再给自己一个短暂停顿：${action}。`,
-      clear: `你写下“${topic}”，说明这件事已经占用了能量。先别把它扩大成对自己的结论，今晚只处理可控部分：${action}。`,
-      poetic: `你把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+
+    const moodPhrases: Record<string, string> = {
+      委屈: '感到有些委屈',
+      焦虑: '心里感到焦虑',
+      失眠: '夜里难以入睡',
+      恋爱: '为感情的事感到困扰',
+      工作: '为工作的事感到烦心',
+      平静: '心情正在平静下来',
     };
+    const moodPhrase = moodPhrases[input.mood] ?? `面对这些时`;
+
+    const styleText: Record<AIStyle, string> = {
+      warm: `看到你写下“${topic}”。${moodPhrase}是很自然的事。今晚先不用急着把所有事情理顺，先做一件眼前的小事：${action}。`,
+      rational: `关于“${topic}”，先把事情本身和情绪分开看：事情已经发生了，${moodPhrase}。今晚只先落实一个具体动作：${action}。`,
+      light: `关于“${topic}”，先把脑内的音量调低一点。今晚不用一口气解决完，先给自己一个短暂停顿：${action}。`,
+      clear: `你写下“${topic}”，说明这件事已经消耗了不少力气。先别急着下定论，今晚只处理眼前最可控的一步：${action}。`,
+      poetic: `把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+    };
+
+    let rewriteText = `面对“${topic}”，可以试着这样告诉自己：${moodPhrase}并不代表我不够好。现在先从这一小步开始：“${action}”。`;
+    if (input.mode === 'shorter') {
+      rewriteText = `关于“${topic}”：先对自己说一句没关系，今晚先做这件小事：“${action}”。`;
+    } else if (input.mode === 'action') {
+      rewriteText = `围绕“${topic}”，今晚不用想太多，只先做这一小步：“${action}”。`;
+    } else if (input.mode === 'clear') {
+      rewriteText = `关于“${topic}”，事实是事情已经发生了。今晚先从这一步开始：“${action}”。`;
+    }
+
+    let rantText = `今天这件“${topic}”确实很烦人，也消耗了你不少力气。先把堵着的情绪痛快说出来；等情绪放下来一点，再把精力收回眼前：“${action}”。`;
+    if (input.mode === 'raw') {
+      rantText = `今天这件“${topic}”确实太让人烦躁了。允许自己痛快吐槽，怎么想的就怎么写，不要求自己大度。`;
+    } else if (input.mode === 'deep') {
+      rantText = `围绕“${topic}”，之所以这么难受，是因为这件事触碰到了你真正在意的事情。先把情绪倒干净，再慢慢理清。`;
+    }
+
+    let sleepText = `如果“${topic}”还在脑子里反复转，先对自己说一句：今晚不是解决所有问题的时候。把想不通的事留给明天，先做几轮慢呼气。`;
+    if (input.mode === 'breath') {
+      sleepText = `关于“${topic}”，先闭上眼睛，跟着吸气与呼气让呼吸慢下来，把注意力收回身体。`;
+    } else if (input.mode === 'tomorrow') {
+      sleepText = `无论“${topic}”多要紧，今晚你的任务只是睡好觉。把所有顾虑放进备忘录，留到明天醒来再说。`;
+    }
+
+    let workText = `面对“${topic}”，先把事情本身和对自己的评价分开。遇到阻力不代表是你的问题，今晚先做眼前最可控的一步：“${action}”。`;
+    if (input.mode === 'boundary') {
+      workText = `面对“${topic}”，先分清什么是你的责任，什么是环境和他人的问题。不属于你的压力，不要独自扛在肩上。`;
+    } else if (input.mode === 'step') {
+      workText = `在“${topic}”上卡住了，就不要看整个大任务。今晚只做最微小的第一步：“${action}”。`;
+    }
+
+    let futureText = `关于“${topic}”的卡点，现在的你已经尽力了。留给未来的自己一句话：慢慢来，先从“${action}”开始重新出发。`;
+    if (input.mode === 'future_week') {
+      futureText = `写给下周的自己：希望下周看到这封信时，“${topic}”带来的压力已经小了一些。记得对自己好一点。`;
+    } else if (input.mode === 'future_year') {
+      futureText = `写给明年的自己：这一年里无论关于“${topic}”发生了什么，现在的我都希望你平静、健康、自在。`;
+    }
+
     const taskText: Partial<Record<AITaskType, string>> = {
-      breakdown: `情绪拆解：触发事件可能是“${structured.trigger}”；核心情绪是“${structured.coreEmotion}”；真实需要是“${structured.realNeed}”；可以先做的一小步是“${action}”。`,
-      rewrite: `负面改写：把“${topic}”换成更照顾自己的说法：我正在经历${input.mood}，但这不等于我不够好。我可以先从“${action}”开始。`,
-      rant: `发疯文案：今天这件“${topic}”真的够烦，也够消耗。允许你先吐槽，不急着优雅；吐完以后，把力气收回来一点点：${action}。`,
-      heal: `治愈短句：就算“${topic}”让你很累，你也仍然值得被认真对待。先把自己放回当下：${action}。`,
-      sleep: `失眠安慰：如果“${topic}”还在脑子里转，先告诉自己：现在不是解决全部问题的时间。把担心放进纸上，再做一轮慢呼气。`,
-      work: `工作支撑：面对“${topic}”，先把评价、任务和自我价值分开。你要处理的是下一步任务，不是证明整个人都没问题；先做：${action}。`,
-      future: `写给未来：未来的你会记得，此刻关于“${topic}”的难受并没有浪费。它提醒你要更温柔地安排边界，也提醒你从“${action}”重新开始。`,
-      month_report: `情绪月报：这个阶段反复出现的线索是“${topic}”。${input.mood}背后有真实需要，下个月可以先固定一个小动作：${action}。`,
-      situation_analysis: `情况分析：先把“${topic}”拆成已经发生的事实、此刻的感受和你可以确认的需要，再由你决定下一步是否合适。`,
-      action_plan: `行动建议：围绕“${topic}”，先保留一个五分钟内能完成的小动作：${action}。完成后再根据结果调整，不把一次行动当成对自己的评价。`,
-      journey_summary: `旅程摘要：你正在处理“${topic}”。目前能确认的是你已经把事情说出来，并找到了一步可尝试的动作：${action}。`,
-      support_plan: `现实支持计划：当“${topic}”再次变重时，可以先做：${action}；如果仍然难以独自承受，请联系你信任的人和当地现实支持。`,
-      decision_clarify: `决策澄清：关于“${topic}”，先把选项、在意的条件和还不确定的地方分别写下，不替自己仓促下结论。`,
+      breakdown: `关于“${structured.trigger}”：当下的感受是${structured.coreEmotion}，心里希望的是${structured.realNeed}。今晚可以先做的一小步：${action}。`,
+      rewrite: rewriteText,
+      rant: rantText,
+      heal: `关于“${topic}”，就算再累，你也值得被好好对待。今晚先不想太远，先照顾好当下的这一刻：“${action}”。`,
+      sleep: sleepText,
+      work: workText,
+      future: futureText,
+      month_report: `这个阶段反复出现的线索是“${topic}”。${input.mood}背后有你的真实需要，下个月可以先固定一个小动作：${action}。`,
+      situation_analysis: `关于“${topic}”：梳理出已经发生的事实与此刻的感受，由你决定下一步怎么走最舒服。`,
+      action_plan: `围绕“${topic}”，今晚先保留一个五分钟内能完成的小动作：${action}。完成之后再慢慢看，不把一次尝试当成对自己的评价。`,
+      journey_summary: `关于“${topic}”：你已经把事情如实说出来，并迈出了一步可尝试的动作：${action}。`,
+      support_plan: `当“${topic}”再次变沉重时，可以先做：${action}；如果依然难以独自承受，请找信任的朋友或身边的人陪陪你。`,
+      decision_clarify: `关于“${topic}”，先把选项、在意的条件和还不确定的地方分别写下，不替自己仓促下结论。`,
       post_reply: styleText[input.style],
       today_letter: styleText[input.style],
     };
