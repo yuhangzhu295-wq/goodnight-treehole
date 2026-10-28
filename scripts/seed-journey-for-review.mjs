@@ -34,7 +34,7 @@ await withSession(async ({ ev }) => {
   const journeyId = 'journey_review_timeline';
 
   // Upsert journey
-  const journey = await prisma.lifeJourney.upsert({
+  await prisma.lifeJourney.upsert({
     where: { id: journeyId },
     update: {
       userId,

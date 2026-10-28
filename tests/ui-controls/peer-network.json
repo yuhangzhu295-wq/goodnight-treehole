@@ -1,0 +1,17 @@
+[
+ {
+  "selector": "peer-tab-latest",
+  "settleMs": 400,
+  "expect": { "present": "[data-testid=\"peer-tab-latest\"].active" }
+ },
+ {
+  "selector": "peer-tab-requests",
+  "settleMs": 400,
+  "expect": { "present": "[data-testid=\"peer-tab-requests\"].active" }
+ },
+ {
+  "selector": "peer-tab-recommended",
+  "settleMs": 400,
+  "expect": { "present": "[data-testid=\"peer-tab-recommended\"].active" }
+ }
+]

@@ -1,0 +1,10 @@
+[
+ {
+  "selector": "notification-bell",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "tonight-input",
+  "expect": { "present": "[data-testid=\"tonight-input\"]" }
+ }
+]

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import AppIcon from '../icons/AppIcon.vue';
 
 type TimelineItem = { id: string; kind: string; content: string; createdAt: string; intensity?: number; payload?: Record<string, unknown> };
 const props = defineProps<{

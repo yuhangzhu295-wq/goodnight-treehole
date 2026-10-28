@@ -1,0 +1,10 @@
+[
+ {
+  "selector": "entry-diary",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "entry-favorite",
+  "expect": { "urlChanged": true }
+ }
+]

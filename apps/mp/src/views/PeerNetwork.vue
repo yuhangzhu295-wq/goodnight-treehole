@@ -238,6 +238,7 @@ onMounted(() => {
       <button
         type="button"
         class="segment-item"
+        data-testid="peer-tab-recommended"
         :class="{ active: currentTab === 'recommended' }"
         role="tab"
         :aria-selected="currentTab === 'recommended'"
@@ -248,6 +249,7 @@ onMounted(() => {
       <button
         type="button"
         class="segment-item"
+        data-testid="peer-tab-latest"
         :class="{ active: currentTab === 'latest' }"
         role="tab"
         :aria-selected="currentTab === 'latest'"
@@ -258,6 +260,7 @@ onMounted(() => {
       <button
         type="button"
         class="segment-item"
+        data-testid="peer-tab-requests"
         :class="{ active: currentTab === 'requests' }"
         role="tab"
         :aria-selected="currentTab === 'requests'"

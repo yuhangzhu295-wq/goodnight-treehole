@@ -460,7 +460,8 @@ onMounted(async () => {
       </div>
       <div class="header-right">
         <button
-          class="more-link"
+          class="btn-text"
+          data-testid="action-history"
           type="button"
           @click="router.push('/pages/archive/index')"
         >
