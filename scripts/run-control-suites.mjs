@@ -57,6 +57,7 @@ const SUITES = [
   { name: 'peer-graduate', route: () => fixtures()?.graduateRoute, cases: 'peer-graduate.json', runner: 'controls' },
   { name: 'peer-detail', route: () => fixtures()?.detailRoute, cases: 'peer-detail.json', runner: 'controls' },
   { name: 'peer-consent', route: () => fixtures()?.consentRoute, cases: 'peer-consent.json', runner: 'controls' },
+  { name: 'peer-conversation', route: () => fixtures()?.conversationRoute, cases: 'peer-conversation.json', runner: 'controls' },
 ];
 
 const selected = SUITES.filter((suite) => !only || only.has(suite.name));

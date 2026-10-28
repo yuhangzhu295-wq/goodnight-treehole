@@ -13,10 +13,12 @@ const requestReason = ref('我想听听你后来是怎么把这段日子走过�
 const requestQuestion = ref('如果只留一句给当时的自己，你会说什么？');
 const requestOpen = ref(false);
 const error = ref('');
+const requestError = ref('');
 const experienceId = computed(() => String(route.query.id ?? ''));
 const matchId = computed(() => String(route.query.matchId ?? ''));
 
 async function load() {
+  error.value = '';
   if (!experienceId.value) {
     error.value = '没有找到要查看的经历';
     loading.value = false;
@@ -35,7 +37,7 @@ async function load() {
 async function requestConversation() {
   if (!matchId.value) return;
   requesting.value = true;
-  error.value = '';
+  requestError.value = '';
   try {
     await api.patch(`/api/v1/peer-matches/${encodeURIComponent(matchId.value)}`, {
       status: 'requested',
@@ -44,7 +46,7 @@ async function requestConversation() {
     });
     await router.push(`/pages/peer/wait?matchId=${encodeURIComponent(matchId.value)}`);
   } catch (cause: any) {
-    error.value = cause?.message ?? '请求发送失败';
+    requestError.value = cause?.message ?? '请求发送失败';
   } finally {
     requesting.value = false;
   }
@@ -167,6 +169,8 @@ onMounted(load);
             <input v-model="requestQuestion" maxlength="160">
           </label>
 
+          <p v-if="requestError" class="dialog-error" role="alert">{{ requestError }}</p>
+
           <button
             class="btn-primary"
             data-testid="peer-detail-request-submit"
@@ -224,6 +228,16 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.dialog-error {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .peer-title {

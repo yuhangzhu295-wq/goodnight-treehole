@@ -13,6 +13,7 @@ const error = ref('');
 const match = ref<any>(null);
 
 async function load() {
+  error.value = '';
   loading.value = true;
   try {
     const [requestsRes, peersRes] = await Promise.allSettled([
@@ -26,6 +27,13 @@ async function load() {
     const fromRequests = requestsRes.status === 'fulfilled' ? requestsRes.value?.items?.find((item: any) => item.id === matchId.value) : null;
     const fromPeers = peersRes.status === 'fulfilled' ? peersRes.value?.item?.matches?.find((item: any) => item.id === matchId.value) : null;
     match.value = fromRequests ?? fromPeers ?? null;
+    if (!match.value) {
+      if (requestsRes.status === 'rejected' && peersRes.status === 'rejected') {
+        error.value = '会话前信息加载失败，请检查网络后重试。';
+      } else {
+        error.value = '没有找到该同路匹配记录，可能已过期或结束。';
+      }
+    }
   } catch (cause: any) {
     error.value = cause?.message ?? '会话前信息没有加载成功';
   } finally {
@@ -60,7 +68,7 @@ onMounted(load);
 <template>
   <section class="goodnight-page peer-consent-page">
     <header class="peer-header">
-      <button class="back-btn" aria-label="返回请求" type="button" @click="router.back()">‹</button>
+      <button class="back-btn" data-testid="peer-consent-back" aria-label="返回请求" type="button" @click="router.back()">‹</button>
       <div class="header-titles">
         <h1 class="peer-title">确认同行边界</h1>
         <p class="peer-subtitle">开启最长 72 小时对话前的规则确认</p>

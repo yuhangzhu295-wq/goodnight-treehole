@@ -1,4 +1,14 @@
 [
-  { "selector": "peer-consent-confirm", "expect": {} },
-  { "selector": "peer-consent-decline", "expect": {} }
+  {
+    "selector": "peer-consent-back",
+    "expect": { "urlChanged": true }
+  },
+  {
+    "selector": "peer-consent-decline",
+    "expect": { "urlChanged": true }
+  },
+  {
+    "selector": "peer-consent-confirm",
+    "expect": { "urlChanged": true }
+  }
 ]

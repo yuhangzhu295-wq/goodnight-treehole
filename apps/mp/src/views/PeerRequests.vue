@@ -4,7 +4,13 @@ import { useRouter } from 'vue-router';
 import { api } from '../api';
 import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
-type RequestItem = { id: string; status: string; requestReason?: string; requestQuestion?: string; experience?: { title?: string; domain?: string } };
+type RequestItem = {
+  id: string;
+  status: 'requested' | 'connected' | 'declined' | 'blocked';
+  requestReason?: string;
+  requestQuestion?: string;
+  experience?: { title?: string; domain?: string };
+};
 const router = useRouter();
 const items = ref<RequestItem[]>([]);
 const loading = ref(true);
@@ -12,13 +18,8 @@ const busyId = ref('');
 const error = ref('');
 const pending = computed(() => items.value.filter((item) => item.status === 'requested'));
 const accepted = computed(() => items.value.filter((item) => item.status === 'connected'));
-/**
- * Requests that reached an end: declined, blocked, or a conversation that has closed. The page used
- * to show only the two live states, so a request the reader had already answered vanished with no
- * record of what they did - the design asks for the lifecycle, not just the inbox.
- */
 const closed = computed(() =>
-  items.value.filter((item) => ['declined', 'blocked', 'closed', 'expired', 'graduated'].includes(item.status)),
+  items.value.filter((item) => ['declined', 'blocked'].includes(item.status)),
 );
 /** Which lifecycle stage the reader is looking at. */
 type RequestTab = 'pending' | 'accepted' | 'closed';
@@ -43,6 +44,7 @@ const tabCounts = computed(() => ({
 const visible = computed(() => (tab.value === 'pending' ? pending.value : tab.value === 'accepted' ? accepted.value : closed.value));
 
 async function load() {
+  error.value = '';
   loading.value = true;
   try {
     items.value = (await api.get<{ items: RequestItem[] }>('/api/v1/peer-requests')).items;
@@ -51,6 +53,20 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function itemStatusLabel(item: RequestItem) {
+  if (item.status === 'requested') return '待回应';
+  if (item.status === 'connected') return '待确认边界';
+  if (item.status === 'declined') return '已婉拒';
+  return '已结束';
+}
+
+function itemMetaText(item: RequestItem) {
+  const domain = item.experience?.domain || '匿名经历';
+  if (item.status === 'requested') return `${domain} · 等待你的回应`;
+  if (item.status === 'connected') return `${domain} · 已同意，等待确认同行边界`;
+  return `${domain} · 请求已结束`;
 }
 
 async function respond(item: RequestItem, status: 'connected' | 'declined' | 'blocked') {
@@ -114,9 +130,9 @@ onMounted(load);
             </div>
             <div class="identity-info">
               <strong class="identity-name">匿名同行者</strong>
-              <span class="identity-meta">{{ item.experience?.domain || '匿名经历' }} · 等待你的回应</span>
+              <span class="identity-meta">{{ itemMetaText(item) }}</span>
             </div>
-            <span class="status-pill">待回应</span>
+            <span class="status-pill" :class="item.status">{{ itemStatusLabel(item) }}</span>
           </div>
 
           <div class="request-content">
@@ -146,16 +162,18 @@ onMounted(load);
             >
               这次先不了
             </button>
+            <template v-else-if="tab === 'accepted'">
+              <button
+                class="btn-text"
+                :data-testid="'peer-request-consent-' + item.id"
+                type="button"
+                @click="openConsent(item)"
+              >
+                确认同行边界
+              </button>
+            </template>
             <button
-              v-else-if="tab === 'accepted'"
-              class="btn-text"
-              :data-testid="'peer-request-consent-' + item.id"
-              type="button"
-              @click="openConsent(item)"
-            >
-              确认同行边界
-            </button>
-            <button
+              v-if="tab !== 'closed'"
               :disabled="busyId === item.id"
               class="btn-text"
               type="button"
@@ -167,7 +185,7 @@ onMounted(load);
         </article>
       </section>
 
-      <section v-else class="empty-panel" :data-testid="'peer-request-empty-' + tab">
+      <section v-else-if="!error" class="empty-panel" :data-testid="'peer-request-empty-' + tab">
         <h2>{{ EMPTY_TITLES[tab] }}</h2>
         <p>
           <template v-if="tab === 'pending'">当有人阅读你留下的后来记录并希望交流时，请求会显示在这里。</template>

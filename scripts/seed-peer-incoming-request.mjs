@@ -377,13 +377,48 @@ if (!closedConv) {
     where: { matchId },
     data: { status: 'closed', closedAt: new Date(), closedReason: 'natural_close' },
   });
-  await prisma.peerMatch.updateMany({
-    where: { id: matchId },
-    data: { status: 'closed' },
-  });
   closedConv = await prisma.peerConversation.findFirst({ where: { matchId } });
 }
 if (!closedConv) throw new Error('no closed conversation could be produced for the owner');
+
+// ---- an active conversation, so 匿名会话 has a real live conversation ---------------------------
+let activeConv = await prisma.peerConversation.findFirst({
+  where: {
+    OR: [{ starterUserId: APP_USER }, { receiverUserId: APP_USER }],
+    status: 'active',
+  },
+  orderBy: { createdAt: 'desc' },
+});
+if (!activeConv) {
+  const { matchId, strangerCredential } = await requestAsStranger('最近总想联系对方，想听听你的经历。', '你是怎么调整过来的？');
+  await call('POST', `/peer-matches/${matchId}/respond`, { credential: owner, body: { status: 'connected' } });
+  await call('POST', `/peer-matches/${matchId}/consent`, { credential: strangerCredential, body: {} });
+  await call('POST', `/peer-matches/${matchId}/consent`, { credential: owner, body: {} });
+  activeConv = await prisma.peerConversation.findFirst({ where: { matchId } });
+}
+if (activeConv) {
+  const msgCount = await prisma.peerMessage.count({ where: { conversationId: activeConv.id } });
+  if (msgCount === 0) {
+    const otherUser = activeConv.starterUserId === APP_USER ? activeConv.receiverUserId : activeConv.starterUserId;
+    await prisma.peerMessage.create({
+      data: {
+        id: `msg_${Date.now()}_1`,
+        conversationId: activeConv.id,
+        senderUserId: otherUser,
+        content: '我之前也会一直想联系对方，你现在还好吗？',
+      },
+    });
+    await prisma.peerMessage.create({
+      data: {
+        id: `msg_${Date.now()}_2`,
+        conversationId: activeConv.id,
+        senderUserId: APP_USER,
+        content: '有时候还是想发消息，但我忍住了。',
+      },
+    });
+  }
+}
+const conversationRoute = activeConv ? `/pages/peer/conversation?matchId=${activeConv.matchId}` : '';
 
 // ---- report ------------------------------------------------------------------------------------
 items = await inbox();
@@ -423,6 +458,7 @@ writeFileSync(
       consentRoute,
       waitRoute,
       graduateRoute,
+      conversationRoute,
     },
     null,
     2,
