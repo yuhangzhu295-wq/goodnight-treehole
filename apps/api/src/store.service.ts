@@ -6683,9 +6683,12 @@ export class StoreService implements OnModuleInit {
       thumbnailUrl = undefined;
       mediaDuration = undefined;
       mediaSize = undefined;
-    } else if (mediaUrl) {
-      if (!mediaUrl.startsWith('data:image/svg+xml;') && !mediaUrl.startsWith('/assets/')) {
+    } else {
+      if (mediaUrl && !mediaUrl.startsWith('data:image/svg+xml;') && !mediaUrl.startsWith('/assets/')) {
         throw new BadRequestException('非法的表情包资源地址');
+      }
+      if (thumbnailUrl && !thumbnailUrl.startsWith('data:image/svg+xml;') && !thumbnailUrl.startsWith('/assets/')) {
+        thumbnailUrl = undefined;
       }
     }
 
@@ -6838,7 +6841,7 @@ export class StoreService implements OnModuleInit {
         const s = typeof m.seq === 'number' ? m.seq : 0;
         return safeAfterSeq === 0 || s > safeAfterSeq || Boolean(m.recalledAt);
       })
-      .map((m) => this.peerMessageForUser(m, userId));
+      .map((m) => this.peerMessageForUser(m, userId, allMessages));
 
     const callStatus = this.socialMultimedia.getCallStatusForClient(matchId, userId);
 

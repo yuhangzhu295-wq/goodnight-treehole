@@ -88,11 +88,21 @@ async function pollSync() {
           const old = existingMap.get(m.id);
           if (!old) {
             conversation.value.messages.push(m);
+            existingMap.set(m.id, m);
             changed = true;
           } else if (m.recalledAt && !old.recalledAt) {
             old.recalledAt = m.recalledAt;
             old.content = m.content;
             changed = true;
+          }
+        }
+        for (const m of conversation.value.messages) {
+          if (m.replyToId) {
+            const target = existingMap.get(m.replyToId);
+            if (target?.recalledAt && m.replyToContent !== '一条消息已撤回') {
+              m.replyToContent = '一条消息已撤回';
+              changed = true;
+            }
           }
         }
         if (changed) await scrollToLatest();

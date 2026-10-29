@@ -362,12 +362,73 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       );
       expect(textWithMedia.item.mediaUrl).toBeUndefined();
 
-      // 8. syncPeerConversation honors afterSeq and syncs recalled tombstones
+      // 8. syncPeerConversation honors afterSeq, syncs recalled tombstones and masks quoted text on recall
       const syncResult = await store.syncPeerConversation(matchId, 2, starterId);
       expect(syncResult.messages.length).toBeGreaterThan(0);
       expect(syncResult.call).toBeNull();
       // Recalled message is included in sync even if its seq <= afterSeq
       expect(syncResult.messages.some((m) => m.id === replyRes.item.id)).toBe(true);
+
+      // Full sync verifies that quote targeting a recalled message has replyToContent masked
+      const syncFull = await store.syncPeerConversation(matchId, 0, starterId);
+      const quoteInSync = syncFull.messages.find((m) => m.id === quoteRecalledRes.item.id);
+      expect(quoteInSync?.replyToContent).toBe('一条消息已撤回');
+    });
+  });
+
+  describe('5. PublicController HTTP Parameter Forwarding & Validation', () => {
+    it('forwards whitelisted fields (msgType, replyToId, mediaUrl, clientMsgId) from controller body to store', async () => {
+      const { PublicController } = await import('../../apps/api/src/controllers.js');
+      const { runWithIdentity } = await import('../../apps/api/src/anonymous-session.service.js');
+
+      let capturedPayload: any = null;
+      const mockStore = {
+        sendPeerMessage: async (_mId: string, payload: any, _uId: string) => {
+          capturedPayload = payload;
+          return { item: { id: 'msg_test', ...payload } };
+        },
+      } as any;
+
+      const controller = new PublicController(mockStore, {} as any, {} as any);
+
+      await runWithIdentity({ userId: 'u_alice', sessionId: 's1' }, async () => {
+        await controller.peerMessage(
+          'match_01',
+          {
+            content: '[表情包: 暖心]',
+            msgType: 'STICKER',
+            replyToId: 'msg_000',
+            mediaUrl: 'data:image/svg+xml;utf8,<svg></svg>',
+            clientMsgId: 'cmsg_forward_01',
+            __internal: true, // Should be stripped by controller whitelist!
+          } as any,
+          'u_alice',
+        );
+      });
+
+      expect(capturedPayload).toBeDefined();
+      expect(capturedPayload.content).toBe('[表情包: 暖心]');
+      expect(capturedPayload.msgType).toBe('STICKER');
+      expect(capturedPayload.replyToId).toBe('msg_000');
+      expect(capturedPayload.mediaUrl).toBe('data:image/svg+xml;utf8,<svg></svg>');
+      expect(capturedPayload.clientMsgId).toBe('cmsg_forward_01');
+      expect(capturedPayload.__internal).toBeUndefined(); // Stripped!
+    });
+
+    it('rejects invalid or missing personaId on POST /me/ai-persona', async () => {
+      const { PublicController } = await import('../../apps/api/src/controllers.js');
+      const { runWithIdentity } = await import('../../apps/api/src/anonymous-session.service.js');
+
+      const mockStore = {
+        setAiPersona: (_id: string) => {},
+      } as any;
+      const controller = new PublicController(mockStore, {} as any, {} as any);
+
+      await runWithIdentity({ userId: 'u_alice', sessionId: 's1' }, async () => {
+        await expect(controller.setAiPersona({} as any, 'u_alice')).rejects.toThrow('缺少有效的人格标识');
+        await expect(controller.setAiPersona({ personaId: 123 as any }, 'u_alice')).rejects.toThrow('缺少有效的人格标识');
+        await expect(controller.setAiPersona(null as any, 'u_alice')).rejects.toThrow('缺少有效的人格标识');
+      });
     });
   });
 });
