@@ -6684,12 +6684,21 @@ export class StoreService implements OnModuleInit {
       mediaDuration = undefined;
       mediaSize = undefined;
     } else {
-      if (mediaUrl && !mediaUrl.startsWith('data:image/svg+xml;') && !mediaUrl.startsWith('/assets/')) {
-        throw new BadRequestException('非法的表情包资源地址');
+      let matchedSticker: any = null;
+      if (typeof (input as any)?.stickerId === 'string') {
+        matchedSticker = this.socialMultimedia.getStickerById((input as any).stickerId);
+      } else if (mediaUrl) {
+        matchedSticker = this.socialMultimedia.listStickers('').find((s) => s.url === mediaUrl);
       }
-      if (thumbnailUrl && !thumbnailUrl.startsWith('data:image/svg+xml;') && !thumbnailUrl.startsWith('/assets/')) {
-        thumbnailUrl = undefined;
+      if (matchedSticker) {
+        mediaUrl = matchedSticker.url;
+        rawContent = `[表情包: ${matchedSticker.name}]`;
+      } else {
+        throw new BadRequestException('非法的表情包标识');
       }
+      thumbnailUrl = undefined;
+      mediaDuration = undefined;
+      mediaSize = undefined;
     }
 
     if (!rawContent.trim()) {
@@ -8148,19 +8157,20 @@ export class StoreService implements OnModuleInit {
   async myPublicPosts(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     if (DIRECT_DB_MODELS.Post) {
-      const all = await this.postsDb.listRecent(500);
-      return all
-        .filter((post) => post.userId === userId && post.status === 'active')
-        .map((post) => ({
-          ...post,
-          publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
-          allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
-          favoritedByCurrentUser: false,
-        }));
+      const posts = await this.postsDb.listUserPublicPosts(userId);
+      const favouriteIds = await this.favoritesDb.postIdsForUser(userId);
+      return posts.map((post) => ({
+        ...post,
+        publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+        allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+        favoritedByCurrentUser: favouriteIds.has(post.id),
+      }));
     }
     const feedContext = await this.buildPostDecorationContext(this.posts);
     this.posts.forEach((post) => this.decoratePost(post, feedContext));
-    return this.posts.filter((post) => post.userId === userId && post.status === 'active');
+    return this.posts.filter(
+      (post) => post.userId === userId && post.status === 'active' && post.visibility === 'PUBLIC',
+    );
   }
 
   async hidePostForCurrentUser(postId: string) {
@@ -9000,17 +9010,15 @@ export class StoreService implements OnModuleInit {
         memoryScopes: [...new Set(memoryContext.map((item) => item.scope))],
       });
     }
-    const memoryPrompt = memoryContext.length
-      ? `\n\n用户明确允许使用的有限记忆（仅可引用，不得推断人格或敏感属性）：\n${memoryContext.map((item) => `- [${item.id}] ${item.title}：${item.content}`).join('\n')}`
-      : '';
     const prompt = this.buildAiPrompt({
       taskType,
       style: input.style,
       route: route as AIStyleRoute,
-      content: `${input.promptSummary}${memoryPrompt}`,
+      content: input.promptSummary,
       mood: input.mood ?? this.inferMood(input.promptSummary),
       mode: input.mode ?? job.mode,
       userId: input.userId,
+      memories: memoryContext,
     });
     const needsStructuredResult = [
       'breakdown',
@@ -9379,12 +9387,8 @@ export class StoreService implements OnModuleInit {
     mood: string;
     mode?: string;
     userId?: string;
+    memories?: MemoryItem[];
   }) {
-    const safety = this.aiPersona.systemSafetyPolicy;
-    const persona = input.userId
-      ? this.aiPersona.getUserPersona(input.userId)
-      : this.aiPersona.personas.night_companion;
-    const personaPrompt = persona?.systemPromptAddition ? `\n${persona.systemPromptAddition}` : '';
     const taskInstructions: Record<AITaskType, string> = {
       post_reply: '为匿名树洞写一段 90 到 160 字的公开温柔回应，不泄露或推测身份。',
       today_letter: '写一封给此刻用户的 140 到 220 字今日回信，紧贴其最近记录，给出一个很小且可执行的行动。',
@@ -9439,8 +9443,23 @@ export class StoreService implements OnModuleInit {
       future_week: '写给下周的自己。',
       future_year: '写给明年的自己。',
     };
-    const modePrompt = input.mode && modeInstructions[input.mode] ? `\n处理偏好要求：${modeInstructions[input.mode]}` : '';
-    return `${safety}${personaPrompt}\n任务：${taskInstructions[input.taskType]}${modePrompt}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
+
+    const persona = input.userId
+      ? this.aiPersona.getUserPersona(input.userId)
+      : this.aiPersona.personas.night_companion;
+
+    const taskInstruction = taskInstructions[input.taskType] ?? '给出一个平和简明的回应。';
+    const modeText = input.mode && modeInstructions[input.mode] ? modeInstructions[input.mode] : undefined;
+
+    return this.aiPersona.assemblePrompt({
+      taskType: input.taskType,
+      personaId: persona.id,
+      taskInstruction: `${taskInstruction}\n风格：${input.style}。路由提示：${input.route.promptTemplate}`,
+      userContent: input.content,
+      memories: input.memories,
+      allowAiMemoryUse: (input.memories ?? []).length > 0,
+      mode: modeText,
+    });
   }
 
   private parseBreakdownResult(value: string) {

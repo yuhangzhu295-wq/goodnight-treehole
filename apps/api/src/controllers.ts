@@ -1332,7 +1332,7 @@ export class PublicController {
     @Param('matchId') _matchId: string,
     @Headers('x-goodnight-user-id') _userId?: string,
   ) {
-    return { call: null };
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
   }
 
   @Get('stickers')
@@ -1940,10 +1940,18 @@ export class PublicController {
     // remote result must not overwrite it after the person has moved on.
     letter.aiJobId = job.id;
     letter.generationStatus = job.status;
-    this.store.persist();
+    if (DIRECT_DB_MODELS.Letter) {
+      await this.store.lettersDb.applyGenerationResult(letter.id, userId, {
+        aiJobId: job.id,
+        generationStatus: job.status,
+        style: body.style ?? letter.style,
+      });
+    } else {
+      this.store.persist();
+    }
     void this.store
       .waitForAiJob(job.id)
-      .then((completed) => {
+      .then(async (completed) => {
         if (letter.aiJobId !== completed.id) return;
         letter.style = body.style ?? letter.style;
         letter.generationStatus = completed.status;
@@ -1951,12 +1959,28 @@ export class PublicController {
           letter.content = completed.result;
           letter.status = 'unread';
         }
-        this.store.persist();
+        if (DIRECT_DB_MODELS.Letter) {
+          await this.store.lettersDb.applyGenerationResult(letter.id, userId, {
+            aiJobId: completed.id,
+            generationStatus: completed.status,
+            style: body.style ?? letter.style,
+            content: ['succeeded', 'fallback'].includes(completed.status) ? completed.result : undefined,
+          });
+        } else {
+          this.store.persist();
+        }
       })
-      .catch(() => {
+      .catch(async () => {
         if (letter.aiJobId !== job.id) return;
         letter.generationStatus = 'failed';
-        this.store.persist();
+        if (DIRECT_DB_MODELS.Letter) {
+          await this.store.lettersDb.applyGenerationResult(letter.id, userId, {
+            aiJobId: job.id,
+            generationStatus: 'failed',
+          });
+        } else {
+          this.store.persist();
+        }
       });
     return { item: letter, jobId: job.id, status: job.status, job };
   }

@@ -61,6 +61,17 @@ export class PostPersistenceService {
     return this.prisma.post.findMany({ orderBy: { createdAt: 'desc' }, take: limit });
   }
 
+  async listUserPublicPosts(userId: string) {
+    return this.prisma.post.findMany({
+      where: {
+        userId,
+        status: 'active',
+        visibility: 'PUBLIC',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async idsForAdmin(filter: { type?: string; status?: string; q?: string }) {
     return this.prisma.post.findMany({
       where: {

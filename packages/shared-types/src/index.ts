@@ -93,7 +93,7 @@ export interface MemoryItem {
   title: string;
   content: string;
   scope: string;
-  status: 'active' | 'archived' | 'deleted';
+  status: 'active' | 'disabled' | 'expired' | 'archived' | 'deleted';
   expiresAt: string;
   createdAt: string;
   updatedAt: string;

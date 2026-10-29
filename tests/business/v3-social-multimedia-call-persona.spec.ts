@@ -282,12 +282,13 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       (store as any).expirePeerConversations = async () => {};
 
       // 1. Send sticker message with clientMsgId
+      const validSticker = store.socialMultimedia.listStickers('')[0];
       const stickerRes = await store.sendPeerMessage(
         matchId,
         {
           msgType: 'STICKER',
-          content: '[表情包: 暖心拥抱]',
-          mediaUrl: 'data:image/svg+xml;utf8,<svg></svg>',
+          content: `[表情包: ${validSticker.name}]`,
+          mediaUrl: validSticker.url,
           clientMsgId: 'cmsg_1001',
         },
         starterId,
@@ -296,12 +297,26 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(stickerRes.item.msgType).toBe('STICKER');
       expect(stickerRes.item.content).toContain('暖心拥抱');
 
+      // Malicious or arbitrary inline SVG is rejected to prevent PII bypass
+      await expect(
+        store.sendPeerMessage(
+          matchId,
+          {
+            msgType: 'STICKER',
+            content: '[表情包: 伪造]',
+            mediaUrl: 'data:image/svg+xml;utf8,<svg><text>13800138000</text></svg>',
+          },
+          starterId,
+        ),
+      ).rejects.toThrow('非法的表情包标识');
+
       // Deduplication: sending same clientMsgId returns existing message
       const dupRes = await store.sendPeerMessage(
         matchId,
         {
           msgType: 'STICKER',
-          content: '[表情包: 暖心拥抱]',
+          content: `[表情包: ${validSticker.name}]`,
+          mediaUrl: validSticker.url,
           clientMsgId: 'cmsg_1001',
         },
         starterId,
@@ -451,6 +466,31 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
         await expect(controller.setAiPersona({ personaId: 123 as any }, 'u_alice')).rejects.toThrow('缺少有效的人格标识');
         await expect(controller.setAiPersona(null as any, 'u_alice')).rejects.toThrow('缺少有效的人格标识');
       });
+    });
+
+    it('returns 501 Not Implemented for unready WebRTC call endpoints to comply with contract §119', async () => {
+      const { PublicController } = await import('../../apps/api/src/controllers.js');
+      const { runWithIdentity } = await import('../../apps/api/src/anonymous-session.service.js');
+
+      const controller = new PublicController({} as any, {} as any, {} as any);
+
+      await runWithIdentity({ userId: 'u_alice', sessionId: 's1' }, async () => {
+        await expect(controller.createPeerCallOffer('m1', {}, 'u_alice')).rejects.toThrow('实时音视频通话功能尚未启用');
+        await expect(controller.respondPeerCall('m1', {} as any, 'u_alice')).rejects.toThrow('实时音视频通话功能尚未启用');
+        await expect(controller.endPeerCall('m1', {} as any, 'u_alice')).rejects.toThrow('实时音视频通话功能尚未启用');
+        await expect(controller.getPeerCallStatus('m1', 'u_alice')).rejects.toThrow('实时音视频通话功能尚未启用');
+      });
+    });
+
+    it('persists AI persona preferences across service instance restarts', async () => {
+      const personaService1 = new AiPersonaService();
+      personaService1.setUserPersona('user_persistent_01', 'rational_clarifier');
+
+      // Create a brand new service instance simulating server reboot
+      const personaService2 = new AiPersonaService();
+      const loaded = personaService2.getUserPersona('user_persistent_01');
+      expect(loaded.id).toBe('rational_clarifier');
+      expect(loaded.name).toBe('理性梳理官');
     });
   });
 });

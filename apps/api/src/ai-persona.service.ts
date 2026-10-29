@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { MemoryItem } from '@goodnight/shared-types';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export type PersonaId = 'night_companion' | 'gentle_listener' | 'rational_clarifier' | 'comfort_guide';
 
@@ -82,8 +84,42 @@ export class AiPersonaService {
     },
   };
 
-  /** In-memory user persona preferences: userId -> personaId */
+  /** User persona preferences: userId -> personaId */
   private userPreferences = new Map<string, PersonaId>();
+  private readonly storageFile = path.resolve(process.cwd(), 'data/user-personas.json');
+
+  constructor() {
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk() {
+    try {
+      if (fs.existsSync(this.storageFile)) {
+        const text = fs.readFileSync(this.storageFile, 'utf8');
+        const data = JSON.parse(text);
+        if (data && typeof data === 'object') {
+          for (const [uid, pid] of Object.entries(data)) {
+            if (VALID_PERSONA_IDS.has(pid as string)) {
+              this.userPreferences.set(uid, pid as PersonaId);
+            }
+          }
+        }
+      }
+    } catch {
+      // fallback to memory
+    }
+  }
+
+  private persistToDisk() {
+    try {
+      const dir = path.dirname(this.storageFile);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const obj = Object.fromEntries(this.userPreferences.entries());
+      fs.writeFileSync(this.storageFile, JSON.stringify(obj, null, 2), 'utf8');
+    } catch {
+      // fallback
+    }
+  }
 
   getPersonaList(): PersonaProfile[] {
     return Object.values(this.personas);
@@ -100,6 +136,7 @@ export class AiPersonaService {
     }
     const id = personaId as PersonaId;
     this.userPreferences.set(userId, id);
+    this.persistToDisk();
     return this.personas[id];
   }
 
