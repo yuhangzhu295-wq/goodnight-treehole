@@ -1,7 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type { MemoryItem } from '@goodnight/shared-types';
 
 export type PersonaId = 'night_companion' | 'gentle_listener' | 'rational_clarifier' | 'comfort_guide';
+
+const VALID_PERSONA_IDS = new Set<string>([
+  'night_companion',
+  'gentle_listener',
+  'rational_clarifier',
+  'comfort_guide',
+]);
 
 export interface PersonaProfile {
   id: PersonaId;
@@ -87,23 +94,23 @@ export class AiPersonaService {
     return this.personas[id] ?? this.personas.night_companion;
   }
 
-  setUserPersona(userId: string, personaId: PersonaId): PersonaProfile {
-    const valid = this.personas[personaId];
-    if (!valid) {
-      throw new Error('无效的人格标识');
+  setUserPersona(userId: string, personaId: string): PersonaProfile {
+    if (!VALID_PERSONA_IDS.has(personaId)) {
+      throw new BadRequestException('无效的人格标识');
     }
-    this.userPreferences.set(userId, personaId);
-    return valid;
+    const id = personaId as PersonaId;
+    this.userPreferences.set(userId, id);
+    return this.personas[id];
   }
 
   /**
    * Context Assembler:
    * Assembles the multi-layered prompt with strict priority:
    * 1. System Safety Policy (highest)
-   * 2. User Consent Scoped Memories (if consent granted and non-expired)
+   * 2. Persona Profile (stylistic personality)
    * 3. Task Instruction (specific business task)
-   * 4. Persona Profile (stylistic personality)
-   * 5. User Content & Session context
+   * 4. Consent Scoped Memories (strictly active & non-expired)
+   * 5. User Content & Session context (sanitized)
    */
   assemblePrompt(input: AssembleContextInput): string {
     const parts: string[] = [];
@@ -127,10 +134,16 @@ export class AiPersonaService {
     }
 
     // 4. Consent-Scoped Memory (Strict Dynamic Guard)
-    if (input.allowAiMemoryUse && input.memories && input.memories.length > 0) {
+    // Filter active and non-expired memories only
+    const validMemories = (input.memories ?? []).filter((m) => {
+      if (!m || m.status !== 'active') return false;
+      const exp = Date.parse(m.expiresAt);
+      return !Number.isNaN(exp) && exp > Date.now();
+    });
+
+    if (input.allowAiMemoryUse && validMemories.length > 0) {
       // Limit to max 6 most relevant items to prevent prompt injection and token bloat
-      const safeMemories = input.memories.slice(0, 6).map((m) => {
-        // Sanitize memory text
+      const safeMemories = validMemories.slice(0, 6).map((m) => {
         const safeTitle = String(m.title || '').replace(/[\r\n]+/g, ' ').slice(0, 50);
         const safeContent = String(m.content || '').replace(/[\r\n]+/g, ' ').slice(0, 150);
         return `- [${m.id}] ${safeTitle}：${safeContent}`;
@@ -140,12 +153,14 @@ export class AiPersonaService {
         `【用户明确授权使用的有限记忆（仅供背景理解，不得直接泄露、推测人格或打标签）】\n${safeMemories.join('\n')}`,
       );
     } else {
-      // Explict note: memory is off / unconsented
       parts.push('【记忆授权状态】用户未授权引用任何历史记忆，请仅基于用户当前当次输入进行回应。');
     }
 
-    // 5. User Provided Content
-    parts.push(`【用户当次内容】\n${input.userContent}`);
+    // 5. User Provided Content (Sanitized against role/system injection)
+    const sanitizedUserContent = String(input.userContent ?? '')
+      .replace(/【(?:系统|任务|角色|记忆)[\s\S]*?】/g, '')
+      .trim();
+    parts.push(`【用户当次内容】\n${sanitizedUserContent}`);
 
     return parts.join('\n\n');
   }

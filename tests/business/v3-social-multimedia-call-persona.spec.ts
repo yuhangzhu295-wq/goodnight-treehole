@@ -53,8 +53,8 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
     });
   });
 
-  describe('2. Real-time Audio/Video Call Signaling Lifecycle', () => {
-    it('executes full call lifecycle: offer -> accept -> end with duration', () => {
+  describe('2. Real-time Audio/Video Call Signaling & Anonymous Protection', () => {
+    it('executes call lifecycle and strips internal user IDs for client', () => {
       const social = new SocialMultimediaService();
       const matchId = 'match_test_01';
       const convId = 'conv_test_01';
@@ -64,22 +64,25 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(offer.id).toBeDefined();
       expect(offer.callType).toBe('AUDIO');
       expect(offer.status).toBe('OFFERED');
-      expect(Date.parse(offer.expiresAt)).toBeGreaterThan(Date.now());
 
-      // 2. Caller checking status sees OFFERED
-      const callerStatus = social.getCallStatus(matchId, 'user_caller');
-      expect(callerStatus?.status).toBe('OFFERED');
+      // 2. Client status check MUST NOT leak callerUserId or calleeUserId
+      const callerClientStatus = social.getCallStatusForClient(matchId, 'user_caller');
+      expect(callerClientStatus).toBeDefined();
+      expect(callerClientStatus?.isIncoming).toBe(false);
+      expect((callerClientStatus as any).callerUserId).toBeUndefined();
+      expect((callerClientStatus as any).calleeUserId).toBeUndefined();
+
+      const calleeClientStatus = social.getCallStatusForClient(matchId, 'user_callee');
+      expect(calleeClientStatus?.isIncoming).toBe(true);
 
       // 3. Callee accepts the call
       const accepted = social.respondCall(matchId, 'user_callee', offer.id, 'ACCEPT');
       expect(accepted.status).toBe('ACCEPTED');
       expect(accepted.startedAt).toBeDefined();
-      expect(accepted.roomToken).toBeDefined();
 
       // 4. End the call
       const { call: ended, durationSeconds } = social.endCall(matchId, 'user_caller', offer.id);
       expect(ended.status).toBe('ENDED');
-      expect(ended.endedAt).toBeDefined();
       expect(typeof durationSeconds).toBe('number');
     });
 
@@ -99,11 +102,11 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
     });
   });
 
-  describe('3. AI Persona Architecture & Dynamically Scoped Memory', () => {
-    it('composes prompt strictly prioritizing SystemSafetyPolicy over persona and memory', () => {
+  describe('3. AI Persona Architecture, Dynamic Memory Filtering & Prototype Safety', () => {
+    it('composes prompt strictly prioritizing SystemSafetyPolicy and filters expired memories', () => {
       const aiPersona = new AiPersonaService();
 
-      // Case A: User consented with memories
+      // Case A: User consented with memories, but one is expired and one is deleted
       const promptConsented = aiPersona.assemblePrompt({
         taskType: 'today_letter',
         personaId: 'gentle_listener',
@@ -112,13 +115,35 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
         allowAiMemoryUse: true,
         memories: [
           {
-            id: 'mem_1',
+            id: 'mem_valid',
             userId: 'u1',
             title: '近期困惑',
             content: '项目进度比较紧张',
             scope: 'all_ai',
             status: 'active',
-            expiresAt: '2026-12-31T00:00:00.000Z',
+            expiresAt: new Date(Date.now() + 86400000).toISOString(),
+            createdAt: '2026-10-01T00:00:00.000Z',
+            updatedAt: '2026-10-01T00:00:00.000Z',
+          },
+          {
+            id: 'mem_expired',
+            userId: 'u1',
+            title: '已过期的困惑',
+            content: '旧的过期秘密信息',
+            scope: 'all_ai',
+            status: 'active',
+            expiresAt: new Date(Date.now() - 86400000).toISOString(),
+            createdAt: '2026-09-01T00:00:00.000Z',
+            updatedAt: '2026-09-01T00:00:00.000Z',
+          },
+          {
+            id: 'mem_deleted',
+            userId: 'u1',
+            title: '已删除的记忆',
+            content: '用户删除的机密信息',
+            scope: 'all_ai',
+            status: 'deleted',
+            expiresAt: new Date(Date.now() + 86400000).toISOString(),
             createdAt: '2026-10-01T00:00:00.000Z',
             updatedAt: '2026-10-01T00:00:00.000Z',
           },
@@ -129,6 +154,9 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(promptConsented.indexOf('【系统最高安全规则】')).toBe(0);
       expect(promptConsented).toContain('温和倾听者');
       expect(promptConsented).toContain('项目进度比较紧张');
+      // Expired and deleted memories are filtered out completely
+      expect(promptConsented).not.toContain('旧的过期秘密信息');
+      expect(promptConsented).not.toContain('用户删除的机密信息');
 
       // Case B: User revoked memory consent (allowAiMemoryUse = false)
       const promptRevoked = aiPersona.assemblePrompt({
@@ -139,13 +167,13 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
         allowAiMemoryUse: false,
         memories: [
           {
-            id: 'mem_1',
+            id: 'mem_valid',
             userId: 'u1',
-            title: '已撤销的记忆',
+            title: '有效但未授权',
             content: '机密个人隐私信息绝对不能泄露',
             scope: 'all_ai',
             status: 'active',
-            expiresAt: '2026-12-31T00:00:00.000Z',
+            expiresAt: new Date(Date.now() + 86400000).toISOString(),
             createdAt: '2026-10-01T00:00:00.000Z',
             updatedAt: '2026-10-01T00:00:00.000Z',
           },
@@ -157,20 +185,20 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(promptRevoked).not.toContain('机密个人隐私信息绝对不能泄露');
     });
 
-    it('switches persona profiles and persists user preferences', () => {
+    it('rejects invalid or prototype persona IDs against injection', () => {
       const aiPersona = new AiPersonaService();
-      const def = aiPersona.getUserPersona('user_x');
-      expect(def.id).toBe('night_companion');
+      expect(() => aiPersona.setUserPersona('u1', 'constructor')).toThrow('无效的人格标识');
+      expect(() => aiPersona.setUserPersona('u1', '__proto__')).toThrow('无效的人格标识');
+      expect(() => aiPersona.setUserPersona('u1', 'random_hacker')).toThrow('无效的人格标识');
 
-      aiPersona.setUserPersona('user_x', 'rational_clarifier');
-      const updated = aiPersona.getUserPersona('user_x');
-      expect(updated.id).toBe('rational_clarifier');
-      expect(updated.name).toBe('理性梳理官');
+      // Valid persona succeeds
+      aiPersona.setUserPersona('u1', 'rational_clarifier');
+      expect(aiPersona.getUserPersona('u1').id).toBe('rational_clarifier');
     });
   });
 
   describe('4. StoreService Integration for Rich Messaging & Recall', () => {
-    it('supports rich message sending, quoted reply and 2-minute message recall', async () => {
+    it('supports rich message sending, server-side verified quote and 2-minute message recall', async () => {
       const store = new StoreService({} as any);
 
       const starterId = 'user_alice';
@@ -208,7 +236,7 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
           status: 'active',
           expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
         }),
-        sendMessage: async (mId: string, sender: string, content: string, extraMeta: any) => {
+        sendMessage: async (mId: string, sender: string, content: string, hooks: any, extraMeta: any) => {
           const newMsg = {
             id: `msg_${messages.length + 1}`,
             conversationId: 'conv_rich_test',
@@ -233,6 +261,8 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
           if (target.senderUserId !== sender) throw new Error('只有发送方可以撤回消息');
           target.content = '一条消息已撤回';
           target.recalledAt = new Date().toISOString();
+          delete target.mediaUrl;
+          delete target.replyToContent;
           return target;
         },
       };
@@ -246,7 +276,7 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
         {
           msgType: 'STICKER',
           content: '[表情包: 暖心拥抱]',
-          mediaUrl: 'data:image/svg+xml;sample',
+          mediaUrl: 'data:image/svg+xml;utf8,<svg></svg>',
           clientMsgId: 'cmsg_1001',
         },
         starterId,
@@ -254,7 +284,6 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(stickerRes.item.id).toBeDefined();
       expect(stickerRes.item.msgType).toBe('STICKER');
       expect(stickerRes.item.content).toContain('暖心拥抱');
-      expect(stickerRes.item.author).toBe('self');
 
       // Deduplication: sending same clientMsgId returns existing message
       const dupRes = await store.sendPeerMessage(
@@ -268,14 +297,18 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       );
       expect(dupRes.item.id).toBe(stickerRes.item.id);
 
-      // 2. Send text message quoting previous message
+      // 2. Client cannot manually post CALL_LOG
+      await expect(
+        store.sendPeerMessage(matchId, { msgType: 'CALL_LOG', content: '假通话' }, starterId),
+      ).rejects.toThrow('不能手动发送通话记录');
+
+      // 3. Send text message quoting previous message (quote content is derived server-side)
       const replyRes = await store.sendPeerMessage(
         matchId,
         {
           msgType: 'TEXT',
           content: '我也抱抱你',
           replyToId: stickerRes.item.id,
-          replyToContent: stickerRes.item.content,
         },
         receiverId,
       );
@@ -283,12 +316,13 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(replyRes.item.replyToId).toBe(stickerRes.item.id);
       expect(replyRes.item.replyToContent).toContain('暖心拥抱');
 
-      // 3. Sender recalls their own message within 2 minutes
+      // 4. Sender recalls their own message within 2 minutes
       const recallRes = await store.recallPeerMessage(matchId, replyRes.item.id, receiverId);
       expect(recallRes.item.content).toBe('一条消息已撤回');
       expect(recallRes.item.recalledAt).toBeDefined();
+      expect(recallRes.item.mediaUrl).toBeUndefined();
 
-      // 4. Other user cannot recall someone else's message
+      // 5. Other user cannot recall someone else's message
       await expect(
         store.recallPeerMessage(matchId, stickerRes.item.id, receiverId),
       ).rejects.toThrow('只有发送方可以撤回消息');

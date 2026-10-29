@@ -6642,13 +6642,13 @@ export class StoreService implements OnModuleInit {
     let mediaSize: number | undefined;
     let thumbnailUrl: string | undefined;
     let clientMsgId: string | undefined;
+    const isInternal = Boolean(input && typeof input === 'object' && (input as any).__internal);
 
     if (input && typeof input === 'object' && !Array.isArray(input)) {
       const obj = input as Record<string, any>;
       rawContent = typeof obj.content === 'string' ? obj.content : '';
       msgType = typeof obj.msgType === 'string' ? obj.msgType : 'TEXT';
       replyToId = typeof obj.replyToId === 'string' ? obj.replyToId : undefined;
-      replyToContent = typeof obj.replyToContent === 'string' ? obj.replyToContent : undefined;
       mediaUrl = typeof obj.mediaUrl === 'string' ? obj.mediaUrl : undefined;
       mediaDuration = typeof obj.mediaDuration === 'number' ? obj.mediaDuration : undefined;
       mediaSize = typeof obj.mediaSize === 'number' ? obj.mediaSize : undefined;
@@ -6658,13 +6658,25 @@ export class StoreService implements OnModuleInit {
       rawContent = String(input ?? '');
     }
 
+    if (msgType === 'CALL_LOG' && !isInternal) {
+      throw new BadRequestException('不能手动发送通话记录');
+    }
+
+    const ALLOWED_MSG_TYPES = new Set(['TEXT', 'STICKER', 'CALL_LOG']);
+    if (!ALLOWED_MSG_TYPES.has(msgType)) {
+      msgType = 'TEXT';
+    }
+
+    if (msgType === 'STICKER' && mediaUrl) {
+      if (!mediaUrl.startsWith('data:image/svg+xml;') && !mediaUrl.startsWith('/assets/')) {
+        throw new BadRequestException('非法的表情包资源地址');
+      }
+    }
+
     if (!rawContent.trim()) {
       if (msgType === 'STICKER') rawContent = '[表情包]';
-      else if (msgType === 'IMAGE') rawContent = '[图片]';
-      else if (msgType === 'VIDEO') rawContent = '[视频]';
-      else if (msgType === 'AUDIO') rawContent = '[语音]';
       else if (msgType === 'CALL_LOG') rawContent = '[通话记录]';
-      else rawContent = ' ';
+      else throw new BadRequestException('消息内容不能为空');
     }
 
     const text = this.text(rawContent, '消息内容', 1000);
@@ -6673,7 +6685,9 @@ export class StoreService implements OnModuleInit {
     if (DIRECT_DB_MODELS.PeerMessage && DIRECT_DB_MODELS.PeerConversation) {
       await this.expirePeerConversations();
       const conv = await this.peerPersistence.getConversationByMatchId(matchId);
-      if (!conv) throw new NotFoundException('匿名会话不存在');
+      if (!conv || (conv.starterUserId !== userId && conv.receiverUserId !== userId)) {
+        throw new NotFoundException('匿名会话不存在');
+      }
 
       // Deduplication check
       if (clientMsgId) {
@@ -6682,6 +6696,17 @@ export class StoreService implements OnModuleInit {
           const all = await this.peerPersistence.getMessagesForConversation(conv.id);
           const found = all.find((m) => m.id === existingId);
           if (found) return { item: this.peerMessageForUser(found, userId) };
+        }
+      }
+
+      // Quote verification: derive quote text from target message on server
+      if (replyToId) {
+        const all = await this.peerPersistence.getMessagesForConversation(conv.id);
+        const target = all.find((m) => m.id === replyToId);
+        if (target) {
+          replyToContent = target.recalledAt ? '一条消息已撤回' : target.content.slice(0, 100);
+        } else {
+          replyToId = undefined;
         }
       }
 
@@ -6698,7 +6723,7 @@ export class StoreService implements OnModuleInit {
         clientMsgId,
       };
 
-      const msg = await this.peerPersistence.sendMessage(matchId, userId, text, extraMeta);
+      const msg = await this.peerPersistence.sendMessage(matchId, userId, text, {}, extraMeta);
       if (clientMsgId) {
         this.socialMultimedia.recordClientMessage(conv.id, clientMsgId, msg.id);
       }
@@ -6715,6 +6740,16 @@ export class StoreService implements OnModuleInit {
       if (existingId) {
         const found = this.peerMessages.find((m) => m.id === existingId);
         if (found) return { item: this.peerMessageForUser(found, userId) };
+      }
+    }
+
+    // Quote verification: derive quote text from target message on server
+    if (replyToId) {
+      const target = this.peerMessages.find((m) => m.id === replyToId && m.conversationId === conversation.id);
+      if (target) {
+        replyToContent = target.recalledAt ? '一条消息已撤回' : target.content.slice(0, 100);
+      } else {
+        replyToId = undefined;
       }
     }
 
@@ -6752,39 +6787,56 @@ export class StoreService implements OnModuleInit {
       return { item: this.peerMessageForUser(recalled, userId) };
     }
     const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) {
+      throw new BadRequestException('这段 72 小时会话已经结束，无法撤回消息');
+    }
     const msg = this.peerMessages.find((m) => m.id === messageId && m.conversationId === conversation.id);
     if (!msg) throw new NotFoundException('消息不存在');
     if (msg.senderUserId !== userId) throw new BadRequestException('只有发送方可以撤回消息');
+    if (msg.recalledAt) throw new BadRequestException('消息已经撤回，无需重复操作');
     const elapsed = Date.now() - Date.parse(msg.createdAt);
     if (elapsed > 120_000) throw new BadRequestException('超过 2 分钟的消息不能撤回');
     msg.recalledAt = now();
     msg.content = '一条消息已撤回';
+    delete msg.mediaUrl;
+    delete msg.thumbnailUrl;
+    delete msg.replyToContent;
     await this.persistAndFlush();
     return { item: this.peerMessageForUser(msg, userId) };
   }
 
   async syncPeerConversation(matchId: string, afterSeq = 0, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const convData = await this.conversationList(userId);
-    const conversation = convData.find((c: any) => c.matchId === matchId);
-    if (!conversation) throw new NotFoundException('匿名会话不存在');
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
 
-    const newMessages = (conversation.messages ?? []).filter((m: any) => {
-      const mSeq = typeof m.seq === 'number' ? m.seq : 0;
-      return mSeq > afterSeq;
-    });
+    let allMessages: PeerMessageRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      allMessages = await this.peerPersistence.getMessagesForConversation(conversation.id);
+    } else {
+      allMessages = this.peerMessages.filter((m) => m.conversationId === conversation.id);
+    }
 
-    const callStatus = this.socialMultimedia.getCallStatus(matchId, userId);
+    const safeAfterSeq = Math.max(0, Number(afterSeq) || 0);
+    const messages = allMessages
+      .filter((m) => {
+        const s = typeof m.seq === 'number' ? m.seq : 0;
+        return safeAfterSeq === 0 || s > safeAfterSeq || Boolean(m.recalledAt);
+      })
+      .map((m) => this.peerMessageForUser(m, userId));
+
+    const callStatus = this.socialMultimedia.getCallStatusForClient(matchId, userId);
+
+    const lastSeq = allMessages.reduce(
+      (max: number, m: any) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+      0,
+    );
 
     return {
       conversationStatus: conversation.status,
       expiresAt: conversation.expiresAt,
-      messages: newMessages,
+      messages,
       call: callStatus,
-      lastSeq: (conversation.messages ?? []).reduce(
-        (max: number, m: any) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
-        0,
-      ),
+      lastSeq,
     };
   }
 
@@ -6795,25 +6847,25 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('这段 72 小时会话已经结束');
     }
     const otherUserId = conversation.starterUserId === userId ? conversation.receiverUserId : conversation.starterUserId;
-    const call = this.socialMultimedia.createCallOffer(matchId, conversation.id, userId, otherUserId, callType);
-    return { call };
+    this.socialMultimedia.createCallOffer(matchId, conversation.id, userId, otherUserId, callType);
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId) };
   }
 
   async respondPeerCall(matchId: string, offerId: string, action: 'ACCEPT' | 'DECLINED', requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     const call = this.socialMultimedia.respondCall(matchId, userId, offerId, action);
     if (action === 'DECLINED') {
-      // Append a call log message
       await this.sendPeerMessage(
         matchId,
         {
           content: `${call.callType === 'VIDEO' ? '视频通话' : '语音通话'} 已拒绝`,
           msgType: 'CALL_LOG',
+          __internal: true,
         },
         userId,
       );
     }
-    return { call };
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId) };
   }
 
   async endPeerCall(matchId: string, callId: string, reason?: string, requestedUserId?: string) {
@@ -6835,16 +6887,16 @@ export class StoreService implements OnModuleInit {
       {
         content: summary,
         msgType: 'CALL_LOG',
+        __internal: true,
       },
       userId,
     );
-    return { call, durationSeconds };
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId), durationSeconds };
   }
 
   getPeerCallStatus(matchId: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const call = this.socialMultimedia.getCallStatus(matchId, userId);
-    return { call };
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId) };
   }
 
   getAiPersona(requestedUserId?: string) {
@@ -8929,6 +8981,7 @@ export class StoreService implements OnModuleInit {
       content: `${input.promptSummary}${memoryPrompt}`,
       mood: input.mood ?? this.inferMood(input.promptSummary),
       mode: input.mode ?? job.mode,
+      userId: input.userId,
     });
     const needsStructuredResult = [
       'breakdown',
@@ -9296,9 +9349,13 @@ export class StoreService implements OnModuleInit {
     content: string;
     mood: string;
     mode?: string;
+    userId?: string;
   }) {
-    const safety =
-      '你是晚安树洞的中文情绪陪伴助手。你不是医生，不做心理疾病诊断、不冒充专业人员、不做绝对承诺。语气如同深夜朋友手写便条，简短真挚，平实具体，绝不带说教感。严禁使用心理咨询套话、客服腔或机械前缀标签。若用户提及即时人身危险，提醒其联系身边可信任的人和当地紧急支持。';
+    const safety = this.aiPersona.systemSafetyPolicy;
+    const persona = input.userId
+      ? this.aiPersona.getUserPersona(input.userId)
+      : this.aiPersona.personas.night_companion;
+    const personaPrompt = persona?.systemPromptAddition ? `\n${persona.systemPromptAddition}` : '';
     const taskInstructions: Record<AITaskType, string> = {
       post_reply: '为匿名树洞写一段 90 到 160 字的公开温柔回应，不泄露或推测身份。',
       today_letter: '写一封给此刻用户的 140 到 220 字今日回信，紧贴其最近记录，给出一个很小且可执行的行动。',
@@ -9354,7 +9411,7 @@ export class StoreService implements OnModuleInit {
       future_year: '写给明年的自己。',
     };
     const modePrompt = input.mode && modeInstructions[input.mode] ? `\n处理偏好要求：${modeInstructions[input.mode]}` : '';
-    return `${safety}\n任务：${taskInstructions[input.taskType]}${modePrompt}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
+    return `${safety}${personaPrompt}\n任务：${taskInstructions[input.taskType]}${modePrompt}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
   }
 
   private parseBreakdownResult(value: string) {

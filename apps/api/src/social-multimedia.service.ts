@@ -248,6 +248,7 @@ export class SocialMultimediaService {
    * Get active call status for polling/sync
    */
   getCallStatus(matchId: string, userId: string): CallSignalingRecord | null {
+    this.cleanExpiredCalls();
     const call = this.activeCalls.get(matchId);
     if (!call) return null;
     if (call.callerUserId !== userId && call.calleeUserId !== userId) return null;
@@ -258,5 +259,34 @@ export class SocialMultimediaService {
       call.endedAt = new Date().toISOString();
     }
     return call;
+  }
+
+  getCallStatusForClient(matchId: string, userId: string) {
+    const call = this.getCallStatus(matchId, userId);
+    if (!call) return null;
+    return {
+      id: call.id,
+      callType: call.callType,
+      status: call.status,
+      isIncoming: call.calleeUserId === userId,
+      startedAt: call.startedAt,
+      durationSeconds: call.durationSeconds,
+      expiresAt: call.expiresAt,
+    };
+  }
+
+  private cleanExpiredCalls(): void {
+    const now = Date.now();
+    for (const [key, call] of this.activeCalls.entries()) {
+      if (['ENDED', 'DECLINED', 'CANCELLED', 'MISSED'].includes(call.status)) {
+        const ended = call.endedAt ? Date.parse(call.endedAt) : 0;
+        if (now - ended > 600_000) {
+          this.activeCalls.delete(key);
+        }
+      } else if (call.status === 'OFFERED' && Date.parse(call.expiresAt) <= now) {
+        call.status = 'MISSED';
+        call.endedAt = new Date().toISOString();
+      }
+    }
   }
 }

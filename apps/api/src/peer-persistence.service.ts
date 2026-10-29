@@ -1228,15 +1228,21 @@ export class PeerPersistenceService {
     matchId: string,
     senderUserId: string,
     content: string,
-    extraMeta?: Record<string, any>,
     hooks: PeerWriteHooks = {},
+    extraMeta?: Record<string, any>,
   ): Promise<PeerMessageRecord> {
+    const isHooks = (h: any): h is PeerWriteHooks =>
+      Boolean(h && typeof h === 'object' && ('_onBeforeLock' in h || '_onAfterLock' in h));
+    const actualHooks: PeerWriteHooks = isHooks(hooks) ? hooks : {};
+    const rawMeta: Record<string, any> | undefined =
+      extraMeta ?? (hooks && !isHooks(hooks) && typeof hooks === 'object' ? hooks : undefined);
+
     const outcome = await this.prisma.$transaction(async (tx) => {
-      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      if (actualHooks._onBeforeLock) await actualHooks._onBeforeLock();
       // 0. Roots first: the message insert takes an implicit key-share on its `User` row, so
       //    the user lock must be acquired before the conversation row (global lock order).
       await lockPeerWriteRoots(tx, [senderUserId]);
-      if (hooks._onAfterLock) await hooks._onAfterLock();
+      if (actualHooks._onAfterLock) await actualHooks._onAfterLock();
 
       // 1. Lock conversation under row lock
       const [conv] = await tx.$queryRaw<any[]>`
@@ -1273,8 +1279,31 @@ export class PeerPersistenceService {
       }
 
       const msgId = genId('peer_message');
-      const authorType = (extraMeta?.authorType as 'HUMAN' | 'AI_ASSIST') ?? 'HUMAN';
-      const piiData = extraMeta ? (extraMeta as any) : [];
+      const authorType = (rawMeta?.authorType as 'HUMAN' | 'AI_ASSIST') ?? 'HUMAN';
+
+      // Sanitize metadata keys to prevent arbitrary code/functions or unverified injections
+      const ALLOWED_META_KEYS = [
+        'msgType',
+        'replyToId',
+        'replyToContent',
+        'mediaUrl',
+        'mediaDuration',
+        'mediaSize',
+        'thumbnailUrl',
+        'seq',
+        'clientMsgId',
+      ];
+      let piiData: any = [];
+      if (rawMeta && typeof rawMeta === 'object') {
+        const safeObj: Record<string, any> = {};
+        for (const k of ALLOWED_META_KEYS) {
+          if (k in rawMeta && rawMeta[k] !== undefined) {
+            safeObj[k] = rawMeta[k];
+          }
+        }
+        piiData = safeObj;
+      }
+
       const created = await tx.peerMessage.create({
         data: {
           id: msgId,
@@ -1300,35 +1329,65 @@ export class PeerPersistenceService {
     messageId: string,
   ): Promise<PeerMessageRecord> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. Roots first: user lock
       await lockPeerWriteRoots(tx, [senderUserId]);
+
+      // 1. Lock conversation under row lock
+      const [conv] = await tx.$queryRaw<any[]>`
+        SELECT * FROM "PeerConversation"
+        WHERE "matchId" = ${matchId}
+        FOR UPDATE
+      `;
+      if (!conv || (conv.starterUserId !== senderUserId && conv.receiverUserId !== senderUserId)) {
+        throw new NotFoundException('匿名会话不存在');
+      }
+
+      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;
+      const dbNow = new Date(timeRow.db_now);
+      const expiresAt = new Date(conv.expiresAt);
+
+      if (conv.status !== 'active' || dbNow.getTime() >= expiresAt.getTime()) {
+        throw new BadRequestException('这段 72 小时会话已经结束，无法撤回消息');
+      }
+
       const msg = await tx.peerMessage.findUnique({
         where: { id: messageId },
-        include: { conversation: true },
       });
-      if (!msg || msg.conversation.matchId !== matchId) {
+      if (!msg || msg.conversationId !== conv.id) {
         throw new NotFoundException('消息不存在');
       }
       if (msg.senderUserId !== senderUserId) {
         throw new BadRequestException('只有发送方可以撤回消息');
       }
-      const [timeRow] = await tx.$queryRaw<any[]>`SELECT clock_timestamp() as db_now`;
-      const dbNow = new Date(timeRow.db_now);
-      const createdTime = new Date(msg.createdAt).getTime();
-      if (dbNow.getTime() - createdTime > 120_000) {
-        throw new BadRequestException('超过 2 分钟的消息不能撤回');
-      }
+
       const existingMeta =
         msg.piiFlags && typeof msg.piiFlags === 'object' && !Array.isArray(msg.piiFlags)
           ? (msg.piiFlags as any)
           : {};
+
+      if (existingMeta.recalledAt) {
+        throw new BadRequestException('消息已经撤回，无需重复操作');
+      }
+
+      const createdTime = new Date(msg.createdAt).getTime();
+      if (dbNow.getTime() - createdTime > 120_000) {
+        throw new BadRequestException('超过 2 分钟的消息不能撤回');
+      }
+
+      // Clear media and quote metadata when recalled to ensure zero leakage
+      const updatedMeta = {
+        ...existingMeta,
+        recalledAt: dbNow.toISOString(),
+      };
+      delete updatedMeta.mediaUrl;
+      delete updatedMeta.thumbnailUrl;
+      delete updatedMeta.replyToContent;
+
       const updated = await tx.peerMessage.update({
         where: { id: messageId },
         data: {
           content: '一条消息已撤回',
-          piiFlags: {
-            ...existingMeta,
-            recalledAt: dbNow.toISOString(),
-          },
+          piiFlags: updatedMeta,
         },
       });
       return mapPeerMessageRow(updated);

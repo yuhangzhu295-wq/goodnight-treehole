@@ -20,30 +20,21 @@ const closeConfirmOpen = ref(false);
 const safetyOpen = ref(false);
 const reportReason = ref('');
 
-// V3 Social & Multimedia States
+// V3 Social States
 const replyingTo = ref<any>(null);
 const emojiPanelOpen = ref(false);
-const attachMenuOpen = ref(false);
 const stickerTab = ref<'emoji' | 'stickers' | 'favorites'>('emoji');
 const stickers = ref<any[]>([]);
 const favoriteStickerIds = ref<string[]>([]);
-const voiceRecording = ref(false);
-const voiceDuration = ref(0);
-let voiceTimer: any = null;
-
-// Call State
-const activeCall = ref<any>(null);
-const callDuration = ref(0);
-let callTimer: any = null;
-const isMuted = ref(false);
-const isSpeakerOn = ref(true);
-const isCameraOn = ref(true);
 
 // Lifecycle guard
 let isUnmounted = false;
 let syncTimeout: any = null;
 
-const EMOJI_LIST = ['🌙', '🕯️', '🍃', '☕', '🕊️', '🌧️', '🌤️', '🫂', '🪵', '💭', '💫', '🌿', '🌸', '🍂', '🍵', '💤', '✨', '🤍', '🌼', '🌧️'];
+const EMOJI_LIST = [
+  '🌙', '🕯️', '🍃', '☕', '🕊️', '🌧️', '🌤️', '🫂', '🪵', '💭',
+  '💫', '🌿', '🌸', '🍂', '🍵', '💤', '✨', '🤍', '🌼', '🌧️'
+];
 
 async function scrollToLatest() {
   await nextTick();
@@ -80,31 +71,34 @@ async function pollSync() {
   if (isUnmounted) return;
   if (conversation.value?.status === 'active') {
     try {
+      const maxSeq = (conversation.value.messages ?? []).reduce(
+        (max: number, m: any) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+        0,
+      );
       const syncRes = await api.get<any>(
-        `/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/sync`,
+        `/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/sync?afterSeq=${maxSeq}`,
       );
       if (isUnmounted) return;
       if (syncRes.messages && syncRes.messages.length > 0) {
-        // Merge new messages
-        const existingIds = new Set(conversation.value.messages.map((m: any) => m.id));
-        let added = false;
+        const existingMap = new Map<string, any>(
+          conversation.value.messages.map((m: any) => [m.id, m]),
+        );
+        let changed = false;
         for (const m of syncRes.messages) {
-          if (!existingIds.has(m.id)) {
+          const old = existingMap.get(m.id);
+          if (!old) {
             conversation.value.messages.push(m);
-            added = true;
+            changed = true;
+          } else if (m.recalledAt && !old.recalledAt) {
+            old.recalledAt = m.recalledAt;
+            old.content = m.content;
+            changed = true;
           }
         }
-        if (added) await scrollToLatest();
+        if (changed) await scrollToLatest();
       }
       if (syncRes.conversationStatus && syncRes.conversationStatus !== conversation.value.status) {
         conversation.value.status = syncRes.conversationStatus;
-      }
-      // Check Call Status
-      if (syncRes.call) {
-        updateCallState(syncRes.call);
-      } else if (activeCall.value) {
-        activeCall.value = null;
-        stopCallDurationTimer();
       }
     } catch {
       // Silent error during background poll
@@ -112,33 +106,6 @@ async function pollSync() {
   }
   if (!isUnmounted) {
     syncTimeout = setTimeout(pollSync, 3000);
-  }
-}
-
-function updateCallState(call: any) {
-  const prev = activeCall.value;
-  activeCall.value = call;
-  if (call.status === 'ACCEPTED') {
-    if (!prev || prev.status !== 'ACCEPTED') {
-      startCallDurationTimer();
-    }
-  } else if (['ENDED', 'DECLINED', 'MISSED', 'CANCELLED'].includes(call.status)) {
-    stopCallDurationTimer();
-  }
-}
-
-function startCallDurationTimer() {
-  stopCallDurationTimer();
-  callDuration.value = 0;
-  callTimer = setInterval(() => {
-    callDuration.value += 1;
-  }, 1000);
-}
-
-function stopCallDurationTimer() {
-  if (callTimer) {
-    clearInterval(callTimer);
-    callTimer = null;
   }
 }
 
@@ -195,13 +162,11 @@ async function send() {
       content,
       msgType: 'TEXT',
       replyToId: replyingTo.value?.id,
-      replyToContent: replyingTo.value?.content ? replyingTo.value.content.slice(0, 100) : undefined,
       clientMsgId,
     });
     draft.value = '';
     replyingTo.value = null;
     emojiPanelOpen.value = false;
-    attachMenuOpen.value = false;
     await load({ silent: true });
   } catch (cause: any) {
     error.value = cause?.message ?? '消息没有送出';
@@ -221,145 +186,13 @@ async function sendSticker(sticker: any) {
       msgType: 'STICKER',
       mediaUrl: sticker.url,
       replyToId: replyingTo.value?.id,
-      replyToContent: replyingTo.value?.content ? replyingTo.value.content.slice(0, 100) : undefined,
-      clientMsgId: `cmsg_${Date.now()}`,
+      clientMsgId: `cmsg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     });
     replyingTo.value = null;
     emojiPanelOpen.value = false;
     await load({ silent: true });
   } catch (cause: any) {
     error.value = cause?.message ?? '表情包发送失败';
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function sendImage() {
-  attachMenuOpen.value = false;
-  busy.value = true;
-  try {
-    // Generate simulated peaceful scene image
-    const sampleImg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150"><rect width="200" height="150" fill="%23275f56"/><text x="100" y="80" fill="%23ffffff" font-size="14" text-anchor="middle">🌙 今夜相伴</text></svg>';
-    await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/messages`, {
-      content: '[图片]',
-      msgType: 'IMAGE',
-      mediaUrl: sampleImg,
-      clientMsgId: `cmsg_${Date.now()}`,
-    });
-    await load({ silent: true });
-  } catch (cause: any) {
-    error.value = cause?.message ?? '图片发送失败';
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function sendVideo() {
-  attachMenuOpen.value = false;
-  busy.value = true;
-  try {
-    await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/messages`, {
-      content: '[短视频]',
-      msgType: 'VIDEO',
-      mediaUrl: 'sample_video.mp4',
-      mediaDuration: 8,
-      clientMsgId: `cmsg_${Date.now()}`,
-    });
-    await load({ silent: true });
-  } catch (cause: any) {
-    error.value = cause?.message ?? '视频发送失败';
-  } finally {
-    busy.value = false;
-  }
-}
-
-function startVoiceRecord() {
-  voiceRecording.value = true;
-  voiceDuration.value = 0;
-  voiceTimer = setInterval(() => {
-    voiceDuration.value += 1;
-    if (voiceDuration.value >= 60) finishVoiceRecord();
-  }, 1000);
-}
-
-async function finishVoiceRecord() {
-  if (!voiceRecording.value) return;
-  clearInterval(voiceTimer);
-  voiceRecording.value = false;
-  const dur = voiceDuration.value || 1;
-  voiceDuration.value = 0;
-  busy.value = true;
-  try {
-    await api.post(`/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/messages`, {
-      content: `[语音 ${dur}秒]`,
-      msgType: 'AUDIO',
-      mediaDuration: dur,
-      clientMsgId: `cmsg_${Date.now()}`,
-    });
-    await load({ silent: true });
-  } catch (cause: any) {
-    error.value = cause?.message ?? '语音发送失败';
-  } finally {
-    busy.value = false;
-  }
-}
-
-function cancelVoiceRecord() {
-  clearInterval(voiceTimer);
-  voiceRecording.value = false;
-  voiceDuration.value = 0;
-}
-
-// Call actions
-async function startCall(type: 'AUDIO' | 'VIDEO') {
-  attachMenuOpen.value = false;
-  busy.value = true;
-  try {
-    const res = await api.post<any>(
-      `/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/call/offer`,
-      { callType: type },
-    );
-    updateCallState(res.call);
-  } catch (cause: any) {
-    error.value = cause?.message ?? '发起通话失败';
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function respondCall(action: 'ACCEPT' | 'DECLINED') {
-  if (!activeCall.value) return;
-  busy.value = true;
-  try {
-    const res = await api.post<any>(
-      `/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/call/respond`,
-      { offerId: activeCall.value.id, action },
-    );
-    updateCallState(res.call);
-    if (action === 'DECLINED') {
-      activeCall.value = null;
-      await load({ silent: true });
-    }
-  } catch (cause: any) {
-    error.value = cause?.message ?? '操作通话失败';
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function endCall() {
-  if (!activeCall.value) return;
-  busy.value = true;
-  try {
-    await api.post<any>(
-      `/api/v1/peer-conversations/${encodeURIComponent(matchId.value)}/call/end`,
-      { callId: activeCall.value.id },
-    );
-    activeCall.value = null;
-    stopCallDurationTimer();
-    await load({ silent: true });
-  } catch (cause: any) {
-    error.value = cause?.message ?? '结束通话失败';
   } finally {
     busy.value = false;
   }
@@ -489,8 +322,6 @@ onBeforeUnmount(() => {
     clearTimeout(syncTimeout);
     syncTimeout = null;
   }
-  stopCallDurationTimer();
-  if (voiceTimer) clearInterval(voiceTimer);
 });
 </script>
 
@@ -590,25 +421,6 @@ onBeforeUnmount(() => {
                 <img :src="message.mediaUrl" alt="贴纸" class="sticker-img" />
               </div>
 
-              <!-- Image Message -->
-              <div v-else-if="message.msgType === 'IMAGE'" class="image-msg">
-                <img :src="message.mediaUrl" alt="图片" class="chat-photo" />
-              </div>
-
-              <!-- Video Message -->
-              <div v-else-if="message.msgType === 'VIDEO'" class="video-msg">
-                <div class="video-placeholder">
-                  <span class="video-icon">▶</span>
-                  <span class="video-dur">{{ message.mediaDuration ?? 8 }}s 短视频</span>
-                </div>
-              </div>
-
-              <!-- Audio Voice Message -->
-              <div v-else-if="message.msgType === 'AUDIO'" class="audio-msg">
-                <span class="audio-icon">🎙️</span>
-                <span class="audio-dur">{{ message.mediaDuration ?? 5 }}″ 语音</span>
-              </div>
-
               <!-- Call Log Message -->
               <div v-else-if="message.msgType === 'CALL_LOG'" class="call-log-msg">
                 <span class="call-log-icon">📞</span>
@@ -656,89 +468,44 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <!-- Attachment Menu -->
-      <section v-if="attachMenuOpen" class="attach-menu">
-        <button type="button" class="attach-item" @click="sendImage">
-          <span class="attach-icon">📷</span>
-          <span class="attach-label">发送图片</span>
-        </button>
-        <button type="button" class="attach-item" @click="sendVideo">
-          <span class="attach-icon">🎥</span>
-          <span class="attach-label">短视频</span>
-        </button>
-        <button type="button" class="attach-item" @click="startCall('AUDIO')">
-          <span class="attach-icon">📞</span>
-          <span class="attach-label">语音通话</span>
-        </button>
-        <button type="button" class="attach-item" @click="startCall('VIDEO')">
-          <span class="attach-icon">📹</span>
-          <span class="attach-label">视频通话</span>
-        </button>
-      </section>
-
       <footer v-if="conversation.status === 'active'" class="composer">
-        <!-- Voice Recording Mode -->
-        <div v-if="voiceRecording" class="voice-recording-bar">
-          <span class="recording-dot"></span>
-          <span class="recording-time">录音中 {{ voiceDuration }}s</span>
-          <button type="button" class="btn-voice-cancel" @click="cancelVoiceRecord">取消</button>
-          <button type="button" class="btn-voice-send" @click="finishVoiceRecord">松开发送</button>
+        <textarea
+          v-model="draft"
+          data-testid="input-peer-conv"
+          maxlength="1000"
+          placeholder="写下你想说的话…"
+        />
+        <p class="composer-safety">请勿发送联系方式或任何可识别身份信息。</p>
+        <p v-if="assistNotice" class="assist-note">{{ assistNotice }} 内容仍需由你确认后发送。</p>
+        <div class="composer-bar">
+          <button
+            class="btn-panel-toggle"
+            type="button"
+            :class="{ active: emojiPanelOpen }"
+            @click="emojiPanelOpen = !emojiPanelOpen"
+          >
+            😊
+          </button>
+          <button
+            class="btn-assist"
+            data-testid="btn-peer-conv-assist"
+            :disabled="assistBusy || busy || !draft.trim()"
+            type="button"
+            @click="assist"
+          >
+            {{ assistBusy ? '整理中…' : '帮我整理一下' }}
+          </button>
+          <small class="char-count">{{ draft.length }}/1000</small>
+          <button
+            class="btn-send"
+            data-testid="btn-peer-conv-send"
+            :disabled="busy || assistBusy || !draft.trim()"
+            type="button"
+            @click="send"
+          >
+            {{ busy ? '发送中…' : '发送' }}
+          </button>
         </div>
-
-        <template v-else>
-          <textarea
-            v-model="draft"
-            data-testid="input-peer-conv"
-            maxlength="1000"
-            placeholder="写下你想说的话…"
-          />
-          <p class="composer-safety">请勿发送联系方式或任何可识别身份信息。</p>
-          <p v-if="assistNotice" class="assist-note">{{ assistNotice }} 内容仍需由你确认后发送。</p>
-          <div class="composer-bar">
-            <button
-              class="btn-panel-toggle"
-              type="button"
-              :class="{ active: emojiPanelOpen }"
-              @click="emojiPanelOpen = !emojiPanelOpen; attachMenuOpen = false"
-            >
-              😊
-            </button>
-            <button
-              class="btn-panel-toggle"
-              type="button"
-              :class="{ active: attachMenuOpen }"
-              @click="attachMenuOpen = !attachMenuOpen; emojiPanelOpen = false"
-            >
-              ＋
-            </button>
-            <button
-              class="btn-voice-toggle"
-              type="button"
-              @click="startVoiceRecord"
-            >
-              🎙️ 语音
-            </button>
-            <button
-              class="btn-assist"
-              data-testid="btn-peer-conv-assist"
-              :disabled="assistBusy || busy || !draft.trim()"
-              type="button"
-              @click="assist"
-            >
-              {{ assistBusy ? '整理中…' : '帮我整理一下' }}
-            </button>
-            <small class="char-count">{{ draft.length }}/1000</small>
-            <button
-              class="btn-send"
-              data-testid="btn-peer-conv-send"
-              :disabled="busy || assistBusy || !draft.trim()"
-              type="button"
-              @click="send"
-            >
-              {{ busy ? '发送中…' : '发送' }}
-            </button>
-          </div>
-        </template>
       </footer>
 
       <section v-else class="closed-panel">
@@ -753,56 +520,6 @@ onBeforeUnmount(() => {
         </button>
       </section>
     </template>
-
-    <!-- Real-time Call Signaling Modal -->
-    <div v-if="activeCall" class="call-modal-overlay">
-      <div class="call-modal-card">
-        <div class="call-header">
-          <span class="call-type-badge">{{ activeCall.callType === 'VIDEO' ? '视频通话' : '语音通话' }}</span>
-        </div>
-
-        <!-- Incoming Call from peer -->
-        <div v-if="activeCall.status === 'OFFERED' && activeCall.calleeUserId === conversation?.starterUserId ? isMine({ author: 'peer' }) : isMine({ author: 'self' })" class="call-ringing-body">
-          <div class="call-avatar-circle">📞</div>
-          <h3>同路人正在呼叫…</h3>
-          <p class="call-subtext">30秒无响应将自动挂断</p>
-          <div class="call-actions-row">
-            <button type="button" class="btn-call-decline" @click="respondCall('DECLINED')">拒绝</button>
-            <button type="button" class="btn-call-accept" @click="respondCall('ACCEPT')">接听</button>
-          </div>
-        </div>
-
-        <!-- Outgoing Call waiting for peer -->
-        <div v-else-if="activeCall.status === 'OFFERED'" class="call-ringing-body">
-          <div class="call-avatar-circle ringing">📲</div>
-          <h3>正在呼叫同路人…</h3>
-          <p class="call-subtext">等待对方独立确认接受</p>
-          <div class="call-actions-row">
-            <button type="button" class="btn-call-hangup" @click="endCall">取消呼叫</button>
-          </div>
-        </div>
-
-        <!-- Connected Call -->
-        <div v-else-if="activeCall.status === 'ACCEPTED'" class="call-connected-body">
-          <div class="call-timer-display">
-            {{ Math.floor(callDuration / 60).toString().padStart(2, '0') }}:{{ (callDuration % 60).toString().padStart(2, '0') }}
-          </div>
-          <p class="call-encryption-notice">🔒 实时加密端到端连接 · 绝不录音录像</p>
-          <div class="call-toggles">
-            <button type="button" :class="['toggle-btn', { active: isMuted }]" @click="isMuted = !isMuted">
-              {{ isMuted ? '静音中' : '麦克风开' }}
-            </button>
-            <button type="button" :class="['toggle-btn', { active: isSpeakerOn }]" @click="isSpeakerOn = !isSpeakerOn">
-              {{ isSpeakerOn ? '免提扬声器' : '听筒模式' }}
-            </button>
-            <button v-if="activeCall.callType === 'VIDEO'" type="button" :class="['toggle-btn', { active: !isCameraOn }]" @click="isCameraOn = !isCameraOn">
-              {{ isCameraOn ? '摄像头开' : '摄像头关' }}
-            </button>
-          </div>
-          <button type="button" class="btn-call-hangup" @click="endCall">挂断通话</button>
-        </div>
-      </div>
-    </div>
 
     <!-- Confirm End Dialog -->
     <div
@@ -1094,44 +811,10 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
-/* Multimedia Messages */
 .sticker-img {
-  width: 96px;
-  height: 96px;
+  width: 80px;
+  height: 80px;
   object-fit: contain;
-}
-
-.chat-photo {
-  max-width: 180px;
-  max-height: 240px;
-  border-radius: 8px;
-  object-fit: cover;
-}
-
-.video-placeholder {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: rgba(0,0,0,0.06);
-  border-radius: 8px;
-}
-
-.video-icon {
-  font-size: 16px;
-  color: #275f56;
-}
-
-.video-dur {
-  font-size: 13px;
-  color: #334155;
-}
-
-.audio-msg {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
 }
 
 .call-log-msg {
@@ -1142,7 +825,6 @@ onBeforeUnmount(() => {
   color: #475569;
 }
 
-/* Quoted Banner above Composer */
 .replying-banner {
   display: flex;
   align-items: center;
@@ -1170,7 +852,6 @@ onBeforeUnmount(() => {
   color: #94a3b8;
 }
 
-/* Emoji / Sticker Panel */
 .emoji-sticker-panel {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -1242,8 +923,8 @@ onBeforeUnmount(() => {
 }
 
 .stk-icon {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
 }
 
 .stk-name {
@@ -1260,88 +941,6 @@ onBeforeUnmount(() => {
   border: none;
   font-size: 12px;
   color: #f59e0b;
-  cursor: pointer;
-}
-
-/* Attachment Menu */
-.attach-menu {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #ffffff;
-  margin-bottom: 6px;
-}
-
-.attach-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  border-radius: 8px;
-  padding: 8px 4px;
-  cursor: pointer;
-}
-
-.attach-icon {
-  font-size: 20px;
-}
-
-.attach-label {
-  font-size: 11px;
-  color: #475569;
-}
-
-/* Voice Bar */
-.voice-recording-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: #fef2f2;
-  border-radius: 8px;
-}
-
-.recording-dot {
-  width: 10px;
-  height: 10px;
-  background: #ef4444;
-  border-radius: 50%;
-  animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.3; }
-  100% { opacity: 1; }
-}
-
-.recording-time {
-  font-size: 13px;
-  font-weight: 600;
-  color: #dc2626;
-}
-
-.btn-voice-cancel {
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.btn-voice-send {
-  background: #dc2626;
-  color: #ffffff;
-  border: none;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1385,7 +984,7 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-.btn-panel-toggle, .btn-voice-toggle {
+.btn-panel-toggle {
   padding: 6px 8px;
   border: 1px solid var(--gn-line, #e5e7eb);
   border-radius: 6px;
@@ -1464,150 +1063,6 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-}
-
-/* Call Modal Overlay */
-.call-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.call-modal-card {
-  width: 100%;
-  max-width: 340px;
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 24px 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.call-type-badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 12px;
-  background: #e0f2fe;
-  color: #0284c7;
-  font-size: 12px;
-  font-weight: 500;
-  margin-bottom: 12px;
-}
-
-.call-avatar-circle {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: #eaf4ee;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  margin-bottom: 12px;
-}
-
-.call-avatar-circle.ringing {
-  animation: ringShake 0.6s infinite ease-in-out;
-}
-
-@keyframes ringShake {
-  0% { transform: rotate(0deg); }
-  25% { transform: rotate(-10deg); }
-  75% { transform: rotate(10deg); }
-  100% { transform: rotate(0deg); }
-}
-
-.call-subtext {
-  font-size: 12px;
-  color: #64748b;
-  margin: 4px 0 16px;
-}
-
-.call-actions-row {
-  display: flex;
-  gap: 16px;
-  width: 100%;
-  justify-content: center;
-}
-
-.btn-call-decline {
-  flex: 1;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #64748b;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn-call-accept {
-  flex: 1;
-  padding: 10px;
-  border-radius: 10px;
-  border: none;
-  background: #16a34a;
-  color: #ffffff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn-call-hangup {
-  width: 100%;
-  padding: 12px;
-  border-radius: 10px;
-  border: none;
-  background: #dc2626;
-  color: #ffffff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.call-timer-display {
-  font-size: 36px;
-  font-weight: 700;
-  font-family: monospace;
-  color: #0f172a;
-  margin-bottom: 6px;
-}
-
-.call-encryption-notice {
-  font-size: 11px;
-  color: #16a34a;
-  margin-bottom: 20px;
-}
-
-.call-toggles {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 24px;
-}
-
-.toggle-btn {
-  padding: 6px 12px;
-  border-radius: 20px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.toggle-btn.active {
-  background: #fee2e2;
-  border-color: #fca5a5;
-  color: #b91c1c;
 }
 
 .dialog-backdrop {
