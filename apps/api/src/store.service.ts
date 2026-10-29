@@ -6726,6 +6726,11 @@ export class StoreService implements OnModuleInit {
           const found = all.find((m) => m.id === existingId);
           if (found) return { item: this.peerMessageForUser(found, userId, all) };
         }
+        const persistedDuplicate = all.find((m) => m.senderUserId === userId && m.clientMsgId === clientMsgId);
+        if (persistedDuplicate) {
+          this.socialMultimedia.recordClientMessage(conv.id, userId, clientMsgId, persistedDuplicate.id);
+          return { item: this.peerMessageForUser(persistedDuplicate, userId, all) };
+        }
       }
 
       // Quote verification: derive quote text from target message on server
@@ -6774,6 +6779,11 @@ export class StoreService implements OnModuleInit {
       if (existingId) {
         const found = convMsgs.find((m) => m.id === existingId);
         if (found) return { item: this.peerMessageForUser(found, userId, convMsgs) };
+      }
+      const persistedDuplicate = convMsgs.find((m) => m.senderUserId === userId && m.clientMsgId === clientMsgId);
+      if (persistedDuplicate) {
+        this.socialMultimedia.recordClientMessage(conversation.id, userId, clientMsgId, persistedDuplicate.id);
+        return { item: this.peerMessageForUser(persistedDuplicate, userId, convMsgs) };
       }
     }
 

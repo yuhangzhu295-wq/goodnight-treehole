@@ -86,7 +86,9 @@ export class AiPersonaService {
 
   /** User persona preferences: userId -> personaId */
   private userPreferences = new Map<string, PersonaId>();
-  private readonly storageFile = path.resolve(process.cwd(), 'data/user-personas.json');
+  private readonly storageFile = process.env.VITEST
+    ? path.resolve(process.cwd(), 'data/user-personas.test.json')
+    : path.resolve(process.cwd(), 'data/user-personas.json');
 
   constructor() {
     this.loadFromDisk();
@@ -200,7 +202,7 @@ export class AiPersonaService {
 
     // 5. User Provided Content (Sanitized against role/system injection)
     const sanitizedUserContent = String(input.userContent ?? '')
-      .replace(/【(?:系统|任务|角色|记忆)[\s\S]*?】/g, '')
+      .replace(/【[^】\r\n]*(?:系统|任务|角色|记忆|安全|规则)[^】\r\n]*】?/g, '')
       .trim();
     parts.push(`【用户当次内容】\n${sanitizedUserContent}`);
 

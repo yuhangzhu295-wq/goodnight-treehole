@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { PeerCallSession, PeerCallType, StickerItem } from '@goodnight/shared-types';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export interface StickerFavoriteRecord {
   userId: string;
@@ -76,6 +78,37 @@ export class SocialMultimediaService {
 
   /** User favorites store */
   private favorites: StickerFavoriteRecord[] = [];
+  private readonly storageFile = process.env.VITEST
+    ? path.resolve(process.cwd(), 'data/sticker-favorites.test.json')
+    : path.resolve(process.cwd(), 'data/sticker-favorites.json');
+
+  constructor() {
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk() {
+    try {
+      if (fs.existsSync(this.storageFile)) {
+        const text = fs.readFileSync(this.storageFile, 'utf8');
+        const data = JSON.parse(text);
+        if (Array.isArray(data)) {
+          this.favorites = data;
+        }
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  private persistToDisk() {
+    try {
+      const dir = path.dirname(this.storageFile);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(this.storageFile, JSON.stringify(this.favorites, null, 2), 'utf8');
+    } catch {
+      // fallback
+    }
+  }
 
   /** Active and recent call sessions: matchId -> CallSignalingRecord */
   private activeCalls = new Map<string, CallSignalingRecord>();
@@ -157,6 +190,7 @@ export class SocialMultimediaService {
         stickerId,
         createdAt: new Date().toISOString(),
       });
+      this.persistToDisk();
     }
     return { success: true };
   }
@@ -165,11 +199,13 @@ export class SocialMultimediaService {
     this.favorites = this.favorites.filter(
       (f) => !(f.userId === userId && f.stickerId === stickerId),
     );
+    this.persistToDisk();
     return { success: true };
   }
 
   clearUserFavorites(userId: string): void {
     this.favorites = this.favorites.filter((f) => f.userId !== userId);
+    this.persistToDisk();
   }
 
   /**
