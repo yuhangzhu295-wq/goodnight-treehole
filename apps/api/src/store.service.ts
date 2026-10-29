@@ -6714,7 +6714,7 @@ export class StoreService implements OnModuleInit {
         if (existingId) {
           const all = await this.peerPersistence.getMessagesForConversation(conv.id);
           const found = all.find((m) => m.id === existingId);
-          if (found) return { item: this.peerMessageForUser(found, userId) };
+          if (found) return { item: this.peerMessageForUser(found, userId, all) };
         }
       }
 
@@ -6758,7 +6758,10 @@ export class StoreService implements OnModuleInit {
       const existingId = this.socialMultimedia.isDuplicateMessage(conversation.id, clientMsgId);
       if (existingId) {
         const found = this.peerMessages.find((m) => m.id === existingId);
-        if (found) return { item: this.peerMessageForUser(found, userId) };
+        if (found) {
+          const convMsgs = this.peerMessages.filter((m) => m.conversationId === conversation.id);
+          return { item: this.peerMessageForUser(found, userId, convMsgs) };
+        }
       }
     }
 

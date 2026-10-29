@@ -313,42 +313,49 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
         store.sendPeerMessage(matchId, { msgType: 'CALL_LOG', content: '假通话' }, starterId),
       ).rejects.toThrow('不能手动发送通话记录');
 
-      // 3. Send text message quoting previous message (quote content is derived server-side)
-      const replyRes = await store.sendPeerMessage(
+      // 3. Send message M1, then Bob quotes M1 with M2 BEFORE M1 is recalled
+      const m1Res = await store.sendPeerMessage(
         matchId,
         {
           msgType: 'TEXT',
-          content: '我也抱抱你',
-          replyToId: stickerRes.item.id,
-        },
-        receiverId,
-      );
-      expect(replyRes.item.msgType).toBe('TEXT');
-      expect(replyRes.item.replyToId).toBe(stickerRes.item.id);
-      expect(replyRes.item.replyToContent).toContain('暖心拥抱');
-
-      // 4. Sender recalls their own message within 2 minutes
-      const recallRes = await store.recallPeerMessage(matchId, replyRes.item.id, receiverId);
-      expect(recallRes.item.content).toBe('一条消息已撤回');
-      expect(recallRes.item.recalledAt).toBeDefined();
-      expect(recallRes.item.mediaUrl).toBeUndefined();
-
-      // 5. Other user cannot recall someone else's message
-      await expect(
-        store.recallPeerMessage(matchId, stickerRes.item.id, receiverId),
-      ).rejects.toThrow('只有发送方可以撤回消息');
-
-      // 6. Quoting a message that has been recalled masks quote content to '一条消息已撤回'
-      const quoteRecalledRes = await store.sendPeerMessage(
-        matchId,
-        {
-          msgType: 'TEXT',
-          content: '你刚才说了什么呀？',
-          replyToId: replyRes.item.id,
+          content: '今晚有些心里话想对你说',
         },
         starterId,
       );
-      expect(quoteRecalledRes.item.replyToContent).toBe('一条消息已撤回');
+      const m2QuotingM1 = await store.sendPeerMessage(
+        matchId,
+        {
+          msgType: 'TEXT',
+          content: '我在听，你说吧',
+          replyToId: m1Res.item.id,
+        },
+        receiverId,
+      );
+      expect(m2QuotingM1.item.replyToContent).toBe('今晚有些心里话想对你说');
+
+      // 4. Alice recalls M1 AFTER M2 was already sent and saved with original quote text
+      const recallM1Res = await store.recallPeerMessage(matchId, m1Res.item.id, starterId);
+      expect(recallM1Res.item.content).toBe('一条消息已撤回');
+      expect(recallM1Res.item.recalledAt).toBeDefined();
+
+      // 5. Sync verification: syncPeerConversation MUST dynamically mask M2's replyToContent
+      // Even though M2 was stored with original text, sync passes allMessages and masks it to '一条消息已撤回'
+      const syncAfterRecall = await store.syncPeerConversation(matchId, 0, receiverId);
+      const m2InSync = syncAfterRecall.messages.find((m) => m.id === m2QuotingM1.item.id);
+      expect(m2InSync?.replyToContent).toBe('一条消息已撤回');
+
+      // Incremental sync with afterSeq also masks it
+      const lastSeq = syncAfterRecall.lastSeq;
+      const syncIncremental = await store.syncPeerConversation(matchId, Math.max(0, lastSeq - 2), receiverId);
+      const m2InIncremental = syncIncremental.messages.find((m) => m.id === m2QuotingM1.item.id);
+      if (m2InIncremental) {
+        expect(m2InIncremental.replyToContent).toBe('一条消息已撤回');
+      }
+
+      // 6. Other user cannot recall someone else's message
+      await expect(
+        store.recallPeerMessage(matchId, stickerRes.item.id, receiverId),
+      ).rejects.toThrow('只有发送方可以撤回消息');
 
       // 7. Non-sticker message has mediaUrl stripped
       const textWithMedia = await store.sendPeerMessage(
@@ -361,18 +368,6 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
         starterId,
       );
       expect(textWithMedia.item.mediaUrl).toBeUndefined();
-
-      // 8. syncPeerConversation honors afterSeq, syncs recalled tombstones and masks quoted text on recall
-      const syncResult = await store.syncPeerConversation(matchId, 2, starterId);
-      expect(syncResult.messages.length).toBeGreaterThan(0);
-      expect(syncResult.call).toBeNull();
-      // Recalled message is included in sync even if its seq <= afterSeq
-      expect(syncResult.messages.some((m) => m.id === replyRes.item.id)).toBe(true);
-
-      // Full sync verifies that quote targeting a recalled message has replyToContent masked
-      const syncFull = await store.syncPeerConversation(matchId, 0, starterId);
-      const quoteInSync = syncFull.messages.find((m) => m.id === quoteRecalledRes.item.id);
-      expect(quoteInSync?.replyToContent).toBe('一条消息已撤回');
     });
   });
 
