@@ -163,8 +163,8 @@ async function load() {
   }
 }
 
-async function regenerate(nextStyle = style.value) {
-  if (!letter.value || busyAction.value) return;
+async function regenerate(nextStyle = style.value): Promise<boolean> {
+  if (!letter.value || busyAction.value) return false;
   busyAction.value = nextStyle;
   style.value = nextStyle;
   try {
@@ -172,13 +172,21 @@ async function regenerate(nextStyle = style.value) {
       style: nextStyle,
     });
     const completed = await waitForAiJob(res.jobId);
+    if (completed.status === 'cancelled') {
+      return false;
+    }
+    if (completed.status === 'failed') {
+      throw new Error('回信生成失败，请稍后再试');
+    }
     letter.value = { ...letter.value, content: completed.result, style: nextStyle, savedToDiary: false };
     aiStructured.value = completed.structured ?? {};
     aiNotice.value = aiDegradationNotice(completed);
     activeAdvice.value = adviceItems.value[0]?.key ?? 'ai-0';
     statusText.value = '回信已换成新的语气';
+    return true;
   } catch (error) {
     statusText.value = error instanceof Error ? error.message : '回信暂时没有生成成功';
+    return false;
   } finally {
     busyAction.value = '';
   }
@@ -199,13 +207,18 @@ async function saveToDiary() {
 }
 
 async function makeShareImage() {
-  if (!letter.value) return;
+  if (!letter.value || busyAction.value) return;
   busyAction.value = 'share';
-  const res = await api.post<{ posterUrl: string }>(`/api/v1/letters/${letter.value.id}/poster`);
-  shareUrl.value = res.posterUrl;
-  shareOpen.value = true;
-  statusText.value = '分享图已生成';
-  busyAction.value = '';
+  try {
+    const res = await api.post<{ posterUrl: string }>(`/api/v1/letters/${letter.value.id}/poster`);
+    shareUrl.value = res.posterUrl;
+    shareOpen.value = true;
+    statusText.value = '分享图已生成';
+  } catch (err: any) {
+    statusText.value = err?.message ?? '生成分享图失败';
+  } finally {
+    busyAction.value = '';
+  }
 }
 
 const activePersona = ref<any>(null);
@@ -222,12 +235,15 @@ async function loadPersona() {
 }
 
 async function selectPersona(personaId: string) {
+  if (busyAction.value) return;
   try {
-    const res = await api.post<{ persona: any }>('/api/v1/me/ai-persona', { personaId });
-    statusText.value = `正在请「${res.persona.name}」为你重新书写回信…`;
-    await regenerate();
-    activePersona.value = res.persona;
-    statusText.value = `「${res.persona.name}」已为你写好今日回信`;
+    statusText.value = '正在切换陪伴角色…';
+    const success = await regenerate();
+    if (success) {
+      const res = await api.post<{ persona: any }>('/api/v1/me/ai-persona', { personaId });
+      activePersona.value = res.persona;
+      statusText.value = `「${res.persona.name}」已为你写好今日回信`;
+    }
   } catch (err: any) {
     statusText.value = err?.message ?? '切换角色失败';
   }

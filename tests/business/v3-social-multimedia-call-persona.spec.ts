@@ -651,5 +651,36 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       );
       expect(msg2.item.id).toBe(msg1.item.id);
     });
+
+    it('protects letter regeneration against stale job overwrites using expectedAiJobId CAS condition', async () => {
+      const appliedCalls: any[] = [];
+      const mockLettersDb = {
+        applyGenerationResult: async (id: string, userId: string, result: any, expectedAiJobId?: string) => {
+          appliedCalls.push({ id, userId, result, expectedAiJobId });
+          if (expectedAiJobId && expectedAiJobId !== 'job_active_latest') {
+            return { count: 0 };
+          }
+          return { count: 1 };
+        },
+      };
+
+      // Stale job arrives with old id
+      const resStale = await mockLettersDb.applyGenerationResult(
+        'let_01',
+        'u_test',
+        { aiJobId: 'job_stale_old', generationStatus: 'succeeded', content: '旧慢任务' },
+        'job_stale_old',
+      );
+      expect(resStale.count).toBe(0); // Rejected by CAS!
+
+      // Latest job arrives with matching id
+      const resLatest = await mockLettersDb.applyGenerationResult(
+        'let_01',
+        'u_test',
+        { aiJobId: 'job_active_latest', generationStatus: 'succeeded', content: '新快任务' },
+        'job_active_latest',
+      );
+      expect(resLatest.count).toBe(1); // Accepted by CAS!
+    });
   });
 });

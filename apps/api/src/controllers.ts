@@ -1960,12 +1960,17 @@ export class PublicController {
           letter.status = 'unread';
         }
         if (DIRECT_DB_MODELS.Letter) {
-          await this.store.lettersDb.applyGenerationResult(letter.id, userId, {
-            aiJobId: completed.id,
-            generationStatus: completed.status,
-            style: body.style ?? letter.style,
-            content: ['succeeded', 'fallback'].includes(completed.status) ? completed.result : undefined,
-          });
+          await this.store.lettersDb.applyGenerationResult(
+            letter.id,
+            userId,
+            {
+              aiJobId: completed.id,
+              generationStatus: completed.status,
+              style: body.style ?? letter.style,
+              content: ['succeeded', 'fallback'].includes(completed.status) ? completed.result : undefined,
+            },
+            completed.id,
+          );
         } else {
           this.store.persist();
         }
@@ -1974,10 +1979,15 @@ export class PublicController {
         if (letter.aiJobId !== job.id) return;
         letter.generationStatus = 'failed';
         if (DIRECT_DB_MODELS.Letter) {
-          await this.store.lettersDb.applyGenerationResult(letter.id, userId, {
-            aiJobId: job.id,
-            generationStatus: 'failed',
-          });
+          await this.store.lettersDb.applyGenerationResult(
+            letter.id,
+            userId,
+            {
+              aiJobId: job.id,
+              generationStatus: 'failed',
+            },
+            job.id,
+          );
         } else {
           this.store.persist();
         }

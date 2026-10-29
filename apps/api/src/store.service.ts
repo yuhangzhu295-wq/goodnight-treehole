@@ -8545,11 +8545,16 @@ export class StoreService implements OnModuleInit {
       .then(async (completed) => {
         if (DIRECT_DB_MODELS.Letter) {
           const produced = ['succeeded', 'fallback'].includes(completed.status);
-          await this.lettersDb.applyGenerationResult(letter.id, input.userId, {
-            aiJobId: completed.id,
-            generationStatus: completed.status,
-            ...(produced ? { style: input.style, content: completed.result } : {}),
-          });
+          await this.lettersDb.applyGenerationResult(
+            letter.id,
+            input.userId,
+            {
+              aiJobId: completed.id,
+              generationStatus: completed.status,
+              ...(produced ? { style: input.style, content: completed.result } : {}),
+            },
+            completed.id,
+          );
           return;
         }
         const target = this.letters.find((item) => item.id === letter.id);
