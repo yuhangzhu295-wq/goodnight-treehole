@@ -539,7 +539,7 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       // Each persona produces distinctly different, customized responses
       expect(r1).toContain('夜深了，先把紧绷的神经慢慢松开');
       expect(r2).toContain('我能真切感受到你心里的难受');
-      expect(r3).toContain('我们先试着把客观事实与当下情绪分开');
+      expect(r3).toContain('温暖不是逃避，而是为理清思路蓄力');
       expect(r4).toContain('现在试着深呼吸一口气');
 
       expect(r1).not.toBe(r2);
@@ -653,34 +653,49 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
     });
 
     it('protects letter regeneration against stale job overwrites using expectedAiJobId CAS condition', async () => {
-      const appliedCalls: any[] = [];
-      const mockLettersDb = {
-        applyGenerationResult: async (id: string, userId: string, result: any, expectedAiJobId?: string) => {
-          appliedCalls.push({ id, userId, result, expectedAiJobId });
-          if (expectedAiJobId && expectedAiJobId !== 'job_active_latest') {
-            return { count: 0 };
-          }
-          return { count: 1 };
+      const { LetterPersistenceService } = await import('../../apps/api/src/letter-persistence.service.js');
+      const updateManyCalls: any[] = [];
+      const mockPrisma = {
+        letter: {
+          updateMany: async (args: any) => {
+            updateManyCalls.push(args);
+            if (args.where?.aiJobId && args.where.aiJobId !== 'job_active_latest') {
+              return { count: 0 };
+            }
+            return { count: 1 };
+          },
         },
       };
 
+      const lettersDb = new LetterPersistenceService(mockPrisma as any);
+
       // Stale job arrives with old id
-      const resStale = await mockLettersDb.applyGenerationResult(
+      const resStale = await lettersDb.applyGenerationResult(
         'let_01',
         'u_test',
         { aiJobId: 'job_stale_old', generationStatus: 'succeeded', content: '旧慢任务' },
         'job_stale_old',
       );
-      expect(resStale.count).toBe(0); // Rejected by CAS!
+      expect(resStale.count).toBe(0);
+      expect(updateManyCalls[0].where).toEqual({
+        id: 'let_01',
+        userId: 'u_test',
+        aiJobId: 'job_stale_old',
+      });
 
       // Latest job arrives with matching id
-      const resLatest = await mockLettersDb.applyGenerationResult(
+      const resLatest = await lettersDb.applyGenerationResult(
         'let_01',
         'u_test',
         { aiJobId: 'job_active_latest', generationStatus: 'succeeded', content: '新快任务' },
         'job_active_latest',
       );
-      expect(resLatest.count).toBe(1); // Accepted by CAS!
+      expect(resLatest.count).toBe(1);
+      expect(updateManyCalls[1].where).toEqual({
+        id: 'let_01',
+        userId: 'u_test',
+        aiJobId: 'job_active_latest',
+      });
     });
   });
 });

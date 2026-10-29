@@ -8540,7 +8540,15 @@ export class StoreService implements OnModuleInit {
     });
     letter.aiJobId = job.id;
     letter.generationStatus = job.status;
-    this.persist();
+    if (DIRECT_DB_MODELS.Letter) {
+      await this.lettersDb.applyGenerationResult(letter.id, input.userId, {
+        aiJobId: job.id,
+        generationStatus: job.status,
+        style: input.style,
+      });
+    } else {
+      this.persist();
+    }
     const completionPromise: Promise<void> = this.waitForAiJob(job.id)
       .then(async (completed) => {
         if (DIRECT_DB_MODELS.Letter) {
@@ -9943,25 +9951,44 @@ export class StoreService implements OnModuleInit {
     };
     const moodPhrase = moodPhrases[input.mood] ?? `面对这些时`;
 
-    const personaWarmText: Record<string, string> = {
-      night_companion: `看到你写下“${topic}”。夜深了，先把紧绷的神经慢慢松开。${moodPhrase}是很自然的事，今晚先安心休息，只做眼前这件小事：${action}。`,
-      gentle_listener: `看到你写下“${topic}”。我能真切感受到你心里的难受与${moodPhrase}，受委屈时先好好抱抱自己。不用强撑着向前走，此刻先缓一缓：${action}。`,
-      rational_clarifier: `关于“${topic}”，我们先试着把客观事实与当下情绪分开：${moodPhrase}是情绪信号，而当前最清晰可控的一步是：${action}。`,
-      comfort_guide: `读到你关于“${topic}”的心情。现在试着深呼吸一口气，放松肩颈与眉头。${moodPhrase}时，先把注意力带回身体的感知：${action}。`,
+    const personaStyleText: Record<string, Record<AIStyle, string>> = {
+      night_companion: {
+        warm: `看到你写下“${topic}”。夜深了，先把紧绷的神经慢慢松开。${moodPhrase}是很自然的事，今晚先安心休息，只做眼前这件小事：${action}。`,
+        rational: `关于“${topic}”，夜深时分先把事情和顾虑放下。事情已经发生了，${moodPhrase}。今晚只先落实一个安静可控的动作：${action}。`,
+        light: `关于“${topic}”，夜里的风已经吹散了白天的嘈杂。今晚给紧绷的自己一个温柔的停顿：${action}。`,
+        clear: `你写下“${topic}”，这一天已经消耗了你太多心神。在深夜里先别急着下定论，只做这一件小事：${action}。`,
+        poetic: `把“${topic}”安放进静谧的夜色里，明月照拂每个疲惫的心灵。愿你今晚安稳入眠，先回归这一小步：${action}。`,
+      },
+      gentle_listener: {
+        warm: `看到你写下“${topic}”。我能真切感受到你心里的难受与${moodPhrase}，受委屈时先好好抱抱自己。不用强撑着向前走，此刻先缓一缓：${action}。`,
+        rational: `面对“${topic}”，委屈和难过都是真实的。不用苛求自己立刻理智，允许负面情绪存在片刻，然后试着做这件小事：${action}。`,
+        light: `“${topic}”让你很累吧？没关系的，无论今天多糟，你都好好度过了。今晚先给自己泡杯温水，做个小动作：${action}。`,
+        clear: `“${topic}”里藏着不少委屈和不易。你不必向所有人证明什么，今晚先善待自己，只做眼前的一小步：${action}。`,
+        poetic: `你写下的“${topic}”，字字句句我都听到了。脆弱不是过错，那是心在渴望喘息。先在这微光里歇一歇：${action}。`,
+      },
+      rational_clarifier: {
+        warm: `看到你写下“${topic}”。温暖不是逃避，而是为理清思路蓄力。${moodPhrase}是正常信号，今晚先完成这一小步：${action}。`,
+        rational: `关于“${topic}”，我们先试着把客观事实与当下情绪分开：${moodPhrase}是情绪信号，而当前最清晰可控的一步是：${action}。`,
+        light: `关于“${topic}”，焦虑往往放大了困难。把大任务切成碎片，今晚先挑最轻的一片来做：${action}。`,
+        clear: `围绕“${topic}”，列清事实、可控边界与不可控因素。今晚只处理完全属于你掌控范围的这一小步：${action}。`,
+        poetic: `思绪如纷飞的落叶，“${topic}”终会落地归根。条理是心灵的锚，今晚先定下一件具体动作：${action}。`,
+      },
+      comfort_guide: {
+        warm: `读到你关于“${topic}”的心情。现在试着深呼吸一口气，放松肩颈与眉头。${moodPhrase}时，先把注意力带回身体的感知：${action}。`,
+        rational: `身体比大脑更早感受到“${topic}”的压力。先调整呼吸节奏，心率放慢之后，再来做这一步：${action}。`,
+        light: `“${topic}”让呼吸都变紧促了吧？来，跟着我慢吸气四秒，呼气六秒。身体放松了，再试这一小步：${action}。`,
+        clear: `精神卡在“${topic}”里时，身体需要重新着陆。感觉一下双脚踩在地面上的触感，然后做这个微习惯：${action}。`,
+        poetic: `一呼一吸之间，“${topic}”的紧绷正在悄然消解。微风拂过草叶，身心自会找到平衡：${action}。`,
+      },
     };
 
-    const defaultWarm = (input.personaId && personaWarmText[input.personaId])
-      ? personaWarmText[input.personaId]
-      : `看到你写下“${topic}”。${moodPhrase}是很自然的事。今晚先不用急着把所有事情理顺，先做一件眼前的小事：${action}。`;
-
+    const currentPersonaStyles = input.personaId ? personaStyleText[input.personaId] : undefined;
     const styleText: Record<AIStyle, string> = {
-      warm: defaultWarm,
-      rational: (input.personaId === 'rational_clarifier')
-        ? personaWarmText.rational_clarifier
-        : `关于“${topic}”，先把事情本身和情绪分开看：事情已经发生了，${moodPhrase}。今晚只先落实一个具体动作：${action}。`,
-      light: `关于“${topic}”，先把脑内的音量调低一点。今晚不用一口气解决完，先给自己一个短暂停顿：${action}。`,
-      clear: `你写下“${topic}”，说明这件事已经消耗了不少力气。先别急着下定论，今晚只处理眼前最可控的一步：${action}。`,
-      poetic: `把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+      warm: currentPersonaStyles?.warm ?? `看到你写下“${topic}”。${moodPhrase}是很自然的事。今晚先不用急着把所有事情理顺，先做一件眼前的小事：${action}。`,
+      rational: currentPersonaStyles?.rational ?? `关于“${topic}”，先把事情本身和情绪分开看：事情已经发生了，${moodPhrase}。今晚只先落实一个具体动作：${action}。`,
+      light: currentPersonaStyles?.light ?? `关于“${topic}”，先把脑内的音量调低一点。今晚不用一口气解决完，先给自己一个短暂停顿：${action}。`,
+      clear: currentPersonaStyles?.clear ?? `你写下“${topic}”，说明这件事已经消耗了不少力气。先别急着下定论，今晚只处理眼前最可控的一步：${action}。`,
+      poetic: currentPersonaStyles?.poetic ?? `把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
     };
 
     let rewriteText = `面对“${topic}”，可以试着这样告诉自己：${moodPhrase}并不代表我不够好。现在先从这一小步开始：“${action}”。`;
@@ -10001,7 +10028,7 @@ export class StoreService implements OnModuleInit {
       futureText = `写给明年的自己：这一年里无论关于“${topic}”发生了什么，现在的我都希望你平静、健康、自在。`;
     }
 
-    const taskText: Partial<Record<AITaskType, string>> = {
+    const taskText: Partial<Record<AITaskType | string, string>> = {
       breakdown: `关于“${structured.trigger}”：当下的感受是${structured.coreEmotion}，心里希望的是${structured.realNeed}。今晚可以先做的一小步：${action}。`,
       rewrite: rewriteText,
       rant: rantText,
@@ -10017,6 +10044,8 @@ export class StoreService implements OnModuleInit {
       decision_clarify: `关于“${topic}”，先把选项、在意的条件和还不确定的地方分别写下，不替自己仓促下结论。`,
       post_reply: styleText[input.style],
       today_letter: styleText[input.style],
+      warm_letter: styleText[input.style],
+      monthly_recovery_summary: `围绕“${topic}”，这个阶段的实际进展都在这里。步调可以放慢，按自己的节奏走就好。`,
     };
     return {
       result: taskText[input.taskType] ?? `${input.routeLabel}：${styleText[input.style]}`,
