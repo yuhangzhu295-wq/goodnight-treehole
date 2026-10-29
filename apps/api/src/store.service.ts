@@ -9272,6 +9272,7 @@ export class StoreService implements OnModuleInit {
       return job;
     }
 
+    const persona = input.userId ? this.aiPersona.getUserPersona(input.userId) : undefined;
     const template = this.composeDynamicText({
       taskType,
       content: input.promptSummary,
@@ -9279,6 +9280,7 @@ export class StoreService implements OnModuleInit {
       style: input.style,
       routeLabel: route.label,
       mode: input.mode ?? job.mode,
+      personaId: persona?.id,
     });
     const fallbackProviderId = route.fallbackTemplateId || this.templateProvider().id;
     const fallbackProvider = await this.findAiProviderRecord(fallbackProviderId);
@@ -9910,6 +9912,7 @@ export class StoreService implements OnModuleInit {
     style: AIStyle;
     routeLabel: string;
     mode?: string;
+    personaId?: string;
   }) {
     const topic = this.extractTopic(input.content);
     const structured = this.buildStructured(input);
@@ -9925,9 +9928,22 @@ export class StoreService implements OnModuleInit {
     };
     const moodPhrase = moodPhrases[input.mood] ?? `面对这些时`;
 
+    const personaWarmText: Record<string, string> = {
+      night_companion: `看到你写下“${topic}”。夜深了，先把紧绷的神经慢慢松开。${moodPhrase}是很自然的事，今晚先安心休息，只做眼前这件小事：${action}。`,
+      gentle_listener: `看到你写下“${topic}”。我能真切感受到你心里的难受与${moodPhrase}，受委屈时先好好抱抱自己。不用强撑着向前走，此刻先缓一缓：${action}。`,
+      rational_clarifier: `关于“${topic}”，我们先试着把客观事实与当下情绪分开：${moodPhrase}是情绪信号，而当前最清晰可控的一步是：${action}。`,
+      comfort_guide: `读到你关于“${topic}”的心情。现在试着深呼吸一口气，放松肩颈与眉头。${moodPhrase}时，先把注意力带回身体的感知：${action}。`,
+    };
+
+    const defaultWarm = (input.personaId && personaWarmText[input.personaId])
+      ? personaWarmText[input.personaId]
+      : `看到你写下“${topic}”。${moodPhrase}是很自然的事。今晚先不用急着把所有事情理顺，先做一件眼前的小事：${action}。`;
+
     const styleText: Record<AIStyle, string> = {
-      warm: `看到你写下“${topic}”。${moodPhrase}是很自然的事。今晚先不用急着把所有事情理顺，先做一件眼前的小事：${action}。`,
-      rational: `关于“${topic}”，先把事情本身和情绪分开看：事情已经发生了，${moodPhrase}。今晚只先落实一个具体动作：${action}。`,
+      warm: defaultWarm,
+      rational: (input.personaId === 'rational_clarifier')
+        ? personaWarmText.rational_clarifier
+        : `关于“${topic}”，先把事情本身和情绪分开看：事情已经发生了，${moodPhrase}。今晚只先落实一个具体动作：${action}。`,
       light: `关于“${topic}”，先把脑内的音量调低一点。今晚不用一口气解决完，先给自己一个短暂停顿：${action}。`,
       clear: `你写下“${topic}”，说明这件事已经消耗了不少力气。先别急着下定论，今晚只处理眼前最可控的一步：${action}。`,
       poetic: `把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,

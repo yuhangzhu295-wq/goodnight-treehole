@@ -218,6 +218,7 @@ export class LetterPersistenceService {
     id: string,
     userId: string,
     result: { aiJobId: string; generationStatus: string; style?: string; content?: string },
+    expectedAiJobId?: string,
   ) {
     const data: Record<string, unknown> = {
       aiJobId: result.aiJobId,
@@ -228,7 +229,11 @@ export class LetterPersistenceService {
       data.content = result.content;
       data.status = 'unread';
     }
-    return this.prisma.letter.updateMany({ where: { id, userId }, data: data as never });
+    const whereClause: any = { id, userId };
+    if (expectedAiJobId) {
+      whereClause.aiJobId = expectedAiJobId;
+    }
+    return this.prisma.letter.updateMany({ where: whereClause, data: data as never });
   }
 
   async deleteAllForUser(userId: string) {

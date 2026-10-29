@@ -224,9 +224,10 @@ async function loadPersona() {
 async function selectPersona(personaId: string) {
   try {
     const res = await api.post<{ persona: any }>('/api/v1/me/ai-persona', { personaId });
-    activePersona.value = res.persona;
-    statusText.value = `已切换陪伴角色为「${res.persona.name}」`;
+    statusText.value = `正在请「${res.persona.name}」为你重新书写回信…`;
     await regenerate();
+    activePersona.value = res.persona;
+    statusText.value = `「${res.persona.name}」已为你写好今日回信`;
   } catch (err: any) {
     statusText.value = err?.message ?? '切换角色失败';
   }
@@ -309,7 +310,7 @@ onMounted(() => {
       <div class="sheet menu-sheet">
         <h2>回信设置</h2>
         <div v-if="personas.length" class="menu-section">
-          <small class="menu-subhead">陪伴角色</small>
+          <small class="menu-subhead">陪伴角色设定</small>
           <button
             v-for="p in personas"
             :key="p.id"
@@ -318,7 +319,9 @@ onMounted(() => {
             :disabled="Boolean(busyAction)"
             @click="menuOpen = false; selectPersona(p.id)"
           >
-            {{ p.name }}
+            <strong class="persona-name">{{ p.name }}</strong>
+            <span class="persona-title">{{ p.title }}</span>
+            <p class="persona-desc">{{ p.description }}</p>
           </button>
         </div>
         <div class="menu-section">
@@ -730,6 +733,9 @@ onMounted(() => {
 }
 
 .menu-persona-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   text-align: left;
   padding: 8px 12px;
   border-radius: 8px;
@@ -740,10 +746,26 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.menu-persona-btn .persona-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-ink, #242a32);
+}
+
+.menu-persona-btn .persona-title {
+  font-size: 11px;
+  color: var(--gn-primary, #275f56);
+}
+
+.menu-persona-btn .persona-desc {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--gn-muted, #757d87);
+  line-height: 1.35;
+}
+
 .menu-persona-btn.active {
   background: #eaf4ee;
   border-color: #275f56;
-  color: #275f56;
-  font-weight: 600;
 }
 </style>

@@ -2296,6 +2296,8 @@ export class PublicController {
     const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     return await this.store.withUserDataLock(runtimeId, async () => {
       await this.store.clearFavoritesForUser(runtimeId);
+      this.store.socialMultimedia.clearUserFavorites(runtimeId);
+      this.store.aiPersona.clearUserPersona(runtimeId);
       if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
       else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
       if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(runtimeId);

@@ -168,6 +168,10 @@ export class SocialMultimediaService {
     return { success: true };
   }
 
+  clearUserFavorites(userId: string): void {
+    this.favorites = this.favorites.filter((f) => f.userId !== userId);
+  }
+
   /**
    * Real-time Call Signaling: Offer a call (30s timeout)
    */

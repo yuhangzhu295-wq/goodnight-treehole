@@ -491,6 +491,60 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       const loaded = personaService2.getUserPersona('user_persistent_01');
       expect(loaded.id).toBe('rational_clarifier');
       expect(loaded.name).toBe('理性梳理官');
+
+      // Clear persona on user data deletion
+      personaService2.clearUserPersona('user_persistent_01');
+      expect(personaService2.getUserPersona('user_persistent_01').id).toBe('night_companion');
+    });
+
+    it('generates distinct personalized text per persona during fallback template generation', () => {
+      const store = new StoreService({} as any);
+
+      const r1 = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '工作太累了',
+        mood: '工作',
+        style: 'warm',
+        routeLabel: '暖心陪伴',
+        personaId: 'night_companion',
+      }).result;
+
+      const r2 = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '工作太累了',
+        mood: '工作',
+        style: 'warm',
+        routeLabel: '暖心陪伴',
+        personaId: 'gentle_listener',
+      }).result;
+
+      const r3 = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '工作太累了',
+        mood: '工作',
+        style: 'warm',
+        routeLabel: '暖心陪伴',
+        personaId: 'rational_clarifier',
+      }).result;
+
+      const r4 = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '工作太累了',
+        mood: '工作',
+        style: 'warm',
+        routeLabel: '暖心陪伴',
+        personaId: 'comfort_guide',
+      }).result;
+
+      // Each persona produces distinctly different, customized responses
+      expect(r1).toContain('夜深了，先把紧绷的神经慢慢松开');
+      expect(r2).toContain('我能真切感受到你心里的难受');
+      expect(r3).toContain('我们先试着把客观事实与当下情绪分开');
+      expect(r4).toContain('现在试着深呼吸一口气');
+
+      expect(r1).not.toBe(r2);
+      expect(r2).not.toBe(r3);
+      expect(r3).not.toBe(r4);
     });
   });
 });

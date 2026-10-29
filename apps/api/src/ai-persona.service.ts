@@ -140,6 +140,11 @@ export class AiPersonaService {
     return this.personas[id];
   }
 
+  clearUserPersona(userId: string): void {
+    this.userPreferences.delete(userId);
+    this.persistToDisk();
+  }
+
   /**
    * Context Assembler:
    * Assembles the multi-layered prompt with strict priority:
