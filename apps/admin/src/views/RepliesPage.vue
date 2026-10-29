@@ -211,7 +211,7 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
               </select>
             </label>
             <button type="button" @click="load">刷新列表</button>
-            <p class="visually-hidden" role="status">{{ status }}</p>
+      <p class="muted reply-status" role="status">{{ status }}</p>
           </section>
 
           <section class="panel table-panel ops-table-panel">
@@ -511,6 +511,7 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
   font-weight: 600;
 }
 
+.reply-status { margin: 6px 0 0; } .reply-status:empty { display: none; }
 .visually-hidden {
   position: absolute;
   width: 1px;

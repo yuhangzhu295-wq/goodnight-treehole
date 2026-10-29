@@ -159,6 +159,8 @@ model User {
   outcomeCheckins      OutcomeCheckin[]
   peerExperiences      PeerExperience[]
   peerMatches          PeerMatch[]
+  peerReports          PeerReport[]    @relation("PeerReportReporter")
+  adminNotes           AdminUserNote[]
   peerReputation       PeerReputation?
   decisionRecords      DecisionRecord[]
   cooldownItems        CooldownItem[]
@@ -166,6 +168,7 @@ model User {
   trustedContacts      TrustedContact[]
   messagesToFutureSelf MessageToFutureSelf[]
   personalSupportPlans PersonalSupportPlan[]
+  stableSelfProfile    StableSelfProfile?
   memoryItems          MemoryItem[]
   recoverySnapshots    RecoverySnapshot[]
   safetyEvents         SafetyEvent[]
@@ -175,9 +178,40 @@ model User {
   peerConversationsStarted PeerConversation[] @relation("PeerConversationStarter")
   peerConversationsReceived PeerConversation[] @relation("PeerConversationReceiver")
   peerMessages          PeerMessage[]
+  anonymousSessions     AnonymousSession[]
 
   @@index([status])
   @@index([createdAt])
+}
+
+/// A server-issued anonymous session.
+///
+/// The C-end credential is the pair (session id, secret); only the secret's hash is stored, so a
+/// database read cannot be replayed as a credential. Keeping sessions in the database is what makes
+/// revocation, rotation and device loss possible at all, and it is what makes two API instances
+/// agree without sharing a cache.
+model AnonymousSession {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the secret half of the credential. The plaintext is never stored.
+  secretHash   String
+  /// Groups the sessions of one device so a device loss can revoke exactly those.
+  deviceId     String?
+  deviceLabel  String?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  lastUsedAt   DateTime?
+  /// Set when the session is revoked. A revoked session is never usable again, but the row stays so
+  /// the revocation is auditable and so a replay is distinguishable from an unknown credential.
+  revokedAt    DateTime?
+  revokedReason String?
+  /// Set when this session was issued by rotating another one; the predecessor is revoked in the
+  /// same transaction, so a rotation cannot leave two live credentials.
+  rotatedFromId String?
+
+  @@index([userId, expiresAt])
+  @@index([deviceId])
 }
 
 model AdminUser {
@@ -193,6 +227,26 @@ model AdminUser {
   updatedAt      DateTime        @updatedAt
   auditLogs      AuditLog[]
   moderationLogs ModerationLog[]
+  userNotes      AdminUserNote[]
+}
+
+// Operator notes about a user. Previously "saving a note" only wrote an AuditLog row, so the
+// note the operator typed was never business data and vanished on the next load (ISSUE-027).
+// Notes are append-only: a new save adds a row and the current note is the newest one that has
+// not been retracted, so an earlier note is never overwritten.
+model AdminUserNote {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authorAdminId String
+  author        AdminUser @relation(fields: [authorAdminId], references: [id])
+  content       String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([userId, createdAt])
+  @@index([userId, deletedAt])
 }
 
 model AdminRole {
@@ -216,6 +270,11 @@ model PrivacySetting {
   allowRecoveryData             Boolean    @default(false)
   allowJourneyLongTermAnalysis  Boolean    @default(false)
   allowLongTermMemory           Boolean    @default(false)
+  allowAiMemoryUse              Boolean    @default(false)
+  allowAnonymousExperienceShare Boolean    @default(false)
+  allowJourneyArchiveRetention  Boolean    @default(false)
+  allowFutureSelfNotifications  Boolean    @default(false)
+  allowDataExport               Boolean    @default(false)
   createdAt                     DateTime   @default(now())
   updatedAt                     DateTime   @updatedAt
 }
@@ -510,6 +569,7 @@ model PeerExperience {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
   matches     PeerMatch[]
+  reports     PeerReport[]
 
   @@index([status, domain, stage])
   @@index([userId, createdAt])
@@ -534,6 +594,8 @@ model PeerMatch {
   requestReason    String?
   requestQuestion  String?
   acceptedAt       DateTime?
+  requesterConsentAt DateTime?
+  ownerConsentAt   DateTime?
   conversation     PeerConversation?
   status           PeerMatchStatus @default(suggested)
   createdAt        DateTime        @default(now())
@@ -564,11 +626,19 @@ model DecisionRecord {
   criteria  Json
   decision  String?
   status    String         @default("draft")
+  cooldownUntil DateTime?
+  outcome      String?
+  reviewedAt   DateTime?
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   cooldowns CooldownItem[]
 
   @@index([userId, status, updatedAt])
+  // Declared by 20260821003000_third_stage_decision_vault, which creates this index to
+  // look up a user's open cooldowns. The declaration was lost from the schema while the
+  // migration kept creating it, so `migrate diff` reported the index as removable. The
+  // migration and the database are authoritative here; the schema is the stale side.
+  @@index([userId, cooldownUntil])
 }
 
 model CooldownItem {
@@ -618,15 +688,18 @@ model TrustedContact {
 }
 
 model MessageToFutureSelf {
-  id          String       @id @default(cuid())
-  userId      String
-  user        User         @relation(fields: [userId], references: [id])
-  journeyId   String?
-  journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
-  content     String
-  deliverAt   DateTime
-  deliveredAt DateTime?
-  createdAt   DateTime     @default(now())
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  journeyId      String?
+  journey        LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  contextType    String?
+  contextRefId   String?
+  contextLabel   String?
+  content        String
+  deliverAt      DateTime
+  deliveredAt    DateTime?
+  createdAt      DateTime     @default(now())
 
   @@index([userId, deliverAt])
 }
@@ -646,6 +719,17 @@ model PersonalSupportPlan {
   @@index([userId, active, updatedAt])
 }
 
+model StableSelfProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
 model MemoryItem {
   id          String       @id @default(cuid())
   userId      String
@@ -653,13 +737,23 @@ model MemoryItem {
   journeyId   String?
   journey     LifeJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
   category    String
+  title       String       @default("有限记忆")
   content     String
+  source      String       @default("user_saved")
+  scope       String       @default("all_ai")
+  status      String       @default("active")
   consentedAt DateTime
   expiresAt   DateTime
   deletedAt   DateTime?
   createdAt   DateTime     @default(now())
+  // 20260820020000_third_stage_memory_transparency adds this column as
+  // `TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`. The schema omitted the default, so
+  // `migrate diff` wanted to drop it from the database. The migration is authoritative;
+  // the schema now declares the default it has always had.
+  updatedAt   DateTime     @default(now()) @updatedAt
 
   @@index([userId, expiresAt])
+  @@index([userId, status, expiresAt])
 }
 
 model RecoverySnapshot {
@@ -685,6 +779,10 @@ model SafetyEvent {
   source    String
   action    String
   payload   Json?
+  status    String       @default("open")
+  handledAt DateTime?
+  handledBy String?
+  note      String?
   createdAt DateTime     @default(now())
 
   @@index([level, createdAt])
@@ -752,13 +850,45 @@ model PeerConversation {
   closedReason String?
   feedback    String?
   feedbackNote String?
+  // Denormalised pointer to the MOST RECENT report, kept for the conversation list. The
+  // authoritative, non-overwriting history is PeerReport; these three columns exist so an
+  // operator scanning the list sees the current state without a join. They must never be
+  // treated as the record of what was reported (ISSUE-020).
   reportedAt  DateTime?
   reporterUserId String?
   reportReason String?
   messages    PeerMessage[]
+  reports     PeerReport[]
 
   @@index([starterUserId, status, expiresAt])
   @@index([receiverUserId, status, expiresAt])
+}
+
+// One row per report a user files. Replaces the previous behaviour where each report
+// overwrote the conversation's single set of report columns, so a second report destroyed the
+// first one's reason and reporter (ISSUE-020).
+model PeerReport {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   PeerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // The experience behind the conversation, when it can be resolved. Kept so the report
+  // counter and the admin list can be derived from history rather than from a bare increment.
+  experienceId   String?
+  experience     PeerExperience?  @relation(fields: [experienceId], references: [id], onDelete: SetNull)
+  matchId        String?
+  reporterUserId String
+  reporter       User             @relation("PeerReportReporter", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  reason         String
+  status         String           @default("open")
+  handledAt      DateTime?
+  handledBy      String?
+  note           String?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([experienceId, status])
+  @@index([status, createdAt])
+  @@index([reporterUserId, createdAt])
 }
 
 model PeerMessage {

@@ -1,0 +1,7 @@
+[
+  { "selector": "front-mood-back", "expect": {} },
+  { "selector": "input-mood-content", "expect": {} },
+  { "selector": "mood-visibility-private", "expect": {} },
+  { "selector": "mood-visibility-public", "expect": {} },
+  { "selector": "btn-submit-mood", "expect": {} }
+]

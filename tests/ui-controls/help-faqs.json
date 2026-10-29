@@ -1,0 +1,65 @@
+[
+ {
+  "selector": "front-faqs-back",
+  "expect": {
+   "urlChanged": true
+  }
+ },
+ {
+  "selector": "faq-full-1",
+  "settleMs": 600,
+  "expect": {
+   "present": ".faq-answer"
+  }
+ },
+ {
+  "selector": "input-faq-search",
+  "prefill": {
+   "fill": {
+    "selector": "input-faq-search",
+    "value": "身份"
+   }
+  },
+  "settleMs": 600,
+  "expect": {
+   "text": "账号与隐私",
+   "present": "[data-testid=\"btn-faq-search-clear\"]",
+   "gone": "[data-testid=\"faq-list-empty\"]"
+  }
+ },
+ {
+  "selector": "btn-faq-search-clear",
+  "prefill": {
+   "fill": {
+    "selector": "input-faq-search",
+    "value": "没有这个问题"
+   }
+  },
+  "settleMs": 600,
+  "expect": {
+   "gone": "[data-testid=\"btn-faq-search-clear\"]",
+   "text": "AI 与同路"
+  }
+ },
+ {
+  "selector": "input-faq-search",
+  "prefill": {
+   "fill": {
+    "selector": "input-faq-search",
+    "value": "没有这个问题"
+   }
+  },
+  "settleMs": 600,
+  "expect": {
+   "text": "没有匹配的问题",
+   "present": "[data-testid=\"faq-list-empty\"]"
+  }
+ },
+ {
+  "selector": "btn-faq-open-feedback",
+  "settleMs": 2500,
+  "expect": {
+   "url": "/pages/help/feedback"
+  }
+ }
+]

@@ -2,42 +2,448 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
-import AppIcon from '../components/icons/AppIcon.vue';
-import notificationCooldown from '../assets/goodnight/illustrations/notification-cooldown-scene.png';
-import notificationFollowup from '../assets/goodnight/illustrations/notification-followup-scene.png';
-import notificationLetter from '../assets/goodnight/illustrations/notification-letter-scene.png';
-import notificationPeer from '../assets/goodnight/illustrations/notification-peer-scene.png';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
-type Notice = { id: string; title: string; body: string; type: string; targetRoute?: string; status: 'unread' | 'read' | 'dismissed'; createdAt: string };
+type Notice = {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  targetRoute?: string;
+  status: 'unread' | 'read' | 'dismissed';
+  createdAt: string;
+};
+
 const router = useRouter();
 const loading = ref(true);
 const error = ref('');
+const markingAll = ref(false);
 const tab = ref<'all' | 'unread'>('all');
 const notices = ref<Notice[]>([]);
-const visibleNotices = computed(() => tab.value === 'all' ? notices.value : notices.value.filter((item) => item.status === 'unread'));
-const illustration = (type: string) => ({ FOLLOW_UP: notificationFollowup, PEER_REQUEST: notificationPeer, PEER_ACCEPTED: notificationPeer, FUTURE_SELF: notificationLetter, COOLDOWN_RELEASED: notificationCooldown, JOURNEY_CHECKIN: notificationFollowup }[type] ?? notificationFollowup);
-const noticeIcon = (type: string) => ({ FOLLOW_UP: 'clock', JOURNEY_CHECKIN: 'clock', PEER_REQUEST: 'people', PEER_ACCEPTED: 'people', FUTURE_SELF: 'message', COOLDOWN_RELEASED: 'pause' }[type] ?? 'bell');
-const time = (value: string) => new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+
+const unreadCount = computed(() => notices.value.filter((item) => item.status === 'unread').length);
+const visibleNotices = computed(() =>
+  tab.value === 'all' ? notices.value : notices.value.filter((item) => item.status === 'unread'),
+);
+
+const typeLabel = (type: string) =>
+  ({
+    FOLLOW_UP: '行动回访',
+    JOURNEY_CHECKIN: '旅程回访',
+    PEER_REQUEST: '同路',
+    PEER_ACCEPTED: '同路',
+    FUTURE_SELF: '写给未来的我',
+    COOLDOWN_RELEASED: '决定',
+  })[type] ?? '提醒';
+
+function relative(value: string) {
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return '';
+  const minutes = Math.floor((Date.now() - then) / 60_000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return '昨天';
+  if (days < 30) return `${days}天前`;
+  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date(then));
+}
+
+function subtitle(item: Notice) {
+  if (bucket(item.createdAt) === '今天') {
+    return `${typeLabel(item.type)} · ${relative(item.createdAt)}`;
+  }
+  return item.body || `${typeLabel(item.type)} · ${relative(item.createdAt)}`;
+}
+
+function bucket(value: string) {
+  const then = new Date(value);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  if (then.getTime() >= startOfToday.getTime()) return '今天';
+  if (then.getTime() >= startOfToday.getTime() - 86_400_000) return '昨天';
+  return '更早';
+}
+
+const grouped = computed(() => {
+  const order = ['今天', '昨天', '更早'];
+  const groups = new Map<string, Notice[]>();
+  for (const item of visibleNotices.value) {
+    const key = bucket(item.createdAt);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return order.filter((key) => groups.has(key)).map((key) => ({ key, items: groups.get(key)! }));
+});
 
 async function load() {
-  loading.value = true; error.value = '';
-  try { notices.value = (await api.get<{ items: Notice[] }>('/api/v1/notifications')).items; } catch (cause) { error.value = cause instanceof Error ? cause.message : '提醒暂时没有加载出来'; } finally { loading.value = false; }
+  loading.value = true;
+  error.value = '';
+  try {
+    const response = await api.get<{ items: Notice[] }>('/api/v1/notifications');
+    notices.value = response.items ?? [];
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '提醒暂时没有加载出来';
+  } finally {
+    loading.value = false;
+  }
 }
+
+async function markAllRead() {
+  const unread = notices.value.filter((item) => item.status === 'unread');
+  if (!unread.length || markingAll.value) return;
+  markingAll.value = true;
+  error.value = '';
+  try {
+    await Promise.all(unread.map((item) => api.patch(`/api/v1/notifications/${item.id}/read`)));
+    notices.value = notices.value.map((item) => ({ ...item, status: 'read' as const }));
+  } catch {
+    error.value = '部分提醒没能标记为已读，请稍后再试。';
+    await load();
+  } finally {
+    markingAll.value = false;
+  }
+}
+
 async function open(item: Notice) {
-  try { if (item.status === 'unread') await api.patch(`/api/v1/notifications/${item.id}/read`); notices.value = notices.value.map((notice) => notice.id === item.id ? { ...notice, status: 'read' } : notice); if (item.targetRoute) await router.push(item.targetRoute); } catch (cause) { error.value = cause instanceof Error ? cause.message : '提醒状态更新失败'; }
+  if (item.status === 'unread') {
+    try {
+      await api.patch(`/api/v1/notifications/${item.id}/read`);
+      notices.value = notices.value.map((notice) =>
+        notice.id === item.id ? { ...notice, status: 'read' } : notice,
+      );
+    } catch {
+      error.value = '这条提醒暂时没能标记为已读，但内容仍然可以打开。';
+    }
+  }
+  if (!item.targetRoute) return;
+  try {
+    await router.push(item.targetRoute);
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '这个提醒的目标暂时打不开';
+  }
 }
+
 onMounted(load);
 </script>
 
 <template>
-  <section class="goodnight-page notification-page">
-    <header class="notification-hero"><div><p><AppIcon name="tree" :size="18" />晚安树洞</p><h1>提醒与回访</h1><span>那些该回来看看你的时刻，都在这里。</span></div><AppIcon class="hero-moon" name="moon" :size="23" /><AppIcon class="hero-bell" name="bell" :size="22" /></header>
-    <div class="notice-tabs" role="tablist"><button :class="{ active: tab === 'all' }" role="tab" @click="tab = 'all'">全部</button><button :class="{ active: tab === 'unread' }" role="tab" @click="tab = 'unread'">未读 <small v-if="notices.some((item) => item.status === 'unread')">{{ notices.filter((item) => item.status === 'unread').length }}</small></button></div>
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p><p v-else-if="loading" class="loading-note">正在读取提醒…</p>
-    <section v-else class="notice-list"><button v-for="item in visibleNotices" :key="item.id" class="notice-card" :class="{ unread: item.status === 'unread' }" :data-testid="`notification-${item.id}`" @click="open(item)"><span class="notice-kind" aria-hidden="true"><AppIcon :name="noticeIcon(item.type)" :size="22" /></span><span class="notice-copy"><strong>{{ item.title }}</strong><small>{{ item.body }}</small><time>{{ time(item.createdAt) }}</time></span><span class="notice-art" aria-hidden="true"><img :src="illustration(item.type)" alt="" /></span><i v-if="item.status === 'unread'" aria-label="未读" /><AppIcon name="arrow" :size="19" /></button><p v-if="!visibleNotices.length" class="empty-note">这里暂时没有需要你回应的提醒。</p></section>
+  <section class="goodnight-page notice-page">
+    <header class="notice-header">
+      <button class="back-btn" data-testid="notifications-back" aria-label="返回" type="button" @click="router.back()">‹</button>
+      <h1 class="notice-title-main">消息与回访</h1>
+      <button
+        class="mark-all"
+        data-testid="notifications-mark-all"
+        type="button"
+        :disabled="!unreadCount || markingAll"
+        @click="markAllRead"
+      >
+        {{ markingAll ? '处理中…' : '全部已读' }}
+      </button>
+    </header>
+
+    <div class="notice-tabs" role="tablist">
+      <button
+        class="tab-btn"
+        data-testid="notifications-tab-all"
+        :class="{ active: tab === 'all' }"
+        role="tab"
+        type="button"
+        @click="tab = 'all'"
+      >
+        全部
+      </button>
+      <button
+        class="tab-btn"
+        data-testid="notifications-tab-unread"
+        :class="{ active: tab === 'unread' }"
+        role="tab"
+        type="button"
+        @click="tab = 'unread'"
+      >
+        未读
+      </button>
+    </div>
+
+    <div class="notice-body">
+      <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
+      <p v-if="loading" class="loading-note">正在读取提醒…</p>
+
+      <template v-else>
+        <section v-for="group in grouped" :key="group.key" class="notice-group">
+          <h2 class="group-title">{{ group.key }}</h2>
+          <ul class="notice-list">
+            <li v-for="item in group.items" :key="item.id">
+              <button
+                class="notice-row"
+                :class="{ unread: item.status === 'unread' }"
+                type="button"
+                :data-testid="`notification-${item.id}`"
+                @click="open(item)"
+              >
+                <span class="notice-icon-box" aria-hidden="true">
+                  <!-- Envelope icon for FUTURE_SELF -->
+                  <svg
+                    v-if="item.type === 'FUTURE_SELF'"
+                    viewBox="0 0 24 24"
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="#5c6b73"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                  </svg>
+                  <!-- Checkmark icon for checkin/finished action -->
+                  <svg
+                    v-else-if="item.type === 'JOURNEY_CHECKIN' || item.type === 'COOLDOWN_RELEASED'"
+                    viewBox="0 0 24 24"
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="#5c6b73"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <!-- Filled circle for follow-up and peer messages -->
+                  <span v-else class="notice-dot-icon"></span>
+                </span>
+                <span class="notice-copy">
+                  <strong class="row-title">{{ item.title }}</strong>
+                  <span class="row-sub">{{ subtitle(item) }}</span>
+                </span>
+                <span class="notice-chevron" aria-hidden="true">›</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+        <p v-if="!visibleNotices.length" class="empty-note">
+          {{ tab === 'unread' ? '没有未读的提醒。' : '这里暂时没有需要你回应的提醒。' }}
+        </p>
+        <p class="notice-foot">已读状态会自动保存</p>
+      </template>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.notification-page{display:grid;gap:10px;padding:0 14px 132px;background:#f4efe4}.notification-hero{position:relative;min-height:174px;margin:0 -14px;overflow:hidden;padding:20px;background:radial-gradient(circle at 72% 65%,rgba(230,168,119,.46),transparent 24%),linear-gradient(164deg,#112030,#273b49 55%,#74655b)}.notification-hero::after{position:absolute;right:-7px;bottom:-19px;width:176px;height:176px;background:url('../assets/goodnight/tree-top-cutout.png') right bottom/contain no-repeat;opacity:.36;content:'';filter:brightness(.7);pointer-events:none}.notification-hero div,.notification-hero .hero-bell{position:relative;z-index:1}.notification-hero div{margin-top:28px}.notification-hero p{display:flex;align-items:center;gap:6px;margin:0;color:rgba(255,250,242,.76);font-size:13px}.notification-hero h1{margin:22px 0 6px;color:#fffaf1;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:29px}.notification-hero span{margin:0;color:rgba(255,250,242,.76);font-size:13px}.hero-moon{position:absolute!important;right:62px;top:45px;color:#fff2c9}.hero-bell{position:absolute!important;right:22px;top:44px;color:#fffaf1}.notice-tabs{display:grid;grid-template-columns:1fr 1fr;justify-self:start;overflow:hidden;width:min(207px,100%);border-radius:999px;background:#ebe6d9;padding:3px}.notice-tabs button{min-height:38px;border:0;border-radius:999px;background:transparent;color:#60715b;font:inherit;cursor:pointer}.notice-tabs button.active{background:#fffdf8;color:#385537;box-shadow:0 3px 8px rgba(45,55,38,.1)}.notice-tabs small{margin-left:3px;border-radius:999px;background:#dfe9d4;padding:2px 5px}.notice-list{display:grid;gap:10px;margin:3px 0 0}.notice-card{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 20px;gap:8px;align-items:center;width:100%;min-height:110px;border:1px solid rgba(95,127,62,.14);border-radius:20px;background:#fffdf8;padding:12px 134px 12px 72px;color:#344a36;text-align:left;box-shadow:0 9px 20px rgba(54,64,46,.08);font:inherit;cursor:pointer}.notice-card.unread{border-color:rgba(86,120,74,.37)}.notice-kind{position:absolute;left:14px;top:50%;display:grid;width:42px;height:42px;place-items:center;border-radius:50%;background:#eff1e3;color:#597152;transform:translateY(-50%)}.notice-copy{position:relative;z-index:1;min-width:0}.notice-copy strong,.notice-copy small,.notice-copy time{display:block}.notice-copy strong{font-size:15px;line-height:1.35}.notice-copy small{margin-top:4px;color:#737c73;font-size:12px;line-height:1.42;overflow-wrap:anywhere}.notice-copy time{margin-top:6px;color:#90978f;font-size:11px}.notice-art{position:absolute;right:24px;bottom:8px;width:116px;height:88px;opacity:.62;-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 22%,#000 84%,transparent 100%);mask-image:linear-gradient(90deg,transparent 0%,#000 22%,#000 84%,transparent 100%)}.notice-art img{width:116px;height:88px;object-fit:contain;mix-blend-mode:multiply}.notice-card>svg{position:relative;z-index:1;color:#677964}.notice-card i{position:absolute;right:25px;top:12px;width:7px;height:7px;border-radius:50%;background:#608156}.error-text{margin:0;color:var(--gn-danger)}.loading-note,.empty-note{margin:0;padding:25px 12px;color:#718070;text-align:center}
+.notice-page {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  background: var(--gn-paper, #ffffff);
+  color: var(--gn-text, #242a32);
+  font-family: var(--gn-font-body);
+}
+
+:global(.phone-shell:has(.notice-page)) {
+  padding-bottom: 0;
+}
+
+.notice-header {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line, #eef0f2);
+  background: var(--gn-paper, #ffffff);
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 28px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-ink, #242a32);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notice-title-main {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gn-ink, #242a32);
+  letter-spacing: -0.2px;
+}
+
+.mark-all {
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gn-primary, #275f56);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mark-all:disabled {
+  color: var(--gn-muted, #9ca3af);
+  cursor: default;
+}
+
+.notice-tabs {
+  display: flex;
+  gap: 24px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line, #eef0f2);
+}
+
+.notice-tabs .tab-btn {
+  position: relative;
+  min-height: 40px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--gn-muted, #757d87);
+  cursor: pointer;
+}
+
+.notice-tabs .tab-btn.active {
+  color: var(--gn-ink, #242a32);
+  font-weight: 700;
+}
+
+.notice-tabs .tab-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--gn-primary, #275f56);
+}
+
+.notice-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+.notice-group {
+  margin-top: 24px;
+}
+
+.group-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--gn-ink, #242a32);
+}
+
+.notice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 68px;
+  padding: 14px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--gn-line, #eef0f2);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notice-icon-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #f4f5f7;
+  color: #5c6b73;
+}
+
+.notice-dot-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #5c6b73;
+}
+
+.notice-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--gn-ink, #242a32);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-sub {
+  display: block;
+  font-size: 13px;
+  color: var(--gn-muted, #757d87);
+}
+
+.notice-chevron {
+  color: #b6bcc4;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.empty-note,
+.loading-note {
+  margin: 40px 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--gn-muted, #757d87);
+}
+
+.notice-foot {
+  margin: 32px 0 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #88929c;
+}
 </style>

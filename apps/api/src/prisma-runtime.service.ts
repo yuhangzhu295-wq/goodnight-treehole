@@ -12,6 +12,11 @@ export class PrismaRuntimeService extends PrismaClient implements OnModuleDestro
   constructor() {
     assertVisualFixtureRuntime();
     super({ datasources: { db: { url: RUNTIME_DATABASE_URL } } });
+    // Which database this process is actually pointed at, password removed. "Cannot reach the
+    // database" does not say where it was trying, and the URL can come from three places
+    // (DATABASE_URL, a .env file, or the fallback above), so the source of a failed connection is
+    // worth one line at boot instead of an investigation.
+    console.log(`[prisma] connecting to ${RUNTIME_DATABASE_URL.replace(/:\/\/([^:]+):[^@]*@/, '://$1:***@')}`);
   }
 
   async loadRuntimeState<T>() {

@@ -1,0 +1,24 @@
+PASS admin login :: status=201
+PASS admin can create a note :: status=201
+PASS a second note is a separate row, not an overwrite :: id1=user_note_36dbe1e1a6 id2=user_note_c13472a329
+PASS both notes are readable :: items=4
+PASS the older note is still intact (no overwrite) :: found=true
+PASS the newest note is the current one :: current=RC-NOTE-2-1791056245725 
+PASS the user list payload carries the current note :: note=RC-NOTE-2-1791056245725 
+PASS the notes are real persisted rows :: rows=9
+PASS each row records its author :: admin_1,admin_1,admin_1,admin_1,admin_1,admin_1,admin_1,admin_1,admin_1
+PASS the write is still audited :: USER_NOTE_CREATE rows=5
+PASS the audit row and the note row are different records :: auditId=audit_184bd804ae noteId=user_note_c13472a329
+PASS admin can retract a note :: status=200
+PASS a retracted note leaves the operator view :: items=3 current=RC-NOTE-1-1791056245
+PASS the retracted note is soft-deleted, not destroyed :: deletedAt=2026-10-03T19:37:36.384Z
+PASS the legacy note route now writes a real note row :: status=201 rows=1
+PASS the notes survive a fresh admin login :: items=4
+PASS reading notes requires admin auth :: status=401
+PASS writing notes requires admin auth :: status=401
+PASS deleting notes requires admin auth :: status=401
+PASS no public endpoint exposes the operator note :: probed 4 routes
+PASS an empty note is rejected :: status=400
+PASS a note for an unknown user is rejected :: status=404
+
+22/22 pass

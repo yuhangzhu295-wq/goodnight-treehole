@@ -1,19 +1,88 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import type { AIProvider, AIStyle, AIStyleRoute, Emotion, MediaAsset, PostItem, PrivacySetting, ReplyItem, Visibility, ActionBarrier, SupportIntent, JourneyOutcome, UserNotification } from '@goodnight/shared-types';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+  UnauthorizedException,
+} from '@nestjs/common';
+import type {
+  AIProvider,
+  AIStyle,
+  AIStyleRoute,
+  Emotion,
+  MediaAsset,
+  PostItem,
+  PrivacySetting,
+  ReplyItem,
+  Visibility,
+  ActionBarrier,
+  SupportIntent,
+  JourneyOutcome,
+  UserNotification,
+} from '@goodnight/shared-types';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
-import { DAPI_BASE_URL, DAPI_PROVIDER_ID, REMOTE_BACKUP_BASE_URL, REMOTE_BACKUP_PROVIDER_ID, RemoteAiProviderService, sanitizeProviderError } from './remote-ai-provider.service.js';
+import {
+  Batch1PersistenceService,
+  DEFAULT_AI_JOB_STALENESS_MS,
+  isGeneratedJourneyTitle,
+} from './batch1-persistence.service.js';
+import { PeerPersistenceService } from './peer-persistence.service.js';
+import { SelfPersistenceService, type PrivacySettingRecord } from './self-persistence.service.js';
+import { FavoritePersistenceService } from './favorite-persistence.service.js';
+import { ReplyPersistenceService } from './reply-persistence.service.js';
+import { PostPersistenceService } from './post-persistence.service.js';
+import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
+import { MoodPersistenceService } from './mood-persistence.service.js';
+import { FeedbackPersistenceService } from './feedback-persistence.service.js';
+import { DiaryPersistenceService } from './diary-persistence.service.js';
+import { LetterPersistenceService } from './letter-persistence.service.js';
+import { MediaAssetPersistenceService } from './media-asset-persistence.service.js';
+import { SocialMultimediaService } from './social-multimedia.service.js';
+import { AiPersonaService, type PersonaId } from './ai-persona.service.js';
+import { DIRECT_DB_MODELS } from './direct-db-models.js';
+import {
+  DAPI_BASE_URL,
+  DAPI_PROVIDER_ID,
+  REMOTE_BACKUP_BASE_URL,
+  REMOTE_BACKUP_PROVIDER_ID,
+  RemoteAiProviderService,
+  sanitizeProviderError,
+} from './remote-ai-provider.service.js';
 import { resolveUploadsDirectory, visualFixtureMode } from './runtime-environment.js';
 import { scheduleFollowUp } from './follow-up-queue.js';
+import { currentIdentity } from './anonymous-session.service.js';
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
 const SUPPORTED_AI_REPLY_STYLES: readonly AIStyle[] = ['warm', 'rational', 'light', 'clear', 'poetic'];
 
+// The single high-risk pattern list. It is a deliberate, conservative literal set: it is
+// the input to `highRiskBlockEnabled`, which is an admin-controlled setting, so the list
+// has to be readable and reviewable rather than clever.
+const HIGH_RISK_PATTERN = /自杀|自伤|伤害别人|杀|暴力/;
+
 function isSupportedAiReplyStyle(value: unknown): value is AIStyle {
   return typeof value === 'string' && SUPPORTED_AI_REPLY_STYLES.includes(value as AIStyle);
+}
+
+const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getAdminTokenSecret(): string {
+  const secret = process.env.ADMIN_TOKEN_SECRET || process.env.JWT_SECRET;
+  if (!secret || !secret.trim()) {
+    throw new UnauthorizedException('管理令牌密钥未配置');
+  }
+  return secret.trim();
+}
+
+function computeAdminTokenHmac(adminId: string, timestamp: number, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(`${adminId}:${timestamp}`).digest('hex');
 }
 
 const MOOD_KEY_TO_EMOTION: Record<string, string> = {
@@ -26,20 +95,20 @@ const MOOD_KEY_TO_EMOTION: Record<string, string> = {
   wronged: '委屈',
   weiqu: '委屈',
   委屈: '委屈',
-  '濮斿眻': '委屈',
+  濮斿眻: '委屈',
   insomnia: '失眠',
   sleepless: '失眠',
   shimian: '失眠',
   失眠: '失眠',
-  '澶辯湢': '失眠',
+  澶辯湢: '失眠',
   love: '恋爱',
   lianai: '恋爱',
   恋爱: '恋爱',
-  '鎭嬬埍': '恋爱',
+  鎭嬬埍: '恋爱',
   work: '工作',
   gongzuo: '工作',
   工作: '工作',
-  '宸ヤ綔': '工作',
+  宸ヤ綔: '工作',
   sad: '难过',
   nanguo: '难过',
   难过: '难过',
@@ -51,7 +120,7 @@ const MOOD_KEY_TO_EMOTION: Record<string, string> = {
   生气: '生气',
   all: '全部',
   全部: '全部',
-  '鍏ㄩ儴': '全部',
+  鍏ㄩ儴: '全部',
 };
 
 export function normalizeStoreEmotion(value?: string): Emotion {
@@ -71,6 +140,7 @@ export type AITaskType =
   | 'work'
   | 'future'
   | 'month_report'
+  | 'monthly_recovery_summary'
   | 'situation_analysis'
   | 'action_plan'
   | 'journey_summary'
@@ -92,6 +162,7 @@ export interface AIGenerateInput {
   style?: AIStyle;
   userId?: string;
   sourceId?: string;
+  mode?: string;
   simulatePrimaryFail?: boolean;
   simulateBackupFail?: boolean;
 }
@@ -108,25 +179,41 @@ export interface AIGenerateResult {
 
 const dataFile = path.resolve(
   process.cwd(),
-  process.env.GOODNIGHT_STORE_FILE ?? (process.env.VITEST ? `data/goodnight-store.vitest-${process.pid}.json` : 'data/goodnight-store.json'),
+  process.env.GOODNIGHT_STORE_FILE ??
+    (process.env.VITEST ? `data/goodnight-store.vitest-${process.pid}.json` : 'data/goodnight-store.json'),
 );
 const uploadsDirectory = resolveUploadsDirectory();
 
 function imageDimensions(buffer: Buffer, mimeType: string) {
-  if (mimeType === 'image/png' && buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+  if (
+    mimeType === 'image/png' &&
+    buffer.length >= 24 &&
+    buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  ) {
     return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
   }
-  if (mimeType === 'image/webp' && buffer.length >= 30 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+  if (
+    mimeType === 'image/webp' &&
+    buffer.length >= 30 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
     const kind = buffer.subarray(12, 16).toString('ascii');
     if (kind === 'VP8X') return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) };
   }
   if (mimeType === 'image/jpeg') {
     let offset = 2;
     while (offset + 9 < buffer.length) {
-      if (buffer[offset] !== 0xff) { offset += 1; continue; }
+      if (buffer[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
       const marker = buffer[offset + 1];
       const length = buffer.readUInt16BE(offset + 2);
-      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker) && offset + 8 < buffer.length) {
+      if (
+        [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker) &&
+        offset + 8 < buffer.length
+      ) {
         return { width: buffer.readUInt16BE(offset + 7), height: buffer.readUInt16BE(offset + 5) };
       }
       if (!length || offset + 2 + length > buffer.length) break;
@@ -140,13 +227,35 @@ function extensionForMime(mimeType: string) {
   return mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
 }
 
+/**
+ * The export usage types the user-facing download route accepts.
+ *
+ * `user-export` is excluded on purpose: it is the admin user export, attributed to the demo account
+ * only because `MediaAsset.userId` is a required foreign key. An owner check cannot distinguish it
+ * from a user's own export, so it is reachable only through the admin route behind the token guard.
+ */
+const USER_EXPORT_USAGE_TYPES = ['diary-export', 'journey-archive-export'];
+
 function diaryExportFilename(generatedAt: string) {
   const date = generatedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
   return `goodnight-treehole-diaries-${date}.json`;
 }
 
+function journeyArchiveExportFilename(generatedAt: string) {
+  const date = generatedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
+  return `goodnight-treehole-journey-archive-${date}.json`;
+}
+
+function userExportFilename(generatedAt: string) {
+  const date = generatedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
+  return `goodnight-treehole-users-${date}.json`;
+}
+
 function escapeSvgText(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[character] ?? character));
+  return value.replace(
+    /[&<>"']/g,
+    (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character] ?? character,
+  );
 }
 
 export interface Mood {
@@ -166,7 +275,12 @@ export interface Mood {
 export interface Letter {
   id: string;
   userId: string;
-  sourceMoodId?: string;
+  /**
+   * The mood this letter was written from, or null when the user had none. The column is nullable,
+   * and a user who has never written a mood still gets a letter - so this has to be able to hold
+   * null. `?: string` could not, which is what pushed the caller toward inventing a source id.
+   */
+  sourceMoodId?: string | null;
   style: AIStyle;
   title: string;
   content: string;
@@ -226,6 +340,7 @@ export interface AIJob {
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'fallback' | 'cancelled';
   promptSummary: string;
   promptVersion?: string;
+  mode?: string;
   result: string;
   structuredResult?: Record<string, unknown>;
   errorMessage?: string;
@@ -236,6 +351,7 @@ export interface AIJob {
   routeVersion: number;
   createdAt: string;
   completedAt?: string;
+  updatedAt?: string;
 }
 
 export interface LifeJourneyRecord {
@@ -374,22 +490,147 @@ export interface PeerMatchRecord {
   requestReason?: string;
   requestQuestion?: string;
   acceptedAt?: string;
+  requesterConsentAt?: string;
+  ownerConsentAt?: string;
   status: 'suggested' | 'requested' | 'connected' | 'declined' | 'blocked';
   createdAt: string;
   updatedAt: string;
 }
 
-type DecisionRecord = { id: string; userId: string; journeyId?: string; question: string; options: string[]; criteria: string[]; decision?: string; status: string; createdAt: string; updatedAt: string };
-type CooldownItem = { id: string; userId: string; decisionId?: string; title: string; reason?: string; releaseAt: string; status: string; createdAt: string };
-type RealityHandoff = { id: string; userId: string; journeyId?: string; recipient: string; channel: string; summary: string; status: 'draft' | 'ready' | 'shared' | 'completed'; sharedAt?: string; createdAt: string; updatedAt: string };
-type TrustedContact = { id: string; userId: string; nickname: string; relation: string; contactHint: string; enabled: boolean; createdAt: string; updatedAt: string };
-type MessageToFutureSelf = { id: string; userId: string; journeyId?: string; content: string; deliverAt: string; deliveredAt?: string; createdAt: string };
-type PersonalSupportPlan = { id: string; userId: string; journeyId?: string; title: string; plan: Record<string, unknown>; active: boolean; createdAt: string; updatedAt: string };
-type MemoryItem = { id: string; userId: string; journeyId?: string; category: string; content: string; consentedAt: string; expiresAt: string; deletedAt?: string; createdAt: string };
-type RecoverySnapshot = { id: string; userId: string; journeyId?: string; summary: string; signals: Record<string, unknown>; createdAt: string };
-type SafetyEvent = { id: string; userId: string; journeyId?: string; level: string; source: string; action: string; payload?: Record<string, unknown>; createdAt: string };
-type AgentDecisionLog = { id: string; userId: string; journeyId?: string; aiJobId?: string; taskType: string; decision: Record<string, unknown>; createdAt: string };
-type FollowUpJob = { id: string; userId: string; journeyId?: string; kind: string; dueAt: string; status: string; payload?: Record<string, unknown>; completedAt?: string; createdAt: string };
+type DecisionRecord = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  question: string;
+  options: string[];
+  criteria: string[];
+  decision?: string;
+  status: string;
+  cooldownUntil?: string;
+  outcome?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type CooldownItem = {
+  id: string;
+  userId: string;
+  decisionId?: string;
+  title: string;
+  reason?: string;
+  releaseAt: string;
+  status: string;
+  createdAt: string;
+};
+type RealityHandoff = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  recipient: string;
+  channel: string;
+  summary: string;
+  status: 'draft' | 'ready' | 'shared' | 'completed';
+  sharedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type TrustedContact = {
+  id: string;
+  userId: string;
+  nickname: string;
+  relation: string;
+  contactHint: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+type MessageToFutureSelf = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  contextType?: 'journey' | 'decision' | 'recovery';
+  contextRefId?: string;
+  contextLabel?: string;
+  content: string;
+  deliverAt: string;
+  deliveredAt?: string;
+  createdAt: string;
+};
+type PersonalSupportPlan = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  title: string;
+  plan: Record<string, unknown>;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+type StableSelfProfile = {
+  id: string;
+  userId: string;
+  profile: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+type MemoryItem = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  category: string;
+  title: string;
+  content: string;
+  source: string;
+  scope: string;
+  status: 'active' | 'disabled' | 'expired';
+  consentedAt: string;
+  expiresAt: string;
+  deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type RecoverySnapshot = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  summary: string;
+  signals: Record<string, unknown>;
+  createdAt: string;
+};
+type SafetyEvent = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  level: string;
+  source: string;
+  action: string;
+  payload?: Record<string, unknown>;
+  status: string;
+  handledAt?: string;
+  handledBy?: string;
+  note?: string;
+  createdAt: string;
+};
+type AgentDecisionLog = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  aiJobId?: string;
+  taskType: string;
+  decision: Record<string, unknown>;
+  createdAt: string;
+};
+type FollowUpJob = {
+  id: string;
+  userId: string;
+  journeyId?: string;
+  kind: string;
+  dueAt: string;
+  status: string;
+  payload?: Record<string, unknown>;
+  completedAt?: string;
+  createdAt: string;
+};
 type PeerConversationRecord = {
   id: string;
   matchId: string;
@@ -401,35 +642,117 @@ type PeerConversationRecord = {
   expiresAt: string;
   createdAt: string;
   closedAt?: string;
-  closedReason?: 'closed' | 'expired' | 'blocked';
+  closedReason?: 'closed' | 'expired' | 'blocked' | string;
   feedback?: 'helpful' | 'unchanged' | 'uncomfortable';
   feedbackNote?: string;
   reportedAt?: string;
   reporterUserId?: string;
   reportReason?: string;
 };
-type PeerMessageRecord = { id: string; conversationId: string; senderUserId: string; content: string; authorType: 'HUMAN' | 'AI_ASSIST'; createdAt: string; reportedAt?: string; blockedAt?: string; piiFlags?: string[] };
+type PeerReportRecord = {
+  id: string;
+  conversationId: string;
+  experienceId?: string;
+  matchId?: string;
+  reporterUserId: string;
+  reason: string;
+  status: 'open' | 'handled';
+  handledAt?: string;
+  handledBy?: string;
+  note?: string;
+  createdAt: string;
+};
+type AdminUserNoteRecord = {
+  id: string;
+  userId: string;
+  authorAdminId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+};
+type PeerMessageRecord = {
+  id: string;
+  conversationId: string;
+  senderUserId: string;
+  content: string;
+  authorType: 'HUMAN' | 'AI_ASSIST';
+  createdAt: string;
+  reportedAt?: string;
+  blockedAt?: string;
+  piiFlags?: string[];
+  msgType?: string;
+  replyToId?: string;
+  replyToContent?: string;
+  mediaUrl?: string;
+  mediaDuration?: number;
+  mediaSize?: number;
+  thumbnailUrl?: string;
+  recalledAt?: string;
+  seq?: number;
+  clientMsgId?: string;
+};
 
 interface StoreData {
-  users: Array<{ id: string; openid: string; nickname: string; anonymousCode: string; avatarUrl: string; status: 'normal' | 'limited' | 'banned'; createdAt: string }>;
-  adminUsers: Array<{ id: string; username: string; passwordHash: string; displayName: string; role: string; status: string; lastLoginAt?: string }>;
+  users: Array<{
+    id: string;
+    openid: string;
+    nickname: string;
+    anonymousCode: string;
+    avatarUrl: string;
+    status: 'normal' | 'limited' | 'banned';
+    createdAt: string;
+  }>;
+  adminUsers: Array<{
+    id: string;
+    username: string;
+    passwordHash: string;
+    displayName: string;
+    role: string;
+    status: string;
+    lastLoginAt?: string;
+  }>;
   privacySettings: Record<string, PrivacySetting>;
   moods: Mood[];
   posts: PostItem[];
   replies: ReplyItem[];
   letters: Letter[];
   diaries: Diary[];
-  favorites: Array<{ id: string; userId: string; targetType: 'post' | 'letter' | 'diary'; targetId: string; createdAt: string }>;
+  favorites: Array<{
+    id: string;
+    userId: string;
+    targetType: 'post' | 'letter' | 'diary';
+    targetId: string;
+    createdAt: string;
+  }>;
   feedbackCategories: Array<{ id: string; name: string; sortOrder: number; enabled: boolean }>;
   faqs: Array<{ id: string; question: string; answer: string; sortOrder: number; enabled: boolean; createdAt: string }>;
-  replyPresets: Array<{ id: string; text: string; scene: string; sortOrder: number; enabled: boolean; createdAt: string }>;
+  replyPresets: Array<{
+    id: string;
+    text: string;
+    scene: string;
+    sortOrder: number;
+    enabled: boolean;
+    createdAt: string;
+  }>;
   feedbackTickets: FeedbackTicket[];
   systemSettings: Record<string, { value: unknown; description: string; updatedBy: string; updatedAt: string }>;
   aiProviders: AIProvider[];
   aiRoutes: AIStyleRoute[];
   aiJobs: AIJob[];
   assets: MediaAsset[];
-  auditLogs: Array<{ id: string; adminUserId: string; action: string; resourceType: string; resourceId: string; beforeJson: unknown; afterJson: unknown; ip: string; userAgent: string; createdAt: string }>;
+  auditLogs: Array<{
+    id: string;
+    adminUserId: string;
+    action: string;
+    resourceType: string;
+    resourceId: string;
+    beforeJson: unknown;
+    afterJson: unknown;
+    ip: string;
+    userAgent: string;
+    createdAt: string;
+  }>;
   lifeJourneys: LifeJourneyRecord[];
   situationSnapshots: SituationSnapshotRecord[];
   journeyUpdates: JourneyUpdateRecord[];
@@ -437,13 +760,21 @@ interface StoreData {
   outcomeCheckins: OutcomeCheckinRecord[];
   peerExperiences: PeerExperienceRecord[];
   peerMatches: PeerMatchRecord[];
-  peerReputations: Array<{ id: string; userId: string; helpfulCount: number; reportCount: number; restrictedUntil?: string; updatedAt: string }>;
+  peerReputations: Array<{
+    id: string;
+    userId: string;
+    helpfulCount: number;
+    reportCount: number;
+    restrictedUntil?: string;
+    updatedAt: string;
+  }>;
   decisionRecords: DecisionRecord[];
   cooldownItems: CooldownItem[];
   realityHandoffs: RealityHandoff[];
   trustedContacts: TrustedContact[];
   messagesToFutureSelf: MessageToFutureSelf[];
   personalSupportPlans: PersonalSupportPlan[];
+  stableSelfProfiles: StableSelfProfile[];
   memoryItems: MemoryItem[];
   recoverySnapshots: RecoverySnapshot[];
   safetyEvents: SafetyEvent[];
@@ -452,40 +783,170 @@ interface StoreData {
   notifications: UserNotification[];
   peerConversations: PeerConversationRecord[];
   peerMessages: PeerMessageRecord[];
+  peerReports: PeerReportRecord[];
+  adminUserNotes: AdminUserNoteRecord[];
 }
 
 function seedData(): StoreData {
   const createdAt = now();
   return {
     users: [
-      { id: 'user_demo', openid: 'openid_demo', nickname: '晚安旅人', anonymousCode: '树洞 0427', avatarUrl: '/avatar.svg', status: 'normal', createdAt },
-      { id: 'user_guest', openid: 'openid_guest', nickname: '今天也在努力', anonymousCode: '树洞 1024', avatarUrl: '/avatar.svg', status: 'normal', createdAt },
+      {
+        id: 'user_demo',
+        openid: 'openid_demo',
+        nickname: '晚安旅人',
+        anonymousCode: '树洞 0427',
+        avatarUrl: '/avatar.svg',
+        status: 'normal',
+        createdAt,
+      },
+      {
+        id: 'user_guest',
+        openid: 'openid_guest',
+        nickname: '今天也在努力',
+        anonymousCode: '树洞 1024',
+        avatarUrl: '/avatar.svg',
+        status: 'normal',
+        createdAt,
+      },
     ],
     adminUsers: [
-      { id: 'admin_1', username: 'admin', passwordHash: 'plain:admin123', displayName: '值班管理员', role: 'super_admin', status: 'active' },
+      {
+        id: 'admin_1',
+        username: 'admin',
+        passwordHash: 'plain:admin123',
+        displayName: '值班管理员',
+        role: 'super_admin',
+        status: 'active',
+      },
     ],
     privacySettings: {
-      user_demo: { defaultVisibility: 'PRIVATE', allowAnonymousPublic: true, allowHumanReplies: true, allowMonthlyReportShare: true },
-      user_guest: { defaultVisibility: 'PUBLIC', allowAnonymousPublic: true, allowHumanReplies: false, allowMonthlyReportShare: true },
+      user_demo: {
+        defaultVisibility: 'PRIVATE',
+        allowAnonymousPublic: true,
+        allowHumanReplies: true,
+        allowMonthlyReportShare: true,
+      },
+      user_guest: {
+        defaultVisibility: 'PUBLIC',
+        allowAnonymousPublic: true,
+        allowHumanReplies: false,
+        allowMonthlyReportShare: true,
+      },
     },
     moods: [
-      { id: 'mood_1', userId: 'user_demo', emotion: '焦虑', content: '明天要汇报，我又开始担心自己讲不好。', visibility: 'PUBLIC', riskLevel: 'low', riskScore: 0.1, status: 'active', createdAt },
-      { id: 'mood_2', userId: 'user_guest', emotion: '失眠', content: '凌晨两点还是睡不着，脑子一直在转。', visibility: 'PUBLIC', riskLevel: 'low', riskScore: 0.1, status: 'active', createdAt },
+      {
+        id: 'mood_1',
+        userId: 'user_demo',
+        emotion: '焦虑',
+        content: '明天要汇报，我又开始担心自己讲不好。',
+        visibility: 'PUBLIC',
+        riskLevel: 'low',
+        riskScore: 0.1,
+        status: 'active',
+        createdAt,
+      },
+      {
+        id: 'mood_2',
+        userId: 'user_guest',
+        emotion: '失眠',
+        content: '凌晨两点还是睡不着，脑子一直在转。',
+        visibility: 'PUBLIC',
+        riskLevel: 'low',
+        riskScore: 0.1,
+        status: 'active',
+        createdAt,
+      },
     ],
     posts: [
-      { id: 'post_1', moodId: 'mood_1', userId: 'user_demo', emotion: '焦虑', content: '明天要汇报，我又开始担心自己讲不好。', visibility: 'PUBLIC', status: 'active', reviewStatus: 'published', hugCount: 18, replyCount: 2, favoriteCount: 5, reportCount: 0, createdAt },
-      { id: 'post_2', moodId: 'mood_2', userId: 'user_guest', emotion: '失眠', content: '凌晨两点还是睡不着，脑子一直在转。', visibility: 'PUBLIC', status: 'active', reviewStatus: 'published', hugCount: 31, replyCount: 1, favoriteCount: 8, reportCount: 0, createdAt },
+      {
+        id: 'post_1',
+        moodId: 'mood_1',
+        userId: 'user_demo',
+        emotion: '焦虑',
+        content: '明天要汇报，我又开始担心自己讲不好。',
+        visibility: 'PUBLIC',
+        status: 'active',
+        reviewStatus: 'published',
+        hugCount: 18,
+        replyCount: 2,
+        favoriteCount: 5,
+        reportCount: 0,
+        createdAt,
+      },
+      {
+        id: 'post_2',
+        moodId: 'mood_2',
+        userId: 'user_guest',
+        emotion: '失眠',
+        content: '凌晨两点还是睡不着，脑子一直在转。',
+        visibility: 'PUBLIC',
+        status: 'active',
+        reviewStatus: 'published',
+        hugCount: 31,
+        replyCount: 1,
+        favoriteCount: 8,
+        reportCount: 0,
+        createdAt,
+      },
     ],
     replies: [
-      { id: 'reply_ai_1', postId: 'post_1', type: 'AI', style: 'warm', content: '你已经在认真准备了，紧张只是身体在提醒你重视这件事。先把开场一句话写下来就好。', status: 'published', riskLevel: 'low', createdAt },
-      { id: 'reply_human_1', postId: 'post_1', userId: 'user_guest', type: 'USER', style: 'human', content: '抱抱，我汇报前也会这样。把稿子读三遍会安心很多。', status: 'published', riskLevel: 'low', createdAt },
-      { id: 'reply_ai_2', postId: 'post_2', type: 'AI', style: 'poetic', content: '夜晚把声音放大了，不代表明天会更难。先让肩膀落下来，给自己一杯温水。', status: 'published', riskLevel: 'low', createdAt },
+      {
+        id: 'reply_ai_1',
+        postId: 'post_1',
+        type: 'AI',
+        style: 'warm',
+        content: '你已经在认真准备了，紧张只是身体在提醒你重视这件事。先把开场一句话写下来就好。',
+        status: 'published',
+        riskLevel: 'low',
+        createdAt,
+      },
+      {
+        id: 'reply_human_1',
+        postId: 'post_1',
+        userId: 'user_guest',
+        type: 'USER',
+        style: 'human',
+        content: '抱抱，我汇报前也会这样。把稿子读三遍会安心很多。',
+        status: 'published',
+        riskLevel: 'low',
+        createdAt,
+      },
+      {
+        id: 'reply_ai_2',
+        postId: 'post_2',
+        type: 'AI',
+        style: 'poetic',
+        content: '夜晚把声音放大了，不代表明天会更难。先让肩膀落下来，给自己一杯温水。',
+        status: 'published',
+        riskLevel: 'low',
+        createdAt,
+      },
     ],
     letters: [
-      { id: 'letter_today', userId: 'user_demo', sourceMoodId: 'mood_1', style: 'warm', title: '给今晚的你', content: '辛苦了。今天的你没有被焦虑打败，而是在试着把它说出来。', status: 'unread', savedToDiary: false, createdAt },
+      {
+        id: 'letter_today',
+        userId: 'user_demo',
+        sourceMoodId: 'mood_1',
+        style: 'warm',
+        title: '给今晚的你',
+        content: '辛苦了。今天的你没有被焦虑打败，而是在试着把它说出来。',
+        status: 'unread',
+        savedToDiary: false,
+        createdAt,
+      },
     ],
     diaries: [
-      { id: 'diary_1', userId: 'user_demo', moodId: 'mood_1', letterId: 'letter_today', emotion: '焦虑', content: '今天练习了汇报开场，虽然还是紧张，但已经比早上稳一点。', hasLetter: true, createdAt },
+      {
+        id: 'diary_1',
+        userId: 'user_demo',
+        moodId: 'mood_1',
+        letterId: 'letter_today',
+        emotion: '焦虑',
+        content: '今天练习了汇报开场，虽然还是紧张，但已经比早上稳一点。',
+        hasLetter: true,
+        createdAt,
+      },
     ],
     favorites: [
       { id: 'fav_1', userId: 'user_demo', targetType: 'post', targetId: 'post_1', createdAt },
@@ -497,42 +958,299 @@ function seedData(): StoreData {
       { id: 'cat_3', name: '隐私与数据', sortOrder: 3, enabled: true },
     ],
     faqs: [
-      { id: 'faq_1', question: '树洞内容会公开我的身份吗？', answer: '不会。广场只展示匿名编号，个人身份不会出现在公开内容里。', sortOrder: 1, enabled: true, createdAt },
-      { id: 'faq_2', question: 'AI 回信是心理诊断吗？', answer: '不是。晚安树洞只提供情绪陪伴和整理，不做诊断或医疗建议。', sortOrder: 2, enabled: true, createdAt },
+      {
+        id: 'faq_1',
+        question: '树洞内容会公开我的身份吗？',
+        answer: '不会。广场只展示匿名编号，个人身份不会出现在公开内容里。',
+        sortOrder: 1,
+        enabled: true,
+        createdAt,
+      },
+      {
+        id: 'faq_2',
+        question: 'AI 回信是心理诊断吗？',
+        answer: '不是。晚安树洞只提供情绪陪伴和整理，不做诊断或医疗建议。',
+        sortOrder: 2,
+        enabled: true,
+        createdAt,
+      },
     ],
     replyPresets: [
       { id: 'preset_1', text: '给你一个轻轻的抱抱。', scene: 'comfort', sortOrder: 1, enabled: true, createdAt },
       { id: 'preset_2', text: '我看见你的不容易了。', scene: 'comfort', sortOrder: 2, enabled: true, createdAt },
     ],
     feedbackTickets: [
-      { id: 'ticket_1', userId: 'user_demo', categoryId: 'cat_1', sourcePage: '/pages/feedback/index', content: '希望月报可以导出图片。', status: 'open', priority: 'medium', screenshots: [], reply: '', createdAt },
+      {
+        id: 'ticket_1',
+        userId: 'user_demo',
+        categoryId: 'cat_1',
+        sourcePage: '/pages/feedback/index',
+        content: '希望月报可以导出图片。',
+        status: 'open',
+        priority: 'medium',
+        screenshots: [],
+        reply: '',
+        createdAt,
+      },
     ],
     systemSettings: {
       appName: { value: '晚安树洞', description: '小程序名称', updatedBy: 'system', updatedAt: createdAt },
-      defaultVisibility: { value: 'PRIVATE', description: '新用户默认发布可见范围', updatedBy: 'system', updatedAt: createdAt },
+      defaultVisibility: {
+        value: 'PRIVATE',
+        description: '新用户默认发布可见范围',
+        updatedBy: 'system',
+        updatedAt: createdAt,
+      },
       defaultPageSize: { value: 10, description: '默认分页数量', updatedBy: 'system', updatedAt: createdAt },
       highRiskBlockEnabled: { value: true, description: '高危词拦截开关', updatedBy: 'system', updatedAt: createdAt },
-      allowHumanRepliesDefault: { value: true, description: '允许真人回应默认值', updatedBy: 'system', updatedAt: createdAt },
-      localModelFirst: { value: false, description: '本地模型已由运行策略永久禁用', updatedBy: 'system', updatedAt: createdAt },
+      allowHumanRepliesDefault: {
+        value: true,
+        description: '允许真人回应默认值',
+        updatedBy: 'system',
+        updatedAt: createdAt,
+      },
+      localModelFirst: {
+        value: false,
+        description: '本地模型已由运行策略永久禁用',
+        updatedBy: 'system',
+        updatedAt: createdAt,
+      },
     },
     aiProviders: [
-      { id: 'provider_qwen', name: '历史本地模型（已禁用）', type: 'local', providerKind: 'ollama', baseUrl: 'disabled://local-model', modelName: 'Qwen2.5-1.5B', apiKeyStatus: 'missing', enabled: false, priority: 99, dailyLimit: 0, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['historical', 'disabled'], failureRate: 0, avgLatencyMs: 0, todayCalls: 31 },
-      { id: DAPI_PROVIDER_ID, name: 'DAPI · DeepSeek', type: 'cloud', providerKind: 'openai-compatible', baseUrl: DAPI_BASE_URL, modelName: 'deepseek-chat', apiKeyStatus: 'missing', enabled: true, priority: 1, dailyLimit: 10000, timeoutSeconds: 30, failoverEnabled: true, usageTags: ['remote', 'primary', 'dapi', 'deepseek'], failureRate: 0, avgLatencyMs: 0, todayCalls: 0, modelMeta: { family: 'openai-compatible', capabilities: ['chat'] } },
-      { id: REMOTE_BACKUP_PROVIDER_ID, name: 'OpenAI API · 远程备用', type: 'cloud', providerKind: 'openai-compatible', baseUrl: REMOTE_BACKUP_BASE_URL, modelName: 'gpt-4o-mini', apiKeyStatus: 'missing', enabled: false, priority: 2, dailyLimit: 10000, timeoutSeconds: 30, failoverEnabled: false, usageTags: ['remote', 'secondary', 'openai'], failureRate: 0, avgLatencyMs: 0, todayCalls: 0, modelMeta: { family: 'openai-compatible', capabilities: ['chat'] } },
-      { id: 'provider_deepseek', name: 'DeepSeek（历史配置）', type: 'cloud', providerKind: 'other', baseUrl: 'https://api.deepseek.com', modelName: 'deepseek-chat', apiKeyStatus: 'missing', enabled: false, priority: 90, dailyLimit: 1000, timeoutSeconds: 12, failoverEnabled: false, usageTags: ['historical', 'disabled'], failureRate: 0.04, avgLatencyMs: 930, todayCalls: 18 },
-      { id: 'provider_kimi', name: 'Kimi', type: 'cloud', baseUrl: 'https://api.moonshot.cn', modelName: 'moonshot-v1-128k', apiKeyStatus: 'missing', enabled: true, priority: 3, dailyLimit: 800, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['poetic'], failureRate: 0.05, avgLatencyMs: 870, todayCalls: 12 },
-      { id: 'provider_doubao', name: '豆包', type: 'cloud', baseUrl: 'https://ark.cn-beijing.volces.com', modelName: 'doubao-pro', apiKeyStatus: 'missing', enabled: true, priority: 4, dailyLimit: 800, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['light'], failureRate: 0.03, avgLatencyMs: 760, todayCalls: 9 },
-      { id: 'provider_openai', name: 'OpenAI', type: 'cloud', baseUrl: 'https://api.openai.com', modelName: 'gpt-4o-mini', apiKeyStatus: 'missing', enabled: true, priority: 5, dailyLimit: 500, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['clear'], failureRate: 0.03, avgLatencyMs: 810, todayCalls: 7 },
-      { id: 'provider_claude', name: 'Claude', type: 'cloud', baseUrl: 'https://api.anthropic.com', modelName: 'claude-3-haiku', apiKeyStatus: 'missing', enabled: false, priority: 6, dailyLimit: 300, timeoutSeconds: 12, failoverEnabled: true, usageTags: ['backup'], failureRate: 0.01, avgLatencyMs: 980, todayCalls: 0 },
-      { id: 'provider_safe_template', name: '安全文案备用', type: 'template', providerKind: 'template', baseUrl: 'local://safe-response-template', modelName: 'safe-response-template', apiKeyStatus: 'configured', enabled: true, priority: 98, dailyLimit: 99999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['backup', 'template', 'safe'], failureRate: 0, avgLatencyMs: 1, todayCalls: 0 },
-      { id: 'provider_template', name: '模板兜底', type: 'template', baseUrl: 'local://template', modelName: 'fallback-template', apiKeyStatus: 'configured', enabled: true, priority: 99, dailyLimit: 99999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['fallback'], failureRate: 0, avgLatencyMs: 4, todayCalls: 6 },
+      {
+        id: 'provider_qwen',
+        name: '历史本地模型（已禁用）',
+        type: 'local',
+        providerKind: 'ollama',
+        baseUrl: 'disabled://local-model',
+        modelName: 'Qwen2.5-1.5B',
+        apiKeyStatus: 'missing',
+        enabled: false,
+        priority: 99,
+        dailyLimit: 0,
+        timeoutSeconds: 1,
+        failoverEnabled: false,
+        usageTags: ['historical', 'disabled'],
+        failureRate: 0,
+        avgLatencyMs: 0,
+        todayCalls: 31,
+      },
+      {
+        id: DAPI_PROVIDER_ID,
+        name: 'DAPI · DeepSeek',
+        type: 'cloud',
+        providerKind: 'openai-compatible',
+        baseUrl: DAPI_BASE_URL,
+        modelName: 'deepseek-chat',
+        apiKeyStatus: 'missing',
+        enabled: true,
+        priority: 1,
+        dailyLimit: 10000,
+        timeoutSeconds: 30,
+        failoverEnabled: true,
+        usageTags: ['remote', 'primary', 'dapi', 'deepseek'],
+        failureRate: 0,
+        avgLatencyMs: 0,
+        todayCalls: 0,
+        modelMeta: { family: 'openai-compatible', capabilities: ['chat'] },
+      },
+      {
+        id: REMOTE_BACKUP_PROVIDER_ID,
+        name: 'OpenAI API · 远程备用',
+        type: 'cloud',
+        providerKind: 'openai-compatible',
+        baseUrl: REMOTE_BACKUP_BASE_URL,
+        modelName: 'gpt-4o-mini',
+        apiKeyStatus: 'missing',
+        enabled: false,
+        priority: 2,
+        dailyLimit: 10000,
+        timeoutSeconds: 30,
+        failoverEnabled: false,
+        usageTags: ['remote', 'secondary', 'openai'],
+        failureRate: 0,
+        avgLatencyMs: 0,
+        todayCalls: 0,
+        modelMeta: { family: 'openai-compatible', capabilities: ['chat'] },
+      },
+      {
+        id: 'provider_deepseek',
+        name: 'DeepSeek（历史配置）',
+        type: 'cloud',
+        providerKind: 'other',
+        baseUrl: 'https://api.deepseek.com',
+        modelName: 'deepseek-chat',
+        apiKeyStatus: 'missing',
+        enabled: false,
+        priority: 90,
+        dailyLimit: 1000,
+        timeoutSeconds: 12,
+        failoverEnabled: false,
+        usageTags: ['historical', 'disabled'],
+        failureRate: 0.04,
+        avgLatencyMs: 930,
+        todayCalls: 18,
+      },
+      {
+        id: 'provider_kimi',
+        name: 'Kimi',
+        type: 'cloud',
+        baseUrl: 'https://api.moonshot.cn',
+        modelName: 'moonshot-v1-128k',
+        apiKeyStatus: 'missing',
+        enabled: true,
+        priority: 3,
+        dailyLimit: 800,
+        timeoutSeconds: 12,
+        failoverEnabled: true,
+        usageTags: ['poetic'],
+        failureRate: 0.05,
+        avgLatencyMs: 870,
+        todayCalls: 12,
+      },
+      {
+        id: 'provider_doubao',
+        name: '豆包',
+        type: 'cloud',
+        baseUrl: 'https://ark.cn-beijing.volces.com',
+        modelName: 'doubao-pro',
+        apiKeyStatus: 'missing',
+        enabled: true,
+        priority: 4,
+        dailyLimit: 800,
+        timeoutSeconds: 12,
+        failoverEnabled: true,
+        usageTags: ['light'],
+        failureRate: 0.03,
+        avgLatencyMs: 760,
+        todayCalls: 9,
+      },
+      {
+        id: 'provider_openai',
+        name: 'OpenAI',
+        type: 'cloud',
+        baseUrl: 'https://api.openai.com',
+        modelName: 'gpt-4o-mini',
+        apiKeyStatus: 'missing',
+        enabled: true,
+        priority: 5,
+        dailyLimit: 500,
+        timeoutSeconds: 12,
+        failoverEnabled: true,
+        usageTags: ['clear'],
+        failureRate: 0.03,
+        avgLatencyMs: 810,
+        todayCalls: 7,
+      },
+      {
+        id: 'provider_claude',
+        name: 'Claude',
+        type: 'cloud',
+        baseUrl: 'https://api.anthropic.com',
+        modelName: 'claude-3-haiku',
+        apiKeyStatus: 'missing',
+        enabled: false,
+        priority: 6,
+        dailyLimit: 300,
+        timeoutSeconds: 12,
+        failoverEnabled: true,
+        usageTags: ['backup'],
+        failureRate: 0.01,
+        avgLatencyMs: 980,
+        todayCalls: 0,
+      },
+      {
+        id: 'provider_safe_template',
+        name: '安全文案备用',
+        type: 'template',
+        providerKind: 'template',
+        baseUrl: 'local://safe-response-template',
+        modelName: 'safe-response-template',
+        apiKeyStatus: 'configured',
+        enabled: true,
+        priority: 98,
+        dailyLimit: 99999,
+        timeoutSeconds: 1,
+        failoverEnabled: false,
+        usageTags: ['backup', 'template', 'safe'],
+        failureRate: 0,
+        avgLatencyMs: 1,
+        todayCalls: 0,
+      },
+      {
+        id: 'provider_template',
+        name: '模板兜底',
+        type: 'template',
+        baseUrl: 'local://template',
+        modelName: 'fallback-template',
+        apiKeyStatus: 'configured',
+        enabled: true,
+        priority: 99,
+        dailyLimit: 99999,
+        timeoutSeconds: 1,
+        failoverEnabled: false,
+        usageTags: ['fallback'],
+        failureRate: 0,
+        avgLatencyMs: 4,
+        todayCalls: 6,
+      },
     ],
     aiRoutes: [
-      { style: 'warm', label: '暖心陪伴', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-warm-v1', promptTemplate: '温柔但不诊断地回应用户情绪。', enabled: true, routeVersion: 1 },
-      { style: 'rational', label: '理性分析', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-rational-v1', promptTemplate: '拆解事实、情绪和下一步。', enabled: true, routeVersion: 1 },
-      { style: 'light', label: '轻松一点', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-light-v1', promptTemplate: '轻松一点但不轻浮。', enabled: true, routeVersion: 1 },
-      { style: 'clear', label: '清醒提醒', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-clear-v1', promptTemplate: '清晰提醒边界和可控行动。', enabled: true, routeVersion: 1 },
-      { style: 'poetic', label: '诗意疗愈', primaryProviderId: DAPI_PROVIDER_ID, backupProviderId: REMOTE_BACKUP_PROVIDER_ID, fallbackTemplateId: 'provider_template', promptVersion: 'dapi-poetic-v1', promptTemplate: '像夜灯一样温柔地书写。', enabled: true, routeVersion: 1 },
+      {
+        style: 'warm',
+        label: '暖心陪伴',
+        primaryProviderId: DAPI_PROVIDER_ID,
+        backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
+        fallbackTemplateId: 'provider_safe_template',
+        promptVersion: 'dapi-warm-v1',
+        promptTemplate: '温柔但不诊断地回应用户情绪。',
+        enabled: true,
+        routeVersion: 1,
+      },
+      {
+        style: 'rational',
+        label: '理性分析',
+        primaryProviderId: DAPI_PROVIDER_ID,
+        backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
+        fallbackTemplateId: 'provider_safe_template',
+        promptVersion: 'dapi-rational-v1',
+        promptTemplate: '拆解事实、情绪和下一步。',
+        enabled: true,
+        routeVersion: 1,
+      },
+      {
+        style: 'light',
+        label: '轻松一点',
+        primaryProviderId: DAPI_PROVIDER_ID,
+        backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
+        fallbackTemplateId: 'provider_safe_template',
+        promptVersion: 'dapi-light-v1',
+        promptTemplate: '轻松一点但不轻浮。',
+        enabled: true,
+        routeVersion: 1,
+      },
+      {
+        style: 'clear',
+        label: '清醒提醒',
+        primaryProviderId: DAPI_PROVIDER_ID,
+        backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
+        fallbackTemplateId: 'provider_safe_template',
+        promptVersion: 'dapi-clear-v1',
+        promptTemplate: '清晰提醒边界和可控行动。',
+        enabled: true,
+        routeVersion: 1,
+      },
+      {
+        style: 'poetic',
+        label: '诗意疗愈',
+        primaryProviderId: DAPI_PROVIDER_ID,
+        backupProviderId: REMOTE_BACKUP_PROVIDER_ID,
+        fallbackTemplateId: 'provider_safe_template',
+        promptVersion: 'dapi-poetic-v1',
+        promptTemplate: '像夜灯一样温柔地书写。',
+        enabled: true,
+        routeVersion: 1,
+      },
     ],
     aiJobs: [],
     assets: [],
@@ -551,6 +1269,7 @@ function seedData(): StoreData {
     trustedContacts: [],
     messagesToFutureSelf: [],
     personalSupportPlans: [],
+    stableSelfProfiles: [],
     memoryItems: [],
     recoverySnapshots: [],
     safetyEvents: [],
@@ -559,147 +1278,1052 @@ function seedData(): StoreData {
     notifications: [],
     peerConversations: [],
     peerMessages: [],
+    peerReports: [],
+    adminUserNotes: [],
   };
 }
+
+/**
+ * The per-request inputs `decoratePost` needs from outside the post row.
+ *
+ * See `StoreService.buildPostDecorationContext` for why it is built once per request and why it is a
+ * required argument rather than an optional one.
+ */
+export type PostDecorationContext = {
+  favoritedPostIds: Set<string>;
+  assetsById: Map<string, MediaAsset>;
+};
 
 @Injectable()
 export class StoreService implements OnModuleInit {
   private data: StoreData;
   private persistQueue: Promise<void> = Promise.resolve();
   private persistenceError?: string;
+  /** Incremented on every `persist()`; used to detect a mutation racing a state reload. */
+  private mutationVersion = 0;
   private ollamaOnline = false;
   private ollamaLastCheckedAt?: string;
   private ollamaLastError?: string;
+  private readonly pendingJobCommits = new Map<string, Promise<any>>();
+
+  async awaitJobCommit(jobId: string): Promise<void> {
+    const pending = this.pendingJobCommits.get(jobId);
+    if (pending) await pending;
+  }
 
   constructor(
     @Inject(PrismaRuntimeService) private readonly prisma: PrismaRuntimeService,
     @Inject(RemoteAiProviderService) private readonly remoteAi: RemoteAiProviderService = new RemoteAiProviderService(),
+    @Inject(Batch1PersistenceService)
+    private readonly batch1Persistence: Batch1PersistenceService = new Batch1PersistenceService(prisma as any),
+    @Inject(PeerPersistenceService)
+    private readonly peerPersistence: PeerPersistenceService = new PeerPersistenceService(prisma as any),
+    @Inject(SelfPersistenceService)
+    public readonly selfPersistence: SelfPersistenceService = new SelfPersistenceService(prisma as any),
+    @Inject(FavoritePersistenceService)
+    public readonly favoritesDb: FavoritePersistenceService = new FavoritePersistenceService(prisma as any),
+    @Inject(ReplyPersistenceService)
+    public readonly repliesDb: ReplyPersistenceService = new ReplyPersistenceService(prisma as any),
+    @Inject(PostPersistenceService)
+    public readonly postsDb: PostPersistenceService = new PostPersistenceService(prisma as any),
+    @Inject(AiRoutingPersistenceService)
+    public readonly aiRoutingDb: AiRoutingPersistenceService = new AiRoutingPersistenceService(prisma as any),
+    @Inject(FeedbackPersistenceService)
+    public readonly feedbackPersistence: FeedbackPersistenceService = new FeedbackPersistenceService(prisma as any),
+    @Inject(MoodPersistenceService)
+    public readonly moodsDb: MoodPersistenceService = new MoodPersistenceService(prisma as any),
+    @Inject(DiaryPersistenceService)
+    public readonly diariesDb: DiaryPersistenceService = new DiaryPersistenceService(prisma as any),
+    @Inject(LetterPersistenceService)
+    public readonly lettersDb: LetterPersistenceService = new LetterPersistenceService(prisma as any),
+    @Inject(MediaAssetPersistenceService)
+    public readonly mediaAssetsDb: MediaAssetPersistenceService = new MediaAssetPersistenceService(prisma as any),
+    @Inject(SocialMultimediaService)
+    public readonly socialMultimedia: SocialMultimediaService = new SocialMultimediaService(),
+    @Inject(AiPersonaService)
+    public readonly aiPersona: AiPersonaService = new AiPersonaService(),
   ) {
     this.data = seedData();
+    this.isolateDirectDbModels(this.data);
+  }
+
+  private isolateDirectDbModels(data: any) {
+    if (!data || typeof data !== 'object') return;
+    if (DIRECT_DB_MODELS.UserNotification) {
+      delete data.notifications;
+      Object.defineProperty(data, 'notifications', {
+        get() {
+          throw new Error('StoreData.notifications is disabled: UserNotification is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.notifications is disabled: UserNotification is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.SafetyEvent) {
+      delete data.safetyEvents;
+      Object.defineProperty(data, 'safetyEvents', {
+        get() {
+          throw new Error('StoreData.safetyEvents is disabled: SafetyEvent is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.safetyEvents is disabled: SafetyEvent is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.AIJob) {
+      delete data.aiJobs;
+      Object.defineProperty(data, 'aiJobs', {
+        get() {
+          throw new Error('StoreData.aiJobs is disabled: AIJob is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.aiJobs is disabled: AIJob is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.LifeJourney) {
+      delete data.lifeJourneys;
+      Object.defineProperty(data, 'lifeJourneys', {
+        get() {
+          throw new Error('StoreData.lifeJourneys is disabled: LifeJourney is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.lifeJourneys is disabled: LifeJourney is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.SituationSnapshot) {
+      delete data.situationSnapshots;
+      Object.defineProperty(data, 'situationSnapshots', {
+        get() {
+          throw new Error(
+            'StoreData.situationSnapshots is disabled: SituationSnapshot is database-authoritative (Batch 1)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.situationSnapshots is disabled: SituationSnapshot is database-authoritative (Batch 1)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.JourneyUpdate) {
+      delete data.journeyUpdates;
+      Object.defineProperty(data, 'journeyUpdates', {
+        get() {
+          throw new Error('StoreData.journeyUpdates is disabled: JourneyUpdate is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.journeyUpdates is disabled: JourneyUpdate is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.ActionCommitment) {
+      delete data.actionCommitments;
+      Object.defineProperty(data, 'actionCommitments', {
+        get() {
+          throw new Error(
+            'StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.actionCommitments is disabled: ActionCommitment is database-authoritative (Batch 1)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.OutcomeCheckin) {
+      delete data.outcomeCheckins;
+      Object.defineProperty(data, 'outcomeCheckins', {
+        get() {
+          throw new Error('StoreData.outcomeCheckins is disabled: OutcomeCheckin is database-authoritative (Batch 1)');
+        },
+        set(_val) {
+          throw new Error('StoreData.outcomeCheckins is disabled: OutcomeCheckin is database-authoritative (Batch 1)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      delete data.peerExperiences;
+      Object.defineProperty(data, 'peerExperiences', {
+        get() {
+          throw new Error('StoreData.peerExperiences is disabled: PeerExperience is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerExperiences is disabled: PeerExperience is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      delete data.peerMatches;
+      Object.defineProperty(data, 'peerMatches', {
+        get() {
+          throw new Error('StoreData.peerMatches is disabled: PeerMatch is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerMatches is disabled: PeerMatch is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      delete data.peerConversations;
+      Object.defineProperty(data, 'peerConversations', {
+        get() {
+          throw new Error('StoreData.peerConversations is disabled: PeerConversation is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerConversations is disabled: PeerConversation is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      delete data.peerMessages;
+      Object.defineProperty(data, 'peerMessages', {
+        get() {
+          throw new Error('StoreData.peerMessages is disabled: PeerMessage is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerMessages is disabled: PeerMessage is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PeerReport) {
+      delete data.peerReports;
+      Object.defineProperty(data, 'peerReports', {
+        get() {
+          throw new Error('StoreData.peerReports is disabled: PeerReport is database-authoritative (Batch 2)');
+        },
+        set(_val) {
+          throw new Error('StoreData.peerReports is disabled: PeerReport is database-authoritative (Batch 2)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      delete data.privacySettings;
+      Object.defineProperty(data, 'privacySettings', {
+        get() {
+          throw new Error('StoreData.privacySettings is disabled: PrivacySetting is database-authoritative (Batch 3)');
+        },
+        set(_val) {
+          throw new Error('StoreData.privacySettings is disabled: PrivacySetting is database-authoritative (Batch 3)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      delete data.trustedContacts;
+      Object.defineProperty(data, 'trustedContacts', {
+        get() {
+          throw new Error('StoreData.trustedContacts is disabled: TrustedContact is database-authoritative (Batch 3)');
+        },
+        set(_val) {
+          throw new Error('StoreData.trustedContacts is disabled: TrustedContact is database-authoritative (Batch 3)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      delete data.stableSelfProfiles;
+      Object.defineProperty(data, 'stableSelfProfiles', {
+        get() {
+          throw new Error(
+            'StoreData.stableSelfProfiles is disabled: StableSelfProfile is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.stableSelfProfiles is disabled: StableSelfProfile is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      delete data.realityHandoffs;
+      Object.defineProperty(data, 'realityHandoffs', {
+        get() {
+          throw new Error('StoreData.realityHandoffs is disabled: RealityHandoff is database-authoritative (Batch 3)');
+        },
+        set(_val) {
+          throw new Error('StoreData.realityHandoffs is disabled: RealityHandoff is database-authoritative (Batch 3)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      delete data.personalSupportPlans;
+      Object.defineProperty(data, 'personalSupportPlans', {
+        get() {
+          throw new Error(
+            'StoreData.personalSupportPlans is disabled: PersonalSupportPlan is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.personalSupportPlans is disabled: PersonalSupportPlan is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      delete data.recoverySnapshots;
+      Object.defineProperty(data, 'recoverySnapshots', {
+        get() {
+          throw new Error(
+            'StoreData.recoverySnapshots is disabled: RecoverySnapshot is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.recoverySnapshots is disabled: RecoverySnapshot is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      delete data.decisionRecords;
+      Object.defineProperty(data, 'decisionRecords', {
+        get() {
+          throw new Error(
+            'StoreData.decisionRecords is disabled: DecisionRecord is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.decisionRecords is disabled: DecisionRecord is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      delete data.cooldownItems;
+      Object.defineProperty(data, 'cooldownItems', {
+        get() {
+          throw new Error(
+            'StoreData.cooldownItems is disabled: CooldownItem is database-authoritative (Batch 3)',
+          );
+        },
+        set(_val) {
+          throw new Error(
+            'StoreData.cooldownItems is disabled: CooldownItem is database-authoritative (Batch 3)',
+          );
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Favorite) {
+      delete data.favorites;
+      Object.defineProperty(data, 'favorites', {
+        get() {
+          throw new Error('StoreData.favorites is disabled: Favorite is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.favorites is disabled: Favorite is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Post) {
+      delete data.posts;
+      Object.defineProperty(data, 'posts', {
+        get() {
+          throw new Error('StoreData.posts is disabled: Post is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.posts is disabled: Post is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.AIProvider) {
+      delete data.aiProviders;
+      Object.defineProperty(data, 'aiProviders', {
+        get() {
+          throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.aiProviders is disabled: AIProvider is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      delete data.assets;
+      Object.defineProperty(data, 'assets', {
+        get() {
+          throw new Error('StoreData.assets is disabled: MediaAsset is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.assets is disabled: MediaAsset is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Letter) {
+      delete data.letters;
+      Object.defineProperty(data, 'letters', {
+        get() {
+          throw new Error('StoreData.letters is disabled: Letter is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.letters is disabled: Letter is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Diary) {
+      delete data.diaries;
+      Object.defineProperty(data, 'diaries', {
+        get() {
+          throw new Error('StoreData.diaries is disabled: Diary is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.diaries is disabled: Diary is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Mood) {
+      delete data.moods;
+      Object.defineProperty(data, 'moods', {
+        get() {
+          throw new Error('StoreData.moods is disabled: Mood is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.moods is disabled: Mood is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.AIStyleRoute) {
+      delete data.aiStyleRoutes;
+      Object.defineProperty(data, 'aiStyleRoutes', {
+        get() {
+          throw new Error('StoreData.aiStyleRoutes is disabled: AIStyleRoute is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.aiStyleRoutes is disabled: AIStyleRoute is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    if (DIRECT_DB_MODELS.Reply) {
+      delete data.replies;
+      Object.defineProperty(data, 'replies', {
+        get() {
+          throw new Error('StoreData.replies is disabled: Reply is database-authoritative (Batch 4)');
+        },
+        set(_val) {
+          throw new Error('StoreData.replies is disabled: Reply is database-authoritative (Batch 4)');
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+  }
+
+  /**
+   * Writes the snapshot's moods and posts to the database.
+   *
+   * The legacy flush wrote both tables. Once Mood and Post are registered it writes neither, so any
+   * row the snapshot holds - the legacy demo seeds, including `post_1` that the e2e flows target -
+   * would never reach the database. Order matters: `Post.moodId` is a Restrict FK, and a registered
+   * Mood means the mood must be written here explicitly rather than left to the flush.
+   *
+   * Callers must run this while `data.posts` and `data.moods` are still readable, i.e. before
+   * `isolateDirectDbModels`. It is a no-op while neither model is registered.
+   */
+  private async writeSnapshotPostsAndMoods(snapshot?: StoreData) {
+    if (!DIRECT_DB_MODELS.Mood && !DIRECT_DB_MODELS.Post) return;
+    // One flush first: it writes the users the moods and posts reference. When both models stay
+    // flush-owned this is the whole job.
+    this.persist();
+    await this.flush();
+    const source = (snapshot ?? this.data) as any;
+    const moods = Array.isArray(source.moods) ? source.moods : [];
+    const posts = Array.isArray(source.posts) ? source.posts : [];
+    if (DIRECT_DB_MODELS.Mood) {
+      for (const mood of moods) {
+        await this.moodsDb.create({
+          id: mood.id,
+          userId: mood.userId,
+          emotion: mood.emotion,
+          content: mood.content,
+          visibility: mood.visibility,
+          riskLevel: mood.riskLevel,
+          riskScore: mood.riskScore,
+          attachmentIds: mood.attachmentIds ?? [],
+          journeyId: mood.journeyId ?? null,
+          createdAt: new Date(mood.createdAt),
+        });
+      }
+    }
+    if (DIRECT_DB_MODELS.Post) {
+      for (const post of posts) {
+        await this.postsDb.create({
+          id: post.id,
+          moodId: post.moodId,
+          userId: post.userId,
+          emotion: post.emotion,
+          content: post.content,
+          visibility: post.visibility,
+          reviewStatus: post.reviewStatus as 'pending_review' | 'published' | 'hidden' | 'rejected',
+          journeyId: post.journeyId ?? null,
+          createdAt: new Date(post.createdAt),
+        });
+      }
+    }
+  }
+
+  /**
+   * Wait for the database to accept a query, with a bounded backoff.
+   *
+   * Boot order on this machine is not guaranteed: the API process can come up while the PostgreSQL
+   * container (or the WSL2 proxy in front of it) is still starting. Prisma connects lazily, so the
+   * failure shows up at the first query - in `onModuleInit` - and the server then runs with every
+   * route returning 500 until someone restarts it. Retrying here turns that into a few seconds of
+   * extra boot time.
+   */
+  /**
+   * @param attempts 90 x 1s. A stopped container is brought back by scripts/stack-up.sh or the test
+   *   runner, and that takes tens of seconds; the common case (a container restart) needs a handful.
+   */
+  private async waitForDatabase(attempts = 90, delayMs = 1000) {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        await this.prisma.$queryRaw`SELECT 1`;
+        if (i > 0) console.log(`[prisma] database reachable after ${i + 1} attempt(s)`);
+        return;
+      } catch (error) {
+        if (i === attempts - 1) throw error;
+        if (i === 0) console.log('[prisma] database not reachable yet; waiting…');
+        if (i > 0 && i % 15 === 0) console.log(`[prisma] still waiting for the database (${i}s)`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
   async onModuleInit() {
+    // The API starts before the database is necessarily listening - a container restart, or this
+    // machine's WSL2 proxy taking a moment after the container comes up. The first query used to throw
+    // immediately and the process stayed up serving 500s until something restarted it by hand. Wait
+    // for the connection instead: the API is useless without the database, so a short bounded wait at
+    // boot is cheaper than a half-alive server.
+    await this.waitForDatabase();
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
     this.data = persisted ?? this.loadLegacyStore();
-    this.migrateAiJobs();
-    this.recoverInterruptedAiJobs();
-    this.reconcileFavoriteCounts();
-    this.reconcileLetterFavorites();
+    // The flush no longer writes the posts table once Post is registered, so any post this snapshot
+    // holds - the legacy demo seeds, including `post_1` that the e2e flows target - has to be written
+    // here or it would never reach the database. This runs while `data.posts` is still readable.
+    await this.writeSnapshotPostsAndMoods();
+    this.isolateDirectDbModels(this.data);
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      await this.selfPersistence.repairPrivacyDefaults();
+    }
+    await this.migrateAiJobs();
+    await this.recoverInterruptedAiJobs();
+    await this.reconcileFavoriteCounts();
+    await this.reconcileLetterFavorites();
+    await this.reconcileReplyCounts();
+    this.pruneAuditLogsByRetention();
     this.ensureGoodnightTwoCoverage();
     this.ensurePhaseTwoCoverage();
-    this.ensureSeedCoverage();
-    if (!visualFixtureMode) this.enforceRemoteAiProviderPolicy();
+    await this.ensureSeedCoverage();
+    // The flush no longer owns these two tables (Batch 4 registered them), so a database that never
+    // carried their rows would serve an empty category list and an empty FAQ list to every client.
+    // Both routines only fill an empty table; the console remains the owner.
+    await this.feedbackPersistence.ensureSeedCategories();
+    await this.feedbackPersistence.ensureSeedFaqs();
+    if (!visualFixtureMode) await this.enforceRemoteAiProviderPolicy();
+    // After the policy, not before: the policy writes the three managed providers the routes point
+    // at, and a route seeded before them would fail on `AIStyleRoute.primaryProvider` being a
+    // required foreign key to a provider that does not exist yet.
+    await this.ensureAiRouteSeedCoverage();
     await this.flush();
   }
 
-  async reloadRuntimeState() {
+  async reloadRuntimeState(options?: { _onBeforeLoad?: () => Promise<void>; _onAfterLoad?: () => Promise<void> }) {
+    // The BullMQ worker calls this after delivering a follow-up. It used to read straight from
+    // the database and replace the in-memory state, which silently discarded any mutation made
+    // while the read was in flight: observed as a handoff being created (201) and then not
+    // existing a moment later, and as a journey graduating and reverting to active. Draining
+    // the write queue first, then refusing to adopt a snapshot that is older than a mutation
+    // that happened during the read, closes both windows.
+    await this.persistQueue;
+    const versionAtStart = this.mutationVersion;
+    if (options?._onBeforeLoad) {
+      await options._onBeforeLoad();
+    }
     const persisted = await this.prisma.loadRuntimeState<StoreData>();
-    if (persisted) {
+    if (options?._onAfterLoad) {
+      await options._onAfterLoad();
+    }
+    if (persisted && this.mutationVersion === versionAtStart) {
+      // The reloaded snapshot's posts and moods are written to the table the same way boot does,
+      // because the flush no longer writes either once they are registered. `data.posts` is still
+      // readable here — `isolateDirectDbModels` runs on the next line.
+      await this.writeSnapshotPostsAndMoods(persisted);
       this.data = persisted;
+      this.isolateDirectDbModels(this.data);
       this.ensurePhaseTwoCoverage();
+      // Reloaded relational data may contain a historical route definition.
+      // Reapply the runtime-only DAPI policy before any queued job can use it.
+      if (!visualFixtureMode) {
+        await this.enforceRemoteAiProviderPolicy();
+        await this.flush();
+      }
     }
   }
 
-  get users() { return this.data.users; }
-  get adminUsers() { return this.data.adminUsers; }
-  get privacySettings() { return this.data.privacySettings; }
-  get moods() { return this.data.moods; }
-  get posts() { return this.data.posts; }
-  get replies() { return this.data.replies; }
-  get letters() { return this.data.letters; }
-  set letters(value: Letter[]) { this.data.letters = value; this.persist(); }
-  get diaries() { return this.data.diaries; }
-  set diaries(value: Diary[]) { this.data.diaries = value; this.persist(); }
-  get favorites() { return this.data.favorites; }
-  set favorites(value: StoreData['favorites']) { this.data.favorites = value; this.persist(); }
-  get feedbackCategories() { return this.data.feedbackCategories; }
-  set feedbackCategories(value: StoreData['feedbackCategories']) { this.data.feedbackCategories = value; this.persist(); }
-  get faqs() { return this.data.faqs; }
-  set faqs(value: StoreData['faqs']) { this.data.faqs = value; this.persist(); }
-  get replyPresets() { return this.data.replyPresets; }
-  set replyPresets(value: StoreData['replyPresets']) { this.data.replyPresets = value; this.persist(); }
-  get feedbackTickets() { return this.data.feedbackTickets; }
-  get systemSettings() { return this.data.systemSettings; }
-  get aiProviders() { return this.data.aiProviders; }
-  get aiRoutes() { return this.data.aiRoutes; }
-  get aiJobs() { return this.data.aiJobs; }
-  get assets() { return this.data.assets; }
-  get auditLogs() { return this.data.auditLogs; }
-  get lifeJourneys() { return this.data.lifeJourneys; }
-  get situationSnapshots() { return this.data.situationSnapshots; }
-  get journeyUpdates() { return this.data.journeyUpdates; }
-  get actionCommitments() { return this.data.actionCommitments; }
-  get outcomeCheckins() { return this.data.outcomeCheckins; }
-  get peerExperiences() { return this.data.peerExperiences; }
-  get peerMatches() { return this.data.peerMatches; }
-  get peerReputations() { return this.data.peerReputations; }
-  get decisionRecords() { return this.data.decisionRecords; }
-  get cooldownItems() { return this.data.cooldownItems; }
-  get realityHandoffs() { return this.data.realityHandoffs; }
-  get trustedContacts() { return this.data.trustedContacts; }
-  get messagesToFutureSelf() { return this.data.messagesToFutureSelf; }
-  get personalSupportPlans() { return this.data.personalSupportPlans; }
-  get memoryItems() { return this.data.memoryItems; }
-  get recoverySnapshots() { return this.data.recoverySnapshots; }
-  get safetyEvents() { return this.data.safetyEvents; }
-  get agentDecisionLogs() { return this.data.agentDecisionLogs; }
-  get followUpJobs() { return this.data.followUpJobs; }
-  get notifications() { return this.data.notifications; }
-  get peerConversations() { return this.data.peerConversations; }
-  get peerMessages() { return this.data.peerMessages; }
+  get users() {
+    return this.data.users;
+  }
+  get adminUsers() {
+    return this.data.adminUsers;
+  }
+  get privacySettings() {
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      throw new Error(
+        'Direct DB model PrivacySetting: store.privacySettings getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.privacySettings;
+  }
+  get moods() {
+    return this.data.moods;
+  }
+  get posts() {
+    return this.data.posts;
+  }
+  get replies() {
+    return this.data.replies;
+  }
+  get letters() {
+    return this.data.letters;
+  }
+  set letters(value: Letter[]) {
+    this.data.letters = value;
+    this.persist();
+  }
+  get diaries() {
+    return this.data.diaries;
+  }
+  set diaries(value: Diary[]) {
+    this.data.diaries = value;
+    this.persist();
+  }
+  get favorites() {
+    return this.data.favorites;
+  }
+  set favorites(value: StoreData['favorites']) {
+    this.data.favorites = value;
+    this.persist();
+  }
+  get feedbackCategories() {
+    return this.data.feedbackCategories;
+  }
+  set feedbackCategories(value: StoreData['feedbackCategories']) {
+    this.data.feedbackCategories = value;
+    this.persist();
+  }
+  get faqs() {
+    return this.data.faqs;
+  }
+  set faqs(value: StoreData['faqs']) {
+    this.data.faqs = value;
+    this.persist();
+  }
+  get replyPresets() {
+    return this.data.replyPresets;
+  }
+  set replyPresets(value: StoreData['replyPresets']) {
+    this.data.replyPresets = value;
+    this.persist();
+  }
+  get feedbackTickets() {
+    return this.data.feedbackTickets;
+  }
+  get systemSettings() {
+    return this.data.systemSettings;
+  }
+  get aiProviders() {
+    return this.data.aiProviders;
+  }
+  get aiRoutes() {
+    return this.data.aiRoutes;
+  }
+  get aiJobs() {
+    return this.data.aiJobs;
+  }
+  get assets() {
+    return this.data.assets;
+  }
+  get auditLogs() {
+    return this.data.auditLogs;
+  }
+  get lifeJourneys() {
+    if (DIRECT_DB_MODELS.LifeJourney) {
+      throw new Error(
+        'Direct DB model LifeJourney: store.lifeJourneys getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.lifeJourneys;
+  }
+  get situationSnapshots() {
+    if (DIRECT_DB_MODELS.SituationSnapshot) {
+      throw new Error(
+        'Direct DB model SituationSnapshot: store.situationSnapshots getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.situationSnapshots;
+  }
+  get journeyUpdates() {
+    if (DIRECT_DB_MODELS.JourneyUpdate) {
+      throw new Error(
+        'Direct DB model JourneyUpdate: store.journeyUpdates getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.journeyUpdates;
+  }
+  get actionCommitments() {
+    if (DIRECT_DB_MODELS.ActionCommitment) {
+      throw new Error(
+        'Direct DB model ActionCommitment: store.actionCommitments getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.actionCommitments;
+  }
+  get outcomeCheckins() {
+    if (DIRECT_DB_MODELS.OutcomeCheckin) {
+      throw new Error(
+        'Direct DB model OutcomeCheckin: store.outcomeCheckins getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.outcomeCheckins;
+  }
+  get peerExperiences() {
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      throw new Error(
+        'Direct DB model PeerExperience: store.peerExperiences getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.peerExperiences;
+  }
+  get peerMatches() {
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      throw new Error(
+        'Direct DB model PeerMatch: store.peerMatches getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.peerMatches;
+  }
+  get peerReputations() {
+    return this.data.peerReputations;
+  }
+  get decisionRecords() {
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      throw new Error(
+        'Direct DB model DecisionRecord: store.decisionRecords getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.decisionRecords;
+  }
+  get cooldownItems() {
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      throw new Error(
+        'Direct DB model CooldownItem: store.cooldownItems getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.cooldownItems;
+  }
+  get realityHandoffs() {
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      throw new Error(
+        'Direct DB model RealityHandoff: store.realityHandoffs getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.realityHandoffs;
+  }
+  get trustedContacts() {
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      throw new Error(
+        'Direct DB model TrustedContact: store.trustedContacts getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.trustedContacts;
+  }
+  get messagesToFutureSelf() {
+    if (DIRECT_DB_MODELS.MessageToFutureSelf) {
+      throw new Error(
+        'Direct DB model MessageToFutureSelf: store.messagesToFutureSelf getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.messagesToFutureSelf;
+  }
+  get personalSupportPlans() {
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      throw new Error(
+        'Direct DB model PersonalSupportPlan: store.personalSupportPlans getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.personalSupportPlans;
+  }
+  get stableSelfProfiles() {
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      throw new Error(
+        'Direct DB model StableSelfProfile: store.stableSelfProfiles getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.stableSelfProfiles;
+  }
+  get memoryItems() {
+    return this.data.memoryItems;
+  }
+  get recoverySnapshots() {
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      throw new Error(
+        'Direct DB model RecoverySnapshot: store.recoverySnapshots getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.recoverySnapshots;
+  }
+  get safetyEvents() {
+    if (DIRECT_DB_MODELS.SafetyEvent) {
+      throw new Error(
+        'Direct DB model SafetyEvent: store.safetyEvents getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.safetyEvents;
+  }
+  get agentDecisionLogs() {
+    return this.data.agentDecisionLogs;
+  }
+  get followUpJobs() {
+    return this.data.followUpJobs;
+  }
+  get notifications() {
+    if (DIRECT_DB_MODELS.UserNotification) {
+      throw new Error(
+        'Direct DB model UserNotification: store.notifications getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.notifications;
+  }
+  get peerConversations() {
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      throw new Error(
+        'Direct DB model PeerConversation: store.peerConversations getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.peerConversations;
+  }
+  get peerMessages() {
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      throw new Error(
+        'Direct DB model PeerMessage: store.peerMessages getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.peerMessages;
+  }
+  get peerReports() {
+    if (DIRECT_DB_MODELS.PeerReport) {
+      throw new Error(
+        'Direct DB model PeerReport: store.peerReports getter is disabled. Query the database instead.',
+      );
+    }
+    return this.data.peerReports;
+  }
+  get adminUserNotes() {
+    return this.data.adminUserNotes;
+  }
 
   private ensurePhaseTwoCoverage() {
     let changed = false;
-    this.data.notifications ??= [];
-    this.data.peerConversations ??= [];
-    this.data.peerMessages ??= [];
-    for (const journey of this.data.lifeJourneys) {
-      if (journey.currentIntent && !['JUST_LISTEN', 'FIND_PEOPLE', 'SEE_OUTCOMES', 'NEXT_STEP', 'STOP_IMPULSE', 'PREPARE_CONVERSATION', 'NOTHING_NOW', 'HIGH_DISTRESS'].includes(journey.currentIntent)) {
-        delete journey.currentIntent;
+    if (!DIRECT_DB_MODELS.UserNotification) {
+      this.data.notifications ??= [];
+    }
+    if (!DIRECT_DB_MODELS.PeerConversation) {
+      this.data.peerConversations ??= [];
+    }
+    if (!DIRECT_DB_MODELS.PeerMessage) {
+      this.data.peerMessages ??= [];
+    }
+    if (!DIRECT_DB_MODELS.PeerReport) {
+      this.data.peerReports ??= [];
+    }
+    if (!DIRECT_DB_MODELS.LifeJourney) {
+      for (const journey of this.data.lifeJourneys) {
+        if (
+          journey.currentIntent &&
+          ![
+            'JUST_LISTEN',
+            'FIND_PEOPLE',
+            'SEE_OUTCOMES',
+            'NEXT_STEP',
+            'STOP_IMPULSE',
+            'PREPARE_CONVERSATION',
+            'NOTHING_NOW',
+            'HIGH_DISTRESS',
+          ].includes(journey.currentIntent)
+        ) {
+          delete journey.currentIntent;
+        }
       }
     }
-    for (const snapshot of this.data.situationSnapshots) {
-      for (const key of ['facts', 'feelings', 'needs', 'constraints', 'risks', 'contextTags', 'peopleContext', 'decisionContext', 'behaviorSignals', 'recoverySignals'] as const) {
-        if (!Array.isArray((snapshot as any)[key])) { (snapshot as any)[key] = []; changed = true; }
+    if (!DIRECT_DB_MODELS.SituationSnapshot) {
+      for (const snapshot of this.data.situationSnapshots) {
+        for (const key of [
+          'facts',
+          'feelings',
+          'needs',
+          'constraints',
+          'risks',
+          'contextTags',
+          'peopleContext',
+          'decisionContext',
+          'behaviorSignals',
+          'recoverySignals',
+        ] as const) {
+          if (!Array.isArray((snapshot as any)[key])) {
+            (snapshot as any)[key] = [];
+            changed = true;
+          }
+        }
       }
     }
     if (changed) this.persist();
   }
 
-  isFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
-    return this.data.favorites.some((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
+  async isFavorite(
+    userId: string,
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (DIRECT_DB_MODELS.Favorite) return await this.favoritesDb.isFavorite(userId, targetType, targetId);
+    return this.data.favorites.some(
+      (item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId,
+    );
   }
 
+  /**
+   * `Letter.favorite` is a denormalised column. `FavoritePersistenceService` writes it in the same
+   * operation as the favourite row, and boot reconciliation recomputes it from the table, so this
+   * projection no longer needs the in-memory array (which is empty once Favorite is registered).
+   */
   decorateLetter(letter: Letter) {
-    return { ...letter, favorite: this.isFavorite(letter.userId, 'letter', letter.id) };
+    return { ...letter, favorite: Boolean(letter.favorite) };
   }
 
-  addFavorite(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
-    const existing = this.data.favorites.find((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
+  async addFavorite(
+    userId: string,
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const result = await this.favoritesDb.add(userId, targetType, targetId);
+      await this.syncFavoriteProjections(targetType, targetId, userId);
+      return result;
+    }
+    const existing = this.data.favorites.find(
+      (item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId,
+    );
     if (existing) return { item: existing, created: false };
 
     const favorite = { id: id('fav'), userId, targetType, targetId, createdAt: now() };
     this.data.favorites.unshift(favorite);
     if (targetType === 'post') {
-      const post = this.posts.find((item) => item.id === targetId);
-      if (post) post.favoriteCount += 1;
+      if (DIRECT_DB_MODELS.Post) {
+        // Post is database-authoritative; its counter is a row count over the favourite table, so it
+        // is recomputed rather than incremented.
+        const counts = await this.favoritesDb.countsForPosts([targetId]);
+        await this.postsDb.setFavoriteCount(targetId, counts.get(targetId) ?? 0);
+      } else {
+        const post = this.posts.find((item) => item.id === targetId);
+        if (post) post.favoriteCount += 1;
+      }
     }
     if (targetType === 'letter') {
-      const letter = this.letters.find((item) => item.id === targetId && item.userId === userId);
-      if (letter) letter.favorite = true;
+      if (DIRECT_DB_MODELS.Letter) await this.lettersDb.setFavorite(targetId, userId, true);
+      else {
+        const letter = this.letters.find((item) => item.id === targetId && item.userId === userId);
+        if (letter) letter.favorite = true;
+      }
     }
     return { item: favorite, created: true };
   }
 
-  removeFavoriteByTarget(userId: string, targetType: StoreData['favorites'][number]['targetType'], targetId: string) {
-    const removed = this.data.favorites.filter((item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId);
+  async removeFavoriteByTarget(
+    userId: string,
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+  ) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const removed = await this.favoritesDb.removeByTarget(userId, targetType, targetId);
+      if (removed.length) await this.syncFavoriteProjections(targetType, targetId, userId);
+      return removed;
+    }
+    const removed = this.data.favorites.filter(
+      (item) => item.userId === userId && item.targetType === targetType && item.targetId === targetId,
+    );
     if (!removed.length) return removed;
     this.data.favorites = this.data.favorites.filter((item) => !removed.some((favorite) => favorite.id === item.id));
     this.applyFavoriteRemoval(removed);
     return removed;
   }
 
-  removeFavoriteById(userId: string, favoriteId: string) {
+  async removeFavoriteById(userId: string, favoriteId: string) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const removed = await this.favoritesDb.removeById(userId, favoriteId);
+      if (removed) await this.syncFavoriteProjections(removed.targetType as any, removed.targetId, removed.userId);
+      return removed;
+    }
     const favorite = this.data.favorites.find((item) => item.id === favoriteId && item.userId === userId);
     if (!favorite) return undefined;
     this.data.favorites = this.data.favorites.filter((item) => item.id !== favorite.id);
@@ -707,7 +2331,14 @@ export class StoreService implements OnModuleInit {
     return favorite;
   }
 
-  clearFavoritesForUser(userId: string) {
+  async clearFavoritesForUser(userId: string) {
+    if (DIRECT_DB_MODELS.Favorite) {
+      const removed = await this.favoritesDb.clearForUser(userId);
+      for (const item of removed) {
+        await this.syncFavoriteProjections(item.targetType as any, item.targetId, item.userId);
+      }
+      return removed;
+    }
     const removed = this.data.favorites.filter((item) => item.userId === userId);
     if (!removed.length) return removed;
     this.data.favorites = this.data.favorites.filter((item) => item.userId !== userId);
@@ -715,16 +2346,47 @@ export class StoreService implements OnModuleInit {
     return removed;
   }
 
+  /**
+   * Keeps the still-legacy in-memory projections (`Post.favoriteCount`, `Letter.favorite`) equal to
+   * what the favourite table now says, only while those models are still flush-owned. Once `Post` or
+   * `Letter` is registered in `DIRECT_DB_MODELS`, `FavoritePersistenceService` updates the column
+   * atomically inside the same transaction as the favourite write, and re-writing it here in two
+   * steps (`countsForPosts` then `setFavoriteCount`) would introduce a lost-update race.
+   */
+  private async syncFavoriteProjections(
+    targetType: StoreData['favorites'][number]['targetType'],
+    targetId: string,
+    _userId?: string,
+  ) {
+    if (targetType === 'post') {
+      if (DIRECT_DB_MODELS.Post) return;
+      const counts = await this.favoritesDb.countsForPosts([targetId]);
+      const favouriteCount = counts.get(targetId) ?? 0;
+      const post = this.posts.find((item) => item.id === targetId);
+      if (post) post.favoriteCount = favouriteCount;
+      return;
+    }
+    if (targetType === 'letter') {
+      if (DIRECT_DB_MODELS.Letter) return;
+      const letters = this.letters.filter((item) => item.id === targetId);
+      for (const letter of letters) {
+        letter.favorite = await this.favoritesDb.isFavorite(letter.userId, 'letter', letter.id);
+      }
+    }
+  }
+
   private storedFeedbackScreenshotIds(value: unknown) {
     if (!Array.isArray(value)) return [] as string[];
     const ids = value
-      .map((item) => typeof item === 'string' ? item : item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined)
+      .map((item) =>
+        typeof item === 'string' ? item : item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined,
+      )
       .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
       .map((item) => item.trim());
     return [...new Set(ids)];
   }
 
-  resolveFeedbackScreenshotIds(userId: string, value: unknown) {
+  async resolveFeedbackScreenshotIds(userId: string, value: unknown) {
     if (value === undefined) return [] as string[];
     if (!Array.isArray(value)) throw new BadRequestException('反馈截图必须是图片资源列表');
     if (value.length > 2) throw new BadRequestException('反馈最多只能附带两张截图');
@@ -736,7 +2398,9 @@ export class StoreService implements OnModuleInit {
     if (new Set(ids).size !== ids.length) throw new BadRequestException('请不要重复选择同一张反馈截图');
 
     for (const assetId of ids) {
-      const asset = this.assets.find((item) => item.id === assetId);
+      const asset = DIRECT_DB_MODELS.MediaAsset
+        ? await this.mediaAssetsDb.get(assetId)
+        : this.assets.find((item) => item.id === assetId);
       if (!asset || asset.status !== 'ready') throw new NotFoundException('反馈截图不存在或已被删除');
       if (asset.userId !== userId) throw new ForbiddenException('不能使用其他用户上传的截图');
       if (asset.usageType !== 'feedback') throw new BadRequestException('反馈只能使用通过反馈入口上传的截图');
@@ -747,23 +2411,54 @@ export class StoreService implements OnModuleInit {
     return ids;
   }
 
-  decorateFeedbackTicket(ticket: FeedbackTicket) {
-    const screenshots = this.storedFeedbackScreenshotIds(ticket.screenshots)
-      .map((assetId) => this.assets.find((asset) => asset.id === assetId && asset.userId === ticket.userId && asset.status === 'ready'))
-      .filter((asset): asset is MediaAsset => Boolean(asset))
-      .map((asset) => ({
-        id: asset.id,
-        url: asset.url,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        width: asset.width,
-        height: asset.height,
-      }));
+  /**
+   * Turns a ticket's stored screenshot ids into the URLs the reply pages render.
+   *
+   * A ticket is stored with the ids it was created with, so a file deleted afterwards has to stop
+   * being decorated: the legacy array scan simply stopped finding it, and the registered path
+   * reproduces that by reading only ready rows owned by the ticket's author.
+   */
+  // Structural rather than the in-memory `FeedbackTicket`: the operator read path passes a Prisma
+  // row, whose `screenshots` is JSON and whose `createdAt` is a Date. Only these two fields are
+  // read here, so requiring the whole legacy shape would force every caller to re-map it.
+  async decorateFeedbackTicket<T extends { userId: string; screenshots: unknown }>(ticket: T) {
+    const ids = this.storedFeedbackScreenshotIds(ticket.screenshots);
+    const screenshots = DIRECT_DB_MODELS.MediaAsset
+      ? (await this.mediaAssetsDb.readyByIds(ids))
+          .filter((asset) => asset.userId === ticket.userId)
+          .map((asset) => ({
+            id: asset.id,
+            url: asset.url,
+            mimeType: asset.mimeType,
+            size: asset.size,
+            width: asset.width,
+            height: asset.height,
+          }))
+      : ids
+          .map((assetId) =>
+            this.assets.find(
+              (asset) => asset.id === assetId && asset.userId === ticket.userId && asset.status === 'ready',
+            ),
+          )
+          .filter((asset): asset is MediaAsset => Boolean(asset))
+          .map((asset) => ({
+            id: asset.id,
+            url: asset.url,
+            mimeType: asset.mimeType,
+            size: asset.size,
+            width: asset.width,
+            height: asset.height,
+          }));
     return { ...ticket, screenshots };
   }
 
-  async createFeedbackTicket(input: { categoryId?: unknown; content?: unknown; sourcePage?: unknown; assetIds?: unknown }) {
-    const userId = this.getDemoUserId();
+  async createFeedbackTicket(input: {
+    categoryId?: unknown;
+    content?: unknown;
+    sourcePage?: unknown;
+    assetIds?: unknown;
+  }) {
+    const userId = this.requireViewerId();
     const content = typeof input.content === 'string' ? input.content.trim() : '';
     if (!content) throw new BadRequestException('反馈内容不能为空');
     if (content.length > 500) throw new BadRequestException('反馈内容不能超过 500 字');
@@ -774,14 +2469,15 @@ export class StoreService implements OnModuleInit {
       : this.feedbackCategories.filter((item) => item.enabled).sort((a, b) => a.sortOrder - b.sortOrder)[0];
     if (!category || !category.enabled) throw new BadRequestException('请选择可用的反馈分类');
 
-    const sourcePage = typeof input.sourcePage === 'string' && input.sourcePage.trim()
-      ? input.sourcePage.trim()
-      : '/pages/help/feedback';
+    const sourcePage =
+      typeof input.sourcePage === 'string' && input.sourcePage.trim()
+        ? input.sourcePage.trim()
+        : '/pages/help/feedback';
     if (!sourcePage.startsWith('/pages/') || sourcePage.length > 160) {
       throw new BadRequestException('反馈来源页面不合法');
     }
 
-    const screenshots = this.resolveFeedbackScreenshotIds(userId, input.assetIds);
+    const screenshots = await this.resolveFeedbackScreenshotIds(userId, input.assetIds);
     const ticket: FeedbackTicket = {
       id: id('ticket'),
       userId,
@@ -818,7 +2514,7 @@ export class StoreService implements OnModuleInit {
     ticket.repliedAt = now();
     // A reply is work in progress, not proof that the issue has been solved.
     if (ticket.status === 'open') ticket.status = 'processing';
-    this.audit(adminId, 'FEEDBACK_REPLY', 'FeedbackTicket', ticket.id, before, ticket);
+    await this.audit(adminId, 'FEEDBACK_REPLY', 'FeedbackTicket', ticket.id, before, ticket);
     await this.persistAndFlush();
     return ticket;
   }
@@ -846,7 +2542,7 @@ export class StoreService implements OnModuleInit {
 
     const before = { ...ticket };
     ticket.status = nextStatus;
-    this.audit(adminId, 'FEEDBACK_STATUS', 'FeedbackTicket', ticket.id, before, ticket);
+    await this.audit(adminId, 'FEEDBACK_STATUS', 'FeedbackTicket', ticket.id, before, ticket);
     await this.persistAndFlush();
     return ticket;
   }
@@ -864,7 +2560,10 @@ export class StoreService implements OnModuleInit {
     const dimensions = imageDimensions(file.buffer, file.mimetype);
     const asset: MediaAsset = {
       id: assetId,
-      userId: this.getDemoUserId(),
+      // Uploads are owned by the caller. createMood refuses attachments whose asset.userId is not
+      // the mood owner, so attributing uploads to the demo account while attributing moods to the
+      // caller would make every attached image look like somebody else's.
+      userId: this.requireViewerId(),
       storageKey,
       url: `/uploads/${storageKey}`,
       mimeType: file.mimetype,
@@ -875,31 +2574,96 @@ export class StoreService implements OnModuleInit {
       status: 'ready',
       createdAt: now(),
     };
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     await this.flush();
     return asset;
   }
 
-  async createDiaryExport(userId = this.getDemoUserId()) {
-    const generatedAt = now();
-    const diaries = this.diaries
-      .filter((item) => item.userId === userId)
-      .map((item) => {
-        const attachmentIds = item.attachmentIds ?? this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [];
-        return {
-          ...item,
-          attachments: this.mediaByIds(attachmentIds).map((asset) => ({
-            id: asset.id,
-            url: asset.url,
-            mimeType: asset.mimeType,
-            size: asset.size,
-            width: asset.width,
-            height: asset.height,
-            createdAt: asset.createdAt,
+  async createDiaryExport(userId: string) {
+    return await this.withUserDataLock(userId, async () => {
+      await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
+      const generatedAt = now();
+      const diaryRows = DIRECT_DB_MODELS.Diary ? await this.diariesDb.listForUser(userId) : this.diaries;
+      const linkedMoodIds = new Set(diaryRows.map((item: any) => item.moodId).filter((id): id is string => Boolean(id)));
+      const moodRows = DIRECT_DB_MODELS.Mood ? await this.moodsDb.listForUser(userId) : this.moods;
+      const letterByMoodId = DIRECT_DB_MODELS.Letter
+        ? await this.lettersDb.latestBySourceMoods(
+            (moodRows as Array<{ id: string }>).map((item) => item.id),
+            userId,
+          )
+        : new Map<string, { generationStatus?: string; id?: string } | null>();
+      const projectedMoods = (moodRows as any[])
+        .filter((item) => item.userId === userId && item.visibility === 'PRIVATE' && item.status === 'active' && !linkedMoodIds.has(item.id))
+        .map((mood) => {
+          const letter = DIRECT_DB_MODELS.Letter
+            ? letterByMoodId.get(mood.id)
+            : this.letters.find((item) => item.userId === userId && item.sourceMoodId === mood.id);
+          const hasLetter = Boolean(
+            letter && (!letter.generationStatus || ['succeeded', 'fallback'].includes(letter.generationStatus)),
+          );
+          return {
+            id: mood.id,
+            userId: mood.userId,
+            moodId: mood.id,
+            letterId: hasLetter ? letter?.id : undefined,
+            hasLetter,
+            source: 'private-mood-projection',
+            content: mood.content,
+            emotion: mood.emotion,
+            createdAt: mood.createdAt,
+            attachmentIds: mood.attachmentIds,
+          };
+        });
+      const allEntries = [...diaryRows, ...projectedMoods];
+      const diaries = (
+        await Promise.all(
+          allEntries.map(async (item: any) => ({
+            ...item,
+            attachmentIds:
+              item.attachmentIds ??
+              (item.moodId && DIRECT_DB_MODELS.Mood
+                ? await this.moodsDb.attachmentIdsFor(item.moodId)
+                : (this.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? [])),
           })),
-        };
-      });
+        )
+      );
+    // `attachmentIds` are ids, not rows. Mapping over them as if they were `MediaAsset` objects
+    // produced an attachments array of all-undefined fields whenever a diary actually had
+    // attachments, so the exported file could not describe the images it was exporting.
+    //
+    // Owner-scoped on purpose: a diary row can name an asset id belonging to somebody else (the
+    // column has no foreign key), and an export is a file the user downloads - it must not carry
+    // another account's storageKey, url, size or created time.
+    const attachmentsById = new Map(
+      (
+        DIRECT_DB_MODELS.MediaAsset
+          ? await this.mediaAssetsDb.ownedReadyByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []), userId)
+          : await this.mediaByIds(diaries.flatMap((item: any) => item.attachmentIds ?? []))
+      ).map((asset) => [asset.id, asset]),
+    );
+    const exportedDiaries = diaries.map((item: any) => {
+      const resolved = (((item.attachmentIds ?? []) as string[])
+        .map((assetId) => attachmentsById.get(assetId))
+        .filter((asset): asset is MediaAsset => Boolean(asset)) as MediaAsset[]).map((asset) => ({
+        id: asset.id,
+        url: asset.url,
+        mimeType: asset.mimeType,
+        size: asset.size,
+        width: asset.width,
+        height: asset.height,
+        createdAt: asset.createdAt,
+      }));
+      return {
+        ...item,
+        attachments: resolved,
+        // Ids that did not resolve are named rather than dropped silently: a diary can carry an id
+        // that belongs to another account or whose row is gone, and an export whose attachmentIds
+        // and attachments disagree without saying why is unreadable to whoever inspects it.
+        unresolvedAttachmentIds: ((item.attachmentIds ?? []) as string[]).filter((id) => !attachmentsById.has(id)),
+      };
+    });
     const assetId = id('export');
     const storageKey = `diary-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
     const target = path.join(uploadsDirectory, storageKey);
@@ -920,111 +2684,543 @@ export class StoreService implements OnModuleInit {
       format: 'goodnight-treehole-diary-export/v1',
       generatedAt,
       count: diaries.length,
-      diaries,
+      diaries: exportedDiaries,
     };
     const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
     asset.size = contents.length;
 
     fs.mkdirSync(uploadsDirectory, { recursive: true });
     fs.writeFileSync(target, contents);
-    this.assets.unshift(asset);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
     this.persist();
     try {
       await this.flush();
     } catch (error) {
-      this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      // The row was written before the flush failed, so undoing the export means removing it from the
+      // table as well: leaving it would keep a URL that points at a file the next line deletes.
+      if (DIRECT_DB_MODELS.MediaAsset) {
+        await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+      } else {
+        this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      }
       if (fs.existsSync(target)) fs.unlinkSync(target);
       throw error;
     }
 
-    return {
-      count: diaries.length,
-      generatedAt,
-      downloadUrl: asset.url,
-      asset: { ...asset, filename: diaryExportFilename(generatedAt) },
-    };
+        return {
+          count: diaries.length,
+          generatedAt,
+          downloadUrl: asset.url,
+          asset: { ...asset, filename: diaryExportFilename(generatedAt) },
+        };
+      });
   }
 
-  getDiaryExportDownload(assetId: string, userId = this.getDemoUserId()) {
-    const asset = this.assets.find((item) => item.id === assetId && item.userId === userId && item.usageType === 'diary-export' && item.status === 'ready');
+  async createJourneyArchiveExport(journeyId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return await this.withUserDataLock(userId, async () => {
+      await this.privacyAllows(userId, 'allowDataExport', '请先在隐私设置中允许导出个人数据');
+      const archive = await this.journeyArchiveDetail(journeyId, userId);
+      const generatedAt = now();
+      const assetId = id('export');
+      const storageKey = `journey-archive-export-${journeyId}-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
+      const target = path.join(uploadsDirectory, storageKey);
+      const asset: MediaAsset = {
+        id: assetId,
+        userId,
+        storageKey,
+        url: `/api/v1/exports/${assetId}/download`,
+        mimeType: 'application/json; charset=utf-8',
+        size: 0,
+        width: 0,
+        height: 0,
+        usageType: 'journey-archive-export',
+        status: 'ready',
+        createdAt: generatedAt,
+      };
+      const document = {
+        format: 'goodnight-treehole-journey-archive-export/v1',
+        generatedAt,
+        archive,
+      };
+      const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+      asset.size = contents.length;
+      fs.mkdirSync(uploadsDirectory, { recursive: true });
+      fs.writeFileSync(target, contents);
+      if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+      else this.assets.unshift(asset);
+      this.persist();
+      try {
+        await this.flush();
+      } catch (error) {
+        // The row was written before the flush failed, so undoing the export means removing it from the
+        // table as well: leaving it would keep a URL that points at a file the next line deletes.
+        if (DIRECT_DB_MODELS.MediaAsset) {
+          await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+        } else {
+          this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+        }
+        if (fs.existsSync(target)) fs.unlinkSync(target);
+        throw error;
+      }
+
+      return {
+        generatedAt,
+        downloadUrl: asset.url,
+        asset: { ...asset, filename: journeyArchiveExportFilename(generatedAt) },
+      };
+    });
+  }
+
+  async getDiaryExportDownload(assetId: string, userId: string) {
+    return this.getExportDownload(assetId, userId);
+  }
+
+  /**
+   * Owner scoping for the **user-facing** export download.
+   *
+   * MediaAsset stays table-bound, so the row is read first and the owner compared afterwards.
+   * `usageType` is filtered here rather than in the `where` because the diary and journey paths
+   * share this method: a ticket id or a poster id must not resolve as an export.
+   *
+   * `user-export` is deliberately NOT in this list. The admin user export is attributed to the demo
+   * account because `MediaAsset.userId` is a foreign key and has to name a real user, so an owner
+   * check alone cannot tell "my own export" from "the admin export". It is reachable only through
+   * the admin route, which is behind the admin token guard; admitting it here let any caller who
+   * could read the demo account download every user's profile and privacy settings.
+   */
+  private async findExportDownload(assetId: string, userId: string): Promise<MediaAsset | null> {
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const row = await this.mediaAssetsDb.get(assetId);
+      const usageTypes = USER_EXPORT_USAGE_TYPES;
+      return row && row.userId === userId && usageTypes.includes(row.usageType) && row.status === 'ready'
+        ? row
+        : null;
+    }
+    const item = this.assets.find(
+      (item) =>
+        item.id === assetId &&
+        item.userId === userId &&
+        USER_EXPORT_USAGE_TYPES.includes(item.usageType) &&
+        item.status === 'ready',
+    );
+    return item ?? null;
+  }
+
+  async getExportDownload(assetId: string, userId: string) {
+    const asset = await this.findExportDownload(assetId, userId);
     if (!asset) throw new NotFoundException('导出文件不存在或无权访问');
     const target = path.resolve(uploadsDirectory, asset.storageKey);
     if (!target.startsWith(`${uploadsDirectory}${path.sep}`) || !fs.existsSync(target)) {
       throw new NotFoundException('导出文件已不存在，请重新导出');
     }
-    return { asset, filePath: target, filename: diaryExportFilename(asset.createdAt) };
+    const filename =
+      asset.usageType === 'journey-archive-export'
+        ? journeyArchiveExportFilename(asset.createdAt)
+        : asset.usageType === 'user-export'
+          ? userExportFilename(asset.createdAt)
+          : diaryExportFilename(asset.createdAt);
+    return { asset, filePath: target, filename };
+  }
+
+  private readonly inMemoryUserDataLocks = new Set<string>();
+
+  async withUserDataLock<T>(userId: string, action: () => Promise<T>): Promise<T> {
+    const deadline = Date.now() + 10_000;
+    while (this.inMemoryUserDataLocks.has(userId)) {
+      if (Date.now() > deadline) throw new ConflictException('数据正在导出或清理中，请稍后再试');
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    this.inMemoryUserDataLocks.add(userId);
+
+    try {
+      const lockKey = crypto.createHash('md5').update(`user_data_lock:${userId}`).digest().readInt32BE(0);
+      if (typeof this.prisma?.$transaction === 'function') {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+            return await action();
+          },
+          { timeout: 30_000 },
+        );
+      }
+      return await action();
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (typeof this.prisma?.$transaction !== 'function') {
+        return await action();
+      }
+      throw error;
+    } finally {
+      this.inMemoryUserDataLocks.delete(userId);
+    }
+  }
+
+  /**
+   * Cleans up all user-owned derivative files and unattached media assets when `clearData` is called.
+   *
+   * Covers:
+   *   - diary-export & journey-archive-export files
+   *   - letter-poster & monthly-report-poster files (which contain letter/report text)
+   *   - orphaned mood and diary attachments that are no longer referenced by any remaining row
+   *
+   * By querying the MediaAsset table by userId directly, this is idempotent and succeeds even if
+   * clearData is retried after a previous partial failure.
+   */
+  async cleanupUserMediaAndExports(userId: string) {
+    const cleanableTypes = [
+      'diary-export',
+      'journey-archive-export',
+      'letter-poster',
+      'monthly-report-poster',
+      'mood',
+      'diary',
+    ];
+
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const candidates = await this.prisma.mediaAsset.findMany({
+        where: { userId, status: 'ready', usageType: { in: cleanableTypes } },
+      });
+      for (const asset of candidates) {
+        let inUse = false;
+        if (asset.usageType === 'mood' || asset.usageType === 'diary') {
+          const [attachedToMood, attachedToDiary, inTicket] = await Promise.all([
+            this.mediaAssetsDb.isAttachedToAnyRow(asset.id),
+            DIRECT_DB_MODELS.Diary
+              ? this.diariesDb.isAttachedToAnyRow(asset.id)
+              : this.diaries.some((d: any) => (d.attachmentIds ?? []).includes(asset.id)),
+            DIRECT_DB_MODELS.FeedbackTicket
+              ? this.feedbackPersistence.isScreenshotReferencedByAnyTicket(asset.id)
+              : this.feedbackTickets.some((t) => this.storedFeedbackScreenshotIds(t.screenshots).includes(asset.id)),
+          ]);
+          inUse = attachedToMood || attachedToDiary || inTicket;
+        }
+        if (!inUse) {
+          const target = path.resolve(uploadsDirectory, asset.storageKey);
+          if (fs.existsSync(target)) {
+            fs.unlinkSync(target);
+          }
+          await this.mediaAssetsDb.markDeleted(asset.id);
+        }
+      }
+      return;
+    }
+
+    const memoryExports = this.assets.filter(
+      (asset) => asset.userId === userId && asset.status === 'ready' && cleanableTypes.includes(asset.usageType),
+    );
+    for (const asset of memoryExports) {
+      let inUse = false;
+      if (asset.usageType === 'mood' || asset.usageType === 'diary') {
+        const inMood = this.moods.some((m) => (m.attachmentIds ?? []).includes(asset.id));
+        const inDiary = this.diaries.some((d: any) => (d.attachmentIds ?? []).includes(asset.id));
+        const inTicket = this.feedbackTickets.some((t) => this.storedFeedbackScreenshotIds(t.screenshots).includes(asset.id));
+        inUse = inMood || inDiary || inTicket;
+      }
+      if (!inUse) {
+        const target = path.resolve(uploadsDirectory, asset.storageKey);
+        if (fs.existsSync(target)) {
+          fs.unlinkSync(target);
+        }
+        asset.status = 'deleted';
+      }
+    }
+    this.data.assets = this.data.assets.filter((a) => a.status !== 'deleted');
+  }
+
+  async deletePrivateMoodsForUser(userId: string): Promise<string[]> {
+    if (DIRECT_DB_MODELS.Mood) {
+      return await this.moodsDb.deletePrivateForUser(userId);
+    }
+    const privateMoods = this.moods.filter((item) => item.userId === userId && item.visibility === 'PRIVATE');
+    const assetIds = privateMoods.flatMap((m) => m.attachmentIds ?? []);
+    this.data.moods = this.data.moods.filter((item) => !(item.userId === userId && item.visibility === 'PRIVATE'));
+    return assetIds;
+  }
+
+  /**
+   * Writes a real admin user export to disk and returns a URL the admin can download.
+   *
+   * The previous implementation returned a hard-coded `/exports/users-<ts>.json` that no
+   * code ever wrote and no route served, so the admin UI reported a successful export for
+   * a file that did not exist (product audit ISSUE-002). This reuses the same MediaAsset
+   * mechanism as the diary and journey-archive exports so the returned URL really resolves.
+   *
+   * MediaAsset.userId is a foreign key to User, so the row has to be attributed to a real
+   * user account; it is attributed to the runtime user. That does not make it public: the
+   * user-facing download route only accepts the diary and journey-archive usage types, so a
+   * `user-export` asset can only be fetched through the admin route, which is behind the
+   * admin token guard.
+   */
+  async createUserExport() {
+    const generatedAt = now();
+    const assetId = id('export');
+    const storageKey = `user-export-${generatedAt.replace(/[:.]/g, '-')}-${assetId}.json`;
+    const target = path.join(uploadsDirectory, storageKey);
+    // Nickname and status are database-authoritative, so the export reads the rows rather than this
+    // instance's boot-time copy: another instance may have saved either value since.
+    const rows = await this.prisma.user.findMany({
+      select: { id: true, nickname: true, anonymousCode: true, status: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const users = await Promise.all(
+      rows.map(async (user) => ({
+        id: user.id,
+        nickname: user.nickname,
+        anonymousCode: user.anonymousCode,
+        status: user.status,
+        createdAt: user.createdAt.toISOString(),
+        privacy: DIRECT_DB_MODELS.PrivacySetting
+          ? await this.selfPersistence.getPrivacySettings(user.id)
+          : this.privacySettings[user.id] ?? null,
+      })),
+    );
+    const asset: MediaAsset = {
+      id: assetId,
+      userId: this.getDemoUserId(),
+      storageKey,
+      url: `/api/admin/v1/users/export/${assetId}/download`,
+      mimeType: 'application/json; charset=utf-8',
+      size: 0,
+      width: 0,
+      height: 0,
+      usageType: 'user-export',
+      status: 'ready',
+      createdAt: generatedAt,
+    };
+    const document = {
+      format: 'goodnight-treehole-user-export/v1',
+      generatedAt,
+      count: users.length,
+      users,
+    };
+    const contents = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+    asset.size = contents.length;
+    fs.mkdirSync(uploadsDirectory, { recursive: true });
+    fs.writeFileSync(target, contents);
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+    else this.assets.unshift(asset);
+    this.persist();
+    try {
+      await this.flush();
+    } catch (error) {
+      // The row was written before the flush failed, so undoing the export means removing it from the
+      // table as well: leaving it would keep a URL that points at a file the next line deletes.
+      if (DIRECT_DB_MODELS.MediaAsset) {
+        await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+      } else {
+        this.data.assets = this.data.assets.filter((item) => item.id !== asset.id);
+      }
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+      throw error;
+    }
+    return { generatedAt, count: users.length, downloadUrl: asset.url, assetId: asset.id };
+  }
+
+  /**
+   * Resolves an admin user-export asset for download. Callers are already behind the admin
+   * token guard, so no further per-admin scoping is applied.
+   */
+  async getUserExportDownload(assetId: string) {
+    const asset = DIRECT_DB_MODELS.MediaAsset
+      ? await this.mediaAssetsDb.get(assetId)
+      : this.assets.find(
+          (item) => item.id === assetId && item.usageType === 'user-export' && item.status === 'ready',
+        );
+    // The usage type is checked after the read rather than in a where clause, because the caller is
+    // already past the admin token guard and only the admin route serves this asset type.
+    if (!asset || asset.usageType !== 'user-export' || asset.status !== 'ready') {
+      throw new NotFoundException('导出文件不存在或无权访问');
+    }
+    const target = path.resolve(uploadsDirectory, asset.storageKey);
+    if (!target.startsWith(`${uploadsDirectory}${path.sep}`) || !fs.existsSync(target)) {
+      throw new NotFoundException('导出文件已不存在，请重新导出');
+    }
+    return { asset, filePath: target, filename: userExportFilename(asset.createdAt) };
   }
 
   async createLetterPoster(letter: Letter): Promise<MediaAsset> {
-    const assetId = id('media');
-    const storageKey = `poster_${letter.id}_${Date.now()}.svg`;
-    const title = escapeSvgText(letter.title || '给现在的你');
-    const content = escapeSvgText(letter.content || '愿你今晚被温柔接住。').slice(0, 420);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#fff8eb"/><circle cx="920" cy="150" r="190" fill="#e5f2d3"/><path d="M0 1180 Q240 1030 460 1190 T1080 1160 V1440 H0Z" fill="#d8ead4"/><text x="100" y="210" font-family="sans-serif" font-size="42" fill="#76916f">晚安树洞 · 今日回信</text><text x="100" y="340" font-family="sans-serif" font-weight="700" font-size="66" fill="#4a5a48">${title}</text><foreignObject x="100" y="440" width="880" height="720"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:38px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${content}</div></foreignObject><text x="100" y="1300" font-family="sans-serif" font-size="34" fill="#76916f">把此刻轻轻收好</text></svg>`;
-    const buffer = Buffer.from(svg, 'utf8');
-    fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
-    const asset: MediaAsset = {
-      id: assetId,
-      userId: letter.userId,
-      storageKey,
-      url: `/uploads/${storageKey}`,
-      mimeType: 'image/svg+xml',
-      size: buffer.length,
-      width: 1080,
-      height: 1440,
-      usageType: 'letter-poster',
-      status: 'ready',
-      createdAt: now(),
-    };
-    this.assets.unshift(asset);
-    this.persist();
-    await this.flush();
-    return asset;
+    return await this.withUserDataLock(letter.userId, async () => {
+      const assetId = id('media');
+      const storageKey = `poster_${letter.userId}_${letter.id}_${assetId}.svg`;
+      const title = escapeSvgText(letter.title || '给现在的你');
+      const content = escapeSvgText(letter.content || '愿你今晚被温柔接住。').slice(0, 420);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#fff8eb"/><circle cx="920" cy="150" r="190" fill="#e5f2d3"/><path d="M0 1180 Q240 1030 460 1190 T1080 1160 V1440 H0Z" fill="#d8ead4"/><text x="100" y="210" font-family="sans-serif" font-size="42" fill="#76916f">晚安树洞 · 今日回信</text><text x="100" y="340" font-family="sans-serif" font-weight="700" font-size="66" fill="#4a5a48">${title}</text><foreignObject x="100" y="440" width="880" height="720"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:38px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${content}</div></foreignObject><text x="100" y="1300" font-family="sans-serif" font-size="34" fill="#76916f">把此刻轻轻收好</text></svg>`;
+      const buffer = Buffer.from(svg, 'utf8');
+      fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
+      const asset: MediaAsset = {
+        id: assetId,
+        userId: letter.userId,
+        storageKey,
+        url: `/uploads/${storageKey}`,
+        mimeType: 'image/svg+xml',
+        size: buffer.length,
+        width: 1080,
+        height: 1440,
+        usageType: 'letter-poster',
+        status: 'ready',
+        createdAt: now(),
+      };
+      if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+      else this.assets.unshift(asset);
+      this.persist();
+      await this.flush();
+      return asset;
+    });
   }
 
   async createMonthlyReportPoster(userId: string, month: string, summary: string): Promise<MediaAsset> {
-    const assetId = id('media');
-    const storageKey = `report_${month.replace(/[^0-9-]/g, '')}_${Date.now()}.svg`;
-    const safeMonth = escapeSvgText(month);
-    const safeSummary = escapeSvgText(summary || '本月的情绪记录正在汇总中。').slice(0, 420);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#f6fbf1"/><circle cx="160" cy="170" r="170" fill="#fff0c9"/><path d="M0 1240 Q220 1080 490 1220 T1080 1190 V1440 H0Z" fill="#dcebd4"/><text x="100" y="250" font-family="sans-serif" font-size="42" fill="#6f8c72">晚安树洞 · 情绪月报</text><text x="100" y="365" font-family="sans-serif" font-weight="700" font-size="70" fill="#3f5541">${safeMonth}</text><foreignObject x="100" y="470" width="880" height="670"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:40px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${safeSummary}</div></foreignObject><text x="100" y="1310" font-family="sans-serif" font-size="34" fill="#6f8c72">看见情绪，也看见正在努力的自己</text></svg>`;
-    const buffer = Buffer.from(svg, 'utf8');
-    fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
-    const asset: MediaAsset = { id: assetId, userId, storageKey, url: `/uploads/${storageKey}`, mimeType: 'image/svg+xml', size: buffer.length, width: 1080, height: 1440, usageType: 'monthly-report-poster', status: 'ready', createdAt: now() };
-    this.assets.unshift(asset);
-    this.persist();
-    await this.flush();
-    return asset;
+    return await this.withUserDataLock(userId, async () => {
+      const assetId = id('media');
+      const storageKey = `report_${userId}_${month.replace(/[^0-9-]/g, '')}_${assetId}.svg`;
+      const safeMonth = escapeSvgText(month);
+      const safeSummary = escapeSvgText(summary || '本月的情绪记录正在汇总中。').slice(0, 420);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><rect width="1080" height="1440" fill="#f6fbf1"/><circle cx="160" cy="170" r="170" fill="#fff0c9"/><path d="M0 1240 Q220 1080 490 1220 T1080 1190 V1440 H0Z" fill="#dcebd4"/><text x="100" y="250" font-family="sans-serif" font-size="42" fill="#6f8c72">晚安树洞 · 情绪月报</text><text x="100" y="365" font-family="sans-serif" font-weight="700" font-size="70" fill="#3f5541">${safeMonth}</text><foreignObject x="100" y="470" width="880" height="670"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif;font-size:40px;line-height:1.75;color:#465244;white-space:pre-wrap;word-break:break-word;">${safeSummary}</div></foreignObject><text x="100" y="1310" font-family="sans-serif" font-size="34" fill="#6f8c72">看见情绪，也看见正在努力的自己</text></svg>`;
+      const buffer = Buffer.from(svg, 'utf8');
+      fs.writeFileSync(path.join(uploadsDirectory, storageKey), buffer);
+      const asset: MediaAsset = {
+        id: assetId,
+        userId,
+        storageKey,
+        url: `/uploads/${storageKey}`,
+        mimeType: 'image/svg+xml',
+        size: buffer.length,
+        width: 1080,
+        height: 1440,
+        usageType: 'monthly-report-poster',
+        status: 'ready',
+        createdAt: now(),
+      };
+      if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.create({ ...asset, createdAt: new Date(asset.createdAt) });
+      else this.assets.unshift(asset);
+      this.persist();
+      await this.flush();
+      return asset;
+    });
   }
 
-  async deleteMediaAsset(assetId: string) {
-    const asset = this.assets.find((item) => item.id === assetId && item.userId === this.getDemoUserId() && item.status === 'ready');
+  async deleteMediaAsset(assetId: string, requestedUserId?: string) {
+    // Scoped to the caller, not to the demo account. The legacy array only ever held the demo
+    // user's uploads, so the demo id was the only possible scope then; upload now attributes the
+    // row to the real caller, and a delete still scoped to the demo id would 404 every other user's
+    // own draft image - which is what it did.
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
+    const asset = DIRECT_DB_MODELS.MediaAsset
+      ? await this.mediaAssetsDb.findOwnedReady(assetId, userId)
+      : this.assets.find((item) => item.id === assetId && item.userId === userId && item.status === 'ready');
     if (!asset) throw new NotFoundException('图片不存在');
+    // Attached, by the join rows' own `mediaAssetId`. The previous check passed the asset id where
+    // a `moodId` was expected, which answers a different question and always returns false for an
+    // asset id - so an image that was attached to a published mood or diary was deleted anyway and
+    // the content then pointed at a file that no longer exists.
     const attached =
-      [...this.moods, ...this.posts].some((item: any) => item.attachmentIds?.includes(assetId)) ||
-      this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId));
+      (DIRECT_DB_MODELS.MediaAsset
+        ? await this.mediaAssetsDb.isAttachedToAnyRow(assetId)
+        : this.moods.some((item) => (item.attachmentIds ?? []).includes(assetId))) ||
+      (DIRECT_DB_MODELS.Diary
+        ? await this.diariesDb.isAttachedToAnyRow(assetId)
+        : this.diaries.some((item: any) => (item.attachmentIds ?? []).includes(assetId))) ||
+      // The real route writes tickets through `FeedbackPersistenceService`, so the check has to ask
+      // the table. The in-memory array only holds tickets this instance wrote itself, which let an
+      // image attached to a live ticket be deleted out from under it.
+      (DIRECT_DB_MODELS.FeedbackTicket
+        ? await this.feedbackPersistence.isScreenshotReferencedByAnyTicket(assetId)
+        : this.feedbackTickets.some((ticket) => this.storedFeedbackScreenshotIds(ticket.screenshots).includes(assetId)));
     if (attached) throw new ForbiddenException('已发布内容的图片不能在草稿删除接口中移除');
     const target = path.join(uploadsDirectory, asset.storageKey);
     if (fs.existsSync(target)) fs.unlinkSync(target);
-    asset.status = 'deleted';
+    if (DIRECT_DB_MODELS.MediaAsset) await this.mediaAssetsDb.markDeleted(assetId);
+    else asset.status = 'deleted';
     await this.persistAndFlush();
   }
 
-  mediaByIds(assetIds: string[] = []) {
+  /**
+   * The attachment list for a diary, letter or post.
+   *
+   * When MediaAsset is registered the assets are read by id, and `mediaAssetCache` holds the ones
+   * this request already loaded (the decoration context fills it for the page it is serving). A
+   * caller that has not filled it gets a database read rather than an empty list.
+   */
+  async mediaByIds(assetIds: string[] = []) {
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const found = new Map(this.mediaAssetCache);
+      const missing = [...new Set(assetIds)].filter((id) => !found.has(id));
+      if (missing.length) {
+        for (const asset of await this.mediaAssetsDb.readyByIds(missing)) found.set(asset.id, asset);
+      }
+      return assetIds.map((id) => found.get(id)).filter((asset): asset is MediaAsset => Boolean(asset));
+    }
     return assetIds
       .map((assetId) => this.assets.find((asset) => asset.id === assetId && asset.status === 'ready'))
       .filter((asset): asset is MediaAsset => Boolean(asset));
   }
 
-  decoratePost(post: PostItem) {
+  /**
+   * Everything `decoratePost` needs that does not come from the post row itself.
+   *
+   * Built **once per request**, not per post. `decoratePost` runs inside loops - the public feed and
+   * the admin list both call it for every row - and both lookups are the same for every row in that
+   * loop, so reading them per row would be the N+1 that converting `Favorite` and `MediaAsset` to
+   * database authority would otherwise introduce.
+   *
+   * It is a required parameter on `decoratePost` rather than an optional one on purpose: a caller that
+   * omits it would get `favoritedByCurrentUser === false` and no attachments with no error anywhere,
+   * which is the silent-constant failure this seam exists to prevent.
+   */
+  async buildPostDecorationContext(
+    posts: Array<Pick<PostItem, 'id' | 'attachmentIds'>>,
+  ): Promise<PostDecorationContext> {
+    const viewer = this.viewerUserId();
+    const favoritedPostIds = viewer
+      ? DIRECT_DB_MODELS.Favorite
+        ? await this.favoritesDb.postIdsForUser(viewer)
+        : new Set(
+            this.data.favorites
+              .filter((item) => item.userId === viewer && item.targetType === 'post')
+              .map((item) => item.targetId),
+          )
+      : new Set<string>();
+
+    // One query for the whole page's assets, then the per-row loop reads the map. Reading the table
+    // per row inside a feed loop is exactly the N+1 this seam exists to prevent.
+    this.mediaAssetCache = new Map();
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      const needed = [...new Set(posts.flatMap((post) => post.attachmentIds ?? []))];
+      for (const asset of await this.mediaAssetsDb.readyByIds(needed)) {
+        this.mediaAssetCache.set(asset.id, asset);
+      }
+    }
+    const assetsById = new Map<string, MediaAsset>();
+    for (const post of posts) {
+      for (const assetId of post.attachmentIds ?? []) {
+        if (assetsById.has(assetId)) continue;
+        const asset = DIRECT_DB_MODELS.MediaAsset
+          ? this.mediaAssetCache.get(assetId)
+          : this.assets.find((item) => item.id === assetId && item.status === 'ready');
+        if (asset) assetsById.set(assetId, asset);
+      }
+    }
+
+    return { favoritedPostIds, assetsById };
+  }
+
+  decoratePost(post: PostItem, context: PostDecorationContext) {
     const attachmentIds = post.attachmentIds ?? [];
-    post.attachments = this.mediaByIds(attachmentIds);
-    const ownerPrivacy = this.privacySettings[post.userId];
+    post.attachments = attachmentIds
+      .map((assetId) => context.assetsById.get(assetId))
+      .filter((asset): asset is MediaAsset => Boolean(asset));
+    const ownerPrivacy = DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(post.userId)
+      : this.privacySettings[post.userId];
     const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
-    post.allowHumanReplies = post.visibility === 'PUBLIC' && post.reviewStatus === 'published' && ownerPrivacy?.allowHumanReplies !== false && systemAllowsHumanReplies;
-    (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser = this.favorites.some(
-      (item) => item.userId === this.getDemoUserId() && item.targetType === 'post' && item.targetId === post.id,
-    );
+    post.allowHumanReplies =
+      post.visibility === 'PUBLIC' &&
+      post.reviewStatus === 'published' &&
+      ownerPrivacy?.allowHumanReplies !== false &&
+      systemAllowsHumanReplies;
+    (post as PostItem & { favoritedByCurrentUser?: boolean }).favoritedByCurrentUser =
+      context.favoritedPostIds.has(post.id);
     return post;
   }
 
@@ -1032,6 +3228,7 @@ export class StoreService implements OnModuleInit {
     // The relational mapper performs several awaited writes in one transaction.
     // Snapshot only when this queue entry begins: this avoids both in-transaction
     // mutation and an older queued snapshot overwriting a later user action.
+    this.mutationVersion += 1;
     this.persistQueue = this.persistQueue
       .catch(() => undefined)
       .then(async () => {
@@ -1049,6 +3246,27 @@ export class StoreService implements OnModuleInit {
     if (this.persistenceError) throw new Error(this.persistenceError);
   }
 
+  /**
+   * Waits for the writes already queued to reach the database.
+   *
+   * `persist()` only enqueues a snapshot; the flush runs the mapper. A caller that writes two rows
+   * across that boundary (a flush-owned row and a directly written one that references it) has to be
+   * able to wait for the first without pretending the second happened. Tests use it to keep the
+   * queue draining while asserting on the paths they are about.
+   */
+  async drainWrites(): Promise<void> {
+    await this.persistQueue;
+  }
+
+  private pendingAiCompletions: Set<Promise<any>> = new Set();
+
+  async drainPendingAiCompletions(): Promise<void> {
+    while (this.pendingAiCompletions.size > 0) {
+      const copy = [...this.pendingAiCompletions];
+      await Promise.allSettled(copy);
+    }
+  }
+
   async persistAndFlush() {
     this.persist();
     await this.flush();
@@ -1061,45 +3279,81 @@ export class StoreService implements OnModuleInit {
     return seedData();
   }
 
-  private migrateAiJobs() {
+  private async migrateAiJobs() {
+    if (DIRECT_DB_MODELS.AIJob) {
+      return;
+    }
     let changed = false;
     for (const job of this.data.aiJobs) {
       const legacyStatus = job.status as string;
-      if (legacyStatus === 'success') { job.status = 'succeeded'; changed = true; }
-      if (legacyStatus === 'fallback_completed') { job.status = 'fallback'; changed = true; }
-    }
-    if (changed) this.persist();
-  }
-
-  private recoverInterruptedAiJobs() {
-    let changed = false;
-    for (const job of this.data.aiJobs) {
-      if (!['queued', 'running'].includes(job.status)) continue;
-      job.status = 'failed';
-      job.completedAt = now();
-      job.errorMessage = [job.errorMessage, '任务在服务重启时未完成，已标记为失败，可在后台重试。'].filter(Boolean).join(' | ');
-      job.traceJson = [...(job.traceJson ?? []), { status: 'failed', reason: 'interrupted-by-service-restart' }];
-      changed = true;
-    }
-    if (changed) this.persist();
-  }
-
-  private reconcileFavoriteCounts() {
-    let changed = false;
-    for (const post of this.posts) {
-      const expected = this.favorites.filter((item) => item.targetType === 'post' && item.targetId === post.id).length;
-      if (post.favoriteCount !== expected) {
-        post.favoriteCount = expected;
+      if (legacyStatus === 'success') {
+        job.status = 'succeeded';
+        changed = true;
+      }
+      if (legacyStatus === 'fallback_completed') {
+        job.status = 'fallback';
         changed = true;
       }
     }
     if (changed) this.persist();
   }
 
-  private reconcileLetterFavorites() {
+  async recoverInterruptedAiJobs(options?: { stalenessThresholdMs?: number }) {
+    if (DIRECT_DB_MODELS.AIJob) {
+      return await this.batch1Persistence.recoverInterruptedAiJobs(options);
+    }
+    const stalenessThresholdMs =
+      options?.stalenessThresholdMs ?? Number(process.env.AI_JOB_STALENESS_MS || DEFAULT_AI_JOB_STALENESS_MS);
+    const staleBefore = Date.now() - stalenessThresholdMs;
+    let changed = false;
+    for (const job of this.data.aiJobs) {
+      if (!['queued', 'running'].includes(job.status)) continue;
+      const jobTime = job.createdAt ? Date.parse(job.createdAt) : 0;
+      if (jobTime > staleBefore) continue;
+      job.status = 'failed';
+      job.completedAt = now();
+      job.errorMessage = [job.errorMessage, '任务在服务重启时超时或中断，已标记为失败，可在后台重试。']
+        .filter(Boolean)
+        .join(' | ');
+      job.traceJson = [
+        ...(job.traceJson ?? []),
+        { status: 'failed', reason: 'stale-job-recovered-by-service-restart' },
+      ];
+      changed = true;
+    }
+    if (changed) this.persist();
+  }
+
+  /**
+   * Both denormalised post counters (`favoriteCount`, `replyCount`) are now written where the
+   * favourite and the reply are written, so boot has nothing to recompute. These two methods stay as
+   * seams rather than being deleted: if a future change restores a flush-owned copy of either column,
+   * a recount belonging here is better than one appearing in the next boot path.
+   */
+  private async reconcileFavoriteCounts() {
+    return;
+  }
+
+  private async reconcileLetterFavorites() {
+    // Letter is database-authoritative and the favourite path writes this column itself, so there is
+    // nothing left for boot to reconcile.
+    if (DIRECT_DB_MODELS.Letter) return;
+    if (DIRECT_DB_MODELS.Favorite) {
+      const keys = await this.favoritesDb.letterFavoriteKeys();
+      let changed = false;
+      for (const letter of this.letters) {
+        const expected = keys.has(`${letter.userId}:${letter.id}`);
+        if (Boolean(letter.favorite) !== expected) {
+          letter.favorite = expected;
+          changed = true;
+        }
+      }
+      if (changed) this.persist();
+      return;
+    }
     let changed = false;
     for (const letter of this.letters) {
-      const expected = this.isFavorite(letter.userId, 'letter', letter.id);
+      const expected = await this.isFavorite(letter.userId, 'letter', letter.id);
       if (Boolean(letter.favorite) !== expected) {
         letter.favorite = expected;
         changed = true;
@@ -1108,21 +3362,59 @@ export class StoreService implements OnModuleInit {
     if (changed) this.persist();
   }
 
-  private applyFavoriteRemoval(favorites: StoreData['favorites']) {
+  private async reconcileReplyCounts() {
+    return;
+  }
+
+  private async applyFavoriteRemoval(favorites: StoreData['favorites']) {
     for (const favorite of favorites) {
-      if (favorite.targetType === 'post') {
+      if (favorite.targetType === 'post' && !DIRECT_DB_MODELS.Post) {
         const post = this.posts.find((item) => item.id === favorite.targetId);
         if (post) post.favoriteCount = Math.max(0, post.favoriteCount - 1);
       }
       if (favorite.targetType === 'letter') {
-        const letter = this.letters.find((item) => item.id === favorite.targetId && item.userId === favorite.userId);
-        if (letter) letter.favorite = this.isFavorite(favorite.userId, 'letter', favorite.targetId);
+        if (DIRECT_DB_MODELS.Letter) {
+          // The removed row was this user's only favourite for the letter (the unique constraint is
+          // per user/type/target), so the flag is false.
+          await this.lettersDb.setFavorite(favorite.targetId, favorite.userId, false);
+        } else {
+          const letter = this.letters.find((item) => item.id === favorite.targetId && item.userId === favorite.userId);
+          if (letter) letter.favorite = false;
+        }
       }
     }
   }
 
-  enforceRemoteAiProviderPolicy() {
+  async enforceRemoteAiProviderPolicy() {
     if (visualFixtureMode) return;
+    const primary = this.remoteAi.primaryDefinition();
+    const secondary = this.remoteAi.secondaryDefinition();
+    const fallback = this.safeTemplateDefinition();
+
+    if (DIRECT_DB_MODELS.AIProvider) {
+      // Both models are database-authoritative. The runtime counters are read from the table so a
+      // reload does not reset them, and the definitions are re-applied with an upsert.
+      for (const [definition, keepCounters] of [
+        [primary, true],
+        [secondary, true],
+        [fallback, false],
+      ] as const) {
+        const current = await this.aiRoutingDb.getProvider(definition.id);
+        await this.aiRoutingDb.saveProvider({
+          ...definition,
+          todayCalls: keepCounters ? (current?.todayCalls ?? definition.todayCalls) : definition.todayCalls,
+          avgLatencyMs: keepCounters ? (current?.avgLatencyMs ?? definition.avgLatencyMs) : definition.avgLatencyMs,
+          failureRate: keepCounters ? (current?.failureRate ?? definition.failureRate) : definition.failureRate,
+        } as never);
+      }
+      await this.aiRoutingDb.applyPolicyToProviders([primary.id, secondary.id, fallback.id], {
+        disableUnmanaged: true,
+        markLocalMissing: true,
+      });
+      await this.aiRoutingDb.applyPolicyToRoutes(primary.id, secondary.id, fallback.id);
+      return;
+    }
+
     const upsert = (definition: AIProvider) => {
       const current = this.aiProviders.find((item) => item.id === definition.id);
       const next: AIProvider = {
@@ -1136,8 +3428,8 @@ export class StoreService implements OnModuleInit {
       return current ?? next;
     };
 
-    const primary = upsert(this.remoteAi.primaryDefinition());
-    const secondary = upsert(this.remoteAi.secondaryDefinition());
+    upsert(primary);
+    upsert(secondary);
     for (const provider of this.aiProviders) {
       const managedRemote = provider.id === primary.id || provider.id === secondary.id;
       const template = provider.providerKind === 'template' || provider.type === 'template';
@@ -1148,17 +3440,39 @@ export class StoreService implements OnModuleInit {
       }
       if (provider.type === 'local' || provider.providerKind === 'ollama') provider.apiKeyStatus = 'missing';
     }
-    const fallback = this.ensureSafeBackupTemplateProvider();
+    const fallbackProvider = this.ensureSafeBackupTemplateProvider();
     for (const route of this.aiRoutes) {
-      const changed = route.primaryProviderId !== primary.id || route.backupProviderId !== secondary.id || !route.fallbackTemplateId;
+      const changed =
+        route.primaryProviderId !== primary.id || route.backupProviderId !== secondary.id || !route.fallbackTemplateId;
       route.primaryProviderId = primary.id;
       route.backupProviderId = secondary.id;
-      route.fallbackTemplateId = fallback.id;
+      route.fallbackTemplateId = fallbackProvider.id;
       route.promptVersion = `dapi-${route.style}-v1`;
-      route.timeoutSeconds = Math.max(30, Number(route.timeoutSeconds ?? 30));
       if (changed) route.routeVersion = Math.max(1, Number(route.routeVersion ?? 0)) + 1;
     }
     this.persist();
+  }
+
+  /** The built-in last-resort provider, as data. Shared by both branches of the policy. */
+  private safeTemplateDefinition(): AIProvider {
+    return {
+      id: 'provider_safe_template',
+      name: '安全文案备用',
+      type: 'template',
+      providerKind: 'template',
+      baseUrl: 'local://safe-response-template',
+      modelName: 'safe-response-template',
+      apiKeyStatus: 'configured',
+      enabled: true,
+      priority: 98,
+      dailyLimit: 99_999,
+      timeoutSeconds: 1,
+      failoverEnabled: false,
+      usageTags: ['backup', 'template', 'safe'],
+      failureRate: 0,
+      avgLatencyMs: 1,
+      todayCalls: 0,
+    };
   }
 
   async syncOllamaModels(assignRoutes = true) {
@@ -1166,12 +3480,22 @@ export class StoreService implements OnModuleInit {
     this.ollamaLastCheckedAt = now();
     this.ollamaOnline = false;
     this.ollamaLastError = '本地模型已被 DAPI-only 运行策略禁用。';
-    this.enforceRemoteAiProviderPolicy();
+    await this.enforceRemoteAiProviderPolicy();
     await this.flush();
-    return { online: false, disabled: true, baseUrl: 'disabled://local-model', models: [], providers: [], error: this.ollamaLastError };
+    return {
+      online: false,
+      disabled: true,
+      baseUrl: 'disabled://local-model',
+      models: [],
+      providers: [],
+      error: this.ollamaLastError,
+    };
   }
 
-  ollamaStatus() {
+  async ollamaStatus() {
+    // AIProvider is database-authoritative, so the provider list comes from the table. Local models
+    // are disabled outright here, which is why `online` and `modelCount` stay constant.
+    const providers = DIRECT_DB_MODELS.AIProvider ? await this.aiRoutingDb.listProviders() : this.aiProviders;
     return {
       baseUrl: 'disabled://local-model',
       online: false,
@@ -1179,19 +3503,25 @@ export class StoreService implements OnModuleInit {
       modelCount: 0,
       lastCheckedAt: this.ollamaLastCheckedAt,
       error: this.ollamaLastError,
-      models: this.aiProviders.filter((provider) => provider.providerKind === 'ollama').map((provider) => ({
-        providerId: provider.id,
-        name: provider.modelName,
-        enabled: provider.enabled,
-        ...provider.modelMeta,
-      })),
+      models: providers
+        .filter((provider) => provider.providerKind === 'ollama')
+        .map((provider) => ({
+          providerId: provider.id,
+          name: provider.modelName,
+          enabled: provider.enabled,
+          // The table column is JSON, so the spread needs a guard: spreading a non-object would
+          // throw at runtime, and TypeScript refuses `unknown` here.
+          ...(provider.modelMeta && typeof provider.modelMeta === 'object' ? provider.modelMeta : {}),
+        })),
     };
   }
 
   private isTextOllamaProvider(provider?: AIProvider) {
     if (!provider || provider.providerKind !== 'ollama' || provider.type !== 'local') return false;
     const capabilities = provider.modelMeta?.capabilities ?? [];
-    return provider.usageTags.includes('text') || (capabilities.includes('completion') && !capabilities.includes('vision'));
+    return (
+      provider.usageTags.includes('text') || (capabilities.includes('completion') && !capabilities.includes('vision'))
+    );
   }
 
   private isUserFacingTextOllamaProvider(provider?: AIProvider) {
@@ -1230,29 +3560,118 @@ export class StoreService implements OnModuleInit {
   private appendAiTrace(job: AIJob, entry: Record<string, unknown>) {
     const event = { at: now(), ...entry };
     job.traceJson = [...(Array.isArray(job.traceJson) ? job.traceJson : []), event];
+    if (DIRECT_DB_MODELS.AIJob && job.id && job.status === 'running') {
+      void this.batch1Persistence.recordJobProgress({ id: job.id, traceEntry: event }).catch(() => {});
+    }
     return event;
+  }
+
+  /**
+   * The AI route for a task, read from wherever the routing tables live.
+   *
+   * Both models are registered together, so a single guard covers the pair.
+   */
+  private async resolveAiRouteRecord(style: string, taskType: string) {
+    if (DIRECT_DB_MODELS.AIStyleRoute) {
+      const rows = await this.aiRoutingDb.listRoutes();
+      const byStyle = rows.find((item) => item.style === style && item.enabled);
+      const byTask = rows.find(
+        (item) => item.enabled && Array.isArray(item.taskTypes) && (item.taskTypes as unknown[]).includes(taskType),
+      );
+      return byStyle ?? byTask ?? rows[0] ?? null;
+    }
+    return (
+      this.aiRoutes.find((item) => item.style === style && item.enabled) ??
+      this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType)) ??
+      this.aiRoutes[0] ??
+      null
+    );
+  }
+
+  private async findAiProviderRecord(id: string) {
+    if (DIRECT_DB_MODELS.AIProvider) return await this.aiRoutingDb.getProvider(id);
+    return this.aiProviders.find((item) => item.id === id) ?? null;
+  }
+
+  private async listAiProviderRecords() {
+    if (DIRECT_DB_MODELS.AIProvider) return await this.aiRoutingDb.listProviders();
+    return this.aiProviders as unknown as Awaited<ReturnType<AiRoutingPersistenceService['listProviders']>>;
+  }
+
+  /** Records the DAPI provider row when a peer draft needs it and the table does not have it yet. */
+  private async ensureAiProviderRecord(provider: AIProvider) {
+    if (DIRECT_DB_MODELS.AIProvider) {
+      await this.aiRoutingDb.saveProvider({
+        id: provider.id,
+        name: provider.name,
+        type: provider.type,
+        baseUrl: provider.baseUrl,
+        modelName: provider.modelName,
+        enabled: provider.enabled,
+        priority: provider.priority,
+        dailyLimit: provider.dailyLimit,
+        timeoutSeconds: provider.timeoutSeconds,
+        failoverEnabled: provider.failoverEnabled,
+        usageTags: provider.usageTags,
+        providerKind: provider.providerKind,
+        apiKeyStatus: provider.apiKeyStatus,
+      } as never);
+      return;
+    }
+    this.aiProviders.unshift(provider);
   }
 
   async testAiProvider(providerId: string) {
     const provider = this.aiProviders.find((item) => item.id === providerId);
     if (!provider) throw new NotFoundException('AI Provider 不存在');
-    if (!provider.enabled) return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: 'Provider 已停用' };
+    if (!provider.enabled)
+      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: 'Provider 已停用' };
     if (provider.type === 'local' || provider.providerKind === 'ollama') {
-      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: '本地模型已被 DAPI-only 运行策略禁用。' };
+      return {
+        ok: false,
+        providerId,
+        modelName: provider.modelName,
+        durationMs: 0,
+        result: '本地模型已被 DAPI-only 运行策略禁用。',
+      };
     }
     if (provider.providerKind !== 'openai-compatible') {
-      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: '当前 Provider 不在远程 AI 执行策略中。' };
+      return {
+        ok: false,
+        providerId,
+        modelName: provider.modelName,
+        durationMs: 0,
+        result: '当前 Provider 不在远程 AI 执行策略中。',
+      };
     }
     try {
-      const response = await this.remoteAi.generate(provider, { prompt: '请只回复：连接正常', timeoutMs: Math.max(provider.timeoutSeconds, 30) * 1000, maxTokens: 20 });
+      const response = await this.remoteAi.generate(provider, {
+        prompt: '请只回复：连接正常',
+        timeoutMs: Math.max(provider.timeoutSeconds, 30) * 1000,
+        maxTokens: 20,
+      });
       provider.modelName = response.model;
       provider.todayCalls += 1;
-      provider.avgLatencyMs = provider.avgLatencyMs ? Math.round((provider.avgLatencyMs + response.durationMs) / 2) : response.durationMs;
+      provider.avgLatencyMs = provider.avgLatencyMs
+        ? Math.round((provider.avgLatencyMs + response.durationMs) / 2)
+        : response.durationMs;
       this.persist();
       await this.flush();
-      return { ok: true, providerId, modelName: response.model, durationMs: response.durationMs, result: response.result };
+      return {
+        ok: true,
+        providerId,
+        modelName: response.model,
+        durationMs: response.durationMs,
+        result: response.result,
+      };
     } catch (error) {
-      return { ok: false, providerId, modelName: provider.modelName, durationMs: 0, result: sanitizeProviderError(error) };
+      return {
+        ok: false,
+        providerId,
+        modelName: provider.modelName,
+        durationMs: 0,
+        result: sanitizeProviderError(error),
+      };
     }
   }
 
@@ -1261,89 +3680,566 @@ export class StoreService implements OnModuleInit {
   }
 
   /**
-   * The project still uses its existing anonymous runtime identity adapter.
-   * Integration tests may select another persisted anonymous user explicitly;
-   * unknown identifiers are never created as a side effect of a request.
+   * The user this request is acting as, or null when the request carries no identity.
+   *
+   * Per-viewer state (hidden posts, favourited flags) must be derived from this, never from
+   * getDemoUserId(): the demo id is a fixed string, so using it makes every viewer share one
+   * account's hides and favourites - a public reader would see the feed filtered by a stranger's
+   * preferences. A request without an identity has no viewer, and "no viewer" means "nothing is
+   * hidden and nothing is favourited", which is the honest answer rather than borrowing somebody's.
+   */
+  private viewerUserId(): string | null {
+    return currentIdentity()?.userId ?? null;
+  }
+
+  /**
+   * The viewer for a request that must have one, refused with 401 when it does not.
+   *
+   * Writes use this rather than viewerUserId(): a record has to belong to somebody, so "no identity"
+   * is a refusal (the R-06 rule), not an invitation to pick an owner.
+   */
+  private requireViewerId(): string {
+    const userId = this.viewerUserId();
+    if (!userId) throw new UnauthorizedException('缺少用户身份凭证');
+    return userId;
+  }
+
+  /**
+   * Creates a fresh anonymous user and persists it, so a client with no identity can be given one.
+   * The id is server-generated: a client never chooses the identity it will be issued.
+   */
+  async createAnonymousUser() {
+    const suffix = crypto.randomBytes(4).toString('hex');
+    const user = {
+      id: `user_anon_${suffix}`,
+      openid: `anon_openid_${suffix}`,
+      nickname: '匿名旅人',
+      anonymousCode: `树洞 ${suffix.slice(0, 4).toUpperCase()}`,
+      avatarUrl: '/avatar.svg',
+      status: 'normal' as const,
+      createdAt: now(),
+    };
+    this.users.push(user as (typeof this.users)[number]);
+    await this.persistAndFlush();
+    return user;
+  }
+
+  /**
+   * Records one hug from one user on one post, idempotently.
+   *
+   * The counter used to be a bare `hugCount += 1` with no per-user row, so a client could
+   * inflate it without limit and there was no way to tell who reacted (product audit
+   * ISSUE-020). `HugAction` already existed in the schema for exactly this and was never
+   * written; the counter is now derived from it, and the (userId, postId, presetCode) unique
+   * constraint makes a repeat request a no-op.
+   *
+   * `presetCode` has no product meaning yet, so a single constant is used. That keeps the
+   * existing unique constraint meaningful without inventing a preset feature.
+   */
+  async hugPost(postId: string, requestedUserId?: string) {
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
+    const post = await this.getPost(postId, true);
+    const existing = await this.prisma.hugAction.findFirst({ where: { userId, postId } });
+    // The displayed count predates this change (seeded posts show values like 28), so the
+    // difference between the stored number and the real rows is kept as a baseline and the
+    // real rows are layered on top. That preserves existing content while making new
+    // reactions idempotent and attributable.
+    const rowsBefore = await this.prisma.hugAction.count({ where: { postId } });
+    const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
+    if (!existing) {
+      await this.prisma.hugAction.create({ data: { userId, postId, presetCode: 'default' } });
+    }
+    const count = await this.prisma.hugAction.count({ where: { postId } });
+    const hugCount = baseline + count;
+    if (DIRECT_DB_MODELS.Post) {
+      await this.postsDb.setHugCount(postId, hugCount);
+    } else {
+      post.hugCount = hugCount;
+    }
+    this.persist();
+    await this.flush();
+    return { item: await this.getPost(postId, true), alreadyHugged: Boolean(existing) };
+  }
+
+  /** Removes this user's hug and re-derives the counter. */
+  async unHugPost(postId: string, requestedUserId?: string) {
+    const userId = requestedUserId?.trim() || this.getDemoUserId();
+    const post = await this.getPost(postId, true);
+    const rowsBefore = await this.prisma.hugAction.count({ where: { postId } });
+    const baseline = Math.max(0, Number(post.hugCount ?? 0) - rowsBefore);
+    await this.prisma.hugAction.deleteMany({ where: { userId, postId } });
+    const count = await this.prisma.hugAction.count({ where: { postId } });
+    const hugCount = baseline + count;
+    if (DIRECT_DB_MODELS.Post) {
+      await this.postsDb.setHugCount(postId, hugCount);
+    } else {
+      post.hugCount = hugCount;
+    }
+    this.persist();
+    await this.flush();
+    return { item: await this.getPost(postId, true) };
+  }
+
+  /** `manualReviewThreshold` (admin 系统设置), clamped to a usable probability range. */
+  manualReviewThreshold() {
+    const configured = Number(this.systemSettings.manualReviewThreshold?.value);
+    return Number.isFinite(configured) && configured >= 0 && configured <= 1 ? configured : 0.65;
+  }
+
+  /**
+   * Enforces `logRetentionDays` (admin 系统设置) on the audit log at startup.
+   *
+   * Without this the setting was stored and never applied, so an operator lowering the
+   * retention window saw no effect (product audit ISSUE-003). The window is applied to
+   * AuditLog rows only - the operational log of admin actions - not to user content.
+   */
+  pruneAuditLogsByRetention() {
+    const configured = Number(this.systemSettings.logRetentionDays?.value);
+    const days = Number.isFinite(configured) && configured > 0 ? Math.min(3650, Math.floor(configured)) : 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const before = this.auditLogs.length;
+    const kept = this.auditLogs.filter((item) => {
+      const at = Date.parse(String(item.createdAt ?? ''));
+      return Number.isNaN(at) || at >= cutoff;
+    });
+    if (kept.length !== before) this.data.auditLogs = kept;
+    return { removed: before - kept.length, retentionDays: days };
+  }
+
+  /**
+   * Makes a verified session's user visible to this process.
+   *
+   * `resolveRuntimeUserId` validates the caller against `this.users`, which is hydrated at boot. A
+   * user who signed up on **another instance** (or on this one after the snapshot was taken) is
+   * therefore unknown here, and every request from them is refused with 404 "current anonymous
+   * session user does not exist" even though their session is valid. Measured: an instance booted
+   * before a signup could not serve that user at all.
+   *
+   * Called only after a credential has been verified, so it cannot be used to admit an arbitrary id:
+   * a caller that merely sends someone's user id never reaches this, and keeps getting 401.
+   */
+  async ensureUserKnown(userId: string) {
+    if (this.users.some((item) => item.id === userId)) return;
+    const row = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!row) return;
+    // Re-check after the await: a concurrent request may have added it already.
+    if (this.users.some((item) => item.id === userId)) return;
+    this.users.push({
+      id: row.id,
+      openid: row.openid,
+      nickname: row.nickname,
+      anonymousCode: row.anonymousCode,
+      avatarUrl: row.avatarUrl ?? '',
+      status: row.status as 'normal' | 'limited' | 'banned',
+      createdAt: row.createdAt.toISOString(),
+    });
+  }
+
+  /**
+   * The caller's profile, read from the database rather than the boot-time snapshot.
+   *
+   * `nickname` is database-authoritative (UI-V2-29-D1): the snapshot is loaded once at boot, so
+   * serving it would show a stale name after an edit on this or another instance. The projection is
+   * a whitelist - `openid` is an account locator and has no business being in a profile response.
+   */
+  async readUserProfile(userId: string) {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nickname: true, anonymousCode: true, avatarUrl: true, status: true, createdAt: true },
+    });
+    if (!row) throw new NotFoundException('当前匿名会话用户不存在');
+    return { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() };
+  }
+
+  /**
+   * Saves the caller's nickname.
+   *
+   * Order matters: the database row is written first and the in-memory mirror second, because the
+   * mirror is what the legacy read paths and the flush see. The flush no longer writes `nickname`
+   * for an existing user (see `relational-runtime.mapper.ts`), so a stale snapshot cannot revert it.
+   *
+   * The status check is part of the update condition, not a separate read: a ban that lands between
+   * a read and a write would otherwise still allow the write.
+   */
+  async updateUserNickname(userId: string, nickname: string) {
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, status: 'normal' },
+      data: { nickname },
+    });
+    if (updated.count === 0) {
+      const existing = await this.prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+      if (!existing) throw new NotFoundException('当前匿名会话用户不存在');
+      throw new ForbiddenException('当前账号状态不允许修改资料');
+    }
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nickname: true, anonymousCode: true, avatarUrl: true, status: true, createdAt: true },
+    });
+    if (!row) throw new NotFoundException('当前匿名会话用户不存在');
+    const cached = this.users.find((item) => item.id === userId);
+    if (cached) cached.nickname = row.nickname;
+    return { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() };
+  }
+
+  /**
+   * One page of the operator user list, filtered and paginated in the database.
+   *
+   * `nickname` and `status` are database-authoritative, so reading the boot-time snapshot here would
+   * show values another instance has already changed - and filtering a stale nickname would miss a
+   * search for the new one. The page size therefore also bounds the work.
+   */
+  async listUsersForAdmin(params: { q?: string; status?: string; page: number; pageSize: number }) {
+    const where: Record<string, unknown> = {};
+    if (params.q) {
+      where.OR = [
+        { id: { contains: params.q, mode: 'insensitive' } },
+        { nickname: { contains: params.q, mode: 'insensitive' } },
+        { anonymousCode: { contains: params.q, mode: 'insensitive' } },
+        { openid: { contains: params.q, mode: 'insensitive' } },
+      ];
+    }
+    if (params.status && params.status !== 'all') {
+      // Prisma would answer an unknown enum value with a 500; the list's filter is user input.
+      if (!['normal', 'limited', 'banned'].includes(params.status)) {
+        throw new BadRequestException('无效的账号状态');
+      }
+      where.status = params.status;
+    }
+    const [total, rows] = await Promise.all([
+      this.prisma.user.count({ where: where as any }),
+      this.prisma.user.findMany({
+        where: where as any,
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
+    return {
+      total,
+      items: rows.map((row) => ({ ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() })),
+    };
+  }
+
+  /** One user for the operator detail view, read from the database. */
+  async readUserForAdmin(userId: string) {
+    const row = await this.prisma.user.findUnique({ where: { id: userId } });
+    return row ? { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() } : null;
+  }
+
+  /**
+   * Changes an account's status, and writes its audit row in the same transaction.
+   *
+   * The database is written first and the in-memory mirror second, for the same reason as the
+   * nickname: the snapshot is loaded once at boot, and letting a stale instance write it back would
+   * undo a ban made elsewhere. The audit row is part of the transaction so a success response means
+   * both the status and its evidence exist; a failed audit rolls the status back instead of leaving
+   * a moderation action with no record.
+   */
+  async updateUserStatus(
+    userId: string,
+    status: 'normal' | 'limited' | 'banned',
+    audit?: { adminUserId: string; before: unknown },
+  ) {
+    const asJson = (value: unknown) =>
+      value === undefined || value === null ? undefined : (JSON.parse(JSON.stringify(value)) as object);
+    const row = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({ where: { id: userId }, data: { status } });
+      if (audit) {
+        await tx.auditLog.create({
+          data: {
+            adminUserId: audit.adminUserId,
+            action: 'USER_STATUS',
+            resourceType: 'User',
+            resourceId: userId,
+            beforeJson: asJson(audit.before),
+            afterJson: asJson(updated),
+            ip: '127.0.0.1',
+            userAgent: 'local-dev',
+          },
+        });
+      }
+      return updated;
+    });
+    const cached = this.users.find((item) => item.id === userId);
+    if (cached) cached.status = row.status as 'normal' | 'limited' | 'banned';
+    return { ...row, avatarUrl: row.avatarUrl ?? '', createdAt: row.createdAt.toISOString() };
+  }
+
+  /**
+   * Resolve an anonymous user id for user-scoped endpoints.
+   * R-06: Production requests MUST supply an identity header; requests with no
+   * identity are refused with 401 rather than falling back to demo user.
    */
   resolveRuntimeUserId(requestedUserId?: string) {
-    const userId = requestedUserId?.trim() || this.getDemoUserId();
+    if (!requestedUserId || !requestedUserId.trim()) {
+      throw new UnauthorizedException('缺少用户身份标识');
+    }
+    const userId = requestedUserId.trim();
     if (!/^[a-zA-Z0-9_-]{3,80}$/.test(userId) || !this.users.some((item) => item.id === userId)) {
       throw new NotFoundException('当前匿名会话用户不存在');
     }
     return userId;
   }
 
+  issueAdminToken(adminId: string, customTimestamp?: number): string {
+    const secret = getAdminTokenSecret();
+    const timestamp = customTimestamp ?? Date.now();
+    const signature = computeAdminTokenHmac(adminId, timestamp, secret);
+    return Buffer.from(`${adminId}:${timestamp}:${signature}`).toString('base64url');
+  }
+
   login(username: string, password: string) {
-    const admin = this.adminUsers.find((item) => item.username === username && item.passwordHash === `plain:${password}`);
+    const admin = this.adminUsers.find(
+      (item) => item.username === username && item.passwordHash === `plain:${password}`,
+    );
     if (!admin) throw new UnauthorizedException('账号或密码不正确');
     admin.lastLoginAt = now();
-    const token = Buffer.from(`${admin.id}:${admin.role}:goodnight`).toString('base64url');
+    const token = this.issueAdminToken(admin.id);
     this.audit(admin.id, 'LOGIN', 'AdminUser', admin.id, null, { lastLoginAt: admin.lastLoginAt });
     this.persist();
-    return { token, admin: { id: admin.id, username: admin.username, displayName: admin.displayName, role: admin.role } };
+    return {
+      token,
+      admin: { id: admin.id, username: admin.username, displayName: admin.displayName, role: admin.role },
+    };
   }
 
   verifyToken(token?: string) {
     if (!token) throw new UnauthorizedException('缺少登录凭证');
-    const decoded = Buffer.from(token, 'base64url').toString('utf8');
-    const [adminId] = decoded.split(':');
+    const secret = getAdminTokenSecret();
+    let decoded = '';
+    try {
+      decoded = Buffer.from(token, 'base64url').toString('utf8');
+    } catch {
+      throw new UnauthorizedException('登录凭证格式无效');
+    }
+    const parts = decoded.split(':');
+    if (parts.length !== 3) {
+      throw new UnauthorizedException('登录凭证格式无效');
+    }
+    const [adminId, timestampStr, signature] = parts;
+    const timestamp = parseInt(timestampStr, 10);
+    if (isNaN(timestamp) || timestamp <= 0) {
+      throw new UnauthorizedException('登录凭证时间戳无效');
+    }
+    const nowMs = Date.now();
+    if (nowMs - timestamp > ADMIN_TOKEN_TTL_MS || timestamp > nowMs + 60_000) {
+      throw new UnauthorizedException('登录凭证已过期');
+    }
+    const expectedSig = computeAdminTokenHmac(adminId, timestamp, secret);
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expectedSig, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      throw new UnauthorizedException('登录凭证签名无效');
+    }
     const admin = this.adminUsers.find((item) => item.id === adminId);
     if (!admin) throw new UnauthorizedException('登录已失效');
     return admin;
   }
 
-  audit(adminUserId: string, action: string, resourceType: string, resourceId: string, beforeJson: unknown, afterJson: unknown) {
-    const snapshot = <T>(value: T): T => value == null ? value : JSON.parse(JSON.stringify(value)) as T;
-    this.auditLogs.unshift({ id: id('audit'), adminUserId, action, resourceType, resourceId, beforeJson: snapshot(beforeJson), afterJson: snapshot(afterJson), ip: '127.0.0.1', userAgent: 'local-dev', createdAt: now() });
+  audit(
+    adminUserId: string,
+    action: string,
+    resourceType: string,
+    resourceId: string,
+    beforeJson: unknown,
+    afterJson: unknown,
+  ): Promise<void> | void {
+    const snapshot = <T>(value: T): T => (value == null ? value : (JSON.parse(JSON.stringify(value)) as T));
+    this.auditLogs.unshift({
+      id: id('audit'),
+      adminUserId,
+      action,
+      resourceType,
+      resourceId,
+      beforeJson: snapshot(beforeJson),
+      afterJson: snapshot(afterJson),
+      ip: '127.0.0.1',
+      userAgent: 'local-dev',
+      createdAt: now(),
+    });
+    // The audit row is the evidence, so it also goes to the table where it can be read independently
+    // of this process. The in-memory copy still feeds the console list. The write is returned, not
+    // fired off: a route that responds immediately after auditing has a right to expect the row to
+    // be there when the response lands.
+    return this.persistAuditRow(adminUserId, action, resourceType, resourceId, snapshot(beforeJson), snapshot(afterJson));
   }
 
-  private ensureSeedCoverage() {
+  /**
+   * Writes one AuditLog row directly to the table.
+   *
+   * The console used to list only the in-memory copy, so an operator action was invisible until a
+   * restart hydrated it — which is exactly the read an auditor wants to make (F14). The write is
+   * fire-and-forget on purpose: the audited action has already been taken by the caller, so failing
+   * to record it must not turn a completed moderation into a 500. A failure is reported, not
+   * swallowed.
+   */
+  private async persistAuditRow(
+    adminUserId: string,
+    action: string,
+    resourceType: string,
+    resourceId: string,
+    beforeJson: unknown,
+    afterJson: unknown,
+  ) {
+    const asJson = (value: unknown) =>
+      value === undefined || value === null ? undefined : (JSON.parse(JSON.stringify(value)) as object);
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          adminUserId,
+          action,
+          resourceType,
+          resourceId,
+          beforeJson: asJson(beforeJson),
+          afterJson: asJson(afterJson),
+          ip: '127.0.0.1',
+          userAgent: 'local-dev',
+        },
+      });
+    } catch (error) {
+      console.error(`[audit] could not persist the AuditLog row: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Writes the AI routing rows the legacy seed data carries, when the model is registered.
+   *
+   * `AIStyleRoute` and `AIProvider` are database-authoritative since Batch 4, so the flush no longer
+   * hydrates or upserts them and the snapshot's routes never reach the table. On a fresh database
+   * that left `resolveAiRouteRecord` returning null, and every AI job failed with "no AI route" —
+   * which is how `batch1-aijob` found it. The five styles are the store's minimum set for an empty
+   * install, written here the same way `ensureSeedCoverage` writes the seed posts.
+   */
+  private async ensureAiRouteSeedCoverage() {
+    if (!DIRECT_DB_MODELS.AIStyleRoute) return;
+    const routes = seedData().aiRoutes;
+    const existing = await this.aiRoutingDb.listRoutes();
+    const known = new Set<string>([
+      ...(await this.aiRoutingDb.listProviders()).map((row: any) => row.id),
+    ]);
+    for (const route of routes) {
+      if (existing.some((row: any) => row.style === route.style)) continue;
+      // The three provider ids the route points at must exist, because `AIStyleRoute`'s provider
+      // relations are required foreign keys. The policy has written the managed three by the time
+      // this runs; a seed naming any other provider id is skipped rather than seeded into a broken
+      // route, and a missing route is a visible failure while a dangling one is not.
+      const ids = [route.primaryProviderId, route.backupProviderId, route.fallbackTemplateId];
+      const missing = ids.filter((id) => !known.has(id));
+      if (missing.length) {
+        // Named, not silent: a skipped route means that style has no working route, so the operator
+        // has to be able to see which one rather than wondering why AI calls for it fail.
+        console.error(
+          `[ai-routes] skipped seeding route "${route.style}": its providers are not in the table (${missing.join(', ')})`,
+        );
+        continue;
+      }
+      await this.aiRoutingDb.saveRoute({
+        style: route.style,
+        label: route.label,
+        promptTemplate: route.promptTemplate,
+        primaryProviderId: route.primaryProviderId,
+        backupProviderId: route.backupProviderId,
+        fallbackTemplateId: route.fallbackTemplateId,
+        promptVersion: route.promptVersion,
+        enabled: route.enabled,
+      } as never);
+    }
+  }
+
+  private async ensureSeedCoverage() {
     const seeds = [
-      { key: 'jiaolv', emotion: '焦虑', userId: 'user_demo', content: '明天要汇报，我又开始担心自己讲不好。', hugCount: 18 },
-      { key: 'weiqu', emotion: '委屈', userId: 'user_demo', content: '今天被一句话刺了一下，心里有点委屈，但我想慢慢说出来。', hugCount: 22 },
-      { key: 'shimian', emotion: '失眠', userId: 'user_guest', content: '凌晨两点还是睡不着，脑子一直在转。', hugCount: 31 },
-      { key: 'lianai', emotion: '恋爱', userId: 'user_guest', content: '很想念一个人，又担心自己的在意太多了。', hugCount: 16 },
-      { key: 'work', emotion: '工作', userId: 'user_demo', content: '工作消息一直弹出来，我有点喘不过气，想先把节奏找回来。', hugCount: 27 },
+      {
+        key: 'jiaolv',
+        emotion: '焦虑',
+        userId: 'user_demo',
+        content: '明天要汇报，我又开始担心自己讲不好。',
+        hugCount: 18,
+      },
+      {
+        key: 'weiqu',
+        emotion: '委屈',
+        userId: 'user_demo',
+        content: '今天被一句话刺了一下，心里有点委屈，但我想慢慢说出来。',
+        hugCount: 22,
+      },
+      {
+        key: 'shimian',
+        emotion: '失眠',
+        userId: 'user_guest',
+        content: '凌晨两点还是睡不着，脑子一直在转。',
+        hugCount: 31,
+      },
+      {
+        key: 'lianai',
+        emotion: '恋爱',
+        userId: 'user_guest',
+        content: '很想念一个人，又担心自己的在意太多了。',
+        hugCount: 16,
+      },
+      {
+        key: 'work',
+        emotion: '工作',
+        userId: 'user_demo',
+        content: '工作消息一直弹出来，我有点喘不过气，想先把节奏找回来。',
+        hugCount: 27,
+      },
     ];
     let changed = false;
     for (const seed of seeds) {
-      const hasPublishedSeed = this.data.posts.some(
-        (post) => post.status === 'active' && post.reviewStatus === 'published' && post.emotion === seed.emotion,
-      );
-      if (hasPublishedSeed) continue;
+      const published = DIRECT_DB_MODELS.Post
+        ? await this.postsDb.listPublished({ emotion: seed.emotion })
+        : this.data.posts.filter(
+            (post) => post.status === 'active' && post.reviewStatus === 'published' && post.emotion === seed.emotion,
+          );
+      if (published.length) continue;
       const moodId = `mood_seed_${seed.key}`;
       const postId = `post_seed_${seed.key}`;
-      this.data.moods.unshift({
+      const seedMood = {
         id: moodId,
         userId: seed.userId,
         emotion: seed.emotion as Emotion,
         content: seed.content,
-        visibility: 'PUBLIC',
-        riskLevel: 'low',
+        visibility: 'PUBLIC' as const,
+        riskLevel: 'low' as const,
         riskScore: 0.08,
-        status: 'active',
+        status: 'active' as const,
         createdAt: now(),
-      });
-      this.data.posts.unshift({
+      };
+      if (DIRECT_DB_MODELS.Mood) {
+        await this.moodsDb.create({
+          ...seedMood,
+          attachmentIds: [],
+          journeyId: null,
+          createdAt: new Date(seedMood.createdAt),
+        });
+      } else {
+        this.data.moods.unshift(seedMood);
+      }
+      const seedPost = {
         id: postId,
         moodId,
         userId: seed.userId,
         emotion: seed.emotion as Emotion,
         content: seed.content,
-        visibility: 'PUBLIC',
-        status: 'active',
-        reviewStatus: 'published',
+        visibility: 'PUBLIC' as const,
+        status: 'active' as const,
+        reviewStatus: 'published' as const,
         hugCount: seed.hugCount,
         replyCount: 1,
         favoriteCount: 0,
         reportCount: 0,
         createdAt: now(),
-      });
-      this.data.replies.unshift({
+      };
+      if (DIRECT_DB_MODELS.Post) {
+        await this.postsDb.create({ ...seedPost, visibility: 'PUBLIC', createdAt: new Date(seedPost.createdAt) });
+      } else {
+        this.data.posts.unshift(seedPost);
+      }
+      const seedReply = {
         id: `reply_seed_${seed.key}`,
         postId,
-        type: 'AI',
-        style: 'warm',
+        type: 'AI' as const,
+        style: 'warm' as const,
         content: this.composeDynamicText({
           taskType: 'post_reply',
           content: seed.content,
@@ -1351,28 +4247,98 @@ export class StoreService implements OnModuleInit {
           style: 'warm',
           routeLabel: '暖心陪伴',
         }).result,
-        status: 'published',
-        riskLevel: 'low',
+        status: 'published' as const,
+        riskLevel: 'low' as const,
         createdAt: now(),
-      });
+      };
+      if (DIRECT_DB_MODELS.Reply) {
+        // The reply's FK needs the post row to exist first. The post was only pushed to memory
+        // above, so queue a snapshot that includes it and drain it before inserting the reply; this
+        // path runs only when a seed is missing, which is a fresh install.
+        this.persist();
+        await this.flush();
+        await this.repliesDb.create({ ...seedReply, createdAt: new Date(seedReply.createdAt) });
+      } else {
+        this.data.replies.unshift(seedReply);
+      }
       changed = true;
     }
     if (changed) this.persist();
   }
 
   private ensureGoodnightTwoCoverage() {
-    const arrayKeys = ['lifeJourneys', 'situationSnapshots', 'journeyUpdates', 'actionCommitments', 'outcomeCheckins', 'peerExperiences', 'peerMatches', 'peerReputations', 'decisionRecords', 'cooldownItems', 'realityHandoffs', 'trustedContacts', 'messagesToFutureSelf', 'personalSupportPlans', 'memoryItems', 'recoverySnapshots', 'safetyEvents', 'agentDecisionLogs', 'followUpJobs'] as const;
+    const arrayKeys = [
+      'lifeJourneys',
+      'situationSnapshots',
+      'journeyUpdates',
+      'actionCommitments',
+      'outcomeCheckins',
+      'peerExperiences',
+      'peerMatches',
+      'peerReputations',
+      'decisionRecords',
+      'cooldownItems',
+      'realityHandoffs',
+      'trustedContacts',
+      'messagesToFutureSelf',
+      'personalSupportPlans',
+      'stableSelfProfiles',
+      'memoryItems',
+      'recoverySnapshots',
+      'safetyEvents',
+      'agentDecisionLogs',
+      'followUpJobs',
+    ] as const;
     let changed = false;
     for (const key of arrayKeys) {
-      if (!Array.isArray((this.data as any)[key])) { (this.data as any)[key] = []; changed = true; }
-    }
-    for (const userId of Object.keys(this.data.privacySettings)) {
-      const privacy = this.data.privacySettings[userId] as PrivacySetting & Record<string, unknown>;
-      for (const key of ['allowPeerMatching', 'allowAnonymousExperienceStats', 'allowRecoveryData', 'allowJourneyLongTermAnalysis', 'allowLongTermMemory']) {
-        if (privacy[key] === undefined) { privacy[key] = false; changed = true; }
+      if (key === 'safetyEvents' && DIRECT_DB_MODELS.SafetyEvent) continue;
+      if (key === 'lifeJourneys' && DIRECT_DB_MODELS.LifeJourney) continue;
+      if (key === 'situationSnapshots' && DIRECT_DB_MODELS.SituationSnapshot) continue;
+      if (key === 'journeyUpdates' && DIRECT_DB_MODELS.JourneyUpdate) continue;
+      if (key === 'actionCommitments' && DIRECT_DB_MODELS.ActionCommitment) continue;
+      if (key === 'outcomeCheckins' && DIRECT_DB_MODELS.OutcomeCheckin) continue;
+      if (key === 'peerExperiences' && DIRECT_DB_MODELS.PeerExperience) continue;
+      if (key === 'peerMatches' && DIRECT_DB_MODELS.PeerMatch) continue;
+      if (key === 'realityHandoffs' && DIRECT_DB_MODELS.RealityHandoff) continue;
+      if (key === 'trustedContacts' && DIRECT_DB_MODELS.TrustedContact) continue;
+      if (key === 'personalSupportPlans' && DIRECT_DB_MODELS.PersonalSupportPlan) continue;
+      if (key === 'stableSelfProfiles' && DIRECT_DB_MODELS.StableSelfProfile) continue;
+      if (key === 'memoryItems' && DIRECT_DB_MODELS.MemoryItem) continue;
+      if (key === 'recoverySnapshots' && DIRECT_DB_MODELS.RecoverySnapshot) continue;
+      if (key === 'decisionRecords' && DIRECT_DB_MODELS.DecisionRecord) continue;
+      if (key === 'cooldownItems' && DIRECT_DB_MODELS.CooldownItem) continue;
+      if (!Array.isArray((this.data as any)[key])) {
+        (this.data as any)[key] = [];
+        changed = true;
       }
     }
-    const envFlag = (name: string, fallback: boolean) => process.env[name] == null ? fallback : ['1', 'true', 'yes', 'on'].includes(String(process.env[name]).toLowerCase());
+    if (!DIRECT_DB_MODELS.PrivacySetting) {
+      for (const userId of Object.keys(this.data.privacySettings)) {
+        const privacy = this.data.privacySettings[userId] as PrivacySetting & Record<string, unknown>;
+        const defaults: Record<string, boolean> = {
+          allowPeerMatching: false,
+          allowAnonymousExperienceStats: false,
+          allowRecoveryData: false,
+          allowJourneyLongTermAnalysis: false,
+          allowLongTermMemory: false,
+          allowAiMemoryUse: false,
+          allowAnonymousExperienceShare: false,
+          allowJourneyArchiveRetention: false,
+          allowFutureSelfNotifications: false,
+          allowDataExport: false,
+        };
+        for (const [key, fallback] of Object.entries(defaults)) {
+          if (privacy[key] === undefined) {
+            privacy[key] = fallback;
+            changed = true;
+          }
+        }
+      }
+    }
+    const envFlag = (name: string, fallback: boolean) =>
+      process.env[name] == null
+        ? fallback
+        : ['1', 'true', 'yes', 'on'].includes(String(process.env[name]).toLowerCase());
     const flags = {
       journeyModeEnabled: envFlag('ENABLE_JOURNEY_V2', true),
       peerExperienceNetworkEnabled: envFlag('ENABLE_PEER_MATCHING', true),
@@ -1386,21 +4352,48 @@ export class StoreService implements OnModuleInit {
     };
     const current = this.data.systemSettings.goodnightTwoFeatureFlags?.value;
     if (JSON.stringify(current) !== JSON.stringify(flags)) {
-      this.data.systemSettings.goodnightTwoFeatureFlags = { value: flags, description: 'GoodnightTreeHole 2.0 功能开关', updatedBy: 'system', updatedAt: now() };
+      this.data.systemSettings.goodnightTwoFeatureFlags = {
+        value: flags,
+        description: 'GoodnightTreeHole 2.0 功能开关',
+        updatedBy: 'system',
+        updatedAt: now(),
+      };
       changed = true;
     }
     if (changed) this.persist();
   }
 
-  private assertCanWrite(userId = this.getDemoUserId()) {
-    const user = this.users.find((item) => item.id === userId);
-    if (user?.status === 'limited' || user?.status === 'banned') {
+  private assertCanWrite(userId: string) {
+    // The verified identity carries the status read in the same query as the session, so a ban
+    // applied on another instance blocks the next write here without waiting for a cache refresh.
+    // The in-memory copy is only a fallback for internal callers with no request identity.
+    const identity = currentIdentity();
+    const status =
+      identity && identity.userId === userId
+        ? identity.status
+        : this.users.find((item) => item.id === userId)?.status;
+    if (status === 'limited' || status === 'banned') {
       throw new ForbiddenException('当前账号已被禁言或限制发布，请联系管理员');
     }
   }
 
-  private requireJourney(journeyId: string, userId = this.getDemoUserId()) {
-    const journey = this.lifeJourneys.find((item) => item.id === journeyId && item.userId === userId);
+  /**
+   * True when a journey title is one the product generated rather than one the user wrote: the
+   * create-time default, or the `<domain>里正在整理的一件事` form the situation analysis produces.
+   *
+   * Only a generated title may be replaced by a later AI result. This is deliberately a test on
+   * the title itself rather than a flag recorded at creation: it applies retroactively to journeys
+   * created before the rule existed, and it is the single place the rule is stated, so the creation
+   * flow and the re-analysis flow cannot drift apart.
+   */
+  private isGeneratedJourneyTitle(title: string) {
+    const value = title.trim();
+    return value === '正在整理的一件事' || /^.{1,12}里正在整理的一件事$/.test(value);
+  }
+
+  async requireJourney(journeyId: string, requestedUserId?: string): Promise<LifeJourneyRecord> {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const journey = await this.batch1Persistence.getJourneyByIdAndUser(journeyId, userId);
     if (!journey) throw new NotFoundException('旅程不存在或无权访问');
     return journey;
   }
@@ -1419,349 +4412,1165 @@ export class StoreService implements OnModuleInit {
     return parsed.toISOString();
   }
 
-  private privacyAllows(userId: string, key: keyof PrivacySetting, message: string) {
-    if (this.privacySettings[userId]?.[key] !== true) throw new ForbiddenException(message);
+  private async privacyAllows(userId: string, key: keyof PrivacySettingRecord, message: string) {
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      const privacy = await this.selfPersistence.getPrivacySettings(userId);
+      if (privacy[key] !== true) throw new ForbiddenException(message);
+      return;
+    }
+    if ((this.privacySettings[userId] as any)?.[key] !== true) throw new ForbiddenException(message);
   }
 
-  tonightHome(userId = this.getDemoUserId()) {
-    const journey = this.lifeJourneys.find((item) => item.userId === userId && item.status === 'active');
-    const activeActions = this.actionCommitments.filter((item) => item.userId === userId && item.status === 'active').slice(0, 3);
-    const dueCheckins = this.outcomeCheckins.filter((item) => item.userId === userId && item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now())).slice(0, 3);
-    const followUps = this.followUpJobs.filter((item) => item.userId === userId && item.status === 'pending' && Date.parse(item.dueAt) <= Date.now()).slice(0, 3);
-    const matches = this.peerMatches.filter((item) => item.userId === userId && !['declined', 'blocked'].includes(item.status)).slice(0, 3);
-    const latestLetter = this.letters.find((item) => item.userId === userId && item.content);
-    return { journey: journey ?? null, activeActions, dueCheckins, followUps, matches, latestLetter: latestLetter ? this.decorateLetter(latestLetter) : null, counts: { activeActions: activeActions.length, dueCheckins: dueCheckins.length, followUps: followUps.length, matches: matches.length } };
+  /**
+   * The home dashboard for one user. The identity is required rather than defaulted: the payload is
+   * that user's private journey, actions, check-ins, follow-ups, matches and latest letter, so a
+   * caller that did not name a user must be refused instead of shown the demo account's.
+   */
+  /**
+   * The home dashboard for one user. The identity is required rather than defaulted: the payload is
+   * that user's private journey, actions, check-ins, follow-ups, matches and latest letter, so a
+   * caller that did not name a user must be refused instead of shown the demo account's.
+   */
+  async tonightHome(userId: string) {
+    const journey = await this.batch1Persistence.getActiveJourneyForUser(userId);
+    const activeActions = await this.batch1Persistence.listActiveActionsForUser(userId, 3);
+    const dueCheckins = await this.batch1Persistence.listDueCheckinsForUser(userId, 3);
+    const followUps = this.followUpJobs
+      .filter((item) => item.userId === userId && item.status === 'pending' && Date.parse(item.dueAt) <= Date.now())
+      .slice(0, 3);
+    const userMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForUser(userId)
+      : this.peerMatches.filter((item) => item.userId === userId);
+    const matches = userMatches
+      .filter((item) => !['declined', 'blocked'].includes(item.status))
+      .slice(0, 3);
+    const latestLetter = DIRECT_DB_MODELS.Letter
+      ? await this.lettersDb.findLatestWithContent(userId)
+      : this.letters.find((item) => item.userId === userId && item.content);
+    return {
+      journey: journey ?? null,
+      activeActions,
+      dueCheckins,
+      followUps,
+      matches,
+      latestLetter: latestLetter ? this.decorateLetter(latestLetter) : null,
+      counts: {
+        activeActions: activeActions.length,
+        dueCheckins: dueCheckins.length,
+        followUps: followUps.length,
+        matches: matches.length,
+      },
+    };
   }
 
-  async createJourney(input: { title?: unknown; domain?: unknown; content?: unknown; facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; visibility?: Visibility; intensity?: number; scenario?: unknown; relationScene?: unknown }, requestedUserId?: string) {
+  /**
+   * AI completion callback for situation analysis.
+   * Legitimate direct writer to PostgreSQL for LifeJourney and SituationSnapshot.
+   */
+  async applySituationAnalysisCompletion(
+    journeyId: string,
+    userId: string,
+    completed: { id: string; status: string; result?: string | null; structuredResult?: any },
+    expectedJourneyUpdatedAt?: Date | string,
+    expectedSnapshotUpdatedAt?: Date | string,
+  ) {
+    if (!['succeeded', 'fallback'].includes(completed.status)) return;
+
+    await this.batch1Persistence.applySituationAnalysisAiCompletion({
+      journeyId,
+      userId,
+      completedJob: completed as any,
+      expectedJourneyUpdatedAt,
+      expectedSnapshotUpdatedAt,
+      isGeneratedTitle: (t) => isGeneratedJourneyTitle(t),
+    });
+
+    const structured = (
+      completed.structuredResult && typeof completed.structuredResult === 'object' ? completed.structuredResult : {}
+    ) as Record<string, any>;
+
+    await this.batch1Persistence.createDecisionLog({
+      userId,
+      journeyId,
+      aiJobId: completed.id,
+      taskType: 'situation_analysis',
+      decision: structured,
+    });
+
+    await this.persistAndFlush();
+  }
+
+  async createJourney(
+    input: {
+      title?: unknown;
+      domain?: unknown;
+      content?: unknown;
+      facts?: unknown;
+      feelings?: unknown;
+      needs?: unknown;
+      constraints?: unknown;
+      visibility?: Visibility;
+      intensity?: number;
+      scenario?: unknown;
+      relationScene?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
     this.assertCanWrite(userId);
-    const title = typeof input.title === 'string' && input.title.trim() ? input.title.trim().slice(0, 80) : '正在整理的一件事';
+    const title =
+      typeof input.title === 'string' && input.title.trim() ? input.title.trim().slice(0, 80) : '正在整理的一件事';
     const domain = this.text(input.domain ?? '其他', '困境领域', 40);
     const content = this.text(input.content, '事情描述', 1000);
     const risk = this.detectRisk(content);
     const createdAt = now();
     const intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
-    const journey: LifeJourneyRecord = { id: id('journey'), userId, title, domain, status: 'active', stage: risk.level === 'high' ? 'safety_first' : 'clarifying', visibility: input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE', intensity, initialIntensity: intensity, summary: '', createdAt, updatedAt: createdAt };
-    const toArray = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8) : [];
-    const snapshot: SituationSnapshotRecord = { id: id('snapshot'), journeyId: journey.id, facts: toArray(input.facts).length ? toArray(input.facts) : [content], feelings: toArray(input.feelings), needs: toArray(input.needs), constraints: toArray(input.constraints), risks: risk.level === 'high' ? ['检测到需要优先确认现实安全的表达'] : [], domain, contextTags: [String(input.scenario ?? '').trim(), String(input.relationScene ?? '').trim()].filter(Boolean), confidence: 'agent_draft', createdAt, updatedAt: createdAt };
-    this.lifeJourneys.unshift(journey);
-    this.situationSnapshots.unshift(snapshot);
-    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: journey.id, userId, kind: 'created', content, createdAt });
-    if (risk.level === 'high') this.safetyEvents.unshift({ id: id('safety'), userId, journeyId: journey.id, level: 'high', source: 'journey_create', action: 'real_world_support_prompt', payload: { escalation: true }, createdAt });
-    const job = this.queueAI({ taskType: 'situation_analysis', userId, sourceId: journey.id, content, mood: this.inferMood(content), style: 'rational' });
-    void this.waitForAiJob(job.id).then(async (completed) => {
-      const target = this.lifeJourneys.find((item) => item.id === journey.id);
-      const current = this.situationSnapshots.find((item) => item.journeyId === journey.id);
-      if (!target || !current || !['succeeded', 'fallback'].includes(completed.status)) return;
-      const structured = completed.structuredResult ?? {};
-      // A user confirmation is authoritative. The asynchronous AI completion
-      // may still be audited, but it must never overwrite confirmed facts or
-      // downgrade the snapshot back to an agent draft.
-      if (current.confidence !== 'user_confirmed') {
-        if (Array.isArray(structured.facts)) current.facts = structured.facts.map(String).filter(Boolean).slice(0, 8);
-        if (Array.isArray(structured.feelings)) current.feelings = structured.feelings.map(String).filter(Boolean).slice(0, 8);
-        if (Array.isArray(structured.needs)) current.needs = structured.needs.map(String).filter(Boolean).slice(0, 8);
-        if (Array.isArray(structured.constraints)) current.constraints = structured.constraints.map(String).filter(Boolean).slice(0, 8);
-        if (Array.isArray(structured.risks)) current.risks = structured.risks.map(String).filter(Boolean).slice(0, 8);
-        current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain;
-        current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : undefined;
-        current.eventType = typeof structured.eventType === 'string' ? structured.eventType : undefined;
-        current.stage = typeof structured.stage === 'string' ? structured.stage : 'clarifying';
-        current.contextTags = Array.isArray(structured.contextTags) ? structured.contextTags.map(String).filter(Boolean).slice(0, 12) : current.contextTags;
-        current.peopleContext = Array.isArray(structured.peopleContext) ? structured.peopleContext.map(String).filter(Boolean).slice(0, 8) : [];
-        current.decisionContext = Array.isArray(structured.decisionContext) ? structured.decisionContext.map(String).filter(Boolean).slice(0, 8) : [];
-        current.behaviorSignals = Array.isArray(structured.behaviorSignals) ? structured.behaviorSignals.map(String).filter(Boolean).slice(0, 8) : [];
-        current.recoverySignals = Array.isArray(structured.recoverySignals) ? structured.recoverySignals.map(String).filter(Boolean).slice(0, 8) : [];
-        current.intensity = Number.isFinite(Number(structured.intensity)) ? Math.max(0, Math.min(10, Number(structured.intensity))) : current.intensity;
-        current.urgency = Number.isFinite(Number(structured.urgency)) ? Math.max(0, Math.min(10, Number(structured.urgency))) : current.urgency;
-        current.fingerprintJson = { domain: current.domain, subDomain: current.subDomain, eventType: current.eventType, stage: current.stage, contextTags: current.contextTags, peopleContext: current.peopleContext, decisionContext: current.decisionContext, behaviorSignals: current.behaviorSignals, recoverySignals: current.recoverySignals };
-        current.confidence = 'agent_draft';
-        current.updatedAt = now();
-        target.summary = String(structured.summary ?? completed.result).slice(0, 500);
-        if (typeof structured.title === 'string' && structured.title.trim()) target.title = structured.title.trim().slice(0, 80);
-        target.updatedAt = now();
-      }
-      this.agentDecisionLogs.unshift({ id: id('agent_decision'), userId, journeyId: journey.id, aiJobId: completed.id, taskType: 'situation_analysis', decision: structured, createdAt: now() });
-      await this.persistAndFlush();
-    }).catch(() => undefined);
-    await this.persistAndFlush();
-    return { journey, snapshot, job, safety: risk.level === 'high' ? { level: 'high', needsRealWorldSupport: true } : { level: risk.level, needsRealWorldSupport: false } };
+    const journey = {
+      id: id('journey'),
+      userId,
+      title,
+      domain,
+      status: 'active' as const,
+      stage: risk.level === 'high' ? 'safety_first' : 'clarifying',
+      visibility: (input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE') as Visibility,
+      intensity,
+      initialIntensity: intensity,
+      summary: '',
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const toArray = (value: unknown) =>
+      Array.isArray(value)
+        ? value
+            .map(String)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .slice(0, 8)
+        : [];
+    const snapshot = {
+      id: id('snapshot'),
+      journeyId: journey.id,
+      facts: toArray(input.facts).length ? toArray(input.facts) : [content],
+      feelings: toArray(input.feelings),
+      needs: toArray(input.needs),
+      constraints: toArray(input.constraints),
+      risks: risk.level === 'high' ? ['检测到需要优先确认现实安全的表达'] : [],
+      domain,
+      contextTags: [String(input.scenario ?? '').trim(), String(input.relationScene ?? '').trim()].filter(Boolean),
+      confidence: 'agent_draft' as const,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const update = {
+      id: id('journey_update'),
+      journeyId: journey.id,
+      userId,
+      kind: 'created',
+      content,
+      createdAt,
+    };
+
+    const safetyEventParam =
+      risk.level === 'high'
+        ? {
+            id: id('safety'),
+            level: 'high' as const,
+            source: 'journey_create',
+            action: 'real_world_support_prompt',
+            payload: { escalation: true, triggerExcerpt: String(content).slice(0, 400) },
+          }
+        : undefined;
+
+    const created = await this.batch1Persistence.createJourneyWithSnapshotAndUpdate({
+      journey,
+      snapshot,
+      update,
+      safetyEvent: safetyEventParam,
+    });
+
+    const job = this.queueAI({
+      taskType: 'situation_analysis',
+      userId,
+      sourceId: journey.id,
+      content,
+      mood: this.inferMood(content),
+      style: 'rational',
+    });
+    const completionPromise: Promise<void> = this.waitForAiJob(job.id)
+      .then(async (completed) => {
+        await this.applySituationAnalysisCompletion(
+          journey.id,
+          userId,
+          completed,
+          created.journey.updatedAt,
+          created.snapshot.updatedAt,
+        );
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingAiCompletions.delete(completionPromise);
+      });
+    this.pendingAiCompletions.add(completionPromise);
+
+    return {
+      journey: created.journey,
+      snapshot: created.snapshot,
+      job,
+      safety:
+        risk.level === 'high'
+          ? { level: 'high', needsRealWorldSupport: true }
+          : { level: risk.level, needsRealWorldSupport: false },
+    };
   }
 
-  async cleanupBrowserFixtures(input: { journeyIds?: unknown; notificationIds?: unknown; decisionIds?: unknown; cooldownIds?: unknown; legacy?: unknown }) {
+  async cleanupBrowserFixtures(input: {
+    journeyIds?: unknown;
+    notificationIds?: unknown;
+    decisionIds?: unknown;
+    cooldownIds?: unknown;
+    legacy?: unknown;
+  }) {
     if (process.env.NODE_ENV === 'production') throw new ForbiddenException('生产环境不提供测试数据清理。');
 
     const demoUserId = this.getDemoUserId();
-    const explicitJourneyIds = new Set(Array.isArray(input.journeyIds) ? input.journeyIds.map(String).filter(Boolean) : []);
-    const explicitNotificationIds = new Set(Array.isArray(input.notificationIds) ? input.notificationIds.map(String).filter(Boolean) : []);
-    const explicitDecisionIds = new Set(Array.isArray(input.decisionIds) ? input.decisionIds.map(String).filter(Boolean) : []);
-    const explicitCooldownIds = new Set(Array.isArray(input.cooldownIds) ? input.cooldownIds.map(String).filter(Boolean) : []);
-    const fixtureText = /(?:第一批浏览器回归|第二段浏览器回归|浏览器回归记录|浏览器回归行动|通知验证行动|浏览器决策|浏览器冷静箱|可信任的人-\d+|direct-check|我想先留住这个决定，明天再回答|今晚先不发送这句话)/i;
+    const explicitJourneyIds = new Set(
+      Array.isArray(input.journeyIds) ? input.journeyIds.map(String).filter(Boolean) : [],
+    );
+    const explicitNotificationIds = new Set(
+      Array.isArray(input.notificationIds) ? input.notificationIds.map(String).filter(Boolean) : [],
+    );
+    const explicitDecisionIds = new Set(
+      Array.isArray(input.decisionIds) ? input.decisionIds.map(String).filter(Boolean) : [],
+    );
+    const explicitCooldownIds = new Set(
+      Array.isArray(input.cooldownIds) ? input.cooldownIds.map(String).filter(Boolean) : [],
+    );
+    const fixtureText =
+      /(?:第一批浏览器回归|第二段浏览器回归|浏览器回归记录|浏览器回归行动|通知验证行动|浏览器决策|浏览器冷静箱|可信任的人-\d+|direct-check|我想先留住这个决定，明天再回答|今晚先不发送这句话)/i;
     const legacy = input.legacy === true;
 
     if (legacy) {
-      for (const update of this.journeyUpdates) {
-        if (update.userId === demoUserId && fixtureText.test(update.content)) explicitJourneyIds.add(update.journeyId);
+      const dbUpdates = await this.batch1Persistence.listUpdatesForLegacyCleanup({
+        demoUserId,
+        fixturePattern: fixtureText,
+      });
+      for (const update of dbUpdates) {
+        explicitJourneyIds.add(update.journeyId);
       }
-      for (const journey of this.lifeJourneys) {
-        if (journey.userId === demoUserId && fixtureText.test(`${journey.title}\n${journey.summary ?? ''}`)) explicitJourneyIds.add(journey.id);
+      const dbJourneys = await this.batch1Persistence.listJourneysForLegacyCleanup({
+        demoUserId,
+        fixturePattern: fixtureText,
+      });
+      for (const journey of dbJourneys) {
+        explicitJourneyIds.add(journey.id);
       }
     }
 
-    const ownedJourneys = this.lifeJourneys.filter((journey) => explicitJourneyIds.has(journey.id));
-    if (ownedJourneys.some((journey) => journey.userId !== demoUserId)) throw new ForbiddenException('测试清理只能处理当前演示用户创建的 Journey。');
+    const ownedJourneys = await this.batch1Persistence.getJourneysByIds(Array.from(explicitJourneyIds));
+    if (ownedJourneys.some((journey) => journey.userId !== demoUserId))
+      throw new ForbiddenException('测试清理只能处理当前演示用户创建的 Journey。');
     const journeyIds = new Set(ownedJourneys.map((journey) => journey.id));
-    const actionIds = new Set(this.actionCommitments
-      .filter((action) => journeyIds.has(action.journeyId) || (legacy && action.userId === demoUserId && fixtureText.test(action.title)))
-      .map((action) => action.id));
-    const actionJourneyIds = new Set(this.actionCommitments.filter((action) => actionIds.has(action.id)).map((action) => action.journeyId));
+    const { actionIds: foundActionIds, actionJourneyIds } = await this.batch1Persistence.listActionsForTestCleanup({
+      journeyIds: Array.from(journeyIds),
+      demoUserId,
+      legacy,
+      fixturePattern: fixtureText,
+    });
+    const actionIds = new Set<string>(foundActionIds);
     for (const journeyId of actionJourneyIds) journeyIds.add(journeyId);
 
     const before = {
-      journeys: this.lifeJourneys.length,
-      actions: this.actionCommitments.length,
-      notifications: this.notifications.length,
-      jobs: this.aiJobs.length,
-      handoffs: this.realityHandoffs.length,
-      decisions: this.decisionRecords.length,
-      cooldowns: this.cooldownItems.length,
+      journeys: await this.batch1Persistence.countTotalJourneys(),
+      actions: await this.batch1Persistence.countTotalActions(),
+      jobs: DIRECT_DB_MODELS.AIJob ? 0 : this.aiJobs.length,
+      handoffs: DIRECT_DB_MODELS.RealityHandoff ? 0 : this.realityHandoffs.length,
+      decisions: DIRECT_DB_MODELS.DecisionRecord ? 0 : this.decisionRecords.length,
+      cooldowns: DIRECT_DB_MODELS.CooldownItem ? 0 : this.cooldownItems.length,
     };
     const hasJourney = (journeyId?: string) => Boolean(journeyId && journeyIds.has(journeyId));
     const hasAction = (actionId?: string) => Boolean(actionId && actionIds.has(actionId));
-    const notificationMatches = (item: UserNotification) => explicitNotificationIds.has(item.id)
-      || [...journeyIds].some((journeyId) => item.targetRoute?.includes(journeyId));
 
-    this.data.lifeJourneys = this.data.lifeJourneys.filter((item) => !journeyIds.has(item.id));
-    this.data.situationSnapshots = this.data.situationSnapshots.filter((item) => !journeyIds.has(item.journeyId));
-    this.data.journeyUpdates = this.data.journeyUpdates.filter((item) => !journeyIds.has(item.journeyId));
-    this.data.actionCommitments = this.data.actionCommitments.filter((item) => !actionIds.has(item.id));
-    this.data.outcomeCheckins = this.data.outcomeCheckins.filter((item) => !hasJourney(item.journeyId) && !hasAction(item.commitmentId));
-    this.data.peerExperiences = this.data.peerExperiences.filter((item) => !hasJourney(item.journeyId));
-    this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
-    this.data.decisionRecords = this.data.decisionRecords.filter((item) => !explicitDecisionIds.has(item.id) && !hasJourney(item.journeyId) && !(legacy && item.userId === demoUserId && fixtureText.test(item.question)));
-    this.data.cooldownItems = this.data.cooldownItems.filter((item) => !explicitCooldownIds.has(item.id) && !(legacy && item.userId === demoUserId && fixtureText.test(`${item.title}\n${item.reason ?? ''}`)));
-    this.data.realityHandoffs = this.data.realityHandoffs.filter((item) => !hasJourney(item.journeyId) && !(legacy && item.userId === demoUserId && fixtureText.test(`${item.recipient}\n${item.summary}`)));
-    this.data.messagesToFutureSelf = this.data.messagesToFutureSelf.filter((item) => !hasJourney(item.journeyId));
-    this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
-    this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
-    this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
-    this.data.safetyEvents = this.data.safetyEvents.filter((item) => !hasJourney(item.journeyId));
-    this.data.agentDecisionLogs = this.data.agentDecisionLogs.filter((item) => !hasJourney(item.journeyId));
-    this.data.followUpJobs = this.data.followUpJobs.filter((item) => !hasJourney(item.journeyId) && !hasAction(String(item.payload?.actionId ?? '')) && !explicitCooldownIds.has(String(item.payload?.cooldownId ?? '')));
-    this.data.notifications = this.data.notifications.filter((item) => !notificationMatches(item));
-    this.data.aiJobs = this.data.aiJobs.filter((item) => !journeyIds.has(item.contentId) && !actionIds.has(item.contentId) && !(legacy && item.userId === demoUserId && fixtureText.test(`${item.contentId}\n${item.promptSummary}`)));
+    await this.batch1Persistence.deleteJourneysForTestCleanup({
+      journeyIds: Array.from(journeyIds),
+      actionIds: Array.from(actionIds),
+    });
+    if (!DIRECT_DB_MODELS.ActionCommitment) {
+      this.data.actionCommitments = this.data.actionCommitments.filter((item) => !actionIds.has(item.id));
+    }
+    if (!DIRECT_DB_MODELS.OutcomeCheckin) {
+      this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
+        (item) => !hasJourney(item.journeyId) && !hasAction(item.commitmentId),
+      );
+    }
+    if (!DIRECT_DB_MODELS.PeerExperience) {
+      this.data.peerExperiences = this.data.peerExperiences.filter((item) => !hasJourney(item.journeyId));
+    }
+    if (!DIRECT_DB_MODELS.PeerMatch) {
+      this.data.peerMatches = this.data.peerMatches.filter((item) => !hasJourney(item.journeyId));
+    }
+    if (!DIRECT_DB_MODELS.DecisionRecord) {
+      this.data.decisionRecords = this.data.decisionRecords.filter(
+        (item) =>
+          !explicitDecisionIds.has(item.id) &&
+          !hasJourney(item.journeyId) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(item.question)),
+      );
+    }
+    if (!DIRECT_DB_MODELS.CooldownItem) {
+      this.data.cooldownItems = this.data.cooldownItems.filter(
+        (item) =>
+          !explicitCooldownIds.has(item.id) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(`${item.title}\n${item.reason ?? ''}`)),
+      );
+    }
+    if (!DIRECT_DB_MODELS.RealityHandoff) {
+      this.data.realityHandoffs = this.data.realityHandoffs.filter(
+        (item) =>
+          !hasJourney(item.journeyId) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(`${item.recipient}\n${item.summary}`)),
+      );
+    }
+    if (!DIRECT_DB_MODELS.MessageToFutureSelf) {
+      this.data.messagesToFutureSelf = this.data.messagesToFutureSelf.filter((item) => !hasJourney(item.journeyId));
+    }
+    if (!DIRECT_DB_MODELS.PersonalSupportPlan) {
+      this.data.personalSupportPlans = this.data.personalSupportPlans.filter((item) => !hasJourney(item.journeyId));
+    }
+    if (!DIRECT_DB_MODELS.MemoryItem) {
+      this.data.memoryItems = this.data.memoryItems.filter((item) => !hasJourney(item.journeyId));
+    }
+    if (!DIRECT_DB_MODELS.RecoverySnapshot) {
+      this.data.recoverySnapshots = this.data.recoverySnapshots.filter((item) => !hasJourney(item.journeyId));
+    }
+    // Batch 4: AgentDecisionLog is database-authoritative. The legacy filter removed these rows from
+    // the in-memory array; the table delete is what carries that intent now.
+    await this.batch1Persistence.deleteDecisionLogsForJourneys(Array.from(journeyIds));
+    this.data.followUpJobs = this.data.followUpJobs.filter(
+      (item) =>
+        !hasJourney(item.journeyId) &&
+        !hasAction(String(item.payload?.actionId ?? '')) &&
+        !explicitCooldownIds.has(String(item.payload?.cooldownId ?? '')),
+    );
+    const deletedNotifications = await this.batch1Persistence.deleteNotificationsForTestCleanup({
+      userId: demoUserId,
+      explicitIds: Array.from(explicitNotificationIds),
+      journeyIds: Array.from(journeyIds),
+    });
+    let deletedJobsCount = 0;
+    if (DIRECT_DB_MODELS.AIJob) {
+      const deletedAiJobs = await this.batch1Persistence.deleteAiJobsForTestCleanup({
+        demoUserId,
+        journeyIds: Array.from(journeyIds),
+        actionIds: Array.from(actionIds),
+        legacy,
+        fixturePattern: fixtureText,
+      });
+      deletedJobsCount = deletedAiJobs.count;
+    } else {
+      const jobsBefore = this.aiJobs.length;
+      this.data.aiJobs = this.data.aiJobs.filter(
+        (item) =>
+          !journeyIds.has(item.contentId) &&
+          !actionIds.has(item.contentId) &&
+          !(legacy && item.userId === demoUserId && fixtureText.test(`${item.contentId}\n${item.promptSummary}`)),
+      );
+      deletedJobsCount = jobsBefore - this.aiJobs.length;
+    }
 
     await this.persistAndFlush();
     return {
-      journeys: before.journeys - this.lifeJourneys.length,
-      actions: before.actions - this.actionCommitments.length,
-      notifications: before.notifications - this.notifications.length,
-      jobs: before.jobs - this.aiJobs.length,
-      handoffs: before.handoffs - this.realityHandoffs.length,
-      decisions: before.decisions - this.decisionRecords.length,
-      cooldowns: before.cooldowns - this.cooldownItems.length,
+      journeys: journeyIds.size,
+      actions: actionIds.size,
+      notifications: deletedNotifications.count,
+      jobs: deletedJobsCount,
+      handoffs: DIRECT_DB_MODELS.RealityHandoff ? 0 : before.handoffs - this.realityHandoffs.length,
+      decisions: DIRECT_DB_MODELS.DecisionRecord ? 0 : before.decisions - this.decisionRecords.length,
+      cooldowns: DIRECT_DB_MODELS.CooldownItem ? 0 : before.cooldowns - this.cooldownItems.length,
     };
   }
 
-  fingerprint(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journey.id);
+  async fingerprint(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
+    const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journey.id);
     if (!snapshot) throw new NotFoundException('经历指纹不存在');
     return { journey, snapshot };
   }
 
-  async setJourneyIntent(journeyId: string, intent: SupportIntent) {
-    const journey = this.requireJourney(journeyId);
-    const validIntents: SupportIntent[] = ['JUST_LISTEN', 'FIND_PEOPLE', 'SEE_OUTCOMES', 'NEXT_STEP', 'STOP_IMPULSE', 'PREPARE_CONVERSATION', 'NOTHING_NOW', 'HIGH_DISTRESS'];
+  async setJourneyIntent(journeyId: string, intent: SupportIntent, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
+    const validIntents: SupportIntent[] = [
+      'JUST_LISTEN',
+      'FIND_PEOPLE',
+      'SEE_OUTCOMES',
+      'NEXT_STEP',
+      'STOP_IMPULSE',
+      'PREPARE_CONVERSATION',
+      'NOTHING_NOW',
+      'HIGH_DISTRESS',
+    ];
     if (!validIntents.includes(intent)) throw new BadRequestException('暂时无法识别这个需要');
-    const requiresSafetyFirst = intent === 'HIGH_DISTRESS' || (journey.stage === 'safety_first' && this.safetyEvents.some((item) => item.journeyId === journey.id && ['high', 'critical'].includes(item.level)));
+    const hasDbHighRisk = await this.batch1Persistence.hasHighRiskSafetyEventForJourney(journey.id);
+    const requiresSafetyFirst = intent === 'HIGH_DISTRESS' || (journey.stage === 'safety_first' && hasDbHighRisk);
+    let nextStage: string;
+    let nextIntent: SupportIntent;
     if (requiresSafetyFirst) {
-      journey.stage = 'safety_first';
-      journey.currentIntent = 'HIGH_DISTRESS';
-      journey.intentUpdatedAt = now();
-      this.safetyEvents.unshift({ id: id('safety'), userId: journey.userId, journeyId: journey.id, level: 'high', source: 'support_intent', action: 'real_world_support_prompt', payload: { intent }, createdAt: now() });
+      nextStage = 'safety_first';
+      nextIntent = 'HIGH_DISTRESS';
     } else {
-      journey.currentIntent = intent;
-      journey.intentUpdatedAt = now();
-      journey.stage = intent === 'NEXT_STEP' ? 'planning' : intent === 'FIND_PEOPLE' || intent === 'SEE_OUTCOMES' ? 'matching' : intent === 'STOP_IMPULSE' ? 'cooldown' : 'clarifying';
+      nextIntent = intent;
+      nextStage =
+        intent === 'NEXT_STEP'
+          ? 'planning'
+          : intent === 'FIND_PEOPLE' || intent === 'SEE_OUTCOMES'
+            ? 'matching'
+            : intent === 'STOP_IMPULSE'
+              ? 'cooldown'
+              : 'clarifying';
     }
-    journey.updatedAt = now();
-    await this.persistAndFlush();
-    return { journey, intent, route: this.intentRoute(intent, journey.stage === 'safety_first') };
+    const safetyEventParam = requiresSafetyFirst
+      ? {
+          id: id('safety'),
+          userId: journey.userId,
+          level: 'high' as const,
+          source: 'support_intent',
+          action: 'real_world_support_prompt',
+          payload: { intent },
+        }
+      : undefined;
+
+    const { journey: updatedJourney } = await this.batch1Persistence.setJourneyIntent({
+      journeyId: journey.id,
+      intent: nextIntent,
+      stage: nextStage,
+      intentUpdatedAt: now(),
+      updatedAt: now(),
+      safetyEvent: safetyEventParam,
+    });
+    return {
+      journey: updatedJourney,
+      intent,
+      route: this.intentRoute(intent, updatedJourney.stage === 'safety_first'),
+    };
   }
 
   private intentRoute(intent: SupportIntent, safetyFirst = false) {
-    if (safetyFirst || intent === 'HIGH_DISTRESS') return { key: 'safety', targetRoute: '/pages/safety/index', message: '先把现实里的支持接上，不急着解决全部问题。' };
+    if (safetyFirst || intent === 'HIGH_DISTRESS')
+      return {
+        key: 'safety',
+        targetRoute: '/pages/safety/index',
+        message: '先把现实里的支持接上，不急着解决全部问题。',
+      };
     const routes: Record<SupportIntent, { key: string; targetRoute: string; message: string }> = {
-      JUST_LISTEN: { key: 'listen', targetRoute: '/pages/journey/detail', message: '先听你把这件事说完，不急着给行动。' },
+      JUST_LISTEN: {
+        key: 'listen',
+        targetRoute: '/pages/journey/detail',
+        message: '先听你把这件事说完，不急着给行动。',
+      },
       FIND_PEOPLE: { key: 'peers', targetRoute: '/pages/peers/index', message: '去看看真正经历过相似阶段的人。' },
-      SEE_OUTCOMES: { key: 'outcomes', targetRoute: '/pages/peers/index?view=outcomes', message: '先看看相似经历后来发生了什么。' },
+      SEE_OUTCOMES: {
+        key: 'outcomes',
+        targetRoute: '/pages/peers/index',
+        message: '先看看相似经历后来发生了什么。',
+      },
       NEXT_STEP: { key: 'action', targetRoute: '/pages/action/index', message: '把下一步缩到今晚做得完的一件事。' },
-      STOP_IMPULSE: { key: 'cooldown', targetRoute: '/pages/action/index?section=vault', message: '先把冲动放进决定保险箱。' },
-      PREPARE_CONVERSATION: { key: 'handoff', targetRoute: '/pages/action/index?section=handoff', message: '先整理想对现实中的人说的话。' },
+      STOP_IMPULSE: {
+        key: 'cooldown',
+        targetRoute: '/pages/action/index',
+        message: '先把冲动放进决定保险箱。',
+      },
+      PREPARE_CONVERSATION: {
+        key: 'handoff',
+        targetRoute: '/pages/reality-handoff/index',
+        message: '先整理想对现实中的人说的话。',
+      },
       NOTHING_NOW: { key: 'pause', targetRoute: '/pages/tonight/index', message: '今天不解决，也是一种照顾。' },
       HIGH_DISTRESS: { key: 'safety', targetRoute: '/pages/safety/index', message: '先连接现实支持。' },
     };
     return routes[intent];
   }
 
-  journeyDetail(journeyId: string, userId = this.getDemoUserId()) {
-    const journey = this.requireJourney(journeyId, userId);
-    return { journey, snapshot: this.situationSnapshots.find((item) => item.journeyId === journeyId) ?? null, updates: this.journeyUpdates.filter((item) => item.journeyId === journeyId), commitments: this.actionCommitments.filter((item) => item.journeyId === journeyId), checkins: this.outcomeCheckins.filter((item) => item.journeyId === journeyId), recovery: this.recoverySnapshots.filter((item) => item.journeyId === journeyId), peerMatches: this.peerMatches.filter((item) => item.journeyId === journeyId) };
+  async journeyDetail(journeyId: string, userId = this.getDemoUserId()) {
+    const journey = await this.requireJourney(journeyId, userId);
+    const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
+    const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId);
+    const journeyMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForJourney(journeyId)
+      : this.peerMatches.filter((item) => item.journeyId === journeyId);
+    return {
+      journey,
+      snapshot: snapshot ?? null,
+      updates,
+      commitments: await this.batch1Persistence.listActionsForJourney(journeyId),
+      checkins: await this.batch1Persistence.listCheckinsForJourney(journeyId),
+      recovery: DIRECT_DB_MODELS.RecoverySnapshot
+        ? await this.selfPersistence.listRecoverySnapshotsForJourney(journeyId)
+        : this.recoverySnapshots.filter((item) => item.journeyId === journeyId),
+      peerMatches: journeyMatches.map((item) => this.peerMatchForUser(item)),
+    };
   }
 
-  journeyActions(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    return this.actionCommitments.filter((item) => item.journeyId === journey.id);
+  async listJourneyDetails(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const journeys = await this.batch1Persistence.listJourneysForUser(userId);
+    return await Promise.all(journeys.map((j) => this.journeyDetail(j.id, userId)));
   }
 
-  journeyTimeline(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    return this.journeyUpdates.filter((item) => item.journeyId === journey.id);
+  async archiveJourneys(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const journeys = await this.batch1Persistence.listArchivedJourneysForUser(userId);
+    return await Promise.all(journeys.map((j) => this.journeyArchiveDetail(j.id, userId)));
   }
 
-  journeyPeers(journeyId: string, requestedUserId?: string) {
-    const journey = this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
-    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
-    return this.peerMatches
-      .filter((item) => item.journeyId === journey.id)
-      .map((item) => this.peerMatchForUser(item))
-      .filter((item) => item.experience);
-  }
-
-  async confirmSituation(journeyId: string, input: { facts?: unknown; feelings?: unknown; needs?: unknown; constraints?: unknown; risks?: unknown; domain?: unknown; subDomain?: unknown; eventType?: unknown; stage?: unknown; contextTags?: unknown; peopleContext?: unknown; decisionContext?: unknown; behaviorSignals?: unknown; recoverySignals?: unknown; intensity?: unknown; urgency?: unknown }) {
-    const journey = this.requireJourney(journeyId);
-    const item = this.situationSnapshots.find((snapshot) => snapshot.journeyId === journeyId);
-    if (!item) throw new NotFoundException('情境快照不存在');
-    const previousIntensity = item.intensity;
-    const submittedIntensity = Number.isFinite(Number(input.intensity)) ? Math.max(0, Math.min(10, Number(input.intensity))) : undefined;
-    const shouldRecordIntensity = submittedIntensity !== undefined && (journey.initialIntensity === undefined || previousIntensity !== submittedIntensity);
-    const array = (value: unknown, fallback: string[]) => Array.isArray(value) ? value.map(String).map((part) => part.trim()).filter(Boolean).slice(0, 8) : fallback;
-    item.facts = array(input.facts, item.facts); item.feelings = array(input.feelings, item.feelings); item.needs = array(input.needs, item.needs); item.constraints = array(input.constraints, item.constraints); item.risks = array(input.risks, item.risks); item.domain = typeof input.domain === 'string' && input.domain.trim() ? input.domain.trim().slice(0, 40) : item.domain; item.subDomain = typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : item.subDomain; item.eventType = typeof input.eventType === 'string' ? input.eventType.trim().slice(0, 80) : item.eventType; item.stage = typeof input.stage === 'string' ? input.stage.trim().slice(0, 60) : item.stage; item.contextTags = Array.isArray(input.contextTags) ? input.contextTags.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 12) : item.contextTags; item.peopleContext = Array.isArray(input.peopleContext) ? input.peopleContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.peopleContext; item.decisionContext = Array.isArray(input.decisionContext) ? input.decisionContext.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.decisionContext; item.behaviorSignals = Array.isArray(input.behaviorSignals) ? input.behaviorSignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.behaviorSignals; item.recoverySignals = Array.isArray(input.recoverySignals) ? input.recoverySignals.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8) : item.recoverySignals; item.intensity = submittedIntensity ?? item.intensity; item.urgency = Number.isFinite(Number(input.urgency)) ? Math.max(0, Math.min(10, Number(input.urgency))) : item.urgency; item.fingerprintJson = { domain: item.domain, subDomain: item.subDomain, eventType: item.eventType, stage: item.stage, contextTags: item.contextTags, peopleContext: item.peopleContext, decisionContext: item.decisionContext, behaviorSignals: item.behaviorSignals, recoverySignals: item.recoverySignals }; item.confidence = 'user_confirmed'; item.updatedAt = now();
-    if (item.intensity !== undefined) { journey.intensity = item.intensity; journey.initialIntensity ??= item.intensity; }
-    if (shouldRecordIntensity && submittedIntensity !== undefined) {
-      const thought = item.behaviorSignals?.find((signal) => signal.startsWith('脑子里最吵的一句：'));
-      this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'intensity', content: `今晚的主观难受程度：${submittedIntensity}/10${thought ? `。${thought.replace('脑子里最吵的一句：', '')}` : ''}`, intensity: submittedIntensity, createdAt: now() });
+  async journeyArchiveDetail(journeyId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const detail = await this.journeyDetail(journeyId, userId);
+    const { journey } = detail;
+    if (!['archived', 'completed'].includes(journey.status)) {
+      throw new BadRequestException('这段旅程仍在进行中，暂时不能作为归档查看');
     }
-    journey.updatedAt = now();
-    await this.persistAndFlush();
-    return { item };
+
+    const actionStats = {
+      total: detail.commitments.length,
+      completed: detail.commitments.filter((item) => item.status === 'completed').length,
+      missed: detail.checkins.filter((item) => item.status === 'missed').length,
+      adjusted: detail.commitments.filter((item) => Boolean(item.parentActionId || item.adaptationReason)).length,
+    };
+    const linkedMatchIds = new Set(detail.peerMatches.map((item) => item.id));
+    let conversations: PeerConversationRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const convs = await Promise.all(
+        Array.from(linkedMatchIds).map((mid) => this.peerPersistence.getConversationByMatchId(mid)),
+      );
+      conversations = convs.filter((item): item is PeerConversationRecord => Boolean(item));
+    } else {
+      conversations = this.peerConversations.filter((item) => linkedMatchIds.has(item.matchId));
+    }
+    const decisions = DIRECT_DB_MODELS.DecisionRecord
+      ? await this.selfPersistence.listDecisionsForJourney(journeyId, userId)
+      : this.decisionRecords
+          .filter((item) => item.userId === userId && item.journeyId === journeyId)
+          .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+    const timeline = detail.updates
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        content: item.content,
+        intensity: item.intensity,
+        createdAt: item.createdAt,
+      }))
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+    const laterUpdates = timeline.filter((item) => item.kind === 'later');
+
+    return {
+      journey,
+      snapshot: detail.snapshot,
+      happened: detail.snapshot?.facts ?? [],
+      supportIntent: journey.currentIntent ?? null,
+      actionStats,
+      actions: detail.commitments,
+      checkins: detail.checkins,
+      recovery: detail.recovery,
+      peerSupport: {
+        matchCount: detail.peerMatches.length,
+        conversationCount: conversations.length,
+        conversations: conversations.map((item) => ({
+          id: item.id,
+          status: item.status,
+          startsAt: item.startsAt,
+          closedAt: item.closedAt ?? null,
+        })),
+      },
+      decisions,
+      timeline,
+      later: laterUpdates,
+      endedAt: journey.completedAt ?? journey.updatedAt,
+    };
   }
 
-  async reanalyzeSituation(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journeyId);
-    if (!snapshot) throw new NotFoundException('经历指纹不存在');
-    const source = [snapshot.facts.join('；'), snapshot.feelings.join('；'), snapshot.constraints.join('；')].filter(Boolean).join('\n') || journey.title;
-    snapshot.confidence = 'agent_draft';
-    snapshot.updatedAt = now();
-    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'fingerprint_reanalysis_requested', content: '我请求系统根据原话重新整理了这段经历。', createdAt: now() });
-    const job = this.queueAI({ taskType: 'situation_analysis', userId: journey.userId, sourceId: journeyId, content: source, mood: this.inferMood(source), style: 'rational' });
-    void this.waitForAiJob(job.id).then(async (completed) => {
-      if (!['succeeded', 'fallback'].includes(completed.status)) return;
-      const current = this.situationSnapshots.find((item) => item.journeyId === journeyId);
-      if (!current || current.confidence === 'user_confirmed') return;
-      const structured = completed.structuredResult ?? {};
-      const list = (value: unknown, fallback: string[], max = 8) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, max) : fallback;
-      current.facts = list(structured.facts, current.facts); current.feelings = list(structured.feelings, current.feelings); current.needs = list(structured.needs, current.needs); current.constraints = list(structured.constraints, current.constraints); current.risks = list(structured.risks, current.risks); current.domain = typeof structured.domain === 'string' ? structured.domain : current.domain; current.subDomain = typeof structured.subDomain === 'string' ? structured.subDomain : current.subDomain; current.eventType = typeof structured.eventType === 'string' ? structured.eventType : current.eventType; current.stage = typeof structured.stage === 'string' ? structured.stage : current.stage; current.contextTags = list(structured.contextTags, current.contextTags ?? [], 12); current.peopleContext = list(structured.peopleContext, current.peopleContext ?? []); current.decisionContext = list(structured.decisionContext, current.decisionContext ?? []); current.behaviorSignals = list(structured.behaviorSignals, current.behaviorSignals ?? []); current.recoverySignals = list(structured.recoverySignals, current.recoverySignals ?? []); current.intensity = Number.isFinite(Number(structured.intensity)) ? Math.max(0, Math.min(10, Number(structured.intensity))) : current.intensity; current.urgency = Number.isFinite(Number(structured.urgency)) ? Math.max(0, Math.min(10, Number(structured.urgency))) : current.urgency; current.fingerprintJson = { domain: current.domain, subDomain: current.subDomain, eventType: current.eventType, stage: current.stage, contextTags: current.contextTags, peopleContext: current.peopleContext, decisionContext: current.decisionContext, behaviorSignals: current.behaviorSignals, recoverySignals: current.recoverySignals }; current.updatedAt = now();
-      journey.summary = String(structured.summary ?? completed.result).slice(0, 500); if (typeof structured.title === 'string' && structured.title.trim()) journey.title = structured.title.trim().slice(0, 80); if (current.intensity !== undefined) journey.intensity = current.intensity; journey.updatedAt = now(); this.agentDecisionLogs.unshift({ id: id('agent_decision'), userId: journey.userId, journeyId, aiJobId: completed.id, taskType: 'situation_analysis', decision: structured, createdAt: now() }); await this.persistAndFlush();
-    }).catch(() => undefined);
-    await this.persistAndFlush();
-    return { job, snapshot };
-  }
-
-  async acknowledgeSafety(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    journey.stage = 'stabilizing';
-    journey.currentIntent = 'JUST_LISTEN';
-    journey.intentUpdatedAt = now();
-    journey.updatedAt = now();
-    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'safety_acknowledged', content: '我暂时安全，决定继续留在这里，先让自己稳定下来。', createdAt: now() });
-    await this.persistAndFlush();
+  async restoreArchivedJourney(journeyId: string, userId = this.getDemoUserId()) {
+    const journey = await this.batch1Persistence.restoreArchivedJourney(journeyId, userId);
     return { journey };
   }
 
-  async addJourneyUpdate(journeyId: string, input: { content?: unknown; kind?: unknown; outcome?: Partial<JourneyOutcome> }) {
-    const journey = this.requireJourney(journeyId);
-    const outcome = input.outcome ?? {};
-    const item: JourneyUpdateRecord = { id: id('journey_update'), journeyId, userId: journey.userId, kind: typeof input.kind === 'string' && input.kind.trim() ? input.kind.trim() : 'note', content: this.text(input.content, '进展记录', 1000), stage: typeof outcome.stage === 'string' ? outcome.stage : undefined, intensity: Number.isFinite(Number(outcome.intensity)) ? Math.max(0, Math.min(10, Number(outcome.intensity))) : undefined, lifeFunction: outcome.lifeFunction, actionResult: outcome.actionResult, decisionChange: outcome.decisionChange, contactState: outcome.contactState, sleepState: outcome.sleepState, socialState: outcome.socialState, selfReportedHelpfulness: Number.isFinite(Number(outcome.selfReportedHelpfulness)) ? Number(outcome.selfReportedHelpfulness) : undefined, eventDate: outcome.eventDate, createdAt: now() };
-    this.journeyUpdates.unshift(item); journey.updatedAt = now(); await this.persistAndFlush(); return { item };
+  async deleteJourneyArchive(journeyId: string, userId = this.getDemoUserId()) {
+    const journey = await this.requireJourney(journeyId, userId);
+    if (!['archived', 'completed'].includes(journey.status)) {
+      throw new BadRequestException('只能删除已归档或已完成的旅程');
+    }
+
+    // MediaAsset is registered, so the export rows for this journey are read out of the table by
+    // storage key. The rows are the record of which files exist; without this read the delete below
+    // would leave an orphaned export behind a URL the API still serves.
+    const exportAssets = DIRECT_DB_MODELS.MediaAsset
+      ? await this.mediaAssetsDb.forJourneyArchiveExport(journeyId, userId)
+      : this.assets.filter(
+          (item) =>
+            item.userId === userId &&
+            item.usageType === 'journey-archive-export' &&
+            item.storageKey.startsWith(`journey-archive-export-${journeyId}-`),
+        );
+    const archiveRoute = `/pages/journey/detail?id=${journeyId}`;
+
+    const { deletedActionIds } = await this.batch1Persistence.deleteJourneyArchive({
+      journeyId,
+      userId,
+      archiveRoute,
+    });
+    const actionIds = new Set(deletedActionIds);
+
+    if (!DIRECT_DB_MODELS.ActionCommitment) {
+      this.data.actionCommitments = this.data.actionCommitments.filter((item) => item.journeyId !== journeyId);
+    }
+    if (!DIRECT_DB_MODELS.OutcomeCheckin) {
+      this.data.outcomeCheckins = this.data.outcomeCheckins.filter(
+        (item) => item.journeyId !== journeyId && !actionIds.has(item.commitmentId ?? ''),
+      );
+    }
+    if (!DIRECT_DB_MODELS.MediaAsset) {
+      this.data.assets = this.data.assets.filter((item) => !exportAssets.some((asset) => asset.id === item.id));
+    }
+
+    // The following records can stand on their own outside a Journey. Keep the
+    // person's separately created materials, but remove the deleted Journey link.
+    const detachJourney = <T extends { journeyId?: string }>(items: T[]) =>
+      items.map((item) => (item.journeyId === journeyId ? { ...item, journeyId: undefined } : item));
+    // Diary and Mood are database-authoritative: the archive transaction already removed the link
+    // with its own statements, so the snapshot array must not be touched here.
+    if (!DIRECT_DB_MODELS.Diary) this.data.diaries = detachJourney(this.data.diaries as Array<any>);
+    if (!DIRECT_DB_MODELS.Mood) this.data.moods = detachJourney(this.data.moods as Array<any>);
+    // Post is database-authoritative: the link is removed by a statement, not by rewriting a row in
+    // the snapshot the flush writes.
+    if (DIRECT_DB_MODELS.Post) {
+      await this.prisma.post.updateMany({
+        where: { journeyId: journeyId ?? undefined },
+        data: { journeyId: null },
+      });
+    } else {
+      this.data.posts = detachJourney(this.data.posts as Array<any>);
+    }
+    if (!DIRECT_DB_MODELS.PeerExperience) this.data.peerExperiences = detachJourney(this.data.peerExperiences);
+    if (!DIRECT_DB_MODELS.PeerMatch) this.data.peerMatches = detachJourney(this.data.peerMatches);
+    if (!DIRECT_DB_MODELS.DecisionRecord) this.data.decisionRecords = detachJourney(this.data.decisionRecords);
+    if (!DIRECT_DB_MODELS.RealityHandoff) this.data.realityHandoffs = detachJourney(this.data.realityHandoffs);
+    if (!DIRECT_DB_MODELS.MessageToFutureSelf) this.data.messagesToFutureSelf = detachJourney(this.data.messagesToFutureSelf);
+    if (!DIRECT_DB_MODELS.PersonalSupportPlan) this.data.personalSupportPlans = detachJourney(this.data.personalSupportPlans);
+    if (!DIRECT_DB_MODELS.MemoryItem) this.data.memoryItems = detachJourney(this.data.memoryItems);
+    if (!DIRECT_DB_MODELS.RecoverySnapshot) this.data.recoverySnapshots = detachJourney(this.data.recoverySnapshots);
+    // Batch 4: the same model, the opposite intent - the export path keeps these rows and only
+    // removes the link, which is why it is a detach here and a delete in the archive-cleanup path.
+    await this.batch1Persistence.detachDecisionLogsForJourneys([journeyId]);
+    // FollowUpJob is not a direct-DB model, so the snapshot array is still its record.
+    this.data.followUpJobs = detachJourney(this.data.followUpJobs);
+
+    await this.persistAndFlush();
+    for (const asset of exportAssets) {
+      const target = path.resolve(uploadsDirectory, asset.storageKey);
+      if (target.startsWith(`${uploadsDirectory}${path.sep}`) && fs.existsSync(target)) fs.unlinkSync(target);
+    }
+    if (DIRECT_DB_MODELS.MediaAsset) {
+      // The files are gone, so the rows must stop claiming to be ready: leaving them would let
+      // `getExportDownload` resolve a storageKey that no longer exists on disk.
+      for (const asset of exportAssets) await this.mediaAssetsDb.markDeleted(asset.id).catch(() => undefined);
+    }
+    return { deletedJourneyId: journeyId, removedExportCount: exportAssets.length };
   }
 
-  async generateActionPlan(journeyId: string, content?: string) {
-    const journey = this.requireJourney(journeyId);
-    const source = content?.trim() || this.journeyUpdates.find((item) => item.journeyId === journeyId)?.content || this.situationSnapshots.find((item) => item.journeyId === journeyId)?.facts.join('、') || journey.title;
-    const job = this.queueAI({ taskType: 'action_plan', userId: journey.userId, sourceId: journeyId, content: source, mood: '焦虑', style: 'rational' });
+  async journeyActions(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
+    return await this.batch1Persistence.listActionsForJourney(journey.id);
+  }
+
+  async journeyTimeline(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
+    return await this.batch1Persistence.listUpdatesForJourney(journey.id);
+  }
+
+  async journeyPeers(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
+    await this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中允许同路人匹配');
+    const matches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForJourney(journey.id)
+      : this.peerMatches.filter((item) => item.journeyId === journey.id);
+    const peerExpIds = matches.map((m) => m.peerExperienceId);
+    const peerExps = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getExperiencesByIds(peerExpIds)
+      : this.peerExperiences.filter((e) => peerExpIds.includes(e.id));
+    const targetJourneyIds = peerExps.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
+    const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(targetJourneyIds);
+    const checkinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(targetJourneyIds);
+    const peerExpMap = new Map(peerExps.map((e) => [e.id, e]));
+    return matches
+      .map((item) => {
+        const exp = peerExpMap.get(item.peerExperienceId);
+        const uCount = exp?.journeyId ? (updateCounts.get(exp.journeyId) ?? 0) : 0;
+        const cCount = exp?.journeyId ? (checkinCounts.get(exp.journeyId) ?? 0) : 0;
+        return this.peerMatchForUser(item, this.peerExperienceSummary(exp, uCount, cCount));
+      })
+      .filter((item) => item.experience);
+  }
+
+  async confirmSituation(
+    journeyId: string,
+    input: {
+      facts?: unknown;
+      feelings?: unknown;
+      needs?: unknown;
+      constraints?: unknown;
+      risks?: unknown;
+      domain?: unknown;
+      subDomain?: unknown;
+      eventType?: unknown;
+      stage?: unknown;
+      contextTags?: unknown;
+      peopleContext?: unknown;
+      decisionContext?: unknown;
+      behaviorSignals?: unknown;
+      recoverySignals?: unknown;
+      intensity?: unknown;
+      urgency?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const existingSnapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
+    if (!existingSnapshot) throw new NotFoundException('情境快照不存在');
+    const previousIntensity = existingSnapshot.intensity;
+    const submittedIntensity = Number.isFinite(Number(input.intensity))
+      ? Math.max(0, Math.min(10, Number(input.intensity)))
+      : undefined;
+    const shouldRecordIntensity =
+      submittedIntensity !== undefined &&
+      (journey.initialIntensity === undefined || previousIntensity !== submittedIntensity);
+    const array = (value: unknown, fallback: string[]) =>
+      Array.isArray(value)
+        ? value
+            .map(String)
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .slice(0, 8)
+        : fallback;
+    const facts = array(input.facts, existingSnapshot.facts);
+    const feelings = array(input.feelings, existingSnapshot.feelings);
+    const needs = array(input.needs, existingSnapshot.needs);
+    const constraints = array(input.constraints, existingSnapshot.constraints);
+    const risks = array(input.risks, existingSnapshot.risks);
+    const domain =
+      typeof input.domain === 'string' && input.domain.trim()
+        ? input.domain.trim().slice(0, 40)
+        : existingSnapshot.domain;
+    const subDomain =
+      typeof input.subDomain === 'string' ? input.subDomain.trim().slice(0, 80) : existingSnapshot.subDomain;
+    const eventType =
+      typeof input.eventType === 'string' ? input.eventType.trim().slice(0, 80) : existingSnapshot.eventType;
+    const stage = typeof input.stage === 'string' ? input.stage.trim().slice(0, 60) : existingSnapshot.stage;
+    const contextTags = Array.isArray(input.contextTags)
+      ? input.contextTags
+          .map(String)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 12)
+      : existingSnapshot.contextTags;
+    const peopleContext = Array.isArray(input.peopleContext)
+      ? input.peopleContext
+          .map(String)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : existingSnapshot.peopleContext;
+    const decisionContext = Array.isArray(input.decisionContext)
+      ? input.decisionContext
+          .map(String)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : existingSnapshot.decisionContext;
+    const behaviorSignals = Array.isArray(input.behaviorSignals)
+      ? input.behaviorSignals
+          .map(String)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : existingSnapshot.behaviorSignals;
+    const recoverySignals = Array.isArray(input.recoverySignals)
+      ? input.recoverySignals
+          .map(String)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : existingSnapshot.recoverySignals;
+    const urgency = Number.isFinite(Number(input.urgency))
+      ? Math.max(0, Math.min(10, Number(input.urgency)))
+      : existingSnapshot.urgency;
+
+    let updateContent: string | undefined;
+    if (shouldRecordIntensity && submittedIntensity !== undefined) {
+      const thought = behaviorSignals?.find((signal) => signal.startsWith('脑子里最吵的一句：'));
+      updateContent = `今晚的主观难受程度：${submittedIntensity}/10${thought ? `。${thought.replace('脑子里最吵的一句：', '')}` : ''}`;
+    }
+
+    const { snapshot } = await this.batch1Persistence.confirmSituation({
+      journeyId,
+      snapshotInput: {
+        facts,
+        feelings,
+        needs,
+        constraints,
+        risks,
+        domain,
+        subDomain,
+        eventType,
+        stage,
+        contextTags,
+        peopleContext,
+        decisionContext,
+        behaviorSignals,
+        recoverySignals,
+        intensity: submittedIntensity ?? existingSnapshot.intensity,
+        urgency,
+      },
+      submittedIntensity,
+      shouldRecordIntensity,
+      updateContent,
+    });
+    return { item: snapshot };
+  }
+
+  async reanalyzeSituation(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
+    if (!snapshot) throw new NotFoundException('经历指纹不存在');
+    const source =
+      [snapshot.facts.join('；'), snapshot.feelings.join('；'), snapshot.constraints.join('；')]
+        .filter(Boolean)
+        .join('\n') || journey.title;
+    const updateId = id('journey_update');
+    const { snapshot: updatedSnapshot } = await this.batch1Persistence.reanalyzeSituation({
+      journeyId,
+      userId: journey.userId,
+      updateId,
+    });
+    const job = this.queueAI({
+      taskType: 'situation_analysis',
+      userId: journey.userId,
+      sourceId: journeyId,
+      content: source,
+      mood: this.inferMood(source),
+      style: 'rational',
+    });
+    const completionPromise: Promise<void> = this.waitForAiJob(job.id)
+      .then(async (completed) => {
+        await this.applySituationAnalysisCompletion(
+          journeyId,
+          journey.userId,
+          completed,
+          journey.updatedAt,
+          updatedSnapshot.updatedAt,
+        );
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingAiCompletions.delete(completionPromise);
+      });
+    this.pendingAiCompletions.add(completionPromise);
+    return { job, snapshot: updatedSnapshot };
+  }
+
+  async acknowledgeSafety(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const updateId = id('journey_update');
+    const { journey: updated } = await this.batch1Persistence.acknowledgeSafety({
+      journeyId,
+      userId: journey.userId,
+      updateId,
+    });
+    return { journey: updated };
+  }
+
+  async handleSafetyEvent(
+    eventId: string,
+    adminUserId: string,
+    input: { status?: unknown; note?: unknown; _failAfterUpdate?: boolean },
+  ) {
+    const result = await this.batch1Persistence.handleSafetyEvent(eventId, adminUserId, input);
+    this.auditLogs.unshift({
+      id: result.auditId,
+      adminUserId,
+      action: 'SAFETY_EVENT_HANDLE',
+      resourceType: 'SafetyEvent',
+      resourceId: eventId,
+      beforeJson: result.before,
+      afterJson: result.item,
+      ip: '127.0.0.1',
+      userAgent: 'local-dev',
+      createdAt: result.auditCreatedAt,
+    });
+    return { item: result.item };
+  }
+
+  async addJourneyUpdate(
+    journeyId: string,
+    input: { content?: unknown; kind?: unknown; outcome?: Partial<JourneyOutcome> },
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const outcome = input.outcome ?? {};
+    const item = await this.batch1Persistence.addJourneyUpdate(journeyId, journey.userId, {
+      id: id('journey_update'),
+      kind: typeof input.kind === 'string' && input.kind.trim() ? input.kind.trim() : 'note',
+      content: this.text(input.content, '进展记录', 1000),
+      stage: typeof outcome.stage === 'string' ? outcome.stage : undefined,
+      intensity: Number.isFinite(Number(outcome.intensity))
+        ? Math.max(0, Math.min(10, Number(outcome.intensity)))
+        : undefined,
+      lifeFunction: outcome.lifeFunction,
+      actionResult: outcome.actionResult,
+      decisionChange: outcome.decisionChange,
+      contactState: outcome.contactState,
+      sleepState: outcome.sleepState,
+      socialState: outcome.socialState,
+      selfReportedHelpfulness: Number.isFinite(Number(outcome.selfReportedHelpfulness))
+        ? Number(outcome.selfReportedHelpfulness)
+        : undefined,
+      eventDate: outcome.eventDate,
+      payload: outcome as Record<string, unknown>,
+      createdAt: now(),
+    });
+    return { item };
+  }
+
+  /**
+   * Queues a real `action_plan` AiJob.
+   *
+   * `mode: 'smaller'` is what 换一个更小的版本 sends. It used to call this with no
+   * distinction, so the button re-ran the identical request and produced the identical plan
+   * (product audit ISSUE-008). The mode is now part of the job's prompt summary, so the
+   * request semantics genuinely differ and can be asserted on the AiJob rather than on the
+   * generated text.
+   */
+  async generateActionPlan(
+    journeyId: string,
+    content?: string,
+    mode: 'initial' | 'smaller' = 'initial',
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 1);
+    const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
+    const base = content?.trim() || updates[0]?.content || snapshot?.facts.join('、') || journey.title;
+    const previous = await this.batch1Persistence.getLatestActionForJourney(journeyId);
+    const source =
+      mode === 'smaller'
+        ? [
+            '【缩小一步】',
+            `上一步行动：${previous?.title ?? '（还没有已接受的行动）'}`,
+            previous?.description ? `上一步说明：${previous.description}` : '',
+            `原始处境：${base}`,
+            '请给出比上一步更小、更短、难度更低的版本：几分钟内就能开始，不要求完成质量。',
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : base;
+    const job = this.queueAI({
+      taskType: 'action_plan',
+      userId: journey.userId,
+      sourceId: journeyId,
+      content: source,
+      mood: '焦虑',
+      style: 'rational',
+    });
     await this.flush();
     return { job };
   }
 
-  async createActionCommitment(journeyId: string, input: { title?: unknown; description?: unknown; dueAt?: unknown; reminderAt?: unknown; parentActionId?: string; adaptationReason?: ActionBarrier; attemptNumber?: number }) {
-    const journey = this.requireJourney(journeyId);
-    const createdAt = now();
+  async createActionCommitment(
+    journeyId: string,
+    input: {
+      title?: unknown;
+      description?: unknown;
+      dueAt?: unknown;
+      reminderAt?: unknown;
+      parentActionId?: string;
+      adaptationReason?: ActionBarrier;
+      attemptNumber?: number;
+    },
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
     const dueAt = this.optionalDate(input.dueAt, '完成时间') ?? new Date(Date.now() + 24 * 3_600_000).toISOString();
-    if (input.parentActionId && !this.actionCommitments.some((action) => action.id === input.parentActionId && action.userId === journey.userId)) throw new NotFoundException('原行动不存在');
-    const item: ActionCommitmentRecord = { id: id('action'), journeyId, userId: journey.userId, title: this.text(input.title, '行动标题', 120), description: typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined, status: 'active', dueAt, reminderAt: this.optionalDate(input.reminderAt, '提醒时间'), parentActionId: input.parentActionId, adaptationReason: input.adaptationReason, attemptNumber: Math.max(1, Number(input.attemptNumber ?? (input.parentActionId ? 2 : 1))), createdAt, updatedAt: createdAt };
-    const checkin: OutcomeCheckinRecord = { id: id('checkin'), journeyId, commitmentId: item.id, userId: journey.userId, status: 'pending', dueAt, createdAt };
-    const followUp: FollowUpJob = { id: id('follow_up'), userId: journey.userId, journeyId, kind: 'action_checkin', dueAt, status: 'pending', payload: { actionId: item.id, title: item.title }, createdAt };
-    this.actionCommitments.unshift(item); this.outcomeCheckins.unshift(checkin); this.followUpJobs.unshift(followUp); this.journeyUpdates.unshift({ id: id('journey_update'), journeyId, userId: journey.userId, kind: 'commitment_created', content: item.title, payload: { parentActionId: item.parentActionId, adaptationReason: item.adaptationReason }, createdAt }); journey.stage = 'acting'; journey.updatedAt = createdAt; await this.persistAndFlush();
+    const reminderAt = this.optionalDate(input.reminderAt, '提醒时间');
+    const title = this.text(input.title, '行动标题', 120);
+    const description = typeof input.description === 'string' ? input.description.trim().slice(0, 500) : undefined;
+    const attemptNumber = Math.max(1, Number(input.attemptNumber ?? (input.parentActionId ? 2 : 1)));
+
+    const result = await this.batch1Persistence.createActionCommitment({
+      journeyId,
+      userId: journey.userId,
+      title,
+      description,
+      dueAt,
+      reminderAt,
+      parentActionId: input.parentActionId,
+      adaptationReason: input.adaptationReason,
+      attemptNumber,
+    });
+
+    const followUp: FollowUpJob = {
+      id: result.followUp.id,
+      userId: result.followUp.userId,
+      journeyId: result.followUp.journeyId,
+      kind: result.followUp.kind,
+      dueAt: result.followUp.dueAt,
+      status: result.followUp.status as any,
+      payload: result.followUp.payload,
+      createdAt: result.followUp.createdAt,
+    };
+    this.followUpJobs.unshift(followUp);
     const queue = await scheduleFollowUp(followUp);
-    return { item, checkin, followUp, queue };
+    return { item: result.item, checkin: result.checkin, followUp, queue };
   }
 
-  async checkinAction(actionId: string, input: { status?: string; reflection?: unknown; result?: unknown; intensity?: number; barrier?: ActionBarrier; outcome?: Partial<JourneyOutcome> }) {
-    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
-    if (!action) throw new NotFoundException('行动不存在');
-    const status = ['completed', 'skipped', 'missed'].includes(String(input.status)) ? String(input.status) : 'completed';
-    action.status = status === 'completed' ? 'completed' : status === 'skipped' ? 'skipped' : 'paused'; action.updatedAt = now();
-    const checkin = this.outcomeCheckins.find((item) => item.commitmentId === action.id && item.status === 'pending') ?? { id: id('checkin'), journeyId: action.journeyId, commitmentId: action.id, userId: action.userId, status: 'pending' as const, dueAt: action.dueAt, createdAt: now() };
-    checkin.status = status === 'completed' ? 'completed' : 'missed';
-    checkin.reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
-    checkin.result = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
-    checkin.intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
-    checkin.barrier = input.barrier;
-    checkin.checkedAt = now();
-    if (!this.outcomeCheckins.some((item) => item.id === checkin.id)) this.outcomeCheckins.unshift(checkin);
-    const followUp = this.followUpJobs.find((item) => item.status === 'pending' && item.payload?.actionId === action.id);
-    if (followUp) { followUp.status = 'completed'; followUp.completedAt = checkin.checkedAt; }
-    const outcome = input.outcome ?? {};
-    this.journeyUpdates.unshift({ id: id('journey_update'), journeyId: action.journeyId, userId: action.userId, kind: 'checkin', content: checkin.reflection || `行动${action.status === 'completed' ? '已完成' : '已更新'}`, payload: { ...outcome, barrier: input.barrier }, stage: typeof outcome.stage === 'string' ? outcome.stage : undefined, intensity: Number.isFinite(Number(outcome.intensity)) ? Number(outcome.intensity) : checkin.intensity, lifeFunction: outcome.lifeFunction, actionResult: outcome.actionResult, decisionChange: outcome.decisionChange, contactState: outcome.contactState, sleepState: outcome.sleepState, socialState: outcome.socialState, selfReportedHelpfulness: Number.isFinite(Number(outcome.selfReportedHelpfulness)) ? Number(outcome.selfReportedHelpfulness) : undefined, eventDate: typeof outcome.eventDate === 'string' ? outcome.eventDate : undefined, createdAt: now() }); await this.persistAndFlush(); return { action, checkin, followUp: followUp ?? null, adaptive: status === 'missed' ? { required: true, nextRoute: `/pages/action/index?section=barrier&actionId=${action.id}` } : { required: false } };
+  async checkinAction(
+    actionId: string,
+    input: {
+      status?: string;
+      reflection?: unknown;
+      result?: unknown;
+      intensity?: number;
+      barrier?: ActionBarrier;
+      outcome?: Partial<JourneyOutcome>;
+      _failDuringTransaction?: boolean;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const reflection = typeof input.reflection === 'string' ? input.reflection.trim().slice(0, 800) : undefined;
+    const resultText = typeof input.result === 'string' ? input.result.trim().slice(0, 240) : undefined;
+    const intensity = input.intensity == null ? undefined : Math.max(0, Math.min(10, Number(input.intensity)));
+
+    const result = await this.batch1Persistence.checkinAction({
+      actionId,
+      userId,
+      status: input.status,
+      reflection,
+      result: resultText,
+      intensity,
+      barrier: input.barrier,
+      outcome: input.outcome as Record<string, unknown>,
+      _failDuringTransaction: input._failDuringTransaction,
+    });
+
+    if (result.followUp) {
+      const followUp = this.followUpJobs.find(
+        (item) => item.status === 'pending' && (item.payload?.actionId === actionId || item.id === result.followUp?.id),
+      );
+      if (followUp) {
+        followUp.status = 'completed';
+        followUp.completedAt = result.followUp.completedAt;
+      }
+    }
+
+    const finalCheckinStatus = result.checkin.status;
+
+    return {
+      action: result.action,
+      checkin: result.checkin,
+      followUp: result.followUp,
+      adaptive:
+        finalCheckinStatus === 'missed'
+          ? { required: true, nextRoute: `/pages/action/index?section=barrier&actionId=${result.action.id}` }
+          : { required: false },
+    };
   }
 
-  async requestAdaptiveAction(actionId: string, barrier: ActionBarrier) {
-    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+  async requestAdaptiveAction(actionId: string, barrier: ActionBarrier, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, userId);
     if (!action) throw new NotFoundException('行动不存在');
-    const labels: Record<ActionBarrier, string> = { forgot: '忘了', too_hard: '太难了', emotion_too_strong: '当时情绪太强', environment: '环境不允许', something_else: '临时发生了别的事', did_not_want_to: '其实我不想做', other: '其他' };
-    const job = this.queueAI({ taskType: 'adaptive_action', userId: action.userId, sourceId: action.id, content: JSON.stringify({ action: action.title, description: action.description, barrier: labels[barrier] }), mood: '焦虑', style: 'rational' });
+    const labels: Record<ActionBarrier, string> = {
+      forgot: '忘了',
+      too_hard: '太难了',
+      emotion_too_strong: '当时情绪太强',
+      environment: '环境不允许',
+      something_else: '临时发生了别的事',
+      did_not_want_to: '其实我不想做',
+      other: '其他',
+    };
+    const job = this.queueAI({
+      taskType: 'adaptive_action',
+      userId: action.userId,
+      sourceId: action.id,
+      content: JSON.stringify({ action: action.title, description: action.description, barrier: labels[barrier] }),
+      mood: '焦虑',
+      style: 'rational',
+    });
     await this.flush();
     return { job, parentAction: action, barrier };
   }
 
-  async createAdaptiveAction(actionId: string, input: { title?: unknown; description?: unknown; barrier?: ActionBarrier; dueAt?: unknown }) {
-    const action = this.actionCommitments.find((item) => item.id === actionId && item.userId === this.getDemoUserId());
+  async createAdaptiveAction(
+    actionId: string,
+    input: { title?: unknown; description?: unknown; barrier?: ActionBarrier; dueAt?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const action = await this.batch1Persistence.getActionByIdAndUser(actionId, userId);
     if (!action) throw new NotFoundException('原行动不存在');
     const barrier = input.barrier ?? 'other';
-    return await this.createActionCommitment(action.journeyId, { title: input.title, description: input.description, dueAt: input.dueAt, parentActionId: action.id, adaptationReason: barrier, attemptNumber: (action.attemptNumber ?? 1) + 1 });
+    return await this.createActionCommitment(
+      action.journeyId,
+      {
+        title: input.title,
+        description: input.description,
+        dueAt: input.dueAt,
+        parentActionId: action.id,
+        adaptationReason: barrier,
+        attemptNumber: (action.attemptNumber ?? 1) + 1,
+      },
+      userId,
+    );
   }
 
-  async graduateJourney(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    const completed = this.actionCommitments.filter((item) => item.journeyId === journeyId && item.status === 'completed').length;
+  async graduateJourney(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const completed = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
     if (!completed) throw new BadRequestException('完成至少一个小行动后才能结束旅程');
-    journey.status = 'completed'; journey.stage = 'graduated'; journey.completedAt = now(); journey.updatedAt = now();
-    if (this.privacySettings[journey.userId]?.allowRecoveryData === true) this.recoverySnapshots.unshift({ id: id('recovery'), userId: journey.userId, journeyId, summary: `已完成 ${completed} 个小行动，留下了可回看的变化记录。`, signals: { completedActions: completed }, createdAt: now() });
+    // Graduation is one-way and reports whether it happened, so the derived snapshot is appended
+    // only on a real transition: a duplicate or concurrent graduation must not append a second one.
+    const allowRecovery = DIRECT_DB_MODELS.PrivacySetting
+      ? (await this.selfPersistence.getPrivacySettings(journey.userId)).allowRecoveryData
+      : this.privacySettings[journey.userId]?.allowRecoveryData;
+    const snapshotPayload =
+      allowRecovery === true
+        ? {
+            summary: `已完成 ${completed} 个小行动，留下了可回看的变化记录。`,
+            signals: { completedActions: completed },
+          }
+        : undefined;
+    const { transitioned } = await this.batch1Persistence.graduateJourney(
+      journeyId,
+      journey.userId,
+      snapshotPayload,
+    );
+    if (!DIRECT_DB_MODELS.RecoverySnapshot && transitioned && allowRecovery === true)
+      this.recoverySnapshots.unshift({
+        id: id('recovery'),
+        userId: journey.userId,
+        journeyId,
+        summary: `已完成 ${completed} 个小行动，留下了可回看的变化记录。`,
+        signals: { completedActions: completed },
+        createdAt: now(),
+      });
     await this.persistAndFlush();
-    return { ...this.journeyDetail(journeyId), graduation: this.graduationSummary(journeyId) };
+    return { ...(await this.journeyDetail(journeyId, journey.userId)), graduation: await this.graduationSummary(journeyId, journey.userId) };
   }
 
-  graduationSummary(journeyId: string) {
-    const journey = this.requireJourney(journeyId);
-    const completedActions = this.actionCommitments.filter((item) => item.journeyId === journeyId && item.status === 'completed').length;
-    const followUps = this.followUpJobs.filter((item) => item.journeyId === journeyId && ['delivered', 'completed'].includes(item.status)).length;
-    const latestIntensity = this.outcomeCheckins
-      .filter((item) => item.journeyId === journeyId && item.intensity !== undefined)
-      .sort((a, b) => Date.parse(b.checkedAt ?? b.createdAt) - Date.parse(a.checkedAt ?? a.createdAt))[0]?.intensity ?? journey.intensity;
+  async graduationSummary(journeyId: string, requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    const completedActions = await this.batch1Persistence.countCompletedActionsForJourney(journeyId);
+    const followUps = this.followUpJobs.filter(
+      (item) => item.journeyId === journeyId && ['delivered', 'completed'].includes(item.status),
+    ).length;
+    const latestIntensity = (await this.batch1Persistence.getLatestIntensityForJourney(journeyId)) ?? journey.intensity;
     return {
       message: '这件事好像已经不再像以前那样困住你了。',
       initialIntensity: journey.initialIntensity ?? journey.intensity,
@@ -1772,80 +5581,293 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async saveGraduationConsent(journeyId: string, decision: 'willing' | 'later' | 'no') {
-    const journey = this.requireJourney(journeyId);
+  async saveGraduationConsent(journeyId: string, decision: 'willing' | 'later' | 'no', requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
     if (journey.status !== 'completed') throw new BadRequestException('请先完成这段旅程');
-    if (decision !== 'willing') return { decision, graduation: this.graduationSummary(journeyId), draft: null };
-    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
-    const existing = this.peerExperiences.find((item) => item.journeyId === journeyId && item.userId === journey.userId && item.status === 'pending_review');
-    if (existing) return { decision, graduation: this.graduationSummary(journeyId), draft: existing };
-    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journeyId);
-    const updates = this.journeyUpdates.filter((item) => item.journeyId === journeyId).slice(0, 6);
-    const actions = this.actionCommitments.filter((item) => item.journeyId === journeyId);
+    if (decision !== 'willing') return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft: null };
+    await this.privacyAllows(journey.userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名经验分享');
+    const existing = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.findPendingReviewExperienceByJourneyAndUser(journeyId, journey.userId)
+      : this.peerExperiences.find(
+          (item) => item.journeyId === journeyId && item.userId === journey.userId && item.status === 'pending_review',
+        );
+    if (existing) return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft: existing };
+    const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journeyId);
+    const updates = await this.batch1Persistence.listUpdatesForJourney(journeyId, 6);
+    const actions = await this.batch1Persistence.listActionsForJourney(journeyId);
     const completed = actions.filter((item) => item.status === 'completed').map((item) => item.title);
     const content = [
       snapshot?.facts?.length ? `当时发生了：${snapshot.facts.join('；')}` : '',
       snapshot?.feelings?.length ? `那时的感受是：${snapshot.feelings.join('、')}` : '',
       completed.length ? `我实际做过：${completed.join('、')}` : '',
-      updates.filter((item) => item.kind !== 'created').map((item) => item.content).join('；'),
-    ].filter(Boolean).join('\n').slice(0, 1600);
+      updates
+        .filter((item) => item.kind !== 'created')
+        .map((item) => item.content)
+        .join('；'),
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 1600);
+    const draftData = {
+      userId: journey.userId,
+      journeyId,
+      title: this.redactPeerPublicText(journey.title),
+      domain: this.redactPeerPublicText(journey.domain),
+      subDomain: snapshot?.subDomain ? this.redactPeerPublicText(snapshot.subDomain) : undefined,
+      stage: 'graduated',
+      content: this.redactPeerPublicText(content || '我完成了一段真实经历的整理，愿意把后来发生的变化留给同路的人。'),
+      tags: (snapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)),
+      fingerprintJson: snapshot?.fingerprintJson,
+      helpfulActions: completed,
+      notHelpfulActions: [],
+      consentedAt: now(),
+      status: 'pending_review' as const,
+    };
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const created = await this.peerPersistence.createExperience(draftData);
+      return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft: created };
+    }
     const draft: PeerExperienceRecord = {
-      id: id('experience'), userId: journey.userId, journeyId, title: this.redactPeerPublicText(journey.title), domain: this.redactPeerPublicText(journey.domain), subDomain: snapshot?.subDomain ? this.redactPeerPublicText(snapshot.subDomain) : undefined,
-      stage: 'graduated', content: this.redactPeerPublicText(content || '我完成了一段真实经历的整理，愿意把后来发生的变化留给同路的人。'), tags: (snapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)), fingerprintJson: snapshot?.fingerprintJson,
-      helpfulActions: completed, notHelpfulActions: [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now(),
+      ...draftData,
+      id: id('experience'),
+      reportCount: 0,
+      createdAt: now(),
+      updatedAt: now(),
     };
     this.peerExperiences.unshift(draft);
     await this.persistAndFlush();
-    return { decision, graduation: this.graduationSummary(journeyId), draft };
+    return { decision, graduation: await this.graduationSummary(journeyId, journey.userId), draft };
   }
 
-  async updatePeerExperience(experienceId: string, input: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }, requestedUserId?: string) {
-    const item = this.peerExperiences.find((experience) => experience.id === experienceId && experience.userId === this.resolveRuntimeUserId(requestedUserId) && experience.status === 'pending_review');
+  async updatePeerExperience(
+    experienceId: string,
+    input: {
+      title?: string;
+      content?: string;
+      laterSummary?: Record<string, unknown>;
+      helpfulActions?: string[];
+      notHelpfulActions?: string[];
+      retrospective?: string;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const cleanInput = {
+        title: typeof input.title === 'string' && input.title.trim() ? this.redactPeerPublicText(input.title.trim().slice(0, 100)) : undefined,
+        content: typeof input.content === 'string' && input.content.trim() ? this.redactPeerPublicText(input.content.trim().slice(0, 1600)) : undefined,
+        laterSummary: input.laterSummary ? (this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown>) : undefined,
+        helpfulActions: Array.isArray(input.helpfulActions) ? input.helpfulActions.map(String).filter(Boolean).slice(0, 8).map(v => this.redactPeerPublicText(v)) : undefined,
+        notHelpfulActions: Array.isArray(input.notHelpfulActions) ? input.notHelpfulActions.map(String).filter(Boolean).slice(0, 8).map(v => this.redactPeerPublicText(v)) : undefined,
+        retrospective: typeof input.retrospective === 'string' ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000)) : undefined,
+      };
+      const updated = await this.peerPersistence.updateExperience(experienceId, userId, cleanInput);
+      return { item: { ...this.peerExperienceSummary(updated), status: updated.status } };
+    }
+    const item = this.peerExperiences.find(
+      (experience) =>
+        experience.id === experienceId &&
+        experience.userId === userId &&
+        experience.status === 'pending_review',
+    );
     if (!item) throw new NotFoundException('待确认的经历不存在');
-    if (typeof input.title === 'string' && input.title.trim()) item.title = this.redactPeerPublicText(input.title.trim().slice(0, 100));
-    if (typeof input.content === 'string' && input.content.trim()) item.content = this.redactPeerPublicText(input.content.trim().slice(0, 1600));
-    if (input.laterSummary) item.laterSummary = this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown>;
-    if (Array.isArray(input.helpfulActions)) item.helpfulActions = input.helpfulActions.map(String).filter(Boolean).slice(0, 8).map((value) => this.redactPeerPublicText(value));
-    if (Array.isArray(input.notHelpfulActions)) item.notHelpfulActions = input.notHelpfulActions.map(String).filter(Boolean).slice(0, 8).map((value) => this.redactPeerPublicText(value));
-    if (typeof input.retrospective === 'string') item.retrospective = this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000));
+    if (typeof input.title === 'string' && input.title.trim())
+      item.title = this.redactPeerPublicText(input.title.trim().slice(0, 100));
+    if (typeof input.content === 'string' && input.content.trim())
+      item.content = this.redactPeerPublicText(input.content.trim().slice(0, 1600));
+    if (input.laterSummary)
+      item.laterSummary = this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown>;
+    if (Array.isArray(input.helpfulActions))
+      item.helpfulActions = input.helpfulActions
+        .map(String)
+        .filter(Boolean)
+        .slice(0, 8)
+        .map((value) => this.redactPeerPublicText(value));
+    if (Array.isArray(input.notHelpfulActions))
+      item.notHelpfulActions = input.notHelpfulActions
+        .map(String)
+        .filter(Boolean)
+        .slice(0, 8)
+        .map((value) => this.redactPeerPublicText(value));
+    if (typeof input.retrospective === 'string')
+      item.retrospective = this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000));
     item.updatedAt = now();
     await this.persistAndFlush();
-    return { item: this.peerExperienceSummary(item) };
+    return { item: { ...this.peerExperienceSummary(item), status: item.status } };
   }
 
-  async createPeerExperience(journeyId: string | undefined, input: { title?: unknown; domain?: unknown; subDomain?: unknown; stage?: unknown; content?: unknown; tags?: unknown; consented?: unknown; laterSummary?: unknown; helpfulActions?: unknown; notHelpfulActions?: unknown; retrospective?: unknown }, requestedUserId?: string) {
+  async createPeerExperience(
+    journeyId: string | undefined,
+    input: {
+      title?: unknown;
+      domain?: unknown;
+      subDomain?: unknown;
+      stage?: unknown;
+      content?: unknown;
+      tags?: unknown;
+      consented?: unknown;
+      laterSummary?: unknown;
+      helpfulActions?: unknown;
+      notHelpfulActions?: unknown;
+      retrospective?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    await this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
     if (input.consented !== true) throw new BadRequestException('发布经历前必须明确同意匿名分享');
-    const journey = journeyId ? this.requireJourney(journeyId, userId) : undefined;
-    const sourceSnapshot = journey ? this.situationSnapshots.find((snapshot) => snapshot.journeyId === journey.id) : undefined;
-    const values = (value: unknown) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8).map((item) => this.redactPeerPublicText(item)) : [];
+    const journey = journeyId ? await this.requireJourney(journeyId, userId) : undefined;
+    const sourceSnapshot = journey ? await this.batch1Persistence.getSnapshotByJourneyId(journey.id) : undefined;
+    const values = (value: unknown) =>
+      Array.isArray(value)
+        ? value
+            .map(String)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .slice(0, 8)
+            .map((item) => this.redactPeerPublicText(item))
+        : [];
     const title = this.redactPeerPublicText(this.text(input.title, '经历标题', 100));
     const content = this.redactPeerPublicText(this.text(input.content, '经历内容', 1600));
-    const retrospective = typeof input.retrospective === 'string' ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000)) : undefined;
-    const item: PeerExperienceRecord = { id: id('experience'), userId, journeyId: journey?.id, title, domain: this.redactPeerPublicText(this.text(input.domain ?? journey?.domain, '经历领域', 40)), subDomain: typeof input.subDomain === 'string' ? this.redactPeerPublicText(input.subDomain.trim().slice(0, 80)) : sourceSnapshot?.subDomain ? this.redactPeerPublicText(sourceSnapshot.subDomain) : undefined, stage: this.text(input.stage ?? journey?.stage, '经历阶段', 40), content, tags: values(input.tags).length ? values(input.tags) : (sourceSnapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)), fingerprintJson: sourceSnapshot?.fingerprintJson, laterSummary: typeof input.laterSummary === 'object' && input.laterSummary ? this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown> : undefined, helpfulActions: values(input.helpfulActions), notHelpfulActions: values(input.notHelpfulActions), retrospective, consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now() };
-    this.peerExperiences.unshift(item); await this.persistAndFlush(); return { item: this.peerExperienceSummary(item) };
+    const retrospective =
+      typeof input.retrospective === 'string'
+        ? this.redactPeerPublicText(input.retrospective.trim().slice(0, 1000))
+        : undefined;
+    const itemData = {
+      userId,
+      journeyId: journey?.id,
+      title,
+      domain: this.redactPeerPublicText(this.text(input.domain ?? journey?.domain, '经历领域', 40)),
+      subDomain:
+        typeof input.subDomain === 'string'
+          ? this.redactPeerPublicText(input.subDomain.trim().slice(0, 80))
+          : sourceSnapshot?.subDomain
+            ? this.redactPeerPublicText(sourceSnapshot.subDomain)
+            : undefined,
+      stage: this.text(input.stage ?? journey?.stage, '经历阶段', 40),
+      content,
+      tags: values(input.tags).length
+        ? values(input.tags)
+        : (sourceSnapshot?.contextTags ?? []).map((tag) => this.redactPeerPublicText(tag)),
+      fingerprintJson: sourceSnapshot?.fingerprintJson,
+      laterSummary:
+        typeof input.laterSummary === 'object' && input.laterSummary
+          ? (this.redactPeerPublicValue(input.laterSummary) as Record<string, unknown>)
+          : undefined,
+      helpfulActions: values(input.helpfulActions),
+      notHelpfulActions: values(input.notHelpfulActions),
+      retrospective,
+      consentedAt: now(),
+      status: 'pending_review' as const,
+    };
+    let created: PeerExperienceRecord;
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      created = await this.peerPersistence.createExperience(itemData);
+    } else {
+      created = {
+        ...itemData,
+        id: id('experience'),
+        reportCount: 0,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      this.peerExperiences.unshift(created);
+      await this.persistAndFlush();
+    }
+    const updateCount = journey ? await this.batch1Persistence.countUpdatesForJourney(journey.id) : 0;
+    const checkinCount = journey ? await this.batch1Persistence.countCheckinsForJourney(journey.id) : 0;
+    // The author of a draft has to be told it is awaiting review. `peerExperienceSummary` is the
+    // projection for other viewers and deliberately leaves the moderation status out, so the
+    // owner-facing write responses add it back here.
+    return { item: { ...this.peerExperienceSummary(created, updateCount, checkinCount), status: created.status } };
   }
 
-  peerNetwork(requestedUserId?: string) {
+  async peerNetwork(requestedUserId?: string, focusMatchId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const privacyEnabled = this.privacySettings[userId]?.allowPeerMatching === true;
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(userId)
+      : this.privacySettings[userId];
+    const privacyEnabled = privacy?.allowPeerMatching === true;
     if (!privacyEnabled) return { privacyEnabled: false, experiences: [], matches: [], limited: false };
-    const published = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
-    const matches = this.peerMatches
-      .filter((item) => item.userId === userId)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map((match) => this.peerMatchForUser(match))
+    const published = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getPublishedExperiences(100, userId)
+      : this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== userId);
+    const topPublished = published.slice(0, 3);
+    const journeyIds = topPublished.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
+    const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(journeyIds);
+    const checkinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(journeyIds);
+    const userMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForUser(userId)
+      : this.peerMatches.filter((item) => item.userId === userId);
+    // Bounded, but not by a bare top-3 slice. The waiting and consent pages look their match up by
+    // id in this list, and a match a user has just been navigated to may not be among their three
+    // highest-scoring ones, so a bare slice made those pages render their empty fallback. The three
+    // highest-scoring matches come first (the network page renders exactly those), followed by the
+    // user's other in-flight matches.
+    const PEER_NETWORK_MATCH_LIMIT = 50;
+    const sortedMatches = userMatches.sort((a, b) => b.score - a.score);
+    const selectedMatches = sortedMatches.slice(0, 3);
+    for (const match of sortedMatches) {
+      if (match.status === 'suggested') continue;
+      if (selectedMatches.includes(match)) continue;
+      selectedMatches.push(match);
+    }
+    let topMatches = selectedMatches.slice(0, PEER_NETWORK_MATCH_LIMIT);
+
+    // A cap alone cannot guarantee that the page which was navigated to with a specific matchId can
+    // still find it: with enough in-flight matches, the target falls past the cap and the page
+    // renders its empty fallback. `focusMatchId` makes reachability independent of the cap — the
+    // requested match is included if it belongs to this user, even when the discovery list drops it.
+    if (focusMatchId && !topMatches.some((match) => match.id === focusMatchId)) {
+      const focused = sortedMatches.find((match) => match.id === focusMatchId);
+      if (focused) topMatches = [...topMatches, focused];
+    }
+    const matchExpIds = topMatches.map((m) => m.peerExperienceId);
+    const matchExps = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getExperiencesByIds(matchExpIds)
+      : this.peerExperiences.filter((e) => matchExpIds.includes(e.id));
+    const matchExpMap = new Map(matchExps.map((e) => [e.id, e]));
+    const matchJourneyIds = matchExps.map((e) => e.journeyId).filter((id): id is string => Boolean(id));
+    const matchUpdateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(matchJourneyIds);
+    const matchCheckinCounts = await this.batch1Persistence.countCheckinsByJourneyIds(matchJourneyIds);
+
+    const matches = topMatches
+      .map((match) => {
+        const exp = matchExpMap.get(match.peerExperienceId);
+        const uCount = exp?.journeyId ? (matchUpdateCounts.get(exp.journeyId) ?? 0) : 0;
+        const cCount = exp?.journeyId ? (matchCheckinCounts.get(exp.journeyId) ?? 0) : 0;
+        return this.peerMatchForUser(match, this.peerExperienceSummary(exp, uCount, cCount));
+      })
       .filter((item) => item.experience);
-    return { privacyEnabled: true, experiences: published.slice(0, 3).map((item) => this.peerExperienceSummary(item)), matches, limited: published.length > 3 };
+    return {
+      privacyEnabled: true,
+      experiences: topPublished.map((item) =>
+        this.peerExperienceSummary(
+          item,
+          item.journeyId ? (updateCounts.get(item.journeyId) ?? 0) : 0,
+          item.journeyId ? (checkinCounts.get(item.journeyId) ?? 0) : 0,
+        ),
+      ),
+      matches,
+      limited: published.length > 3,
+    };
   }
 
-  private peerExperienceSummary(experience?: PeerExperienceRecord) {
+  private peerExperienceSummary(
+    experience?: PeerExperienceRecord,
+    timelineCountOverride?: number,
+    checkinCountOverride?: number,
+  ) {
     if (!experience) return undefined;
-    const timelineCount = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).length : 0;
-    const checkinCount = experience.journeyId ? this.outcomeCheckins.filter((item) => item.journeyId === experience.journeyId).length : 0;
-    const laterRecordCount = [experience.laterSummary, experience.retrospective, ...(experience.helpfulActions ?? [])].filter(Boolean).length + timelineCount + checkinCount;
+    const derivedStatisticsAllowed = (DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(experience.userId)
+      : this.privacySettings[experience.userId])?.allowAnonymousExperienceStats === true;
+    const timelineCount = derivedStatisticsAllowed && experience.journeyId ? (timelineCountOverride ?? 0) : 0;
+    const checkinCount = derivedStatisticsAllowed && experience.journeyId ? (checkinCountOverride ?? 0) : 0;
+    const laterRecordCount =
+      [experience.laterSummary, experience.retrospective, ...(experience.helpfulActions ?? [])].filter(Boolean).length +
+      timelineCount +
+      checkinCount;
     return {
       id: experience.id,
       title: this.redactPeerPublicText(experience.title),
@@ -1859,8 +5881,13 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  private peerMatchForUser(match: PeerMatchRecord) {
-    const experience = this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId));
+  private peerMatchForUser(match: PeerMatchRecord, experienceOverride?: any) {
+    const experience =
+      experienceOverride !== undefined
+        ? experienceOverride
+        : DIRECT_DB_MODELS.PeerExperience
+          ? undefined
+          : this.peerExperienceSummary(this.peerExperiences.find((item) => item.id === match.peerExperienceId));
     return {
       id: match.id,
       journeyId: match.journeyId,
@@ -1870,23 +5897,80 @@ export class StoreService implements OnModuleInit {
       requestReason: match.requestReason,
       requestQuestion: match.requestQuestion,
       acceptedAt: match.acceptedAt,
+      // The waiting page decides whether to say "you have confirmed, waiting for the other
+      // party" from these two fields. Dropping them made `hasRequesterConsented` permanently
+      // false, so the page kept offering "确认边界" after the caller had already consented.
+      requesterConsentAt: match.requesterConsentAt,
+      ownerConsentAt: match.ownerConsentAt,
       createdAt: match.createdAt,
       updatedAt: match.updatedAt,
       experience,
     };
   }
 
-  private peerMessageForUser(message: PeerMessageRecord, viewerUserId: string) {
+  peerMessageForUser(
+    message: PeerMessageRecord,
+    viewerUserId: string,
+    allMessages?: PeerMessageRecord[],
+  ) {
+    const isRecalled = Boolean(message.recalledAt);
+    let safeReplyToContent = message.replyToContent;
+    if (message.replyToId && allMessages) {
+      const target = allMessages.find((m) => m.id === message.replyToId);
+      if (target?.recalledAt) {
+        safeReplyToContent = '一条消息已撤回';
+      }
+    }
     return {
       id: message.id,
       author: message.senderUserId === viewerUserId ? 'self' : 'peer',
       authorType: message.authorType,
-      content: message.content,
+      // The write path rejects PII, but historic records must never bypass that boundary.
+      content: isRecalled ? '一条消息已撤回' : this.redactPeerPublicText(message.content),
       createdAt: message.createdAt,
+      msgType: message.msgType || 'TEXT',
+      replyToId: message.replyToId,
+      replyToContent: safeReplyToContent ? this.redactPeerPublicText(safeReplyToContent) : undefined,
+      mediaUrl: isRecalled ? undefined : message.mediaUrl,
+      mediaDuration: message.mediaDuration,
+      mediaSize: message.mediaSize,
+      thumbnailUrl: isRecalled ? undefined : message.thumbnailUrl,
+      recalledAt: message.recalledAt,
+      seq: message.seq,
+      clientMsgId: message.senderUserId === viewerUserId ? message.clientMsgId : undefined,
     };
   }
 
-  private peerConversationForUser(conversation: PeerConversationRecord, viewerUserId: string) {
+  private async peerConversationForUser(conversation: PeerConversationRecord, viewerUserId: string) {
+    let messages: PeerMessageRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      messages = await this.peerPersistence.getMessagesForConversation(conversation.id);
+    } else {
+      messages = this.peerMessages.filter((message) => message.conversationId === conversation.id);
+    }
+    // Resolve the viewer's associated journey: starter -> match.journeyId; receiver -> experience.journeyId.
+    let journeyId: string | null = null;
+    if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerExperience) {
+      const match = await this.peerPersistence.getMatchById(conversation.matchId);
+      if (match) {
+        if (conversation.starterUserId === viewerUserId) {
+          journeyId = match.journeyId ?? null;
+        } else if (conversation.receiverUserId === viewerUserId) {
+          const exp = await this.peerPersistence.getExperienceById(match.peerExperienceId);
+          journeyId = exp?.journeyId ?? null;
+        }
+      }
+    } else {
+      const match = this.peerMatches.find((m) => m.id === conversation.matchId);
+      if (match) {
+        if (conversation.starterUserId === viewerUserId) {
+          journeyId = match.journeyId ?? null;
+        } else if (conversation.receiverUserId === viewerUserId) {
+          const exp = this.peerExperiences.find((e) => e.id === match.peerExperienceId);
+          journeyId = exp?.journeyId ?? null;
+        }
+      }
+    }
     return {
       id: conversation.id,
       matchId: conversation.matchId,
@@ -1897,44 +5981,127 @@ export class StoreService implements OnModuleInit {
       createdAt: conversation.createdAt,
       closedAt: conversation.closedAt,
       closedReason: conversation.closedReason,
-      messages: this.peerMessages
-        .filter((message) => message.conversationId === conversation.id)
-        .map((message) => this.peerMessageForUser(message, viewerUserId)),
+      journeyId,
+      messages: messages.map((message) => this.peerMessageForUser(message, viewerUserId, messages)),
     };
   }
 
   async suggestPeerMatches(journeyId: string, requestedUserId?: string) {
-    const journey = this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
-    this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
-    const existing = new Set(this.peerMatches.filter((item) => item.userId === journey.userId).map((item) => item.peerExperienceId));
-    const candidates = this.peerExperiences.filter((item) => item.status === 'published' && item.userId !== journey.userId && !existing.has(item.id));
-    const snapshot = this.situationSnapshots.find((item) => item.journeyId === journey.id);
+    const journey = await this.requireJourney(journeyId, this.resolveRuntimeUserId(requestedUserId));
+    await this.privacyAllows(journey.userId, 'allowPeerMatching', '请先在隐私设置中打开同路经历网络');
+    const userMatches = DIRECT_DB_MODELS.PeerMatch
+      ? await this.peerPersistence.listMatchesForUser(journey.userId)
+      : this.peerMatches.filter((item) => item.userId === journey.userId);
+    const existing = new Set(userMatches.map((item) => item.peerExperienceId));
+    const allPublished = DIRECT_DB_MODELS.PeerExperience
+      ? await this.peerPersistence.getPublishedExperiences()
+      : this.peerExperiences.filter((item) => item.status === 'published');
+    const candidates = allPublished.filter(
+      (item) => item.userId !== journey.userId && !existing.has(item.id),
+    );
+    const snapshot = await this.batch1Persistence.getSnapshotByJourneyId(journey.id);
     const currentTags = new Set(snapshot?.contextTags ?? []);
     const stageRank: Record<string, number> = { clarifying: 0, planning: 1, acting: 2, recovering: 3, graduated: 4 };
     const currentStage = stageRank[journey.stage] ?? 0;
-    const created = candidates.map((experience) => {
+
+    const candidateReportCounts = new Map<string, number>();
+    if (DIRECT_DB_MODELS.PeerReport) {
+      await Promise.all(
+        candidates.map(async (exp) => {
+          const count = await this.peerPersistence.countReportsForExperience(exp.id);
+          candidateReportCounts.set(exp.id, count);
+        }),
+      );
+    }
+
+    // Batch 4: PeerReputation is database-authoritative now, so the trust term is read from the table
+    // in one query for the whole candidate set rather than from the (no longer hydrated) array.
+    const reputations = DIRECT_DB_MODELS.PeerReputation
+      ? await this.peerPersistence.getReputationsForUsers([...new Set(candidates.map((exp) => exp.userId))])
+      : new Map(this.peerReputations.map((item) => [item.userId, item]));
+
+    const matchesToCreate: Array<Omit<PeerMatchRecord, 'id' | 'createdAt' | 'updatedAt'>> = [];
+    for (const experience of candidates) {
       const peerSnapshot = experience.fingerprintJson ?? {};
       const peerTags = new Set(experience.tags);
       const sharedTags = [...currentTags].filter((tag) => peerTags.has(tag));
       const domain = experience.domain === journey.domain ? 1 : 0;
-      const subDomain = snapshot?.subDomain && experience.subDomain && snapshot.subDomain === experience.subDomain ? 1 : 0;
-      const fingerprintSimilarity = Math.min(1, sharedTags.length / Math.max(1, Math.max(currentTags.size, peerTags.size)));
+      const subDomain =
+        snapshot?.subDomain && experience.subDomain && snapshot.subDomain === experience.subDomain ? 1 : 0;
+      const fingerprintSimilarity = Math.min(
+        1,
+        sharedTags.length / Math.max(1, Math.max(currentTags.size, peerTags.size)),
+      );
       const peerStage = stageRank[experience.stage] ?? stageRank[String(peerSnapshot.stage)] ?? 0;
       const recoveryLead = Math.max(0, peerStage - currentStage);
       const stageSimilarity = peerStage >= currentStage ? Math.min(1, 0.6 + recoveryLead * 0.2) : 0.35;
-      const peerOwner = this.peerReputations.find((item) => item.userId === experience.userId);
-      const trustScore = peerOwner ? Math.min(1, peerOwner.helpfulCount / Math.max(1, peerOwner.helpfulCount + peerOwner.reportCount)) : 0.5;
-      const safety = experience.reportCount === 0 ? 1 : 0.2;
+      const peerOwner = reputations.get(experience.userId);
+      const trustScore = peerOwner
+        ? Math.min(1, peerOwner.helpfulCount / Math.max(1, peerOwner.helpfulCount + peerOwner.reportCount))
+        : 0.5;
+      const expReportCount = DIRECT_DB_MODELS.PeerReport
+        ? (candidateReportCounts.get(experience.id) ?? 0)
+        : experience.reportCount;
+      const safety = expReportCount === 0 ? 1 : 0.2;
       const preference = 0.5;
-      const scoreBreakdown = { domain: domain * 0.25, fingerprintSimilarity: (subDomain * 0.5 + fingerprintSimilarity * 0.5) * 0.25, stage: stageSimilarity * 0.15, recoveryLead: Math.min(1, recoveryLead / 3) * 0.15, trust: trustScore * 0.1, safety: safety * 0.05, preference: preference * 0.05 };
+      const scoreBreakdown = {
+        domain: domain * 0.25,
+        fingerprintSimilarity: (subDomain * 0.5 + fingerprintSimilarity * 0.5) * 0.25,
+        stage: stageSimilarity * 0.15,
+        recoveryLead: Math.min(1, recoveryLead / 3) * 0.15,
+        trust: trustScore * 0.1,
+        safety: safety * 0.05,
+        preference: preference * 0.05,
+      };
       const score = Object.values(scoreBreakdown).reduce((sum, value) => sum + value, 0);
-      const reasons = [domain ? `你们都经历过${journey.domain}里的相似事情` : '这段经历能提供不同领域的现实视角', subDomain ? `情境也接近：${experience.subDomain}` : sharedTags.length ? `你们都提到：${sharedTags.slice(0, 2).join('、')}` : '阶段信息可以帮助你换个角度看现在', recoveryLead > 0 ? `TA比你早走过约${recoveryLead}个阶段` : 'TA留下了真实的后来记录'];
+      const reasons = [
+        domain ? `你们都经历过${journey.domain}里的相似事情` : '这段经历能提供不同领域的现实视角',
+        subDomain
+          ? `情境也接近：${experience.subDomain}`
+          : sharedTags.length
+            ? `你们都提到：${sharedTags.slice(0, 2).join('、')}`
+            : '阶段信息可以帮助你换个角度看现在',
+        recoveryLead > 0 ? `TA比你早走过约${recoveryLead}个阶段` : 'TA留下了真实的后来记录',
+      ];
       const explanation = `${reasons.join('；')}。`;
-      const match: PeerMatchRecord = { id: id('peer_match'), userId: journey.userId, journeyId, peerExperienceId: experience.id, score, reasons, stageDistance: Math.abs(peerStage - currentStage), recoveryLead, trustScore, fingerprintSimilarity, scoreBreakdown, explanation, status: 'suggested', createdAt: now(), updatedAt: now() };
-      this.peerMatches.unshift(match); return match;
-    });
-    await this.persistAndFlush();
-    return { items: created.map((item) => this.peerMatchForUser(item)).filter((item) => item.experience) };
+      matchesToCreate.push({
+        userId: journey.userId,
+        journeyId,
+        peerExperienceId: experience.id,
+        score,
+        reasons,
+        stageDistance: Math.abs(peerStage - currentStage),
+        recoveryLead,
+        trustScore,
+        fingerprintSimilarity,
+        scoreBreakdown,
+        explanation,
+        status: 'suggested',
+      });
+    }
+
+    let created: PeerMatchRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      created = await this.peerPersistence.createMatches(matchesToCreate);
+    } else {
+      for (const m of matchesToCreate) {
+        const row: PeerMatchRecord = {
+          ...m,
+          id: id('peer_match'),
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        this.peerMatches.unshift(row);
+        created.push(row);
+      }
+      await this.persistAndFlush();
+    }
+    const candidateMap = new Map(candidates.map((e) => [e.id, e]));
+    return {
+      items: created
+        .map((item) => this.peerMatchForUser(item, this.peerExperienceSummary(candidateMap.get(item.peerExperienceId))))
+        .filter((item) => item.experience),
+    };
   }
 
   private peerPiiFlags(content: string) {
@@ -1942,88 +6109,294 @@ export class StoreService implements OnModuleInit {
     const compact = content.replace(/[\s-]/g, '');
     if (/(?:^|\D)1[3-9]\d{9}(?:$|\D)/.test(compact)) flags.push('手机号');
     if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(content)) flags.push('邮箱');
-    if (/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/i.test(content)) flags.push('社交账号');
-    if (/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/.test(compact)) flags.push('证件号码');
-    if (/(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/.test(content)) flags.push('具体地址');
+    if (
+      /(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/i.test(content)
+    )
+      flags.push('社交账号');
+    if (/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/.test(compact))
+      flags.push('证件号码');
+    if (
+      /(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/.test(
+        content,
+      )
+    )
+      flags.push('具体地址');
     return [...new Set(flags)];
   }
 
   private assertPeerDraftSafe(content: string) {
     const flags = this.peerPiiFlags(content);
-    if (flags.length) throw new BadRequestException(`这段话里好像有能认出你的信息（${flags.join('、')}），要不要先改一下？`);
+    if (flags.length)
+      throw new BadRequestException(`这段话里好像有能认出你的信息（${flags.join('、')}），要不要先改一下？`);
   }
 
   private redactPeerPublicText(content: string) {
     return content
       .replace(/(?:^|\D)1[3-9]\d{9}(?:$|\D)/g, ' [已隐藏联系方式] ')
       .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[已隐藏邮箱]')
-      .replace(/(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/gi, '[已隐藏账号]')
-      .replace(/(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/g, ' [已隐藏证件信息] ')
-      .replace(/(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/g, '[已隐藏具体地址]')
+      .replace(
+        /(?:加我|我的)?\s*(?:(?:微信|wechat|weixin)(?:号|账号)?\s*)?(?:微信|wechat|weixin|wx|vx|qq)(?:号)?\s*(?:[：:]|是)?\s*(?:[A-Za-z][A-Za-z0-9_-]{4,}|\d{5,12})/gi,
+        '[已隐藏账号]',
+      )
+      .replace(
+        /(?:^|\D)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?:$|\D)/g,
+        ' [已隐藏证件信息] ',
+      )
+      .replace(
+        /(?:我的)?(?:地址|住址|住在|公司地址|学校地址)\s*(?:是|在|：|:)?\s*[\u4e00-\u9fa5]{2,}(?:省|市|区|县|路|街|巷|小区|大厦|学校|公司)/g,
+        '[已隐藏具体地址]',
+      )
       .replace(/(?:我叫|我是|叫我|他叫|她叫|朋友叫)[\u4e00-\u9fa5]{2,4}/g, '[已隐藏称呼]');
   }
 
   private redactPeerPublicValue(value: unknown): unknown {
     if (typeof value === 'string') return this.redactPeerPublicText(value);
     if (Array.isArray(value)) return value.map((item) => this.redactPeerPublicValue(item));
-    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, this.redactPeerPublicValue(item)]));
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, this.redactPeerPublicValue(item)]),
+      );
     return value;
   }
 
-  private peerNotification(userId: string, type: UserNotification['type'], suffix: string, title: string, body: string, targetRoute: string) {
-    const notificationId = `notification_peer_${suffix}_${userId}`;
-    const existing = this.notifications.find((item) => item.id === notificationId);
-    if (existing) {
-      existing.title = title;
-      existing.body = body;
-      existing.targetRoute = targetRoute;
-      return existing;
-    }
-    const item: UserNotification = { id: notificationId, userId, type, title, body, targetRoute, status: 'unread', createdAt: now() };
-    this.notifications.unshift(item);
-    return item;
+  /**
+   * Response-boundary guard for model-generated peer drafts (review P1-5). Persistence
+   * already redacts them; repeating the redaction on read means a row written before that
+   * guard existed, or by any other writer, still cannot hand identifiers to the client.
+   */
+  peerAssistJobForResponse<
+    T extends { taskType?: string | null; jobType?: string | null; result?: string | null; structuredResult?: unknown },
+  >(job: T): T {
+    if (job.taskType !== 'peer_response_assist' && job.jobType !== 'peer_response_assist') return job;
+    return {
+      ...job,
+      result: typeof job.result === 'string' ? this.redactPeerPublicText(job.result) : job.result,
+      structuredResult:
+        job.structuredResult === undefined || job.structuredResult === null
+          ? job.structuredResult
+          : this.redactPeerPublicValue(job.structuredResult),
+    };
   }
 
-  private closePeerConversationRecord(conversation: PeerConversationRecord, reason: 'closed' | 'expired' | 'blocked') {
+  private async peerNotification(
+    userId: string,
+    type: UserNotification['type'],
+    suffix: string,
+    title: string,
+    body: string,
+    targetRoute: string,
+  ) {
+    return await this.batch1Persistence.upsertPeerNotification({
+      userId,
+      type,
+      suffix,
+      title,
+      body,
+      targetRoute,
+    });
+  }
+
+  /**
+   * Notification obligations left behind by peer transitions that already committed.
+   * Recorded rather than swallowed, so a partial delivery can be inspected instead of assumed away.
+   */
+  peerNotificationFailures: Array<{
+    userId: string;
+    suffix: string;
+    type: string;
+    at: string;
+    message: string;
+  }> = [];
+
+  /**
+   * Post-commit peer notification.
+   *
+   * Every caller runs *after* a peer state transition has been committed by a direct database
+   * write in its own transaction. A failure here therefore cannot be reported as a failure of
+   * that transition: the peer state is committed and what remains is a notification obligation.
+   * The row is keyed by a deterministic id (`notification_peer_<suffix>_<userId>`), so the
+   * obligation is idempotent — the next successful invocation of the same operation writes the
+   * same row without duplicating it. The failure is appended to `peerNotificationFailures` and
+   * reported to the caller as `false`, so the partial delivery is exposed rather than hidden.
+   */
+  private async peerNotificationAfterCommit(
+    userId: string,
+    type: UserNotification['type'],
+    suffix: string,
+    title: string,
+    body: string,
+    targetRoute: string,
+  ): Promise<boolean> {
+    try {
+      await this.peerNotification(userId, type, suffix, title, body, targetRoute);
+      return true;
+    } catch (error) {
+      this.peerNotificationFailures.push({
+        userId,
+        suffix,
+        type,
+        at: now(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  private async closePeerConversationRecord(
+    conversation: PeerConversationRecord,
+    reason: 'closed' | 'expired' | 'blocked',
+  ) {
     if (conversation.status === 'closed') return;
     conversation.status = 'closed';
     conversation.closedAt = now();
     conversation.closedReason = reason;
-    const body = reason === 'expired' ? '这段匿名同行的 72 小时已经结束。' : reason === 'blocked' ? '这段匿名同行已被结束，你们不能继续发送消息。' : '这段匿名同行已经结束，你们不能继续发送消息。';
+    const body =
+      reason === 'expired'
+        ? '这段匿名同行的 72 小时已经结束。'
+        : reason === 'blocked'
+          ? '这段匿名同行已被结束，你们不能继续发送消息。'
+          : '这段匿名同行已经结束，你们不能继续发送消息。';
     const route = `/pages/peer/conversation?matchId=${encodeURIComponent(conversation.matchId)}`;
-    this.peerNotification(conversation.starterUserId, 'CONVERSATION_CLOSED', `closed_${conversation.id}`, '这段同行到这里了', body, route);
-    this.peerNotification(conversation.receiverUserId, 'CONVERSATION_CLOSED', `closed_${conversation.id}`, '这段同行到这里了', body, route);
+    await this.peerNotification(
+      conversation.starterUserId,
+      'CONVERSATION_CLOSED',
+      `closed_${conversation.id}`,
+      '这段同行到这里了',
+      body,
+      route,
+    );
+    await this.peerNotification(
+      conversation.receiverUserId,
+      'CONVERSATION_CLOSED',
+      `closed_${conversation.id}`,
+      '这段同行到这里了',
+      body,
+      route,
+    );
   }
 
   private async expirePeerConversations() {
-    const due = this.peerConversations.filter((conversation) => conversation.status === 'active' && Date.parse(conversation.expiresAt) <= Date.now());
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const closed = await this.peerPersistence.expireDueConversations();
+      for (const conversation of closed) {
+        const body = '这段匿名同行的 72 小时已经结束。';
+        const route = `/pages/peer/conversation?matchId=${encodeURIComponent(conversation.matchId)}`;
+        await this.peerNotificationAfterCommit(
+          conversation.starterUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        );
+        await this.peerNotificationAfterCommit(
+          conversation.receiverUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        );
+      }
+      return;
+    }
+    const due = this.peerConversations.filter(
+      (conversation) => conversation.status === 'active' && Date.parse(conversation.expiresAt) <= Date.now(),
+    );
     if (!due.length) return;
-    due.forEach((conversation) => this.closePeerConversationRecord(conversation, 'expired'));
+    for (const conversation of due) {
+      await this.closePeerConversationRecord(conversation, 'expired');
+    }
     await this.persistAndFlush();
   }
 
   private async requirePeerConversation(matchId: string, requestedUserId?: string) {
     await this.expirePeerConversations();
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const conversation = this.peerConversations.find((item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId));
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const res = await this.peerPersistence.requireConversation(matchId, userId);
+      return { userId, conversation: res.conversation };
+    }
+    const conversation = this.peerConversations.find(
+      (item) => item.matchId === matchId && [item.starterUserId, item.receiverUserId].includes(userId),
+    );
     if (!conversation) throw new NotFoundException('匿名会话不存在');
     return { userId, conversation };
   }
 
-  async updatePeerMatch(matchId: string, input: { status: 'requested' | 'connected' | 'declined' | 'blocked'; requestReason?: unknown; requestQuestion?: unknown }, requestedUserId?: string) {
+  async updatePeerMatch(
+    matchId: string,
+    input: {
+      status: 'requested' | 'connected' | 'declined' | 'blocked';
+      requestReason?: unknown;
+      requestQuestion?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
     const currentUserId = this.resolveRuntimeUserId(requestedUserId);
+    const status = input.status;
+
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      if (status === 'requested') {
+        const requestReason = typeof input.requestReason === 'string' ? input.requestReason.trim().slice(0, 280) : '';
+        const requestQuestion =
+          typeof input.requestQuestion === 'string' ? input.requestQuestion.trim().slice(0, 160) : '';
+        const safeReason = requestReason || '我想听听你后来是怎么把这段日子走过去的。';
+        this.assertPeerDraftSafe(`${safeReason}\n${requestQuestion}`);
+
+        const { match, ownerUserId } = await this.peerPersistence.updateMatchRequest(
+          matchId,
+          currentUserId,
+          'requested',
+          safeReason,
+          requestQuestion || undefined,
+        );
+
+        // Commit peer transition first, THEN emit deterministic-id notification (§3.3, §0.4/A4)
+        let notificationDelivered = true;
+        if (ownerUserId && ownerUserId !== currentUserId) {
+          notificationDelivered = await this.peerNotificationAfterCommit(
+            ownerUserId,
+            'PEER_REQUEST',
+            `request_${match.id}`,
+            '有人想和你聊聊这段经历',
+            '有人看见了你留下的后来，想先问一个小问题。',
+            `/pages/peer/requests?matchId=${encodeURIComponent(match.id)}`,
+          );
+        }
+
+        const exp = await this.peerPersistence.getExperienceById(match.peerExperienceId);
+        return {
+          item: this.peerMatchForUser(match, this.peerExperienceSummary(exp ?? undefined)),
+          conversation: null,
+          notificationPending: !notificationDelivered,
+        };
+      } else {
+        const { match } = await this.peerPersistence.respondMatch(matchId, currentUserId, status);
+        const conv = await this.peerPersistence.getConversationByMatchId(matchId);
+        const exp = await this.peerPersistence.getExperienceById(match.peerExperienceId);
+        return {
+          item: this.peerMatchForUser(match, this.peerExperienceSummary(exp ?? undefined)),
+          conversation: conv ? await this.peerConversationForUser(conv, currentUserId) : null,
+        };
+      }
+    }
+
     const item = this.peerMatches.find((match) => match.id === matchId);
     if (!item) throw new NotFoundException('同路匹配不存在');
     const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
     const isRequester = item.userId === currentUserId;
     const isExperienceOwner = experience?.userId === currentUserId;
-    const status = input.status;
-    if (status === 'requested' && (!isRequester || item.status !== 'suggested')) throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
-    if ((status === 'connected' || status === 'declined') && (!isExperienceOwner || item.status !== 'requested')) throw new BadRequestException('只有经历发布者可以处理待确认的同路请求');
-    if (status === 'blocked' && !isRequester && !isExperienceOwner) throw new BadRequestException('你无权处理这条同路匹配');
+    if (status === 'requested' && (!isRequester || item.status !== 'suggested'))
+      throw new BadRequestException('只有发起方可以对待匹配经历发出一次请求');
+    if ((status === 'connected' || status === 'declined') && (!isExperienceOwner || item.status !== 'requested'))
+      throw new BadRequestException('只有经历发布者可以处理待确认的同路请求');
+    if (status === 'blocked' && !isRequester && !isExperienceOwner)
+      throw new BadRequestException('你无权处理这条同路匹配');
     if (status === 'requested') {
       const requestReason = typeof input.requestReason === 'string' ? input.requestReason.trim().slice(0, 280) : '';
-      const requestQuestion = typeof input.requestQuestion === 'string' ? input.requestQuestion.trim().slice(0, 160) : '';
+      const requestQuestion =
+        typeof input.requestQuestion === 'string' ? input.requestQuestion.trim().slice(0, 160) : '';
       const safeReason = requestReason || '我想听听你后来是怎么把这段日子走过去的。';
       this.assertPeerDraftSafe(`${safeReason}\n${requestQuestion}`);
       item.requestReason = safeReason;
@@ -2032,22 +6405,64 @@ export class StoreService implements OnModuleInit {
     item.status = status;
     item.updatedAt = now();
     if (status === 'requested' && experience && experience.userId !== item.userId) {
-      this.peerNotification(experience.userId, 'PEER_REQUEST', `request_${item.id}`, '有人想和你聊聊这段经历', '有人看见了你留下的后来，想先问一个小问题。', `/pages/peer/requests?matchId=${encodeURIComponent(item.id)}`);
+      await this.peerNotification(
+        experience.userId,
+        'PEER_REQUEST',
+        `request_${item.id}`,
+        '有人想和你聊聊这段经历',
+        '有人看见了你留下的后来，想先问一个小问题。',
+        `/pages/peer/requests?matchId=${encodeURIComponent(item.id)}`,
+      );
     }
     if (status === 'connected') item.acceptedAt = now();
     await this.persistAndFlush();
     const conversation = this.peerConversations.find((candidate) => candidate.matchId === item.id);
-    return { item: this.peerMatchForUser(item), conversation: conversation ? this.peerConversationForUser(conversation, currentUserId) : null };
+    return {
+      item: this.peerMatchForUser(item),
+      conversation: conversation ? await this.peerConversationForUser(conversation, currentUserId) : null,
+    };
   }
 
   async startPeerConversation(matchId: string, requestedUserId?: string) {
     const currentUserId = this.resolveRuntimeUserId(requestedUserId);
+
+    if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerConversation) {
+      const result = await this.peerPersistence.consentMatch(matchId, currentUserId);
+      if (result.activated && result.conversation) {
+        // Second consent: both participants consented! Commit done, notify (§0.4/A4, §3.3)
+        const notificationDelivered = await this.peerNotificationAfterCommit(
+          result.starterUserId!,
+          'PEER_ACCEPTED',
+          `accepted_${matchId}`,
+          '有人愿意和你聊一会',
+          '双方已确认匿名边界，这段同行现在开始，最多持续 72 小时。',
+          `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`,
+        );
+        return {
+          conversation: await this.peerConversationForUser(result.conversation, currentUserId),
+          notificationPending: !notificationDelivered,
+        };
+      }
+      if (result.conversation) {
+        // Already active
+        return {
+          conversation: await this.peerConversationForUser(result.conversation, currentUserId),
+        };
+      }
+      // First consent: recorded caller's own consent, pending the other party (§0.1, §0.4/A3)
+      return {
+        conversation: null,
+        pending: true,
+      };
+    }
+
     const item = this.peerMatches.find((match) => match.id === matchId);
     if (!item) throw new NotFoundException('同路匹配不存在');
     const experience = this.peerExperiences.find((candidate) => candidate.id === item.peerExperienceId);
-    if (!experience || experience.userId !== currentUserId || item.status !== 'connected') throw new ForbiddenException('只有接受请求的经历发布者可以确认同行边界');
+    if (!experience || experience.userId !== currentUserId || item.status !== 'connected')
+      throw new ForbiddenException('只有接受请求的经历发布者可以确认同行边界');
     const existing = this.peerConversations.find((conversation) => conversation.matchId === item.id);
-    if (existing) return { conversation: this.peerConversationForUser(existing, currentUserId) };
+    if (existing) return { conversation: await this.peerConversationForUser(existing, currentUserId) };
     const startsAt = now();
     const conversation: PeerConversationRecord = {
       id: id('peer_conversation'),
@@ -2061,284 +6476,1720 @@ export class StoreService implements OnModuleInit {
       createdAt: startsAt,
     };
     this.peerConversations.unshift(conversation);
-    this.peerNotification(item.userId, 'PEER_ACCEPTED', `accepted_${item.id}`, '有人愿意和你聊一会', '双方已确认匿名边界，这段同行现在开始，最多持续 72 小时。', `/pages/peer/conversation?matchId=${encodeURIComponent(item.id)}`);
+    await this.peerNotification(
+      item.userId,
+      'PEER_ACCEPTED',
+      `accepted_${item.id}`,
+      '有人愿意和你聊一会',
+      '双方已确认匿名边界，这段同行现在开始，最多持续 72 小时。',
+      `/pages/peer/conversation?matchId=${encodeURIComponent(item.id)}`,
+    );
     await this.persistAndFlush();
-    return { conversation: this.peerConversationForUser(conversation, currentUserId) };
+    return { conversation: await this.peerConversationForUser(conversation, currentUserId) };
   }
 
-  peerRequestList(requestedUserId?: string) {
+  /**
+   * `scope` selects the direction: 'received' is the inbox on the user's own experiences (the
+   * default, and what 同行请求 lists with its accept/decline actions), 'sent' is what the user
+   * asked for. 同路人's 我的请求 tab needs 'sent'; without it the tab showed incoming requests
+   * under copy that claims they were the user's own.
+   */
+  async peerRequestList(requestedUserId?: string, scope: 'received' | 'sent' = 'received') {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerMatch && DIRECT_DB_MODELS.PeerExperience) {
+      if (scope === 'sent') {
+        const sent = await this.peerPersistence.listSentRequests(userId);
+        const expIds = [...new Set(sent.map((m) => m.peerExperienceId))];
+        const exps = await this.peerPersistence.getExperiencesByIds(expIds);
+        const expMap = new Map(exps.map((e) => [e.id, e]));
+        return sent.map((m) => ({
+          ...this.peerMatchForUser(m, this.peerExperienceSummary(expMap.get(m.peerExperienceId))),
+          role: 'sent' as const,
+          conversationStatus: m.conversationStatus,
+        }));
+      }
+      const matches = await this.peerPersistence.listRequestsForOwner(userId);
+      const expIds = matches.map((m) => m.peerExperienceId);
+      const exps = await this.peerPersistence.getExperiencesByIds(expIds);
+      const expMap = new Map(exps.map((e) => [e.id, e]));
+      return matches.map((m) => ({
+        ...this.peerMatchForUser(m, this.peerExperienceSummary(expMap.get(m.peerExperienceId))),
+        role: 'received' as const,
+      }));
+    }
     return this.peerMatches
       .filter((match) => {
-        const isOwner = this.peerExperiences.find((experience) => experience.id === match.peerExperienceId)?.userId === userId;
-        const awaitsConsent = match.status === 'connected' && !this.peerConversations.some((conversation) => conversation.matchId === match.id);
-        return isOwner && (match.status === 'requested' || awaitsConsent);
+        const experience = this.peerExperiences.find((item) => item.id === match.peerExperienceId);
+        const isOwner = experience?.userId === userId;
+        const awaitsConsent =
+          match.status === 'connected' &&
+          !this.peerConversations.some((conversation) => conversation.matchId === match.id);
+        if (scope === 'sent') {
+          return match.userId === userId && match.status !== 'suggested';
+        }
+        // Same shape as `listRequestsForOwner`: the inbox plus the owner's own decisions, so an
+        // answered request stays visible under 已结束 instead of vanishing when it is declined.
+        return isOwner && (match.status === 'requested' || match.status === 'declined' || match.status === 'blocked' || awaitsConsent);
       })
-      .map((match) => this.peerMatchForUser(match));
+      .map((match) => {
+        const conversation = this.peerConversations.find((item) => item.matchId === match.id);
+        return {
+          ...this.peerMatchForUser(match),
+          role: scope,
+          conversationStatus: conversation?.status,
+        };
+      });
   }
 
-  peerExperienceDetail(experienceId: string) {
-    const experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published');
+  /**
+   * Resolves a published peer experience for a specific viewer.
+   *
+   * Access is limited to the owner and to users who have an active relationship with the
+   * experience (a match on it in any non-declined state), and peer matching must still be
+   * enabled for the viewer. Previously any caller could read any published experience by
+   * id, and revoking `allowPeerMatching` did not gate this read (product audit ISSUE-018).
+   * `viewerId` is optional so the existing single-argument call sites keep working; pass it
+   * from any request-handling path.
+   */
+  async peerExperienceDetail(experienceId: string, viewerId?: string) {
+    let experience: PeerExperienceRecord | null = null;
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      experience = await this.peerPersistence.getPublishedExperienceById(experienceId);
+      if (!experience && viewerId) {
+        const own = await this.peerPersistence.getExperienceById(experienceId);
+        if (own && own.userId === viewerId) experience = own;
+      }
+    } else {
+      experience = this.peerExperiences.find((item) => item.id === experienceId && item.status === 'published') ?? null;
+    }
     if (!experience) throw new NotFoundException('这段同路经历不存在');
-    const journey = experience.journeyId ? this.lifeJourneys.find((item) => item.id === experience.journeyId) : undefined;
-    const timeline = experience.journeyId ? this.journeyUpdates.filter((item) => item.journeyId === experience.journeyId).slice(0, 4).map((item) => ({ id: item.id, content: this.redactPeerPublicText(item.content), eventDate: item.eventDate, createdAt: item.createdAt })) : [];
-    const actions = experience.journeyId ? this.actionCommitments.filter((item) => item.journeyId === experience.journeyId).slice(0, 4).map((item) => ({ id: item.id, title: this.redactPeerPublicText(item.title), createdAt: item.createdAt })) : [];
-    const safeExperience = { ...this.peerExperienceSummary(experience), content: this.redactPeerPublicText(experience.content) };
-    const later = experience.laterSummary ? this.redactPeerPublicValue(experience.laterSummary) as Record<string, unknown> : { available: false, message: 'TA目前还没有留下这一阶段的后续记录。' };
-    return { experience: safeExperience, journey: journey ? { completedAt: journey.completedAt, createdAt: journey.createdAt } : null, timeline, actions, later, helpfulActions: (experience.helpfulActions ?? []).map((item) => this.redactPeerPublicText(item)), notHelpfulActions: (experience.notHelpfulActions ?? []).map((item) => this.redactPeerPublicText(item)), retrospective: experience.retrospective ? this.redactPeerPublicText(experience.retrospective) : null };
+    if (viewerId && experience.userId !== viewerId) {
+      const viewerPrivacy = DIRECT_DB_MODELS.PrivacySetting
+        ? await this.selfPersistence.getPrivacySettings(viewerId)
+        : this.privacySettings[viewerId];
+      if (viewerPrivacy?.allowPeerMatching !== true) {
+        throw new ForbiddenException('请先在隐私设置中允许同路匹配');
+      }
+      let related = false;
+      if (DIRECT_DB_MODELS.PeerMatch) {
+        const matches = await this.peerPersistence.listMatchesForUser(viewerId);
+        related = matches.some(
+          (match) => match.peerExperienceId === experienceId && match.status !== 'declined',
+        );
+      } else {
+        related = this.peerMatches.some(
+          (match) => match.peerExperienceId === experienceId && match.status !== 'declined' && match.userId === viewerId,
+        );
+      }
+      if (!related) throw new ForbiddenException('这段同路经历暂不向你开放');
+    }
+    const journey = experience.journeyId
+      ? await this.batch1Persistence.getJourneyById(experience.journeyId)
+      : undefined;
+    const timelineUpdates = experience.journeyId
+      ? await this.batch1Persistence.listUpdatesForJourney(experience.journeyId, 4)
+      : [];
+    const timeline = timelineUpdates.map((item) => ({
+      id: item.id,
+      content: this.redactPeerPublicText(item.content),
+      eventDate: item.eventDate,
+      createdAt: item.createdAt,
+    }));
+    const actions = experience.journeyId
+      ? (await this.batch1Persistence.listActionsForJourney(experience.journeyId, 4)).map((item) => ({
+          id: item.id,
+          title: this.redactPeerPublicText(item.title),
+          createdAt: item.createdAt,
+        }))
+      : [];
+    const updateCount = experience.journeyId
+      ? await this.batch1Persistence.countUpdatesForJourney(experience.journeyId)
+      : 0;
+    const checkinCount = experience.journeyId
+      ? await this.batch1Persistence.countCheckinsForJourney(experience.journeyId)
+      : 0;
+    const safeExperience = {
+      ...this.peerExperienceSummary(experience, updateCount, checkinCount),
+      content: this.redactPeerPublicText(experience.content),
+    };
+    const later = experience.laterSummary
+      ? (this.redactPeerPublicValue(experience.laterSummary) as Record<string, unknown>)
+      : { available: false, message: 'TA目前还没有留下这一阶段的后续记录。' };
+    return {
+      experience: safeExperience,
+      journey: journey ? { completedAt: journey.completedAt, createdAt: journey.createdAt } : null,
+      timeline,
+      actions,
+      later,
+      helpfulActions: (experience.helpfulActions ?? []).map((item) => this.redactPeerPublicText(item)),
+      notHelpfulActions: (experience.notHelpfulActions ?? []).map((item) => this.redactPeerPublicText(item)),
+      retrospective: experience.retrospective ? this.redactPeerPublicText(experience.retrospective) : null,
+    };
   }
 
   async conversationList(requestedUserId?: string) {
     await this.expirePeerConversations();
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.peerConversations
-      .filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId))
-      .map((conversation) => this.peerConversationForUser(conversation, userId));
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const conversations = await this.peerPersistence.listConversationsForUser(userId);
+      return await Promise.all(conversations.map((c) => this.peerConversationForUser(c, userId)));
+    }
+    await this.expirePeerConversations();
+    return await Promise.all(
+      this.peerConversations
+        .filter((conversation) => [conversation.starterUserId, conversation.receiverUserId].includes(userId))
+        .map((conversation) => this.peerConversationForUser(conversation, userId)),
+    );
   }
 
-  async sendPeerMessage(matchId: string, content: unknown, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) throw new BadRequestException('这段 72 小时会话已经结束');
-    const text = this.text(content, '消息内容', 1000);
+  async sendPeerMessage(matchId: string, input: unknown, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    let rawContent = '';
+    let msgType = 'TEXT';
+    let replyToId: string | undefined;
+    let replyToContent: string | undefined;
+    let mediaUrl: string | undefined;
+    let mediaDuration: number | undefined;
+    let mediaSize: number | undefined;
+    let thumbnailUrl: string | undefined;
+    let clientMsgId: string | undefined;
+    const isInternal = Boolean(input && typeof input === 'object' && (input as any).__internal);
+
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const obj = input as Record<string, any>;
+      rawContent = typeof obj.content === 'string' ? obj.content : '';
+      msgType = typeof obj.msgType === 'string' ? obj.msgType : 'TEXT';
+      replyToId = typeof obj.replyToId === 'string' ? obj.replyToId : undefined;
+      mediaUrl = typeof obj.mediaUrl === 'string' ? obj.mediaUrl : undefined;
+      mediaDuration = typeof obj.mediaDuration === 'number' ? obj.mediaDuration : undefined;
+      mediaSize = typeof obj.mediaSize === 'number' ? obj.mediaSize : undefined;
+      thumbnailUrl = typeof obj.thumbnailUrl === 'string' ? obj.thumbnailUrl : undefined;
+      clientMsgId = typeof obj.clientMsgId === 'string' ? obj.clientMsgId : undefined;
+    } else {
+      rawContent = String(input ?? '');
+    }
+
+    if (msgType === 'CALL_LOG' && !isInternal) {
+      throw new BadRequestException('不能手动发送通话记录');
+    }
+
+    const ALLOWED_MSG_TYPES = new Set(['TEXT', 'STICKER', 'CALL_LOG']);
+    if (!ALLOWED_MSG_TYPES.has(msgType)) {
+      msgType = 'TEXT';
+    }
+
+    if (msgType !== 'STICKER') {
+      mediaUrl = undefined;
+      thumbnailUrl = undefined;
+      mediaDuration = undefined;
+      mediaSize = undefined;
+    } else {
+      let matchedSticker: any = null;
+      if (typeof (input as any)?.stickerId === 'string') {
+        matchedSticker = this.socialMultimedia.getStickerById((input as any).stickerId);
+      } else if (mediaUrl) {
+        matchedSticker = this.socialMultimedia.listStickers('').find((s) => s.url === mediaUrl);
+      }
+      if (matchedSticker) {
+        mediaUrl = matchedSticker.url;
+        rawContent = `[表情包: ${matchedSticker.name}]`;
+      } else {
+        throw new BadRequestException('非法的表情包标识');
+      }
+      thumbnailUrl = undefined;
+      mediaDuration = undefined;
+      mediaSize = undefined;
+    }
+
+    if (!rawContent.trim()) {
+      if (msgType === 'STICKER') rawContent = '[表情包]';
+      else if (msgType === 'CALL_LOG') rawContent = '[通话记录]';
+      else throw new BadRequestException('消息内容不能为空');
+    }
+
+    const text = this.text(rawContent, '消息内容', 1000);
     this.assertPeerDraftSafe(text);
-    const item: PeerMessageRecord = { id: id('peer_message'), conversationId: conversation.id, senderUserId: userId, content: text, authorType: 'HUMAN', createdAt: now(), piiFlags: [] };
-    this.peerMessages.unshift(item); await this.persistAndFlush(); return { item: this.peerMessageForUser(item, userId) };
+
+    if (DIRECT_DB_MODELS.PeerMessage && DIRECT_DB_MODELS.PeerConversation) {
+      await this.expirePeerConversations();
+      const conv = await this.peerPersistence.getConversationByMatchId(matchId);
+      if (!conv || (conv.starterUserId !== userId && conv.receiverUserId !== userId)) {
+        throw new NotFoundException('匿名会话不存在');
+      }
+
+      const all = await this.peerPersistence.getMessagesForConversation(conv.id);
+
+      // Deduplication check
+      if (clientMsgId) {
+        const existingId = this.socialMultimedia.isDuplicateMessage(conv.id, userId, clientMsgId);
+        if (existingId) {
+          const found = all.find((m) => m.id === existingId);
+          if (found) return { item: this.peerMessageForUser(found, userId, all) };
+        }
+        const persistedDuplicate = all.find((m) => m.senderUserId === userId && m.clientMsgId === clientMsgId);
+        if (persistedDuplicate) {
+          this.socialMultimedia.recordClientMessage(conv.id, userId, clientMsgId, persistedDuplicate.id);
+          return { item: this.peerMessageForUser(persistedDuplicate, userId, all) };
+        }
+      }
+
+      // Quote verification: derive quote text from target message on server
+      if (replyToId) {
+        const target = all.find((m) => m.id === replyToId);
+        if (target) {
+          replyToContent = target.recalledAt ? '一条消息已撤回' : target.content.slice(0, 100);
+        } else {
+          replyToId = undefined;
+        }
+      }
+
+      const currentMaxSeq = all.reduce(
+        (max, m) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+        0,
+      );
+      const seq = this.socialMultimedia.getNextSeq(conv.id, currentMaxSeq);
+      const extraMeta = {
+        msgType,
+        replyToId,
+        replyToContent,
+        mediaUrl,
+        mediaDuration,
+        mediaSize,
+        thumbnailUrl,
+        seq,
+        clientMsgId,
+      };
+
+      const msg = await this.peerPersistence.sendMessage(matchId, userId, text, {}, extraMeta);
+      if (clientMsgId) {
+        this.socialMultimedia.recordClientMessage(conv.id, userId, clientMsgId, msg.id);
+      }
+      return { item: this.peerMessageForUser(msg, userId, all) };
+    }
+
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now())
+      throw new BadRequestException('这段 72 小时会话已经结束');
+
+    const convMsgs = this.peerMessages.filter((m) => m.conversationId === conversation.id);
+
+    // Deduplication check
+    if (clientMsgId) {
+      const existingId = this.socialMultimedia.isDuplicateMessage(conversation.id, userId, clientMsgId);
+      if (existingId) {
+        const found = convMsgs.find((m) => m.id === existingId);
+        if (found) return { item: this.peerMessageForUser(found, userId, convMsgs) };
+      }
+      const persistedDuplicate = convMsgs.find((m) => m.senderUserId === userId && m.clientMsgId === clientMsgId);
+      if (persistedDuplicate) {
+        this.socialMultimedia.recordClientMessage(conversation.id, userId, clientMsgId, persistedDuplicate.id);
+        return { item: this.peerMessageForUser(persistedDuplicate, userId, convMsgs) };
+      }
+    }
+
+    // Quote verification: derive quote text from target message on server
+    if (replyToId) {
+      const target = convMsgs.find((m) => m.id === replyToId);
+      if (target) {
+        replyToContent = target.recalledAt ? '一条消息已撤回' : target.content.slice(0, 100);
+      } else {
+        replyToId = undefined;
+      }
+    }
+
+    const currentMaxSeq = convMsgs.reduce(
+      (max, m) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+      0,
+    );
+    const seq = this.socialMultimedia.getNextSeq(conversation.id, currentMaxSeq);
+    const item: PeerMessageRecord = {
+      id: id('peer_message'),
+      conversationId: conversation.id,
+      senderUserId: userId,
+      content: text,
+      authorType: 'HUMAN',
+      createdAt: now(),
+      piiFlags: [],
+      msgType,
+      replyToId,
+      replyToContent,
+      mediaUrl,
+      mediaDuration,
+      mediaSize,
+      thumbnailUrl,
+      seq,
+      clientMsgId,
+    };
+    this.peerMessages.unshift(item);
+    if (clientMsgId) {
+      this.socialMultimedia.recordClientMessage(conversation.id, userId, clientMsgId, item.id);
+    }
+    await this.persistAndFlush();
+    return { item: this.peerMessageForUser(item, userId, convMsgs) };
+  }
+
+  async recallPeerMessage(matchId: string, messageId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerMessage && DIRECT_DB_MODELS.PeerConversation) {
+      const recalled = await this.peerPersistence.recallMessage(matchId, userId, messageId);
+      return { item: this.peerMessageForUser(recalled, userId) };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) {
+      throw new BadRequestException('这段 72 小时会话已经结束，无法撤回消息');
+    }
+    const msg = this.peerMessages.find((m) => m.id === messageId && m.conversationId === conversation.id);
+    if (!msg) throw new NotFoundException('消息不存在');
+    if (msg.senderUserId !== userId) throw new BadRequestException('只有发送方可以撤回消息');
+    if (msg.recalledAt) throw new BadRequestException('消息已经撤回，无需重复操作');
+    const elapsed = Date.now() - Date.parse(msg.createdAt);
+    if (elapsed > 120_000) throw new BadRequestException('超过 2 分钟的消息不能撤回');
+    msg.recalledAt = now();
+    msg.content = '一条消息已撤回';
+    delete msg.mediaUrl;
+    delete msg.thumbnailUrl;
+    delete msg.replyToContent;
+    await this.persistAndFlush();
+    return { item: this.peerMessageForUser(msg, userId) };
+  }
+
+  async syncPeerConversation(matchId: string, afterSeq = 0, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+
+    let allMessages: PeerMessageRecord[] = [];
+    if (DIRECT_DB_MODELS.PeerMessage) {
+      allMessages = await this.peerPersistence.getMessagesForConversation(conversation.id);
+    } else {
+      allMessages = this.peerMessages.filter((m) => m.conversationId === conversation.id);
+    }
+
+    const safeAfterSeq = Math.max(0, Number(afterSeq) || 0);
+    const messages = allMessages
+      .filter((m) => {
+        const s = typeof m.seq === 'number' ? m.seq : 0;
+        return safeAfterSeq === 0 || s > safeAfterSeq || Boolean(m.recalledAt);
+      })
+      .map((m) => this.peerMessageForUser(m, userId, allMessages));
+
+    const callStatus = this.socialMultimedia.getCallStatusForClient(matchId, userId);
+
+    const lastSeq = allMessages.reduce(
+      (max: number, m: any) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+      0,
+    );
+
+    return {
+      conversationStatus: conversation.status,
+      expiresAt: conversation.expiresAt,
+      messages,
+      call: callStatus,
+      lastSeq,
+    };
+  }
+
+  async createPeerCallOffer(matchId: string, callType: 'AUDIO' | 'VIDEO', requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) {
+      throw new BadRequestException('这段 72 小时会话已经结束');
+    }
+    const otherUserId = conversation.starterUserId === userId ? conversation.receiverUserId : conversation.starterUserId;
+    this.socialMultimedia.createCallOffer(matchId, conversation.id, userId, otherUserId, callType);
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId) };
+  }
+
+  async respondPeerCall(matchId: string, offerId: string, action: 'ACCEPT' | 'DECLINED', requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const call = this.socialMultimedia.respondCall(matchId, userId, offerId, action);
+    if (action === 'DECLINED') {
+      await this.sendPeerMessage(
+        matchId,
+        {
+          content: `${call.callType === 'VIDEO' ? '视频通话' : '语音通话'} 已拒绝`,
+          msgType: 'CALL_LOG',
+          __internal: true,
+        },
+        userId,
+      );
+    }
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId) };
+  }
+
+  async endPeerCall(matchId: string, callId: string, reason?: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const { call, durationSeconds } = this.socialMultimedia.endCall(matchId, userId, callId, reason);
+    const label = call.callType === 'VIDEO' ? '视频通话' : '语音通话';
+    let summary = `${label} 已结束`;
+    if (durationSeconds > 0) {
+      const min = Math.floor(durationSeconds / 60);
+      const sec = durationSeconds % 60;
+      summary = `${label} ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    } else if (call.status === 'CANCELLED') {
+      summary = `${label} 已取消`;
+    } else if (call.status === 'MISSED') {
+      summary = `${label} 未接听`;
+    }
+    await this.sendPeerMessage(
+      matchId,
+      {
+        content: summary,
+        msgType: 'CALL_LOG',
+        __internal: true,
+      },
+      userId,
+    );
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId), durationSeconds };
+  }
+
+  getPeerCallStatus(matchId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return { call: this.socialMultimedia.getCallStatusForClient(matchId, userId) };
+  }
+
+  getAiPersona(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    return {
+      persona: this.aiPersona.getUserPersona(userId),
+      available: this.aiPersona.getPersonaList(),
+    };
+  }
+
+  setAiPersona(personaId: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const updated = this.aiPersona.setUserPersona(userId, personaId as PersonaId);
+    return { persona: updated };
   }
 
   async requestPeerResponseAssist(matchId: string, content: unknown, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now()) throw new BadRequestException('这段 72 小时会话已经结束');
+    let convId = '';
+    let userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      // Participant, status and deadline are decided under the row lock with database
+      // time (§0.4/A8). The queue write below happens in its own transaction, so this is
+      // a lock-held database-time check — not a claim that queueing and expiry are atomic.
+      const conversation = await this.peerPersistence.requireOpenConversation(matchId, userId);
+      convId = conversation.id;
+    } else {
+      const res = await this.requirePeerConversation(matchId, requestedUserId);
+      if (res.conversation.status !== 'active' || Date.parse(res.conversation.expiresAt) <= Date.now()) {
+        throw new BadRequestException('这段 72 小时会话已经结束');
+      }
+      convId = res.conversation.id;
+      userId = res.userId;
+    }
     const source = this.text(content, '待整理的回复', 1000);
     this.assertPeerDraftSafe(source);
-    const job = this.queueAI({ taskType: 'peer_response_assist', userId, sourceId: conversation.id, content: source, style: 'warm', mood: '委屈' });
+    const job = this.queueAI({
+      taskType: 'peer_response_assist',
+      userId,
+      sourceId: convId,
+      content: source,
+      style: 'warm',
+      mood: '委屈',
+    });
     await this.flush();
     return { job: { id: job.id, status: job.status }, notice: 'AI 只会整理表达，最终消息仍需你确认后发送。' };
   }
 
   async closePeerConversation(matchId: string, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    this.closePeerConversationRecord(conversation, 'closed');
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const res = await this.peerPersistence.closeConversation(matchId, userId, 'closed');
+      let notificationDelivered = true;
+      if (res.wasActive) {
+        const body = '这段匿名同行已经结束，你们不能继续发送消息。';
+        const route = `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`;
+        notificationDelivered =
+          (await this.peerNotificationAfterCommit(
+            res.conversation.starterUserId,
+            'CONVERSATION_CLOSED',
+            `closed_${res.conversation.id}`,
+            '这段同行到这里了',
+            body,
+            route,
+          )) && notificationDelivered;
+        notificationDelivered =
+          (await this.peerNotificationAfterCommit(
+            res.conversation.receiverUserId,
+            'CONVERSATION_CLOSED',
+            `closed_${res.conversation.id}`,
+            '这段同行到这里了',
+            body,
+            route,
+          )) && notificationDelivered;
+      }
+      return {
+        item: await this.peerConversationForUser(res.conversation, userId),
+        notificationPending: !notificationDelivered,
+      };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    await this.closePeerConversationRecord(conversation, 'closed');
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId) };
+    return { item: await this.peerConversationForUser(conversation, userId) };
   }
 
   async reportPeerConversation(matchId: string, reason: unknown, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const reportReason = this.text(reason, '举报原因', 300);
-    conversation.reportedAt = now();
+    if (DIRECT_DB_MODELS.PeerReport && DIRECT_DB_MODELS.PeerConversation) {
+      const res = await this.peerPersistence.reportConversation(matchId, userId, reportReason);
+      return { item: await this.peerConversationForUser(res.conversation, userId) };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const match = this.peerMatches.find((item) => item.id === matchId);
+    // One open report per (conversation, reporter). Reporting again while an earlier report is
+    // still open updates that report rather than creating a duplicate; reporting again after the
+    // previous one was handled is a new signal and does create a new row. Different reporters
+    // always get their own rows, so one user's report can never overwrite another's.
+    const existingOpen = this.peerReports.find(
+      (item) => item.conversationId === conversation.id && item.reporterUserId === userId && item.status === 'open',
+    );
+    const report: PeerReportRecord = existingOpen
+      ? { ...existingOpen, reason: reportReason, createdAt: now() }
+      : {
+          id: id('peer_report'),
+          conversationId: conversation.id,
+          experienceId: match?.peerExperienceId,
+          matchId,
+          reporterUserId: userId,
+          reason: reportReason,
+          status: 'open',
+          createdAt: now(),
+        };
+    if (existingOpen) this.peerReports[this.peerReports.indexOf(existingOpen)] = report;
+    else this.peerReports.unshift(report);
+    // These three conversation columns are only a pointer to the most recent report so the
+    // operator list can show current state without a join. PeerReport is the record of what was
+    // reported, so a later report no longer destroys an earlier one (ISSUE-020).
+    conversation.reportedAt = report.createdAt;
     conversation.reporterUserId = userId;
     conversation.reportReason = reportReason;
-    const match = this.peerMatches.find((item) => item.id === matchId);
-    const experience = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
-    if (experience) experience.reportCount += 1;
+    this.syncPeerReportCounts();
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId) };
+    return { item: await this.peerConversationForUser(conversation, userId) };
   }
 
+  /**
+   * `PeerExperience.reportCount` feeds peer matching, which drops an experience's safety score
+   * once it has any report, so the counter has to stay true to the rows it summarises. It is
+   * recomputed from the report history instead of incremented: the previous bare `+= 1` drifted
+   * from the history it was supposed to represent (ISSUE-020). Every report counts, whatever its
+   * status, which is the semantic the increment had.
+   */
+  syncPeerReportCounts() {
+    if (DIRECT_DB_MODELS.PeerReport) return;
+    for (const experience of this.peerExperiences) {
+      experience.reportCount = this.peerReports.filter((report) => report.experienceId === experience.id).length;
+    }
+  }
+
+  /** Operator view of a report: the history row plus the context needed to act on it. */
+  peerReportForAdmin(report: PeerReportRecord) {
+    const conversation = this.peerConversations.find((item) => item.id === report.conversationId);
+    const experience = report.experienceId
+      ? this.peerExperiences.find((item) => item.id === report.experienceId)
+      : undefined;
+    const reporter = this.users.find((item) => item.id === report.reporterUserId);
+    return {
+      ...report,
+      matchId: report.matchId ?? conversation?.matchId,
+      conversationStatus: conversation?.status,
+      experienceTitle: experience?.title,
+      experienceStatus: experience?.status,
+      reporterNickname: reporter?.nickname,
+      reporterAnonymousCode: reporter?.anonymousCode,
+    };
+  }
+
+  /** Mutates in memory only; the caller writes the audit row and flushes once, so the state
+   *  change and its audit entry commit together. Mirrors handleSafetyEvent. */
+  handlePeerReport(reportId: string, adminUserId: string, input: { status?: unknown; note?: unknown }) {
+    const report = this.peerReports.find((item) => item.id === reportId);
+    if (!report) throw new NotFoundException('举报记录不存在');
+    const status = input.status === 'open' ? 'open' : input.status === 'handled' ? 'handled' : undefined;
+    if (!status) throw new BadRequestException('处理状态无效');
+    report.status = status;
+    if (status === 'handled') {
+      report.handledAt = now();
+      report.handledBy = adminUserId;
+      report.note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : undefined;
+    } else {
+      report.handledAt = undefined;
+      report.handledBy = undefined;
+      report.note = undefined;
+    }
+    return { item: report };
+  }
+
+  /*
+   * Operator notes moved to AdminNotesPersistenceService (Batch 4, model 5). The three methods that
+   * read and wrote `this.adminUserNotes` are deleted rather than left in place: `DIRECT_DB_MODELS`
+   * stops the flush hydrating that array, so anything still calling them would read a permanently
+   * empty list and a write would never reach the table.
+   */
+
   async blockPeerConversation(matchId: string, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PeerConversation && DIRECT_DB_MODELS.PeerMatch) {
+      const res = await this.peerPersistence.blockConversation(matchId, userId);
+      const body = '这段匿名同行已被结束，你们不能继续发送消息。';
+      const route = `/pages/peer/conversation?matchId=${encodeURIComponent(matchId)}`;
+      let notificationDelivered = true;
+      notificationDelivered =
+        (await this.peerNotificationAfterCommit(
+          res.conversation.starterUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${res.conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        )) && notificationDelivered;
+      notificationDelivered =
+        (await this.peerNotificationAfterCommit(
+          res.conversation.receiverUserId,
+          'CONVERSATION_CLOSED',
+          `closed_${res.conversation.id}`,
+          '这段同行到这里了',
+          body,
+          route,
+        )) && notificationDelivered;
+      return {
+        item: await this.peerConversationForUser(res.conversation, userId),
+        match: this.peerMatchForUser(res.match),
+        notificationPending: !notificationDelivered,
+      };
+    }
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     const match = this.peerMatches.find((item) => item.id === matchId);
     if (!match) throw new NotFoundException('同路匹配不存在');
     match.status = 'blocked';
     match.updatedAt = now();
-    this.closePeerConversationRecord(conversation, 'blocked');
+    await this.closePeerConversationRecord(conversation, 'blocked');
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId), match: this.peerMatchForUser(match) };
+    return { item: await this.peerConversationForUser(conversation, userId), match: this.peerMatchForUser(match) };
   }
 
-  async savePeerConversationFeedback(matchId: string, input: { feedback?: unknown; note?: unknown; shareLater?: unknown }, requestedUserId?: string) {
-    const { userId, conversation } = await this.requirePeerConversation(matchId, requestedUserId);
-    if (conversation.status === 'active' && Date.parse(conversation.expiresAt) > Date.now()) throw new BadRequestException('请先结束这段同行，再留下感受');
+  async savePeerConversationFeedback(
+    matchId: string,
+    input: { feedback?: unknown; note?: unknown; shareLater?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
     const feedback = String(input.feedback ?? '');
-    if (!['helpful', 'unchanged', 'uncomfortable'].includes(feedback)) throw new BadRequestException('请选择这段同行带来的感受');
+    if (!['helpful', 'unchanged', 'uncomfortable'].includes(feedback))
+      throw new BadRequestException('请选择这段同行带来的感受');
     const note = typeof input.note === 'string' ? input.note.trim().slice(0, 500) : '';
     this.assertPeerDraftSafe(note);
+
+    if (DIRECT_DB_MODELS.PeerConversation && DIRECT_DB_MODELS.PeerExperience) {
+      let shareData: any = undefined;
+      if (input.shareLater === true) {
+        await this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
+        const match = await this.peerPersistence.getMatchById(matchId);
+        const source = match ? await this.peerPersistence.getExperienceById(match.peerExperienceId) : null;
+        const journeyId = match?.userId === userId ? match.journeyId : source?.journeyId;
+        const journey = journeyId ? await this.batch1Persistence.getJourneyByIdAndUser(journeyId, userId) : undefined;
+        const snapshot = journey ? await this.batch1Persistence.getSnapshotByJourneyId(journey.id) : undefined;
+        const shareText = this.redactPeerPublicText(
+          note || '这段同行结束后，我愿意把后来的一点变化留给走在相似路上的人。',
+        );
+        const rawSubDomain = snapshot?.subDomain ?? source?.subDomain;
+        const subDomain = rawSubDomain ? this.redactPeerPublicText(rawSubDomain) : undefined;
+        shareData = {
+          title: '这段同行之后，我慢慢走了一点出来',
+          domain: this.redactPeerPublicText(journey?.domain ?? source?.domain ?? '其他'),
+          subDomain,
+          stage: 'graduated',
+          content: shareText,
+          tags: (snapshot?.contextTags ?? source?.tags ?? []).map((t) => this.redactPeerPublicText(t)),
+          fingerprintJson: snapshot?.fingerprintJson ?? source?.fingerprintJson,
+          journeyId: journey?.id,
+        };
+      }
+
+      const res = await this.peerPersistence.saveConversationFeedback(
+        matchId,
+        userId,
+        feedback as any,
+        note || undefined,
+        shareData,
+      );
+
+      const updateCount = res.sharedExperience?.journeyId
+        ? await this.batch1Persistence.countUpdatesForJourney(res.sharedExperience.journeyId)
+        : 0;
+      const checkinCount = res.sharedExperience?.journeyId
+        ? await this.batch1Persistence.countCheckinsForJourney(res.sharedExperience.journeyId)
+        : 0;
+
+      return {
+        item: await this.peerConversationForUser(res.conversation, userId),
+        sharedExperience: res.sharedExperience
+          ? this.peerExperienceSummary(res.sharedExperience, updateCount, checkinCount)
+          : undefined,
+      };
+    }
+
+    const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
+    if (conversation.status === 'active' && Date.parse(conversation.expiresAt) > Date.now())
+      throw new BadRequestException('请先结束这段同行，再留下感受');
     conversation.feedback = feedback as PeerConversationRecord['feedback'];
     conversation.feedbackNote = note || undefined;
     let sharedExperience: PeerExperienceRecord | undefined;
     if (input.shareLater === true) {
-      this.privacyAllows(userId, 'allowPeerMatching', '请先在隐私设置中允许匿名留下经历');
+      await this.privacyAllows(userId, 'allowAnonymousExperienceShare', '请先在隐私设置中允许匿名留下经历');
       const match = this.peerMatches.find((item) => item.id === matchId);
       const source = match ? this.peerExperiences.find((item) => item.id === match.peerExperienceId) : undefined;
       const journeyId = match?.userId === userId ? match.journeyId : source?.journeyId;
-      const journey = journeyId ? this.lifeJourneys.find((item) => item.id === journeyId && item.userId === userId) : undefined;
-      const snapshot = journey ? this.situationSnapshots.find((item) => item.journeyId === journey.id) : undefined;
-      const shareText = this.redactPeerPublicText(note || '这段同行结束后，我愿意把后来的一点变化留给走在相似路上的人。');
+      const journey = journeyId ? await this.batch1Persistence.getJourneyByIdAndUser(journeyId, userId) : undefined;
+      const snapshot = journey ? await this.batch1Persistence.getSnapshotByJourneyId(journey.id) : undefined;
+      const shareText = this.redactPeerPublicText(
+        note || '这段同行结束后，我愿意把后来的一点变化留给走在相似路上的人。',
+      );
+      const rawSubDomain = snapshot?.subDomain ?? source?.subDomain;
+      const subDomain = rawSubDomain ? this.redactPeerPublicText(rawSubDomain) : undefined;
       sharedExperience = {
-        id: id('experience'), userId, journeyId: journey?.id, title: '这段同行之后，我慢慢走了一点出来', domain: journey?.domain ?? source?.domain ?? '其他', stage: 'graduated', subDomain: snapshot?.subDomain ?? source?.subDomain,
-        content: shareText, tags: snapshot?.contextTags ?? source?.tags ?? [], fingerprintJson: snapshot?.fingerprintJson ?? source?.fingerprintJson,
-        laterSummary: { summary: shareText }, helpfulActions: [], notHelpfulActions: [], consentedAt: now(), status: 'pending_review', reportCount: 0, createdAt: now(), updatedAt: now(),
+        id: id('experience'),
+        userId,
+        journeyId: journey?.id,
+        title: '这段同行之后，我慢慢走了一点出来',
+        domain: this.redactPeerPublicText(journey?.domain ?? source?.domain ?? '其他'),
+        subDomain,
+        stage: 'graduated',
+        content: shareText,
+        tags: (snapshot?.contextTags ?? source?.tags ?? []).map((t) => this.redactPeerPublicText(t)),
+        fingerprintJson: snapshot?.fingerprintJson ?? source?.fingerprintJson,
+        laterSummary: { summary: shareText },
+        helpfulActions: [],
+        notHelpfulActions: [],
+        consentedAt: now(),
+        status: 'pending_review',
+        reportCount: 0,
+        createdAt: now(),
+        updatedAt: now(),
       };
       this.peerExperiences.unshift(sharedExperience);
     }
     await this.persistAndFlush();
-    return { item: this.peerConversationForUser(conversation, userId), sharedExperience: sharedExperience ? this.peerExperienceSummary(sharedExperience) : undefined };
+    const updateCount = sharedExperience?.journeyId
+      ? await this.batch1Persistence.countUpdatesForJourney(sharedExperience.journeyId)
+      : 0;
+    const checkinCount = sharedExperience?.journeyId
+      ? await this.batch1Persistence.countCheckinsForJourney(sharedExperience.journeyId)
+      : 0;
+    return {
+      item: await this.peerConversationForUser(conversation, userId),
+      sharedExperience: sharedExperience
+        ? this.peerExperienceSummary(sharedExperience, updateCount, checkinCount)
+        : undefined,
+    };
   }
 
-  notificationList(requestedUserId?: string) {
+  async notificationList(requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    return this.notifications.filter((item) => item.userId === userId).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return await this.batch1Persistence.listUserNotifications(userId);
   }
 
   async readNotification(notificationId: string, requestedUserId?: string) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
-    const item = this.notifications.find((notification) => notification.id === notificationId && notification.userId === userId);
-    if (!item) throw new NotFoundException('提醒不存在');
-    item.status = 'read'; item.readAt = now(); await this.persistAndFlush(); return { item };
+    return await this.batch1Persistence.markNotificationRead(notificationId, userId);
   }
 
-  async saveRecoveryCheckin(journeyId: string | undefined, signals: Record<string, unknown>, summary?: unknown) {
-    const userId = this.getDemoUserId();
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
-    const journey = journeyId ? this.requireJourney(journeyId, userId) : undefined;
+  async adminNotificationList(filter?: { q?: string; status?: string }) {
+    return await this.batch1Persistence.listAdminNotifications(filter);
+  }
+
+  async countUnreadNotifications(userId?: string) {
+    return await this.batch1Persistence.countUnreadNotifications(userId);
+  }
+
+  async adminSafetyEventList(filter?: { q?: string; status?: string }) {
+    return await this.batch1Persistence.listAdminSafetyEvents(filter);
+  }
+
+  async getSafetyEvent(id: string) {
+    return await this.batch1Persistence.getSafetyEvent(id);
+  }
+
+  async countHighRiskSafetyEvents() {
+    return await this.batch1Persistence.countHighRiskSafetyEvents();
+  }
+
+  async saveRecoveryCheckin(
+    journeyId: string | undefined,
+    signals: Record<string, unknown>,
+    summary?: unknown,
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      const item = await this.selfPersistence.appendRecoverySnapshot({
+        userId,
+        journeyId,
+        signals,
+        summary: typeof summary === 'string' ? summary : undefined,
+      });
+      return { item };
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存生活恢复数据');
+    const journey = journeyId
+      ? await this.requireJourney(journeyId, userId)
+      : await this.batch1Persistence.getActiveJourneyForUser(userId);
     const allowed = new Set(['yes', 'partial', 'no']);
-    const normalized = Object.fromEntries(Object.entries(signals).map(([key, value]) => [key, allowed.has(String(value)) ? String(value) : 'partial']));
-    const item: RecoverySnapshot = { id: id('recovery'), userId, journeyId: journey?.id, summary: typeof summary === 'string' && summary.trim() ? summary.trim().slice(0, 500) : '今天记录了一次生活恢复情况。', signals: normalized, createdAt: now() };
+    const normalized = Object.fromEntries(
+      Object.entries(signals).map(([key, value]) => [key, allowed.has(String(value)) ? String(value) : 'partial']),
+    );
+    const item: RecoverySnapshot = {
+      id: id('recovery'),
+      userId,
+      journeyId: journey?.id,
+      summary:
+        typeof summary === 'string' && summary.trim() ? summary.trim().slice(0, 500) : '今天记录了一次生活恢复情况。',
+      signals: normalized,
+      createdAt: now(),
+    };
     this.recoverySnapshots.unshift(item);
-    if (journey) journey.updatedAt = now();
+    if (journey) {
+      await this.batch1Persistence.patchJourney(journey.id, {}, undefined, journey.userId);
+    }
     await this.persistAndFlush();
     return { item };
   }
 
-  async createDecision(input: { journeyId?: string; question?: unknown; options?: unknown; criteria?: unknown }) {
-    const userId = this.getDemoUserId();
-    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
-    const values = (value: unknown) => Array.isArray(value) ? value.map(String).map((part) => part.trim()).filter(Boolean).slice(0, 10) : [];
-    const item: DecisionRecord = { id: id('decision'), userId, journeyId: journey?.id, question: this.text(input.question, '决策问题', 400), options: values(input.options), criteria: values(input.criteria), status: 'draft', createdAt: now(), updatedAt: now() };
-    this.decisionRecords.unshift(item); await this.persistAndFlush(); return { item };
+  async createDecision(
+    input: {
+      journeyId?: string;
+      question?: unknown;
+      options?: unknown;
+      criteria?: unknown;
+      subject?: string;
+      supersedesId?: string;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      const item = await this.selfPersistence.createDecision({
+        userId,
+        journeyId: input.journeyId,
+        question: input.question,
+        options: input.options,
+        criteria: input.criteria,
+        subject: input.subject,
+        supersedesId: input.supersedesId,
+      });
+      return { item };
+    }
+    const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
+    const values = (value: unknown) =>
+      Array.isArray(value)
+        ? value
+            .map(String)
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .slice(0, 10)
+        : [];
+    const item: DecisionRecord = {
+      id: id('decision'),
+      userId,
+      journeyId: journey?.id,
+      question: this.text(input.question, '决策问题', 400),
+      options: values(input.options),
+      criteria: values(input.criteria),
+      status: 'draft',
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    this.decisionRecords.unshift(item);
+    await this.persistAndFlush();
+    return { item };
   }
 
-  async updateDecision(decisionId: string, input: { decision?: unknown; status?: unknown }) {
-    const item = this.decisionRecords.find((record) => record.id === decisionId && record.userId === this.getDemoUserId());
+  async updateDecision(
+    decisionId: string,
+    input: {
+      question?: unknown;
+      options?: unknown;
+      criteria?: unknown;
+      decision?: unknown;
+      outcome?: unknown;
+      status?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      const item = await this.selfPersistence.updateDecision(decisionId, userId, input);
+      return { item };
+    }
+    const item = this.decisionRecords.find(
+      (record) => record.id === decisionId && record.userId === userId,
+    );
     if (!item) throw new NotFoundException('决策记录不存在');
+    const values = (value: unknown) =>
+      Array.isArray(value)
+        ? value
+            .map(String)
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .slice(0, 10)
+        : undefined;
+    if (['draft', 'cooling', 'ready'].includes(item.status)) {
+      if (typeof input.question === 'string') item.question = this.text(input.question, item.question, 400);
+      const options = values(input.options);
+      const criteria = values(input.criteria);
+      if (options) item.options = options;
+      if (criteria) item.criteria = criteria;
+    }
     if (typeof input.decision === 'string') item.decision = input.decision.trim().slice(0, 400) || undefined;
-    if (typeof input.status === 'string' && ['draft', 'decided', 'archived'].includes(input.status)) item.status = input.status;
+    if (typeof input.outcome === 'string') item.outcome = input.outcome.trim().slice(0, 800) || undefined;
+    if (typeof input.status === 'string' && input.status !== item.status) {
+      const requested = input.status;
+      if (requested === 'ready' && item.status === 'cooling') {
+        if (!item.cooldownUntil || Date.parse(item.cooldownUntil) > Date.now())
+          throw new BadRequestException('冷静时间还没有结束');
+        item.status = 'ready';
+        item.reviewedAt = now();
+      } else if (requested === 'decided' && item.status === 'ready') {
+        if (!item.decision) throw new BadRequestException('请先写下你自己作出的决定');
+        item.status = 'decided';
+        item.reviewedAt = now();
+      } else if (requested === 'archived' && item.status === 'decided') {
+        item.status = 'archived';
+      } else {
+        throw new BadRequestException(`不能从 ${item.status} 变更为 ${requested}`);
+      }
+    }
     item.updatedAt = now();
     await this.persistAndFlush();
     return { item };
   }
 
-  decisionList() {
-    const userId = this.getDemoUserId();
-    return this.decisionRecords.filter((item) => item.userId === userId).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  async decisionList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.DecisionRecord) {
+      return await this.selfPersistence.listDecisions(userId);
+    }
+    let changed = false;
+    for (const item of this.decisionRecords.filter((record) => record.userId === userId)) {
+      if (item.status === 'cooling' && item.cooldownUntil && Date.parse(item.cooldownUntil) <= Date.now()) {
+        item.status = 'ready';
+        item.reviewedAt = now();
+        item.updatedAt = now();
+        changed = true;
+      }
+    }
+    if (changed) await this.persistAndFlush();
+    return this.decisionRecords
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
-  async createCooldown(input: { decisionId?: string; title?: unknown; reason?: unknown; hours?: number }) {
-    const userId = this.getDemoUserId();
-    if (input.decisionId && !this.decisionRecords.some((item) => item.id === input.decisionId && item.userId === userId)) throw new NotFoundException('决策记录不存在');
+  async createCooldown(
+    input: { decisionId?: string; title?: unknown; reason?: unknown; hours?: number },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      const { item, followUp } = await this.selfPersistence.createCooldown({
+        userId,
+        decisionId: input.decisionId,
+        title: input.title,
+        reason: input.reason,
+        hours: input.hours,
+      });
+      const queue = await scheduleFollowUp(followUp);
+      return { item, followUp, queue };
+    }
+    const decision = input.decisionId
+      ? this.decisionRecords.find((item) => item.id === input.decisionId && item.userId === userId)
+      : undefined;
+    if (input.decisionId && !decision) throw new NotFoundException('决策记录不存在');
+    if (decision && !['draft', 'cooling'].includes(decision.status))
+      throw new BadRequestException('这个决定已经结束冷静期');
     const hours = Math.max(1, Math.min(168, Number(input.hours ?? 24)));
-    const item: CooldownItem = { id: id('cooldown'), userId, decisionId: input.decisionId, title: this.text(input.title, '冷静事项', 120), reason: typeof input.reason === 'string' ? input.reason.trim().slice(0, 400) : undefined, releaseAt: new Date(Date.now() + hours * 3_600_000).toISOString(), status: 'active', createdAt: now() };
-    const followUp: FollowUpJob = { id: id('follow_up'), userId, kind: 'DECISION_COOLDOWN', dueAt: item.releaseAt, status: 'pending', payload: { cooldownId: item.id }, createdAt: now() };
-    this.cooldownItems.unshift(item); this.followUpJobs.unshift(followUp); await this.persistAndFlush();
+    const item: CooldownItem = {
+      id: id('cooldown'),
+      userId,
+      decisionId: input.decisionId,
+      title: this.text(input.title, '冷静事项', 120),
+      reason: typeof input.reason === 'string' ? input.reason.trim().slice(0, 400) : undefined,
+      releaseAt: new Date(Date.now() + hours * 3_600_000).toISOString(),
+      status: 'active',
+      createdAt: now(),
+    };
+    if (decision) {
+      decision.status = 'cooling';
+      decision.cooldownUntil = item.releaseAt;
+      decision.updatedAt = now();
+    }
+    const followUp: FollowUpJob = {
+      id: id('follow_up'),
+      userId,
+      kind: 'DECISION_COOLDOWN',
+      dueAt: item.releaseAt,
+      status: 'pending',
+      payload: { cooldownId: item.id, decisionId: decision?.id },
+      createdAt: now(),
+    };
+    this.cooldownItems.unshift(item);
+    this.followUpJobs.unshift(followUp);
+    await this.persistAndFlush();
     const queue = await scheduleFollowUp(followUp);
     return { item, followUp, queue };
   }
 
-  cooldownList() {
-    const userId = this.getDemoUserId();
-    return this.cooldownItems.filter((item) => item.userId === userId).map((item) => ({ ...item, status: Date.parse(item.releaseAt) <= Date.now() ? 'released' : item.status }));
+  async cooldownList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.CooldownItem) {
+      return await this.selfPersistence.listCooldowns(userId);
+    }
+    return this.cooldownItems
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item, status: Date.parse(item.releaseAt) <= Date.now() ? 'released' : item.status }));
   }
 
-  async createRealityHandoff(input: { journeyId?: string; recipient?: unknown; channel?: unknown; summary?: unknown }) {
-    const userId = this.getDemoUserId();
-    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
-    const item: RealityHandoff = { id: id('handoff'), userId, journeyId: journey?.id, recipient: this.text(input.recipient, '交接对象', 80), channel: this.text(input.channel, '联系渠道', 40), summary: this.text(input.summary, '交接摘要', 1000), status: 'ready', createdAt: now(), updatedAt: now() };
-    this.realityHandoffs.unshift(item); await this.persistAndFlush(); return { item };
+  async createRealityHandoff(
+    input: { journeyId?: string; recipient?: unknown; channel?: unknown; summary?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.createRealityHandoff({
+        userId,
+        journeyId: input.journeyId,
+        recipient: this.text(input.recipient, '交接对象', 80),
+        channel: this.text(input.channel, '联系渠道', 40),
+        summary: this.text(input.summary, '交接摘要', 1000),
+      });
+      return { item };
+    }
+    const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
+    const item: RealityHandoff = {
+      id: id('handoff'),
+      userId,
+      journeyId: journey?.id,
+      recipient: this.text(input.recipient, '交接对象', 80),
+      channel: this.text(input.channel, '联系渠道', 40),
+      summary: this.text(input.summary, '交接摘要', 1000),
+      status: 'ready',
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    this.realityHandoffs.unshift(item);
+    await this.persistAndFlush();
+    return { item };
   }
 
-  async shareRealityHandoff(idValue: string) {
-    const item = this.realityHandoffs.find((handoff) => handoff.id === idValue && handoff.userId === this.getDemoUserId());
+  async shareRealityHandoff(idValue: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.shareRealityHandoff(idValue, userId);
+      return { item };
+    }
+    const item = this.realityHandoffs.find((handoff) => handoff.id === idValue && handoff.userId === userId);
     if (!item) throw new NotFoundException('现实交接不存在');
-    item.status = 'shared'; item.sharedAt = now(); item.updatedAt = now(); await this.persistAndFlush(); return { item };
+    item.status = 'shared';
+    item.sharedAt = now();
+    item.updatedAt = now();
+    await this.persistAndFlush();
+    return { item };
   }
 
-  handoffList() {
-    const userId = this.getDemoUserId();
+  /**
+   * Lists one user's reality-handoff cards. The caller must be passed in: the list is the
+   * most sensitive text in the product (a person saying they are not coping), and it was
+   * previously returned for the demo user to every caller (product audit ISSUE-019).
+   */
+  async handoffList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      return await this.selfPersistence.listRealityHandoffs(userId);
+    }
     return this.realityHandoffs.filter((item) => item.userId === userId);
   }
 
-  async saveTrustedContact(input: { nickname?: unknown; relation?: unknown; contactHint?: unknown }) {
-    const item: TrustedContact = { id: id('contact'), userId: this.getDemoUserId(), nickname: this.text(input.nickname, '联系人称呼', 60), relation: this.text(input.relation, '关系', 40), contactHint: this.text(input.contactHint, '联系方式提示', 120), enabled: true, createdAt: now(), updatedAt: now() };
-    this.trustedContacts.unshift(item); await this.persistAndFlush(); return { item };
+  async saveTrustedContact(
+    input: { nickname?: unknown; relation?: unknown; contactHint?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      const item = await this.selfPersistence.createTrustedContact({
+        userId,
+        nickname: this.text(input.nickname, '联系人称呼', 60),
+        relation: this.text(input.relation, '关系', 40),
+        contactHint: this.text(input.contactHint, '联系方式提示', 120),
+      });
+      return { item };
+    }
+    const item: TrustedContact = {
+      id: id('contact'),
+      userId,
+      nickname: this.text(input.nickname, '联系人称呼', 60),
+      relation: this.text(input.relation, '关系', 40),
+      contactHint: this.text(input.contactHint, '联系方式提示', 120),
+      enabled: true,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    this.trustedContacts.unshift(item);
+    await this.persistAndFlush();
+    return { item };
   }
 
-  trustedContactList() {
-    return this.trustedContacts.filter((item) => item.userId === this.getDemoUserId() && item.enabled);
+  async trustedContactList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      return await this.selfPersistence.listTrustedContacts(userId);
+    }
+    return this.trustedContacts.filter((item) => item.userId === userId && item.enabled);
   }
 
-  async saveFutureMessage(input: { journeyId?: string; content?: unknown; deliverAt?: unknown }) {
-    const userId = this.getDemoUserId();
-    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
+  async saveFutureMessage(
+    input: {
+      journeyId?: string;
+      contextType?: unknown;
+      contextRefId?: unknown;
+      content?: unknown;
+      deliverAt?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    const legacyJourneyId =
+      typeof input.journeyId === 'string' && input.journeyId.trim() ? input.journeyId.trim() : undefined;
+    const selectedContextType =
+      input.contextType == null || input.contextType === ''
+        ? legacyJourneyId
+          ? 'journey'
+          : undefined
+        : this.text(input.contextType, '关联类型', 30);
+    if (selectedContextType && !['journey', 'decision', 'recovery'].includes(selectedContextType)) {
+      throw new BadRequestException('关联类型无效');
+    }
+    if (legacyJourneyId && selectedContextType && selectedContextType !== 'journey') {
+      throw new BadRequestException('一封未来信只能关联一种上下文');
+    }
+    const contextRefId = selectedContextType
+      ? this.text(input.contextRefId ?? legacyJourneyId, '关联记录', 120)
+      : undefined;
+    let journey: LifeJourneyRecord | undefined;
+    let contextLabel: string | undefined;
+    if (selectedContextType === 'journey') {
+      journey = await this.requireJourney(contextRefId!, userId);
+      contextLabel = `旅程：${journey.title}`;
+    }
+    if (selectedContextType === 'decision') {
+      const decision = DIRECT_DB_MODELS.DecisionRecord
+        ? await this.selfPersistence.getDecision(contextRefId!, userId)
+        : this.decisionRecords.find(
+            (candidate) => candidate.id === contextRefId && candidate.userId === userId,
+          );
+      if (!decision) throw new NotFoundException('关联的决定不存在');
+      contextLabel = `决定：${decision.question}`;
+    }
+    if (selectedContextType === 'recovery') {
+      const recovery = DIRECT_DB_MODELS.RecoverySnapshot
+        ? await this.selfPersistence.getRecoverySnapshot(contextRefId!, userId)
+        : this.recoverySnapshots.find(
+            (candidate) => candidate.id === contextRefId && candidate.userId === userId,
+          );
+      if (!recovery) throw new NotFoundException('关联的恢复记录不存在');
+      contextLabel = `恢复：${recovery.summary}`;
+    }
     const deliverAt = this.optionalDate(input.deliverAt, '送达时间');
     if (!deliverAt || Date.parse(deliverAt) <= Date.now()) throw new BadRequestException('送达时间必须晚于现在');
-    const item: MessageToFutureSelf = { id: id('future_message'), userId, journeyId: journey?.id, content: this.text(input.content, '写给未来自己的话', 1200), deliverAt, createdAt: now() };
-    const followUp: FollowUpJob = { id: id('follow_up'), userId, journeyId: journey?.id, kind: 'FUTURE_SELF', dueAt: deliverAt, status: 'pending', payload: { messageId: item.id }, createdAt: now() };
-    this.messagesToFutureSelf.unshift(item); this.followUpJobs.unshift(followUp); await this.persistAndFlush();
+    if (DIRECT_DB_MODELS.MessageToFutureSelf) {
+      // One transaction writes the letter and its follow-up job together, validating the context
+      // reference inside it. Enqueueing happens after the commit; a failed enqueue leaves a durable
+      // pending job that the reconciler picks up.
+      const { item, followUp } = await this.selfPersistence.createFutureMessage({
+        userId,
+        journeyId: journey?.id,
+        contextType: selectedContextType,
+        contextRefId,
+        contextLabel,
+        content: this.text(input.content, '写给未来自己的话', 1200),
+        deliverAt: new Date(deliverAt),
+      });
+      const queue = await scheduleFollowUp({
+        id: followUp.id,
+        userId: followUp.userId,
+        journeyId: followUp.journeyId ?? undefined,
+        kind: followUp.kind,
+        dueAt: new Date(followUp.dueAt).toISOString(),
+        payload: followUp.payload as Record<string, unknown>,
+      });
+      return { item, followUp, queue };
+    }
+    const item: MessageToFutureSelf = {
+      id: id('future_message'),
+      userId,
+      journeyId: journey?.id,
+      contextType: selectedContextType as MessageToFutureSelf['contextType'],
+      contextRefId,
+      contextLabel,
+      content: this.text(input.content, '写给未来自己的话', 1200),
+      deliverAt,
+      createdAt: now(),
+    };
+    const followUp: FollowUpJob = {
+      id: id('follow_up'),
+      userId,
+      journeyId: journey?.id,
+      kind: 'FUTURE_SELF',
+      dueAt: deliverAt,
+      status: 'pending',
+      payload: { messageId: item.id },
+      createdAt: now(),
+    };
+    this.data.messagesToFutureSelf.unshift(item);
+    this.followUpJobs.unshift(followUp);
+    await this.persistAndFlush();
     const queue = await scheduleFollowUp(followUp);
     return { item, followUp, queue };
   }
 
-  futureMessageList() {
-    return this.messagesToFutureSelf
-      .filter((item) => item.userId === this.getDemoUserId())
+  async futureMessageList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MessageToFutureSelf) {
+      return await this.selfPersistence.listFutureMessages(userId);
+    }
+    return this.data.messagesToFutureSelf
+      .filter((item) => item.userId === userId)
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   }
 
-  async saveSupportPlan(input: { journeyId?: string; title?: unknown; plan?: Record<string, unknown> }) {
-    const userId = this.getDemoUserId();
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存支持计划');
-    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
-    const item: PersonalSupportPlan = { id: id('support_plan'), userId, journeyId: journey?.id, title: this.text(input.title ?? '我的现实支持计划', '支持计划标题', 100), plan: input.plan ?? {}, active: true, createdAt: now(), updatedAt: now() };
-    this.personalSupportPlans.unshift(item); await this.persistAndFlush(); return { item };
+  async saveSupportPlan(
+    input: { journeyId?: string | null; title?: unknown; plan?: Record<string, unknown> },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      const title = input.title !== undefined ? this.text(input.title, '支持计划标题', 100) : undefined;
+      const item = await this.selfPersistence.saveSupportPlan({
+        userId,
+        journeyId: input.journeyId,
+        title,
+        plan: input.plan,
+      });
+      return { item };
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存支持计划');
+    const journey = input.journeyId
+      ? await this.requireJourney(input.journeyId, userId)
+      : await this.batch1Persistence.getActiveJourneyForUser(userId);
+    const existing = this.personalSupportPlans.find((candidate) => candidate.userId === userId && candidate.active);
+    const updatedAt = now();
+    if (existing) {
+      existing.journeyId = journey?.id ?? existing.journeyId;
+      existing.title = this.text(input.title ?? existing.title, '支持计划标题', 100);
+      existing.plan = input.plan ?? existing.plan;
+      existing.updatedAt = updatedAt;
+      await this.persistAndFlush();
+      return { item: existing };
+    }
+    const item: PersonalSupportPlan = {
+      id: id('support_plan'),
+      userId,
+      journeyId: journey?.id,
+      title: this.text(input.title ?? '我的低谷预案', '支持计划标题', 100),
+      plan: input.plan ?? {},
+      active: true,
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    this.personalSupportPlans.unshift(item);
+    await this.persistAndFlush();
+    return { item };
   }
 
-  supportPlan() {
-    const userId = this.getDemoUserId();
+  async supportPlan(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      return await this.selfPersistence.getSupportPlan(userId);
+    }
     return this.personalSupportPlans.find((item) => item.userId === userId && item.active) ?? null;
   }
 
-  recoveryList() {
-    const userId = this.getDemoUserId();
-    this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
+  async stableSelfProfile(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      return await this.selfPersistence.getStableSelfProfile(userId);
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
+    return this.stableSelfProfiles.find((item) => item.userId === userId) ?? null;
+  }
+
+  async saveStableSelfProfile(input: { profile?: Record<string, unknown> }, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      const source = input.profile ?? {};
+      const textValue = (key: string, limit = 500) =>
+        typeof source[key] === 'string' ? String(source[key]).trim().slice(0, limit) : '';
+      const listValue = (key: string) =>
+        Array.isArray(source[key])
+          ? (source[key] as unknown[])
+              .map(String)
+              .map((value) => value.trim())
+              .filter(Boolean)
+              .slice(0, 12)
+              .map((value) => value.slice(0, 80))
+          : [];
+      const profile = {
+        stableDescription: textValue('stableDescription'),
+        sleepPattern: textValue('sleepPattern', 300),
+        eatingPattern: textValue('eatingPattern', 300),
+        focusPattern: textValue('focusPattern', 300),
+        bodyState: textValue('bodyState', 300),
+        contactPeople: listValue('contactPeople'),
+        usualLikes: listValue('usualLikes'),
+        recoverySigns: listValue('recoverySigns'),
+        stabilityAnchors: listValue('stabilityAnchors'),
+        realityReminder: textValue('realityReminder'),
+      };
+      const item = await this.selfPersistence.saveStableSelfProfile({
+        userId,
+        profile,
+      });
+      return { item };
+    }
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许保存稳定状态资料');
+    const source = input.profile ?? {};
+    const textValue = (key: string, limit = 500) =>
+      typeof source[key] === 'string' ? String(source[key]).trim().slice(0, limit) : '';
+    const listValue = (key: string) =>
+      Array.isArray(source[key])
+        ? (source[key] as unknown[])
+            .map(String)
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .slice(0, 12)
+            .map((value) => value.slice(0, 80))
+        : [];
+    const profile = {
+      stableDescription: textValue('stableDescription'),
+      sleepPattern: textValue('sleepPattern', 300),
+      eatingPattern: textValue('eatingPattern', 300),
+      focusPattern: textValue('focusPattern', 300),
+      bodyState: textValue('bodyState', 300),
+      contactPeople: listValue('contactPeople'),
+      usualLikes: listValue('usualLikes'),
+      recoverySigns: listValue('recoverySigns'),
+      stabilityAnchors: listValue('stabilityAnchors'),
+      realityReminder: textValue('realityReminder'),
+    };
+    if (!Object.values(profile).some((value) => (Array.isArray(value) ? value.length : value))) {
+      throw new BadRequestException('请至少写下一条属于你的稳定状态信息');
+    }
+    const existing = this.stableSelfProfiles.find((item) => item.userId === userId);
+    const updatedAt = now();
+    if (existing) {
+      existing.profile = profile;
+      existing.updatedAt = updatedAt;
+      await this.persistAndFlush();
+      return { item: existing };
+    }
+    const item: StableSelfProfile = { id: id('stable_self'), userId, profile, createdAt: updatedAt, updatedAt };
+    this.stableSelfProfiles.unshift(item);
+    await this.persistAndFlush();
+    return { item };
+  }
+
+  async recoveryList(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    await this.privacyAllows(userId, 'allowRecoveryData', '请先在隐私设置中允许查看恢复记录');
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      return await this.selfPersistence.listRecoverySnapshots(userId);
+    }
     return this.recoverySnapshots.filter((item) => item.userId === userId);
   }
 
-  async saveMemory(input: { journeyId?: string; category?: unknown; content?: unknown; days?: number }) {
-    const userId = this.getDemoUserId();
-    this.privacyAllows(userId, 'allowLongTermMemory', '请先在隐私设置中允许保存有限记忆');
-    const days = Math.max(1, Math.min(90, Number(input.days ?? 30)));
-    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
-    const item: MemoryItem = { id: id('memory'), userId, journeyId: journey?.id, category: this.text(input.category, '记忆分类', 50), content: this.text(input.content, '记忆内容', 500), consentedAt: now(), expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(), createdAt: now() };
-    this.memoryItems.unshift(item); await this.persistAndFlush(); return { item };
+  async memoryList(includeInactive = true, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) return await this.selfPersistence.listMemories(userId, includeInactive);
+    return this.memoryItems
+      .filter((item) => item.userId === userId && !item.deletedAt)
+      .filter((item) => includeInactive || (item.status === 'active' && Date.parse(item.expiresAt) > Date.now()))
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   }
 
-  async deleteMemory(idValue: string) {
-    const item = this.memoryItems.find((memory) => memory.id === idValue && memory.userId === this.getDemoUserId());
+  async saveMemory(
+    input: {
+      journeyId?: string;
+      category?: unknown;
+      title?: unknown;
+      content?: unknown;
+      days?: number;
+      source?: unknown;
+      scope?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    await this.privacyAllows(userId, 'allowLongTermMemory', '请先在隐私设置中允许保存有限记忆');
+    const days = Math.max(1, Math.min(3650, Number(input.days ?? 90)));
+    const journey = input.journeyId
+      ? await this.requireJourney(input.journeyId, userId)
+      : await this.batch1Persistence.getActiveJourneyForUser(userId);
+    const source = ['user_saved', 'journey_summary', 'recovery_confirmed', 'support_plan'].includes(
+      String(input.source),
+    )
+      ? String(input.source)
+      : 'user_saved';
+    const scope = ['all_ai', 'journey', 'recovery', 'support'].includes(String(input.scope))
+      ? String(input.scope)
+      : 'all_ai';
+    const createdAt = now();
+    const item: MemoryItem = {
+      id: id('memory'),
+      userId,
+      journeyId: journey?.id,
+      category:
+        typeof input.category === 'string' && input.category.trim()
+          ? input.category.trim().slice(0, 50)
+          : '用户主动保存',
+      title: this.text(input.title ?? input.category ?? '我希望系统记住', '记忆标题', 100),
+      content: this.text(input.content, '记忆内容', 500),
+      source,
+      scope,
+      status: 'active',
+      consentedAt: createdAt,
+      expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+      createdAt,
+      updatedAt: createdAt,
+    };
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      const created = await this.selfPersistence.createMemory({
+        userId,
+        journeyId: journey?.id ?? null,
+        category: item.category,
+        title: item.title,
+        content: item.content,
+        source: item.source,
+        scope: item.scope,
+        days,
+      });
+      return { item: created as unknown as MemoryItem };
+    }
+    this.memoryItems.unshift(item);
+    await this.persistAndFlush();
+    return { item };
+  }
+
+  async updateMemory(
+    idValue: string,
+    input: { title?: unknown; content?: unknown; days?: number; scope?: unknown; status?: unknown },
+    requestedUserId?: string,
+  ) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // 'disabled' / 'expired' / 'active' are the user's own switches, and each maps to a distinct
+      // service operation. 'active' on an effectively expired row is the explicit re-consent action
+      // — the only path back — which writes a fresh consentedAt and a future expiresAt.
+      const days = input.days === undefined ? 90 : Math.max(1, Math.min(3650, Number(input.days)));
+      if (input.status === 'disabled') {
+        return { item: (await this.selfPersistence.disableMemory(idValue, userId)) as unknown as MemoryItem };
+      }
+      if (input.status === 'expired') {
+        return { item: (await this.selfPersistence.expireMemory(idValue, userId)) as unknown as MemoryItem };
+      }
+      if (input.status === 'active') {
+        // The user's own switch: re-enable in place while the memory still has time on it. A row
+        // whose date has passed refuses here and must go through the re-consent route instead.
+        return { item: (await this.selfPersistence.enableMemory(idValue, userId)) as unknown as MemoryItem };
+      }
+      const updated = await this.selfPersistence.updateMemory(idValue, userId, {
+        title: input.title === undefined ? undefined : this.text(input.title, '记忆标题', 100),
+        content: input.content === undefined ? undefined : this.text(input.content, '记忆内容', 500),
+        days: input.days === undefined ? undefined : days,
+        scope: input.scope === undefined ? undefined : String(input.scope),
+      });
+      return { item: updated as unknown as MemoryItem };
+    }
+    const item = this.memoryItems.find(
+      (memory) => memory.id === idValue && memory.userId === userId && !memory.deletedAt,
+    );
     if (!item) throw new NotFoundException('记忆不存在');
-    item.deletedAt = now(); await this.persistAndFlush(); return { ok: true, item };
+    if (input.title !== undefined) item.title = this.text(input.title, '记忆标题', 100);
+    if (input.content !== undefined) item.content = this.text(input.content, '记忆内容', 500);
+    if (input.scope !== undefined) {
+      if (!['all_ai', 'journey', 'recovery', 'support'].includes(String(input.scope)))
+        throw new BadRequestException('记忆使用范围无效');
+      item.scope = String(input.scope);
+    }
+    if (input.days !== undefined) {
+      const days = Math.max(1, Math.min(3650, Number(input.days)));
+      item.expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
+      // Extending the retention window must not silently re-activate a memory the user
+      // switched off. Only a memory that was already active stays active; a disabled one
+      // keeps its status unless the caller also sends an explicit status (ISSUE-022).
+      if (item.status !== 'disabled') item.status = 'active';
+    }
+    if (input.status !== undefined) {
+      if (!['active', 'disabled', 'expired'].includes(String(input.status)))
+        throw new BadRequestException('记忆状态无效');
+      item.status = String(input.status) as MemoryItem['status'];
+      if (item.status === 'expired') item.expiresAt = now();
+    }
+    item.updatedAt = now();
+    await this.persistAndFlush();
+    return { item };
   }
 
-  async updateJourneyStatus(journeyId: string, status: 'active' | 'paused' | 'archived') {
-    const journey = this.requireJourney(journeyId);
-    journey.status = status; journey.updatedAt = now(); await this.persistAndFlush(); return { journey };
+  /**
+   * The explicit re-consent action, exposed as its own route. It is the only path from an
+   * effectively expired memory back to usable, and it writes a fresh consent timestamp.
+   */
+  async reactivateMemory(idValue: string, days?: unknown, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (!DIRECT_DB_MODELS.MemoryItem) throw new BadRequestException('记忆重新确认仅在数据库权威模式下可用');
+    const retention = Math.max(1, Math.min(3650, Number(days ?? 90)));
+    const item = await this.selfPersistence.reactivateMemory(idValue, userId, retention);
+    return { item: item as unknown as MemoryItem };
   }
 
-  async publicPosts(emotion?: string) {
+  async deleteMemory(idValue: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // Deletion is terminal: the service writes status='deleted' plus deletedAt, and no path may
+      // move a row back out of 'deleted'.
+      const deleted = await this.selfPersistence.deleteMemory(idValue, userId);
+      return { ok: true, item: deleted as unknown as MemoryItem };
+    }
+    const item = this.memoryItems.find((memory) => memory.id === idValue && memory.userId === userId);
+    if (!item) throw new NotFoundException('记忆不存在');
+    item.deletedAt = now();
+    item.status = 'expired';
+    item.updatedAt = now();
+    await this.persistAndFlush();
+    return { ok: true, item };
+  }
+
+  private async activeMemoriesForTask(userId: string, taskType: string, contentType: string) {
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // One owner-scoped query carrying all four predicates, on the database clock, plus the scope
+      // allowlist. It fails closed: no consent, no rows.
+      return (await this.selfPersistence.listAiEligibleMemories(userId, taskType, contentType)) as unknown as MemoryItem[];
+    }
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? this.selfPersistence.getCachedPrivacySettings(userId)
+      : this.privacySettings[userId];
+    if (privacy?.allowAiMemoryUse !== true) return [];
+    const normalizedContentType = contentType.toLowerCase();
+    const scopeAllowed = (scope: string) =>
+      scope === 'all_ai' ||
+      (scope === 'journey' && normalizedContentType.includes('journey')) ||
+      (scope === 'recovery' && taskType === 'recovery_summary') ||
+      (scope === 'support' && ['support_plan', 'risk_analysis', 'barrier_analysis'].includes(taskType));
+    return this.memoryItems
+      .filter((item) => item.userId === userId && !item.deletedAt && item.status === 'active')
+      .filter((item) => Date.parse(item.expiresAt) > Date.now() && scopeAllowed(item.scope))
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .slice(0, 8);
+  }
+
+  async updateJourneyStatus(journeyId: string, status: 'active' | 'paused' | 'archived', requestedUserId?: string) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    if (status === 'archived')
+      await this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
+    const updated = await this.batch1Persistence.updateJourneyStatus(journeyId, status, journey.userId);
+    return { journey: updated };
+  }
+
+  async patchJourney(
+    journeyId: string,
+    body: {
+      status?: 'active' | 'paused' | 'archived';
+      title?: string;
+      summary?: string;
+      expectedUpdatedAt?: string;
+    },
+    requestedUserId?: string,
+  ) {
+    const journey = await this.requireJourney(journeyId, requestedUserId);
+    if (body.status === 'archived') {
+      await this.privacyAllows(journey.userId, 'allowJourneyArchiveRetention', '请先在隐私设置中允许保留旅程归档');
+    }
+    const item = await this.batch1Persistence.patchJourney(journeyId, body, body.expectedUpdatedAt, journey.userId);
+    return item;
+  }
+
+  async publicPosts(emotion?: string, sort?: 'latest' | 'hot') {
     const normalized = normalizeStoreEmotion(emotion);
     const normalizedValue = String(normalized);
+    // The feed is readable without an identity. Only a request that carries one has hides to apply;
+    // a request without one hides nothing, instead of reusing the demo account's hide list.
+    const viewer = this.viewerUserId();
     const hiddenPostIds = new Set(
-      (await this.prisma.hiddenPost.findMany({
-        where: { userId: this.getDemoUserId() },
-        select: { postId: true },
-      })).map((item) => item.postId),
+      viewer
+        ? (
+            await this.prisma.hiddenPost.findMany({
+              where: { userId: viewer },
+              select: { postId: true },
+            })
+          ).map((item) => item.postId)
+        : [],
     );
-    this.posts.forEach((post) => this.decoratePost(post));
-    return this.posts.filter((post) => !hiddenPostIds.has(post.id) && post.status === 'active' && post.reviewStatus === 'published' && (!emotion || normalizedValue === '全部' || post.emotion === normalized));
+    if (DIRECT_DB_MODELS.Post) {
+      // '全部' is the "no filter" token the UI sends, not an emotion; filtering by it would return
+      // the empty feed the client showed before this branch read the table.
+      const wantsEmotion = Boolean(emotion) && normalizedValue !== '全部';
+      const published = await this.postsDb.listPublished(
+        wantsEmotion || sort ? { ...(wantsEmotion ? { emotion: normalized } : {}), ...(sort ? { sort } : {}) } : undefined,
+      );
+      const favouriteIds = viewer ? await this.favoritesDb.postIdsForUser(viewer) : new Set<string>();
+      return published
+        .filter((post) => !hiddenPostIds.has(post.id))
+        .map((post) => ({
+          ...post,
+          publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+          allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+          favoritedByCurrentUser: favouriteIds.has(post.id),
+        }));
+    }
+    // One context for the whole feed: the viewer's favourites and the page's assets are the same
+    // lookup for every row, and reading them per row is what this seam exists to avoid.
+    const feedContext = await this.buildPostDecorationContext(this.posts);
+    this.posts.forEach((post) => this.decoratePost(post, feedContext));
+    return this.posts.filter(
+      (post) =>
+        !hiddenPostIds.has(post.id) &&
+        post.status === 'active' &&
+        post.reviewStatus === 'published' &&
+        (!emotion || normalizedValue === '全部' || post.emotion === normalized),
+    );
+  }
+
+  async myPublicPosts(requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.Post) {
+      const posts = await this.postsDb.listUserPublicPosts(userId);
+      const favouriteIds = await this.favoritesDb.postIdsForUser(userId);
+      return posts.map((post) => ({
+        ...post,
+        publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+        allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+        favoritedByCurrentUser: favouriteIds.has(post.id),
+      }));
+    }
+    const feedContext = await this.buildPostDecorationContext(this.posts);
+    this.posts.forEach((post) => this.decoratePost(post, feedContext));
+    return this.posts.filter(
+      (post) => post.userId === userId && post.status === 'active' && post.visibility === 'PUBLIC',
+    );
   }
 
   async hidePostForCurrentUser(postId: string) {
-    this.getPost(postId, true);
-    const userId = this.getDemoUserId();
+    await this.getPost(postId, true);
+    // Hiding is per-viewer state, so it needs a viewer. Without this the write landed on the demo
+    // account and the feed happened to read the same constant back, which made the feature look
+    // correct while no real user's choice was ever stored.
+    const userId = this.viewerUserId();
+    if (!userId) throw new UnauthorizedException('缺少用户身份凭证');
     const item = await this.prisma.hiddenPost.upsert({
       where: { userId_postId: { userId, postId } },
       create: { userId, postId },
@@ -2348,6 +8199,7 @@ export class StoreService implements OnModuleInit {
   }
 
   async likeReply(replyId: string) {
+    if (DIRECT_DB_MODELS.Reply) return await this.repliesDb.like(replyId);
     const reply = this.replies.find((item) => item.id === replyId && item.status === 'published');
     if (!reply) throw new NotFoundException('回应不存在');
     reply.likeCount = (reply.likeCount ?? 0) + 1;
@@ -2355,44 +8207,149 @@ export class StoreService implements OnModuleInit {
     return reply;
   }
 
-  getPost(idValue: string, includeUnpublished = false) {
-    const post = this.posts.find((item) => item.id === idValue && item.status === 'active' && (includeUnpublished || item.reviewStatus !== 'hidden'));
+  async getPost(idValue: string, includeUnpublished = false) {
+    if (DIRECT_DB_MODELS.Post) {
+      const post = await this.postsDb.get(idValue);
+      const hidden = !includeUnpublished && post?.reviewStatus === 'hidden';
+      if (!post || post.status !== 'active' || hidden) throw new NotFoundException('树洞不存在');
+      // A private post belongs to its author. The read used to check only `status` and `hidden`, so a
+      // private row would have been served to anyone holding its id. There are no private posts today
+      // (a private mood does not create one), which is why this never surfaced - but the gap is real
+      // and the fix belongs with the check rather than after the first leak.
+      const viewer = this.viewerUserId();
+      if (post.visibility !== 'PUBLIC' && post.userId !== viewer) throw new NotFoundException('树洞不存在');
+      const favouriteIds = viewer ? await this.favoritesDb.postIdsForUser(viewer) : new Set<string>();
+      const replyCounts = await this.postsDb.replyCountsForPosts([post.id]);
+      return {
+        ...post,
+        publishDate: (post.publishedAt ?? post.createdAt).toISOString(),
+        allowHumanReplies: post.visibility === 'PUBLIC' && post.reviewStatus === 'published',
+        favoritedByCurrentUser: favouriteIds.has(post.id),
+        replyCount: replyCounts.get(post.id) ?? post.replyCount,
+      };
+    }
+    const post = this.posts.find(
+      (item) =>
+        item.id === idValue && item.status === 'active' && (includeUnpublished || item.reviewStatus !== 'hidden'),
+    );
     if (!post) throw new NotFoundException('树洞不存在');
-    return this.decoratePost(post);
+    return this.decoratePost(post, await this.buildPostDecorationContext([post]));
   }
 
-  async createMood(input: { content: string; emotion: Emotion; visibility: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[]; journeyId?: string }) {
+  async createMood(input: {
+    content: string;
+    emotion: Emotion;
+    visibility: Visibility;
+    style?: AIStyle;
+    replyStyles?: AIStyle[];
+    assetIds?: string[];
+    journeyId?: string;
+  }) {
     if (!input.content?.trim()) throw new NotFoundException('内容不能为空');
-    const userId = this.getDemoUserId();
-    this.assertCanWrite();
+    // The mood belongs to the caller, resolved from the request identity rather than a fixed demo id.
+    // Measured before this change: a mood created by an anonymous session was stored under
+    // user_demo, so the creator could not see it in their own diary list while the demo account
+    // could. The save reported success and the record was lost to the person who wrote it.
+    const userId = this.requireViewerId();
+    this.assertCanWrite(userId);
     const emotion = normalizeStoreEmotion(input.emotion);
     const risk = this.detectRisk(input.content);
     const attachmentIds = Array.from(new Set(input.assetIds ?? []));
     if (attachmentIds.length > 2) throw new NotFoundException('最多添加 2 张图片');
-    const media = this.mediaByIds(attachmentIds);
-    if (media.length !== attachmentIds.length || media.some((asset) => asset.userId !== userId)) throw new NotFoundException('图片不存在、尚未上传完成或不属于当前用户');
-    const journey = input.journeyId ? this.requireJourney(input.journeyId, userId) : undefined;
-    const mood: Mood = { id: id('mood'), userId, emotion, content: input.content.trim(), visibility: input.visibility, riskLevel: risk.level, riskScore: risk.score, status: 'active', attachmentIds, journeyId: journey?.id, createdAt: now() };
-    this.moods.unshift(mood);
+    const media = await this.mediaByIds(attachmentIds);
+    if (media.length !== attachmentIds.length || media.some((asset) => asset.userId !== userId))
+      throw new NotFoundException('图片不存在、尚未上传完成或不属于当前用户');
+    const journey = input.journeyId ? await this.requireJourney(input.journeyId, userId) : undefined;
+    const mood: Mood = {
+      id: id('mood'),
+      userId,
+      emotion,
+      content: input.content.trim(),
+      visibility: input.visibility,
+      riskLevel: risk.level,
+      riskScore: risk.score,
+      status: 'active',
+      attachmentIds,
+      journeyId: journey?.id,
+      createdAt: now(),
+    };
+    if (DIRECT_DB_MODELS.Mood) {
+      // The mood is written to the table now that the arrays are gone. `pendingMoodContent` /
+      // `pendingSourceContent` hand the same content to the AI call this request makes next, without
+      // turning `queueAI` asynchronous.
+      await this.moodsDb.create({
+        id: mood.id,
+        userId,
+        emotion,
+        content: mood.content,
+        visibility: input.visibility,
+        riskLevel: risk.level,
+        riskScore: risk.score,
+        attachmentIds,
+        journeyId: journey?.id ?? null,
+        createdAt: new Date(mood.createdAt),
+      });
+      this.pendingMoodContent = mood.content;
+      this.pendingSourceContent = { ...(this.pendingSourceContent ?? {}), [mood.id]: mood.content };
+    } else {
+      this.moods.unshift(mood);
+    }
     if (input.visibility === 'PUBLIC') {
-      const post: PostItem = { id: id('post'), moodId: mood.id, userId, emotion, content: mood.content, visibility: 'PUBLIC', status: 'active', reviewStatus: 'pending_review', hugCount: 0, replyCount: 0, favoriteCount: 0, reportCount: 0, journeyId: journey?.id, attachmentIds, attachments: media, createdAt: now() };
-      this.posts.unshift(post);
-      const requestedStyles = Array.isArray(input.replyStyles)
-        ? input.replyStyles.filter(isSupportedAiReplyStyle)
-        : [];
+      const post: PostItem = {
+        id: id('post'),
+        moodId: mood.id,
+        userId,
+        emotion,
+        content: mood.content,
+        visibility: 'PUBLIC',
+        status: 'active',
+        // Every public post goes to manual review. This is a deliberate product contract
+        // asserted by tests/api and the business suites, and `manualReviewThreshold` must
+        // NOT be wired here: making low-risk content publish directly would weaken
+        // moderation to give a stored setting something to do. The setting is therefore
+        // classified as not-implemented and is read-only in the console (ISSUE-003).
+        reviewStatus: 'pending_review',
+        hugCount: 0,
+        replyCount: 0,
+        favoriteCount: 0,
+        reportCount: 0,
+        journeyId: journey?.id,
+        attachmentIds,
+        attachments: media,
+        createdAt: now(),
+      };
+      if (DIRECT_DB_MODELS.Post) {
+        // Post is database-authoritative now: the row is written here and the in-memory copy is not
+        // kept. The mood is still flush-owned, so one flush carries the mood before the post's FK.
+        this.persist();
+        await this.flush();
+        await this.postsDb.create({
+          id: post.id,
+          moodId: mood.id,
+          userId,
+          emotion,
+          content: mood.content,
+          visibility: 'PUBLIC',
+          journeyId: journey?.id ?? null,
+          createdAt: new Date(post.createdAt),
+        });
+      } else {
+        this.posts.unshift(post);
+      }
+      const requestedStyles = Array.isArray(input.replyStyles) ? input.replyStyles.filter(isSupportedAiReplyStyle) : [];
       // Prefer the plural public contract when it has usable values, otherwise
       // honour a valid single selected style before falling back safely.
-      const styleCandidates: AIStyle[] =
-        requestedStyles.length
-          ? requestedStyles
-          : isSupportedAiReplyStyle(input.style)
-            ? [input.style]
-            : ['warm'];
+      const styleCandidates: AIStyle[] = requestedStyles.length
+        ? requestedStyles
+        : isSupportedAiReplyStyle(input.style)
+          ? [input.style]
+          : ['warm'];
       const styles = Array.from(new Set(styleCandidates));
       // Persist the post and durable job records before waiting for a local model.
       // Ollama can take tens of seconds to cold-load a model; holding the publish
       // request open makes a successful post look like a failed action to users.
-      const jobs = styles.map((style) => this.queueAiJob({
+      const jobs = styles.map((style) =>
+        this.queueAiJob({
           userId,
           contentId: mood.id,
           contentType: 'Mood',
@@ -2401,56 +8358,149 @@ export class StoreService implements OnModuleInit {
           mood: emotion,
           style,
           promptSummary: mood.content,
-        }));
+        }),
+      );
       const queuedJobs = jobs;
-      void Promise.all(queuedJobs.map((job) => this.waitForAiJob(job.id))).then(async (completedJobs) => {
-        for (const job of completedJobs) {
-          this.replies.unshift({
-            id: `reply_${job.id}`,
-            postId: post.id,
-            type: 'AI',
-            style: job.style,
-            content: job.result,
-            status: 'published',
-            riskLevel: 'low',
-            createdAt: job.createdAt,
-          });
-        }
-        post.replyCount = completedJobs.length;
-        await this.persistAndFlush();
-      }).catch(() => undefined);
+      void Promise.all(queuedJobs.map((job) => this.waitForAiJob(job.id)))
+        .then(async (completedJobs) => {
+          if (DIRECT_DB_MODELS.Reply) {
+            for (const job of completedJobs) {
+              await this.repliesDb.create({
+                id: `reply_${job.id}`,
+                postId: post.id,
+                type: 'AI',
+                style: job.style,
+                content: job.result,
+                status: 'published',
+                riskLevel: 'low',
+                createdAt: new Date(job.createdAt),
+              });
+            }
+            // Counted from the table, not from the batch: a human reply published while the AI jobs
+            // were running must not be dropped from the counter (the old code did exactly that).
+            await this.syncReplyCount(post.id);
+            return;
+          }
+          for (const job of completedJobs) {
+            this.replies.unshift({
+              id: `reply_${job.id}`,
+              postId: post.id,
+              type: 'AI',
+              style: job.style,
+              content: job.result,
+              status: 'published',
+              riskLevel: 'low',
+              createdAt: job.createdAt,
+            });
+          }
+          post.replyCount = completedJobs.length;
+          await this.persistAndFlush();
+        })
+        .catch(() => undefined);
       this.persist();
       await this.flush();
-      return { mood, post, job: queuedJobs[0], jobs: queuedJobs, next: '/pages/post/detail', reviewStatus: post.reviewStatus };
+      return {
+        mood,
+        post,
+        job: queuedJobs[0],
+        jobs: queuedJobs,
+        next: '/pages/post/detail',
+        reviewStatus: post.reviewStatus,
+      };
     }
-    const diary: Diary = { id: id('diary'), userId, moodId: mood.id, journeyId: journey?.id, emotion, content: mood.content, hasLetter: false, attachmentIds, createdAt: now() };
-    this.diaries.unshift(diary);
-    const queued = this.queueLetterGeneration({
+    const diary: Diary = {
+      id: id('diary'),
+      userId,
+      moodId: mood.id,
+      journeyId: journey?.id,
+      emotion,
+      content: mood.content,
+      hasLetter: false,
+      attachmentIds,
+      createdAt: now(),
+    };
+    if (DIRECT_DB_MODELS.Diary) {
+      await this.diariesDb.create({
+        id: diary.id,
+        userId,
+        content: diary.content,
+        emotion: diary.emotion,
+        moodId: mood.id,
+        journeyId: journey?.id ?? null,
+        hasLetter: false,
+        createdAt: new Date(diary.createdAt),
+      });
+      this.pendingDiaryContent = diary.content;
+      this.pendingSourceContent = { ...(this.pendingSourceContent ?? {}), [diary.id]: diary.content };
+    } else {
+      this.diaries.unshift(diary);
+    }
+    const queued = await this.queueLetterGeneration({
       userId,
       sourceMoodId: mood.id,
       style: isSupportedAiReplyStyle(input.style) ? input.style : 'warm',
       content: mood.content,
+      mood: emotion,
     });
-    void this.waitForAiJob(queued.job.id).then(async (completed) => {
-      if (!['succeeded', 'fallback'].includes(completed.status)) return;
-      const savedDiary = this.diaries.find((item) => item.id === diary.id);
-      if (savedDiary) savedDiary.hasLetter = true;
-      await this.persistAndFlush();
-    }).catch(() => undefined);
+    void this.waitForAiJob(queued.job.id)
+      .then(async (completed) => {
+        if (!['succeeded', 'fallback'].includes(completed.status)) return;
+        if (DIRECT_DB_MODELS.Diary) {
+          await this.diariesDb.setHasLetter(diary.id, true);
+        } else {
+          const savedDiary = this.diaries.find((item) => item.id === diary.id);
+          if (savedDiary) savedDiary.hasLetter = true;
+        }
+        await this.persistAndFlush();
+      })
+      .catch(() => undefined);
     this.persist();
     await this.flush();
     return { mood, diary, letter: queued.letter, job: queued.job, jobs: [queued.job], next: '/pages/diary/index' };
   }
 
   detectRisk(content: string) {
-    const high = /自杀|自伤|伤害别人|杀|暴力/.test(content);
-    return { level: high ? 'high' as const : 'low' as const, score: high ? 0.92 : 0.08 };
+    // `highRiskBlockEnabled` (admin 系统设置) is a real switch here: when it is on, a hit on
+    // the high-risk pattern list marks the content high risk. When the operator turns it
+    // off, detection stops and the result is always low. Previously the flag was stored and
+    // never read, so the control did nothing (product audit ISSUE-003).
+    const enabled = this.systemSettings.highRiskBlockEnabled?.value !== false;
+    const high = enabled && HIGH_RISK_PATTERN.test(content);
+    return { level: high ? ('high' as const) : ('low' as const), score: high ? 0.92 : 0.08 };
   }
 
-  queueLetterGeneration(input: { userId: string; sourceMoodId: string; style: AIStyle; content: string; letter?: Letter }) {
+  async queueLetterGeneration(input: {
+    userId: string;
+    /**
+     * Nullable, because the user may have written no mood at all and `Letter.sourceMoodId` is a
+     * nullable foreign key. This used to be `string`, which is what forced the caller to invent the
+     * literal seed id 'mood_1' - a row that does not exist - and made the insert violate the FK.
+     */
+    sourceMoodId: string | null;
+    style: AIStyle;
+    content: string;
+    /**
+     * The emotion the user chose for this mood. Without it the reply text infers a mood from the
+     * body, and that inference defaults to 焦虑 for anything it does not recognise - so a calm entry
+     * gets a reply that says "这份焦虑不是矫情", which is a claim about the user that is simply wrong.
+     */
+    mood?: Emotion;
+    letter?: Letter;
+  }) {
     if (input.letter?.aiJobId) {
-      const pending = this.aiJobs.find((job) => job.id === input.letter?.aiJobId && ['queued', 'running'].includes(job.status));
-      if (pending) return { letter: input.letter, job: pending };
+      if (DIRECT_DB_MODELS.AIJob) {
+        if (input.letter.generationStatus && ['queued', 'running'].includes(input.letter.generationStatus)) {
+          return {
+            letter: input.letter,
+            job: { id: input.letter.aiJobId, status: input.letter.generationStatus } as any,
+          };
+        }
+      } else {
+        const pending = this.aiJobs.find(
+          (job) => job.id === input.letter?.aiJobId && ['queued', 'running'].includes(job.status),
+        );
+        if (pending) return { letter: input.letter, job: pending };
+      }
     }
     const letter = input.letter ?? {
       id: id('letter'),
@@ -2464,29 +8514,73 @@ export class StoreService implements OnModuleInit {
       generationStatus: 'queued' as const,
       createdAt: now(),
     };
-    if (!input.letter) this.letters.unshift(letter);
+    if (!input.letter) {
+      if (DIRECT_DB_MODELS.Letter) {
+        await this.lettersDb.create({
+          id: letter.id,
+          userId: input.userId,
+          content: letter.content,
+          style: letter.style,
+          sourceMoodId: input.sourceMoodId ?? null,
+          aiJobId: null,
+          generationStatus: letter.generationStatus,
+          createdAt: new Date(letter.createdAt),
+        });
+      } else {
+        this.letters.unshift(letter);
+      }
+    }
     const job = this.queueAI({
       taskType: 'warm_letter',
       content: input.content,
       style: input.style,
+      mood: input.mood,
       userId: input.userId,
       sourceId: letter.id,
     });
     letter.aiJobId = job.id;
     letter.generationStatus = job.status;
-    this.persist();
-    void this.waitForAiJob(job.id).then((completed) => {
-      const target = this.letters.find((item) => item.id === letter.id);
-      if (!target) return;
-      target.aiJobId = completed.id;
-      target.generationStatus = completed.status;
-      if (['succeeded', 'fallback'].includes(completed.status)) {
-        target.style = input.style;
-        target.content = completed.result;
-        target.status = 'unread';
-      }
+    if (DIRECT_DB_MODELS.Letter) {
+      await this.lettersDb.applyGenerationResult(letter.id, input.userId, {
+        aiJobId: job.id,
+        generationStatus: job.status,
+        style: input.style,
+      });
+    } else {
       this.persist();
-    }).catch(() => undefined);
+    }
+    const completionPromise: Promise<void> = this.waitForAiJob(job.id)
+      .then(async (completed) => {
+        if (DIRECT_DB_MODELS.Letter) {
+          const produced = ['succeeded', 'fallback'].includes(completed.status);
+          await this.lettersDb.applyGenerationResult(
+            letter.id,
+            input.userId,
+            {
+              aiJobId: completed.id,
+              generationStatus: completed.status,
+              ...(produced ? { style: input.style, content: completed.result } : {}),
+            },
+            completed.id,
+          );
+          return;
+        }
+        const target = this.letters.find((item) => item.id === letter.id);
+        if (!target) return;
+        target.aiJobId = completed.id;
+        target.generationStatus = completed.status;
+        if (['succeeded', 'fallback'].includes(completed.status)) {
+          target.style = input.style;
+          target.content = completed.result;
+          target.status = 'unread';
+        }
+        this.persist();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingAiCompletions.delete(completionPromise);
+      });
+    this.pendingAiCompletions.add(completionPromise);
     return { letter, job };
   }
 
@@ -2506,6 +8600,7 @@ export class StoreService implements OnModuleInit {
       mood,
       style,
       promptSummary: content,
+      mode: input.mode,
       simulatePrimaryFail: input.simulatePrimaryFail,
       simulateBackupFail: input.simulateBackupFail,
     });
@@ -2527,26 +8622,129 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  queueAiJob(input: { userId: string; contentId: string; contentType: string; jobType: string; taskType?: AITaskType | string; mood?: string; style: AIStyle; promptSummary: string; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean }) {
+  queueAiJob(input: {
+    userId: string;
+    contentId: string;
+    contentType: string;
+    jobType: string;
+    taskType?: AITaskType | string;
+    mood?: string;
+    style: AIStyle;
+    promptSummary: string;
+    mode?: string;
+    simulatePrimaryFail?: boolean;
+    simulateBackupFail?: boolean;
+    retryCount?: number;
+  }) {
     const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
-    const route = this.aiRoutes.find((item) => item.style === input.style && item.enabled)
-      ?? this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))
-      ?? this.aiRoutes[0];
+    // Both models are registered, so the route and provider come from the table. The legacy array
+    // reads here threw once they were.
+    const route =
+      (DIRECT_DB_MODELS.AIStyleRoute ? undefined : this.aiRoutes.find((item) => item.style === input.style && item.enabled)) ??
+      (DIRECT_DB_MODELS.AIStyleRoute ? undefined : this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))) ??
+      (DIRECT_DB_MODELS.AIStyleRoute ? undefined : this.aiRoutes[0]);
     const isPeerResponseAssist = taskType === 'peer_response_assist';
-    const peerDraftProvider = isPeerResponseAssist
-      ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
+    // `peerDraftProvider` is only a draft-name lookup for the peer-assist route, and the peer-assist
+    // path reads the real row again inside `runAiJob`. Leaving it undefined when the model is
+    // registered keeps this method synchronous - the callers rely on that - and costs nothing,
+    // because `runAiJob` resolves the provider from the table before it uses it.
+    const peerDraftProvider = isPeerResponseAssist && !DIRECT_DB_MODELS.AIProvider
+      ? this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition()
       : undefined;
-    const queuedPrimaryProviderId = peerDraftProvider?.id ?? route?.primaryProviderId;
+    const queuedPrimaryProviderId = peerDraftProvider?.id ?? (route?.primaryProviderId || 'provider_template');
     const job: AIJob = {
-      id: id('job'), userId: input.userId, contentId: input.contentId, contentType: input.contentType, taskType: this.jobTypeLabel(taskType), jobType: this.jobTypeLabel(taskType),
-      style: input.style, providerId: peerDraftProvider?.id ?? '', modelName: peerDraftProvider?.modelName ?? '', status: 'queued', promptSummary: input.promptSummary.slice(0, 160),
-      promptVersion: route?.promptVersion, result: '', durationMs: 0, retryCount: 0,
-      traceJson: [{
-        at: now(), event: 'queued', status: 'queued', taskType, style: input.style, routeVersion: route?.routeVersion ?? 0,
-        primaryProviderId: queuedPrimaryProviderId, backupProviderId: route?.backupProviderId, fallbackTemplateId: route?.fallbackTemplateId,
-      }],
-      routeVersion: route?.routeVersion ?? 0, createdAt: now(),
+      id: id('job'),
+      userId: input.userId,
+      contentId: input.contentId,
+      contentType: input.contentType,
+      taskType: this.jobTypeLabel(taskType),
+      jobType: this.jobTypeLabel(taskType),
+      style: input.style,
+      mode: input.mode,
+      providerId: peerDraftProvider?.id ?? (route?.primaryProviderId || 'provider_template'),
+      modelName: peerDraftProvider?.modelName ?? '',
+      status: 'queued',
+      promptSummary: input.promptSummary.slice(0, 160),
+      promptVersion: route?.promptVersion,
+      result: '',
+      durationMs: 0,
+      retryCount: input.retryCount ?? 0,
+      traceJson: [
+        {
+          at: now(),
+          event: 'queued',
+          status: 'queued',
+          taskType,
+          style: input.style,
+          routeVersion: route?.routeVersion ?? 0,
+          primaryProviderId: queuedPrimaryProviderId,
+          backupProviderId: route?.backupProviderId,
+          fallbackTemplateId: route?.fallbackTemplateId,
+        },
+      ],
+      routeVersion: route?.routeVersion ?? 0,
+      createdAt: now(),
     };
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      const commitPromise = this.batch1Persistence.createAiJob({
+        id: job.id,
+        userId: job.userId,
+        contentId: job.contentId,
+        contentType: job.contentType,
+        jobType: job.jobType,
+        taskType: job.taskType,
+        style: job.style,
+        providerId: job.providerId,
+        modelName: job.modelName,
+        status: 'queued',
+        promptSummary: job.promptSummary,
+        promptVersion: job.promptVersion,
+        retryCount: job.retryCount,
+        traceJson: job.traceJson,
+        createdAt: job.createdAt,
+      });
+      this.pendingJobCommits.set(job.id, commitPromise);
+      commitPromise.finally(() => this.pendingJobCommits.delete(job.id));
+
+      void commitPromise.then(async () => {
+        try {
+          await this.runAiJob({ ...input, jobId: job.id });
+        } catch (error) {
+          const errorMessage = sanitizeProviderError(error);
+          const durationMs = Math.max(1, Date.now() - Date.parse(job.createdAt));
+          const completedAt = now();
+          const traceEntry = {
+            at: now(),
+            event: 'terminal',
+            status: 'failed',
+            reason: errorMessage,
+            durationMs,
+          };
+          const traces = [...(job.traceJson ?? []), traceEntry];
+          try {
+            await this.batch1Persistence.updateJobTerminal({
+              id: job.id,
+              status: 'failed',
+              errorMessage,
+              durationMs,
+              completedAt,
+              traceJson: traces,
+            });
+          } catch (recordError) {
+            // The job has already failed; failing to *record* that must not take the process down. A
+            // transient database disconnect here rejected this floating promise and exited the API
+            // (P1017 "Server has closed the connection"), which turned one lost write into every page
+            // on the device failing.
+            console.error('[ai-job] could not record the terminal state:', sanitizeProviderError(recordError));
+          }
+        }
+      }).catch((error) => {
+        console.error('[ai-job] unexpected failure while running a job:', sanitizeProviderError(error));
+      });
+      return job;
+    }
+
     this.aiJobs.unshift(job);
     this.persist();
     void Promise.resolve().then(async () => {
@@ -2557,7 +8755,12 @@ export class StoreService implements OnModuleInit {
         job.errorMessage = sanitizeProviderError(error);
         job.durationMs = Math.max(1, Date.now() - Date.parse(job.createdAt));
         job.completedAt = now();
-        this.appendAiTrace(job, { event: 'terminal', status: 'failed', reason: job.errorMessage, durationMs: job.durationMs });
+        this.appendAiTrace(job, {
+          event: 'terminal',
+          status: 'failed',
+          reason: job.errorMessage,
+          durationMs: job.durationMs,
+        });
         this.persist();
       }
     });
@@ -2567,126 +8770,364 @@ export class StoreService implements OnModuleInit {
   async waitForAiJob(jobId: string, timeoutMs = 120_000) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-      const job = this.aiJobs.find((item) => item.id === jobId);
-      if (!job) throw new NotFoundException('AI 任务不存在');
-      if (!['queued', 'running'].includes(job.status)) {
-        await this.flush();
-        return job;
+      if (DIRECT_DB_MODELS.AIJob) {
+        await this.awaitJobCommit(jobId);
+        const job = await this.batch1Persistence.getAiJob(jobId);
+        if (!job && Date.now() - startedAt > 2000) {
+          throw new NotFoundException('AI 任务不存在');
+        }
+        if (job && !['queued', 'running'].includes(job.status)) {
+          return job as any;
+        }
+      } else {
+        const job = this.aiJobs.find((item) => item.id === jobId);
+        if (!job) throw new NotFoundException('AI 任务不存在');
+        if (!['queued', 'running'].includes(job.status)) {
+          await this.flush();
+          return job;
+        }
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     throw new Error(`AI task ${jobId} did not finish within ${timeoutMs}ms`);
   }
 
-  latestSuccessfulAiJob(userId: string, taskType: string) {
+  async latestSuccessfulAiJob(userId: string, taskType: string) {
     const normalizedTaskType = this.jobTypeLabel(this.normalizeTaskType(taskType));
-    return this.aiJobs.find((job) => (
-      job.userId === userId
-      && job.taskType === normalizedTaskType
-      && ['succeeded', 'fallback'].includes(job.status)
-      && Boolean(job.result)
-    ));
+    if (DIRECT_DB_MODELS.AIJob) {
+      return (await this.batch1Persistence.getLatestSuccessfulAiJob(userId, normalizedTaskType)) as any;
+    }
+    return this.aiJobs.find(
+      (job) =>
+        job.userId === userId &&
+        job.taskType === normalizedTaskType &&
+        ['succeeded', 'fallback'].includes(job.status) &&
+        Boolean(job.result),
+    );
   }
 
-  async runAiJob(input: { userId: string; contentId: string; contentType: string; jobType: string; taskType?: AITaskType | string; mood?: string; style: AIStyle; promptSummary: string; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean; jobId?: string }) {
+  async runAiJob(input: {
+    userId: string;
+    contentId: string;
+    contentType: string;
+    jobType: string;
+    taskType?: AITaskType | string;
+    mood?: string;
+    style: AIStyle;
+    promptSummary: string;
+    mode?: string;
+    simulatePrimaryFail?: boolean;
+    simulateBackupFail?: boolean;
+    jobId?: string;
+  }) {
     const taskType = this.normalizeTaskType(input.taskType ?? input.jobType);
-    const route = this.aiRoutes.find((item) => item.style === input.style && item.enabled)
-      ?? this.aiRoutes.find((item) => item.enabled && item.taskTypes?.includes(taskType))
-      ?? this.aiRoutes[0];
+    const route = await this.resolveAiRouteRecord(input.style, taskType);
     if (!route) throw new NotFoundException('没有可用的 AI 路由规则');
     const isPeerResponseAssist = taskType === 'peer_response_assist';
     // Peer drafts are a safety boundary: historical route state must never make
     // them use a template, local provider, or an unrelated remote fallback.
-    const peerDraftProvider = isPeerResponseAssist
-      ? (this.aiProviders.find((item) => item.id === DAPI_PROVIDER_ID) ?? this.remoteAi.primaryDefinition())
-      : undefined;
-    if (peerDraftProvider && !this.aiProviders.some((item) => item.id === peerDraftProvider.id)) {
-      this.aiProviders.unshift(peerDraftProvider);
+    let peerDraftProvider: AIProvider | undefined;
+    if (isPeerResponseAssist) {
+      peerDraftProvider =
+        ((await this.findAiProviderRecord(DAPI_PROVIDER_ID)) as AIProvider | null) ??
+        this.remoteAi.primaryDefinition();
+      if (!(await this.findAiProviderRecord(peerDraftProvider.id))) {
+        await this.ensureAiProviderRecord(peerDraftProvider);
+      }
     }
-    const primary = peerDraftProvider ?? this.aiProviders.find((item) => item.id === route.primaryProviderId);
-    const backup = this.aiProviders.find((item) => item.id === route.backupProviderId);
-    const job: AIJob = input.jobId ? this.aiJobs.find((item) => item.id === input.jobId)! : {
-      id: id('job'), userId: input.userId, contentId: input.contentId, contentType: input.contentType, taskType: this.jobTypeLabel(taskType), jobType: this.jobTypeLabel(taskType),
-      style: input.style, providerId: '', modelName: '', status: 'queued', promptSummary: input.promptSummary.slice(0, 160),
-      promptVersion: route.promptVersion, result: '', durationMs: 0, retryCount: 0, traceJson: [], routeVersion: route.routeVersion, createdAt: now(),
-    };
-    if (!job) throw new NotFoundException('AI 任务不存在');
-    if (!input.jobId) {
-      this.aiJobs.unshift(job);
-      this.appendAiTrace(job, {
-        event: 'queued', status: 'queued', taskType, style: input.style, routeVersion: route.routeVersion,
-        primaryProviderId: primary?.id ?? route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
-      });
-      this.persist();
+    const primary = peerDraftProvider ?? ((await this.findAiProviderRecord(route.primaryProviderId)) as AIProvider | undefined);
+    const backup = (await this.findAiProviderRecord(route.backupProviderId)) as AIProvider | undefined;
+
+    let job: AIJob;
+    if (DIRECT_DB_MODELS.AIJob) {
+      if (input.jobId) {
+        await this.awaitJobCommit(input.jobId);
+        const existingJob = await this.batch1Persistence.getAiJob(input.jobId);
+        if (!existingJob) throw new NotFoundException('AI 任务不存在');
+        job = existingJob as any;
+      } else {
+        const primaryProvId = primary?.id ?? (route.primaryProviderId || 'provider_template');
+        job = (await this.batch1Persistence.createAiJob({
+          id: id('job'),
+          userId: input.userId,
+          contentId: input.contentId,
+          contentType: input.contentType,
+          taskType: this.jobTypeLabel(taskType),
+          jobType: this.jobTypeLabel(taskType),
+          style: input.style,
+          providerId: primaryProvId,
+          modelName: primary?.modelName ?? '',
+          status: 'queued',
+          promptSummary: input.promptSummary.slice(0, 160),
+          promptVersion: route.promptVersion,
+          traceJson: [
+            {
+              at: now(),
+              event: 'queued',
+              status: 'queued',
+              taskType,
+              style: input.style,
+              routeVersion: route.routeVersion,
+              primaryProviderId: primaryProvId,
+              backupProviderId: route.backupProviderId,
+              fallbackTemplateId: route.fallbackTemplateId,
+            },
+          ],
+          routeVersion: route.routeVersion,
+          createdAt: now(),
+        })) as any;
+      }
+    } else {
+      job = input.jobId
+        ? this.aiJobs.find((item) => item.id === input.jobId)!
+        : {
+            id: id('job'),
+            userId: input.userId,
+            contentId: input.contentId,
+            contentType: input.contentType,
+            taskType: this.jobTypeLabel(taskType),
+            jobType: this.jobTypeLabel(taskType),
+            style: input.style,
+            providerId: '',
+            modelName: '',
+            status: 'queued',
+            promptSummary: input.promptSummary.slice(0, 160),
+            promptVersion: route.promptVersion,
+            result: '',
+            durationMs: 0,
+            retryCount: 0,
+            traceJson: [],
+            routeVersion: route.routeVersion,
+            createdAt: now(),
+          };
+      if (!job) throw new NotFoundException('AI 任务不存在');
+      if (!input.jobId) {
+        this.aiJobs.unshift(job);
+        this.appendAiTrace(job, {
+          event: 'queued',
+          status: 'queued',
+          taskType,
+          style: input.style,
+          routeVersion: route.routeVersion,
+          primaryProviderId: primary?.id ?? route.primaryProviderId,
+          backupProviderId: route.backupProviderId,
+          fallbackTemplateId: route.fallbackTemplateId,
+        });
+        this.persist();
+      }
     }
 
     const jobStartedAt = Date.now();
-    job.status = 'running';
-    this.appendAiTrace(job, {
-      event: 'running', status: 'running', taskType, style: input.style, routeVersion: route.routeVersion,
-      primaryProviderId: primary?.id ?? route.primaryProviderId, backupProviderId: route.backupProviderId, fallbackTemplateId: route.fallbackTemplateId,
-    });
-    this.persist();
+    const runningTrace = {
+      at: now(),
+      event: 'running',
+      status: 'running',
+      taskType,
+      style: input.style,
+      routeVersion: route.routeVersion,
+      primaryProviderId: primary?.id ?? route.primaryProviderId,
+      backupProviderId: route.backupProviderId,
+      fallbackTemplateId: route.fallbackTemplateId,
+    };
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      const { claimed, job: runningJob } = await this.batch1Persistence.updateJobRunning({
+        id: job.id,
+        traceEntry: runningTrace,
+      });
+      if (!claimed) {
+        return runningJob ?? job;
+      }
+      job = runningJob as any;
+    } else {
+      job.status = 'running';
+      this.appendAiTrace(job, runningTrace);
+      this.persist();
+    }
+
     if (visualFixtureMode) {
+      const errorMessage = 'VISUAL_FIXTURE_REMOTE_AI_DISABLED';
+      const durationMs = Math.max(1, Date.now() - jobStartedAt);
+      const completedAt = now();
+      const terminalTrace = {
+        at: now(),
+        event: 'terminal',
+        status: 'failed',
+        reason: errorMessage,
+        durationMs,
+      };
+      if (DIRECT_DB_MODELS.AIJob) {
+        const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+          id: job.id,
+          status: 'failed',
+          errorMessage,
+          durationMs,
+          completedAt,
+          traceJson: [...(job.traceJson ?? []), terminalTrace],
+        });
+        return finalJob as any;
+      }
       job.status = 'failed';
-      job.errorMessage = 'VISUAL_FIXTURE_REMOTE_AI_DISABLED';
-      job.durationMs = Math.max(1, Date.now() - jobStartedAt);
-      job.completedAt = now();
-      this.appendAiTrace(job, { event: 'terminal', status: 'failed', reason: job.errorMessage, durationMs: job.durationMs });
+      job.errorMessage = errorMessage;
+      job.durationMs = durationMs;
+      job.completedAt = completedAt;
+      this.appendAiTrace(job, terminalTrace);
       this.persist();
       return job;
     }
 
     const risk = this.detectRisk(input.promptSummary);
     if (risk.level === 'high') {
+      const durationMs = 1;
+      const completedAt = now();
+      const terminalTrace = {
+        at: now(),
+        event: 'terminal',
+        taskType,
+        riskLevel: 'high',
+        status: 'succeeded',
+        providerId: 'risk-escalation',
+        modelName: 'safety-policy',
+        durationMs,
+        safetyEscalation: true,
+      };
+      const resultText =
+        '我很在意你现在的安全。请先联系身边可信任的人，或尽快联系当地紧急服务、心理危机干预热线；如果你正处在即时危险中，请优先拨打当地紧急电话。你不需要一个人扛着。';
+      const structuredResult = {
+        riskLevel: 'high',
+        escalation: true,
+        nextSmallStep: '现在就联系一位可信任的人，并离开可能伤害自己的环境。',
+      };
+      if (DIRECT_DB_MODELS.AIJob) {
+        const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+          id: job.id,
+          status: 'succeeded',
+          providerId: 'risk-escalation',
+          modelName: 'safety-policy',
+          result: resultText,
+          structuredResult,
+          durationMs,
+          completedAt,
+          traceJson: [...(job.traceJson ?? []), terminalTrace],
+        });
+        return finalJob as any;
+      }
       job.providerId = 'risk-escalation';
       job.modelName = 'safety-policy';
-      job.result = '我很在意你现在的安全。请先联系身边可信任的人，或尽快联系当地紧急服务、心理危机干预热线；如果你正处在即时危险中，请优先拨打当地紧急电话。你不需要一个人扛着。';
-      job.structuredResult = { riskLevel: 'high', escalation: true, nextSmallStep: '现在就联系一位可信任的人，并离开可能伤害自己的环境。' };
+      job.result = resultText;
+      job.structuredResult = structuredResult;
       job.status = 'succeeded';
-      job.durationMs = 1;
-      job.completedAt = now();
-      this.appendAiTrace(job, {
-        event: 'terminal', taskType, riskLevel: 'high', status: 'succeeded', providerId: job.providerId,
-        modelName: job.modelName, durationMs: job.durationMs, safetyEscalation: true,
-      });
+      job.durationMs = durationMs;
+      job.completedAt = completedAt;
+      this.appendAiTrace(job, terminalTrace);
       this.persist();
       return job;
     }
 
-    const prompt = this.buildAiPrompt({ taskType, style: input.style, route, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary) });
-    const needsStructuredResult = ['breakdown', 'situation_analysis', 'action_plan', 'support_plan', 'decision_clarify', 'need_analysis', 'risk_analysis', 'barrier_analysis', 'adaptive_action', 'peer_match_explain', 'loop_detection', 'recovery_summary', 'peer_response_assist'].includes(taskType);
-    const candidates: Array<{ provider?: AIProvider; role: 'primary' | 'backup' | 'retry'; forcedFailure: boolean }> = isPeerResponseAssist
-      ? [
-          { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
-          { provider: primary, role: 'retry', forcedFailure: input.simulatePrimaryFail === true },
-          { provider: primary, role: 'retry', forcedFailure: input.simulatePrimaryFail === true },
-        ]
-      : [
-          { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
-          { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
-        ];
+    const memoryContext = await this.activeMemoriesForTask(input.userId, taskType, input.contentType);
+    if (memoryContext.length) {
+      this.appendAiTrace(job, {
+        event: 'memory-context',
+        status: 'used',
+        memoryIds: memoryContext.map((item) => item.id),
+        memoryScopes: [...new Set(memoryContext.map((item) => item.scope))],
+      });
+    }
+    const prompt = this.buildAiPrompt({
+      taskType,
+      style: input.style,
+      route: route as AIStyleRoute,
+      content: input.promptSummary,
+      mood: input.mood ?? this.inferMood(input.promptSummary),
+      mode: input.mode ?? job.mode,
+      userId: input.userId,
+      memories: memoryContext,
+    });
+    const needsStructuredResult = [
+      'breakdown',
+      'situation_analysis',
+      'action_plan',
+      'support_plan',
+      'decision_clarify',
+      'need_analysis',
+      'risk_analysis',
+      'barrier_analysis',
+      'adaptive_action',
+      'peer_match_explain',
+      'loop_detection',
+      'recovery_summary',
+      'peer_response_assist',
+    ].includes(taskType);
+    const candidates: Array<{ provider: AIProvider | undefined; role: 'primary' | 'backup' | 'retry'; forcedFailure: boolean }> =
+      isPeerResponseAssist
+        ? [
+            { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
+            { provider: primary, role: 'retry', forcedFailure: input.simulatePrimaryFail === true },
+            { provider: primary, role: 'retry', forcedFailure: input.simulatePrimaryFail === true },
+          ]
+        : [
+            { provider: primary, role: 'primary', forcedFailure: input.simulatePrimaryFail === true },
+            { provider: backup, role: 'backup', forcedFailure: input.simulateBackupFail === true },
+          ];
     const errors: string[] = [];
     for (const candidate of candidates) {
       const provider = candidate.provider;
       const attemptStartedAt = Date.now();
       if (candidate.forcedFailure) {
         const reason = `simulated-${candidate.role}-failure`;
-        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider?.id, modelName: provider?.modelName, role: candidate.role, status: 'failed', reason, durationMs: Math.max(0, Date.now() - attemptStartedAt) });
+        this.appendAiTrace(job, {
+          event: 'provider-attempt',
+          providerId: provider?.id,
+          modelName: provider?.modelName,
+          role: candidate.role,
+          status: 'failed',
+          reason,
+          durationMs: Math.max(0, Date.now() - attemptStartedAt),
+        });
         errors.push(reason);
         continue;
       }
       if (!provider || !provider.enabled) {
         const reason = 'provider-unavailable';
-        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider?.id, modelName: provider?.modelName, role: candidate.role, status: 'skipped', reason, durationMs: Math.max(0, Date.now() - attemptStartedAt) });
+        this.appendAiTrace(job, {
+          event: 'provider-attempt',
+          providerId: provider?.id,
+          modelName: provider?.modelName,
+          role: candidate.role,
+          status: 'skipped',
+          reason,
+          durationMs: Math.max(0, Date.now() - attemptStartedAt),
+        });
         errors.push(`${candidate.role}:${reason}`);
         continue;
       }
       if (provider.type === 'local' || provider.providerKind !== 'openai-compatible') {
         const reason = 'unsupported-remote-provider';
-        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: provider.modelName, role: candidate.role, status: 'skipped', reason, durationMs: Math.max(0, Date.now() - attemptStartedAt) });
+        this.appendAiTrace(job, {
+          event: 'provider-attempt',
+          providerId: provider.id,
+          modelName: provider.modelName,
+          role: candidate.role,
+          status: 'skipped',
+          reason,
+          durationMs: Math.max(0, Date.now() - attemptStartedAt),
+        });
         errors.push(`${provider.id}:${reason}`);
         continue;
+      }
+      const attemptTrace = {
+        event: 'provider-attempt-started',
+        providerId: provider.id,
+        modelName: provider.modelName,
+        role: candidate.role,
+        status: 'started',
+      };
+      this.appendAiTrace(job, attemptTrace);
+      if (DIRECT_DB_MODELS.AIJob) {
+        await this.batch1Persistence.recordJobProgress({
+          id: job.id,
+          traceEntry: { at: now(), ...attemptTrace },
+        });
       }
       try {
         const response = await this.remoteAi.generate(provider, {
@@ -2695,8 +9136,56 @@ export class StoreService implements OnModuleInit {
           json: needsStructuredResult,
           maxTokens: needsStructuredResult ? 520 : 360,
         });
-        const userFacingResult = this.extractUserFacingModelOutput(response.result, this.requiresReasoningOutputExtraction(provider));
-        const structured = needsStructuredResult ? this.parseStructuredTaskResult(userFacingResult, taskType) : undefined;
+        const userFacingResult = this.extractUserFacingModelOutput(
+          response.result,
+          this.requiresReasoningOutputExtraction(provider),
+        );
+        const structured = needsStructuredResult
+          ? this.parseStructuredTaskResult(userFacingResult, taskType)
+          : undefined;
+
+        if (DIRECT_DB_MODELS.AIJob) {
+          const finalDurationMs = Math.max(response.durationMs, Date.now() - jobStartedAt);
+          this.appendAiTrace(job, {
+            event: 'provider-attempt',
+            providerId: provider.id,
+            modelName: response.model,
+            role: candidate.role,
+            status: 'succeeded',
+            durationMs: response.durationMs,
+            jobDurationMs: finalDurationMs,
+            structured: Boolean(structured),
+            fallbackUsed: candidate.role === 'backup',
+          });
+          this.appendAiTrace(job, {
+            event: 'terminal',
+            providerId: provider.id,
+            modelName: response.model,
+            status: 'succeeded',
+            durationMs: finalDurationMs,
+            fallbackUsed: candidate.role === 'backup',
+          });
+          provider.modelName = response.model;
+          provider.todayCalls += 1;
+          provider.avgLatencyMs = provider.avgLatencyMs
+            ? Math.round((provider.avgLatencyMs + response.durationMs) / 2)
+            : response.durationMs;
+          const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+            id: job.id,
+            status: 'succeeded',
+            providerId: provider.id,
+            modelName: response.model,
+            result: this.safetyFilter(structured ? structured.summary : userFacingResult),
+            structuredResult: structured,
+            fallbackUsed: candidate.role === 'backup',
+            retryCount: candidates.indexOf(candidate),
+            durationMs: finalDurationMs,
+            completedAt: now(),
+            traceJson: job.traceJson,
+          });
+          return finalJob as any;
+        }
+
         job.providerId = provider.id;
         job.modelName = response.model;
         job.result = this.safetyFilter(structured ? structured.summary : userFacingResult);
@@ -2708,51 +9197,193 @@ export class StoreService implements OnModuleInit {
         job.completedAt = now();
         provider.modelName = response.model;
         provider.todayCalls += 1;
-        provider.avgLatencyMs = provider.avgLatencyMs ? Math.round((provider.avgLatencyMs + response.durationMs) / 2) : response.durationMs;
-        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: response.model, role: candidate.role, status: 'succeeded', durationMs: response.durationMs, jobDurationMs: job.durationMs, structured: Boolean(structured), fallbackUsed: job.fallbackUsed });
-        this.appendAiTrace(job, { event: 'terminal', providerId: provider.id, modelName: response.model, status: 'succeeded', durationMs: job.durationMs, fallbackUsed: job.fallbackUsed });
+        provider.avgLatencyMs = provider.avgLatencyMs
+          ? Math.round((provider.avgLatencyMs + response.durationMs) / 2)
+          : response.durationMs;
+        this.appendAiTrace(job, {
+          event: 'provider-attempt',
+          providerId: provider.id,
+          modelName: response.model,
+          role: candidate.role,
+          status: 'succeeded',
+          durationMs: response.durationMs,
+          jobDurationMs: job.durationMs,
+          structured: Boolean(structured),
+          fallbackUsed: job.fallbackUsed,
+        });
+        this.appendAiTrace(job, {
+          event: 'terminal',
+          providerId: provider.id,
+          modelName: response.model,
+          status: 'succeeded',
+          durationMs: job.durationMs,
+          fallbackUsed: job.fallbackUsed,
+        });
         this.persist();
         return job;
       } catch (error) {
         const message = sanitizeProviderError(error);
         errors.push(`${provider.id}:${message}`);
-        this.appendAiTrace(job, { event: 'provider-attempt', providerId: provider.id, modelName: provider.modelName, role: candidate.role, status: 'failed', reason: message, durationMs: Math.max(1, Date.now() - attemptStartedAt) });
+        const failTrace = {
+          event: 'provider-attempt',
+          providerId: provider.id,
+          modelName: provider.modelName,
+          role: candidate.role,
+          status: 'failed',
+          reason: message,
+          durationMs: Math.max(1, Date.now() - attemptStartedAt),
+        };
+        this.appendAiTrace(job, failTrace);
+        if (DIRECT_DB_MODELS.AIJob) {
+          await this.batch1Persistence.recordJobProgress({
+            id: job.id,
+            traceEntry: { at: now(), ...failTrace },
+          });
+        }
         if (candidate.role === 'primary' && !isPeerResponseAssist && !this.remoteAi.canFailOver(error)) break;
       }
     }
 
     if (isPeerResponseAssist) {
-      job.providerId = primary?.id ?? DAPI_PROVIDER_ID;
-      job.modelName = primary?.modelName ?? '';
+      const providerId = primary?.id ?? DAPI_PROVIDER_ID;
+      const modelName = primary?.modelName ?? '';
+      const durationMs = Math.max(1, Date.now() - jobStartedAt);
+      const errorMessage = errors.join(' | ') || 'DAPI_PEER_ASSIST_FAILED';
+      const completedAt = now();
+      if (DIRECT_DB_MODELS.AIJob) {
+        this.appendAiTrace(job, {
+          event: 'terminal',
+          status: 'failed',
+          reason: errorMessage,
+          providerId,
+          modelName,
+          durationMs,
+          fallbackUsed: false,
+        });
+        const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+          id: job.id,
+          status: 'failed',
+          providerId,
+          modelName,
+          errorMessage,
+          durationMs,
+          fallbackUsed: false,
+          retryCount: Math.max(0, candidates.length - 1),
+          completedAt,
+          traceJson: job.traceJson,
+        });
+        return finalJob as any;
+      }
+      job.providerId = providerId;
+      job.modelName = modelName;
       job.status = 'failed';
       job.fallbackUsed = false;
       job.retryCount = Math.max(0, candidates.length - 1);
-      job.errorMessage = errors.join(' | ') || 'DAPI_PEER_ASSIST_FAILED';
-      job.durationMs = Math.max(1, Date.now() - jobStartedAt);
-      job.completedAt = now();
-      this.appendAiTrace(job, { event: 'terminal', status: 'failed', reason: job.errorMessage, providerId: job.providerId, modelName: job.modelName, durationMs: job.durationMs, fallbackUsed: false });
+      job.errorMessage = errorMessage;
+      job.durationMs = durationMs;
+      job.completedAt = completedAt;
+      this.appendAiTrace(job, {
+        event: 'terminal',
+        status: 'failed',
+        reason: job.errorMessage,
+        providerId: job.providerId,
+        modelName: job.modelName,
+        durationMs: job.durationMs,
+        fallbackUsed: false,
+      });
       this.persist();
       return job;
     }
 
-    const template = this.composeDynamicText({ taskType, content: input.promptSummary, mood: input.mood ?? this.inferMood(input.promptSummary), style: input.style, routeLabel: route.label });
-    job.providerId = route.fallbackTemplateId || this.templateProvider().id;
-    job.modelName = this.aiProviders.find((provider) => provider.id === job.providerId)?.modelName ?? 'safe-template';
-    job.result = this.safetyFilter(template.result);
-    job.structuredResult = needsStructuredResult ? template.structured : undefined;
+    const persona = input.userId ? this.aiPersona.getUserPersona(input.userId) : undefined;
+    const template = this.composeDynamicText({
+      taskType,
+      content: input.promptSummary,
+      mood: input.mood ?? this.inferMood(input.promptSummary),
+      style: input.style,
+      routeLabel: route.label,
+      mode: input.mode ?? job.mode,
+      personaId: persona?.id,
+    });
+    const fallbackProviderId = route.fallbackTemplateId || this.templateProvider().id;
+    const fallbackProvider = await this.findAiProviderRecord(fallbackProviderId);
+    const fallbackModelName = (fallbackProvider as AIProvider | null)?.modelName ?? 'safe-template';
+    const fallbackResult = this.safetyFilter(template.result);
+    const fallbackStructured = needsStructuredResult ? template.structured : undefined;
+    const fallbackErrorMessage = errors.join(' | ') || 'AI_PROVIDER_FAILED';
+    const fallbackDurationMs = Math.max(1, Date.now() - jobStartedAt);
+    const fallbackCompletedAt = now();
+    const fallbackRetryCount = Math.max(1, candidates.length - 1);
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      this.appendAiTrace(job, {
+        event: 'terminal',
+        status: 'fallback',
+        reason: fallbackErrorMessage,
+        providerId: fallbackProviderId,
+        modelName: fallbackModelName,
+        durationMs: fallbackDurationMs,
+        fallbackUsed: true,
+      });
+      const { job: finalJob } = await this.batch1Persistence.updateJobTerminal({
+        id: job.id,
+        status: 'fallback',
+        providerId: fallbackProviderId,
+        modelName: fallbackModelName,
+        result: fallbackResult,
+        structuredResult: fallbackStructured,
+        errorMessage: fallbackErrorMessage,
+        durationMs: fallbackDurationMs,
+        fallbackUsed: true,
+        retryCount: fallbackRetryCount,
+        completedAt: fallbackCompletedAt,
+        traceJson: job.traceJson,
+      });
+      return finalJob as any;
+    }
+
+    job.providerId = fallbackProviderId;
+    job.modelName = fallbackModelName;
+    job.result = fallbackResult;
+    job.structuredResult = fallbackStructured;
     job.status = 'fallback';
     job.fallbackUsed = true;
-    job.retryCount = Math.max(1, candidates.length - 1);
-    job.errorMessage = errors.join(' | ') || 'AI_PROVIDER_FAILED';
-    job.durationMs = Math.max(1, Date.now() - jobStartedAt);
-    job.completedAt = now();
-    this.appendAiTrace(job, { event: 'terminal', status: 'fallback', reason: job.errorMessage, providerId: job.providerId, modelName: job.modelName, durationMs: job.durationMs, fallbackUsed: true });
+    job.retryCount = fallbackRetryCount;
+    job.errorMessage = fallbackErrorMessage;
+    job.durationMs = fallbackDurationMs;
+    job.completedAt = fallbackCompletedAt;
+    this.appendAiTrace(job, {
+      event: 'terminal',
+      status: 'fallback',
+      reason: job.errorMessage,
+      providerId: job.providerId,
+      modelName: job.modelName,
+      durationMs: job.durationMs,
+      fallbackUsed: true,
+    });
     this.persist();
     return job;
   }
 
   private templateProvider(): AIProvider {
-    return { id: 'provider_template', name: '安全模板兜底', type: 'template', providerKind: 'template', baseUrl: 'local://template', modelName: 'safe-template', apiKeyStatus: 'configured', enabled: true, priority: 999, dailyLimit: 99_999, timeoutSeconds: 1, failoverEnabled: false, usageTags: ['fallback'], failureRate: 0, avgLatencyMs: 1, todayCalls: 0 };
+    return {
+      id: 'provider_template',
+      name: '安全模板兜底',
+      type: 'template',
+      providerKind: 'template',
+      baseUrl: 'local://template',
+      modelName: 'safe-template',
+      apiKeyStatus: 'configured',
+      enabled: true,
+      priority: 999,
+      dailyLimit: 99_999,
+      timeoutSeconds: 1,
+      failoverEnabled: false,
+      usageTags: ['fallback'],
+      failureRate: 0,
+      avgLatencyMs: 1,
+      todayCalls: 0,
+    };
   }
 
   private requiresReasoningOutputExtraction(provider: AIProvider) {
@@ -2762,69 +9393,171 @@ export class StoreService implements OnModuleInit {
   private extractUserFacingModelOutput(rawOutput: string, requiresReasoningExtraction: boolean) {
     const trimmed = rawOutput.trim();
     if (!requiresReasoningExtraction) return trimmed;
-    const finalOutput = trimmed.split(/<\/think>\s*/i).at(-1)?.trim() ?? '';
+    const finalOutput =
+      trimmed
+        .split(/<\/think>\s*/i)
+        .at(-1)
+        ?.trim() ?? '';
     if (!/<\/think>/i.test(trimmed) || !finalOutput || /^thinking process\s*:/i.test(finalOutput)) {
       throw new Error('Reasoning-model response did not contain a safe final answer');
     }
     return finalOutput;
   }
 
-  private buildAiPrompt(input: { taskType: AITaskType; style: AIStyle; route: AIStyleRoute; content: string; mood: string }) {
-    const safety = '你是晚安树洞的中文情绪陪伴助手。你不是医生，不做心理疾病诊断、不冒充专业人员、不做绝对承诺。语气温和、具体、不过度说教。若用户提及即时人身危险，提醒其联系身边可信任的人和当地紧急支持。';
+  private buildAiPrompt(input: {
+    taskType: AITaskType;
+    style: AIStyle;
+    route: AIStyleRoute;
+    content: string;
+    mood: string;
+    mode?: string;
+    userId?: string;
+    memories?: MemoryItem[];
+  }) {
     const taskInstructions: Record<AITaskType, string> = {
       post_reply: '为匿名树洞写一段 90 到 160 字的公开温柔回应，不泄露或推测身份。',
       today_letter: '写一封给此刻用户的 140 到 220 字今日回信，紧贴其最近记录，给出一个很小且可执行的行动。',
-      breakdown: '只输出严格 JSON，不要 Markdown。字段必须完整：{"triggerEvent":"","coreEmotions":[""],"realNeeds":[""],"nextSmallStep":"","summary":"","advice":["","",""]}。',
-      rewrite: '把用户的负面表达改写成不否认感受、也不攻击自己的 80 到 150 字表达。',
-      rant: '写一段允许释放情绪、但不煽动伤害自己或他人的 80 到 150 字文案。',
-      heal: '写一句简短、自然、不过度承诺的治愈短句。',
-      sleep: '给失眠中的用户一段 80 到 140 字安慰，聚焦当下放松和一个小动作。',
-      work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。',
-      future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。',
+      breakdown:
+        '只输出严格 JSON，不要 Markdown。字段必须完整：{"triggerEvent":"","coreEmotions":[""],"realNeeds":[""],"nextSmallStep":"","summary":"","advice":["","",""]}。',
+      rewrite: '把用户的表达改写得更温和、平实，保留真实意思但不带刺痛与攻击性，像可以放心发出的便签，100 字左右。直接输出改写结果，严禁加前缀标签。',
+      rant: '写一段允许释放情绪、但不煽动伤害自己或他人的 80 到 150 字文案。直接输出文案，严禁加前缀标签。',
+      heal: '写一句简短、自然、不过度承诺的治愈短句，直接输出一句话，严禁加前缀标签。',
+      sleep: '给失眠中的用户一段 80 到 140 字安慰，聚焦当下放松和一个小动作。直接输出文案，严禁加前缀标签。',
+      work: '把工作困扰分成事实、可控因素和一个下一步，150 字以内。直接输出文案，严禁加前缀标签。',
+      future: '写一封 120 到 220 字给未来自己的短信，保留希望但不做绝对保证。直接输出信件，严禁加前缀标签。',
       month_report: '根据提供的真实统计写一段月度观察，不改写或虚构其中的数字。',
-      situation_analysis: '只输出严格 JSON：{"title":"","domain":"","subDomain":"","eventType":"","stage":"","contextTags":[],"peopleContext":[],"decisionContext":[],"behaviorSignals":[],"recoverySignals":[],"intensity":0,"urgency":0,"facts":[],"feelings":[],"needs":[],"constraints":[],"risks":[],"summary":"","nextStep":""}。只整理用户明确表达的内容，不补造事实。',
-      action_plan: '只输出严格 JSON：{"title":"","description":"","dueInDays":1,"why":""}。给一个最小、可执行、用户可以自行确认的行动。',
+      monthly_recovery_summary:
+        '根据用户已同意提供的本月旅程、行动、生活恢复、同路和决定事实，写一段 160 到 260 字的回顾。只能总结事实，不诊断、不预测、不贴标签，也不虚构数字。',
+      situation_analysis:
+        '只输出严格 JSON：{"title":"","domain":"","subDomain":"","eventType":"","stage":"","contextTags":[],"peopleContext":[],"decisionContext":[],"behaviorSignals":[],"recoverySignals":[],"intensity":0,"urgency":0,"facts":[],"feelings":[],"needs":[],"constraints":[],"risks":[],"summary":"","nextStep":""}。只整理用户明确表达的内容，不补造事实。',
+      action_plan:
+        '只输出严格 JSON：{"title":"","description":"","dueInDays":1,"why":""}。给一个最小、可执行、用户可以自行确认的行动。',
       journey_summary: '根据旅程时间线写一段事实与变化摘要，不做诊断，不虚构数据。',
-      support_plan: '只输出严格 JSON：{"signals":[],"smallSteps":[],"people":[],"whenToReview":""}。给出可执行的现实支持计划。',
-      decision_clarify: '只输出严格 JSON：{"question":"","options":[],"criteria":[],"uncertainties":[],"nextStep":""}。帮助澄清选择，不替用户做决定。',
-      need_analysis: '只输出严格 JSON：{"intent":"JUST_LISTEN|FIND_PEOPLE|SEE_OUTCOMES|NEXT_STEP|STOP_IMPULSE|PREPARE_CONVERSATION|NOTHING_NOW|HIGH_DISTRESS","reason":""}。只根据用户明确表达判断，不做诊断。',
-      risk_analysis: '只输出严格 JSON：{"riskLevel":"low|medium|high","signals":[],"nextStep":""}。高风险时只提示现实支持，不生成热线号码。',
-      barrier_analysis: '只输出严格 JSON：{"barrier":"forgot|too_hard|emotion_too_strong|environment|something_else|did_not_want_to|other","summary":"","nextStep":""}。',
-      adaptive_action: '只输出严格 JSON：{"title":"","why":"","difficulty":"tiny|easy|moderate","expectedDuration":"","completionDefinition":"","adaptationReason":"forgot|too_hard|emotion_too_strong|environment|something_else|did_not_want_to|other","summary":""}。把行动缩小，不要一次给多个方案。',
-      peer_match_explain: '只输出严格 JSON：{"explanation":"","sharedContext":[],"recoveryLead":""}。只能引用输入里的真实字段，不得编造经历。',
-      loop_detection: '只输出严格 JSON：{"detected":false,"pattern":"","count":0,"windowDays":7,"options":[]}。只根据输入记录判断。',
-      recovery_summary: '只输出严格 JSON：{"summary":"","trend":"up|steady|down|unknown","observations":[]}。只做生活观察，不做医疗诊断。',
+      support_plan:
+        '只输出严格 JSON：{"signals":[],"smallSteps":[],"people":[],"whenToReview":""}。给出可执行的现实支持计划。',
+      decision_clarify:
+        '只输出严格 JSON：{"question":"","options":[],"criteria":[],"uncertainties":[],"nextStep":""}。帮助澄清选择，不替用户做决定。',
+      need_analysis:
+        '只输出严格 JSON：{"intent":"JUST_LISTEN|FIND_PEOPLE|SEE_OUTCOMES|NEXT_STEP|STOP_IMPULSE|PREPARE_CONVERSATION|NOTHING_NOW|HIGH_DISTRESS","reason":""}。只根据用户明确表达判断，不做诊断。',
+      risk_analysis:
+        '只输出严格 JSON：{"riskLevel":"low|medium|high","signals":[],"nextStep":""}。高风险时只提示现实支持，不生成热线号码。',
+      barrier_analysis:
+        '只输出严格 JSON：{"barrier":"forgot|too_hard|emotion_too_strong|environment|something_else|did_not_want_to|other","summary":"","nextStep":""}。',
+      adaptive_action:
+        '只输出严格 JSON：{"title":"","why":"","difficulty":"tiny|easy|moderate","expectedDuration":"","completionDefinition":"","adaptationReason":"forgot|too_hard|emotion_too_strong|environment|something_else|did_not_want_to|other","summary":""}。把行动缩小，不要一次给多个方案。',
+      peer_match_explain:
+        '只输出严格 JSON：{"explanation":"","sharedContext":[],"recoveryLead":""}。只能引用输入里的真实字段，不得编造经历。',
+      loop_detection:
+        '只输出严格 JSON：{"detected":false,"pattern":"","count":0,"windowDays":7,"options":[]}。只根据输入记录判断。',
+      recovery_summary:
+        '只输出严格 JSON：{"summary":"","trend":"up|steady|down|unknown","observations":[]}。只做生活观察，不做医疗诊断。',
       peer_response_assist: '只输出严格 JSON：{"draft":"","reminders":[]}。这是给真人编辑的草稿，不能自动发送。',
     };
-    return `${safety}\n任务：${taskInstructions[input.taskType]}\n风格：${input.style}。路由提示：${input.route.promptTemplate}\n用户内容或统计：\n${input.content}\n请直接给出结果。`;
+    const modeInstructions: Record<string, string> = {
+      clear: '说得更清楚直白，不带刺痛感。',
+      shorter: '缩短成一两句话，简明易懂。',
+      action: '转化为可以执行的具体一小步。',
+      raw: '痛快倾诉，不做评判。',
+      deep: '理清背后真正的卡点。',
+      gentle: '语气温和细腻。',
+      solid: '踏实、有陪伴感。',
+      breath: '简短，引导慢下来呼吸。',
+      tomorrow: '把事情留到明天，今晚先休息。',
+      boundary: '区分责任边界。',
+      step: '只给出一小步具体行动。',
+      future_week: '写给下周的自己。',
+      future_year: '写给明年的自己。',
+    };
+
+    const persona = input.userId
+      ? this.aiPersona.getUserPersona(input.userId)
+      : this.aiPersona.personas.night_companion;
+
+    const taskInstruction = taskInstructions[input.taskType] ?? '给出一个平和简明的回应。';
+    const modeText = input.mode && modeInstructions[input.mode] ? modeInstructions[input.mode] : undefined;
+
+    return this.aiPersona.assemblePrompt({
+      taskType: input.taskType,
+      personaId: persona.id,
+      taskInstruction: `${taskInstruction}\n风格：${input.style}。路由提示：${input.route.promptTemplate}`,
+      userContent: input.content,
+      memories: input.memories,
+      allowAiMemoryUse: (input.memories ?? []).length > 0,
+      mode: modeText,
+    });
   }
 
   private parseBreakdownResult(value: string) {
-    const normalized = value.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    const normalized = value
+      .replace(/^```json\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
     const parsed = JSON.parse(normalized) as Record<string, unknown>;
     const coreEmotions = Array.isArray(parsed.coreEmotions) ? parsed.coreEmotions.map(String).filter(Boolean) : [];
     const realNeeds = Array.isArray(parsed.realNeeds) ? parsed.realNeeds.map(String).filter(Boolean) : [];
     const triggerEvent = String(parsed.triggerEvent ?? '').trim();
     const nextSmallStep = String(parsed.nextSmallStep ?? '').trim();
     const summary = String(parsed.summary ?? '').trim();
-    if (!triggerEvent || !coreEmotions.length || !realNeeds.length || !nextSmallStep || !summary) throw new Error('Remote AI structured response is incomplete');
+    if (!triggerEvent || !coreEmotions.length || !realNeeds.length || !nextSmallStep || !summary)
+      throw new Error('Remote AI structured response is incomplete');
     const advice = Array.isArray(parsed.advice) ? parsed.advice.map(String).filter(Boolean).slice(0, 3) : [];
-    return { triggerEvent, trigger: triggerEvent, coreEmotions, coreEmotion: coreEmotions.join('、'), realNeeds, realNeed: realNeeds.join('、'), nextSmallStep, nextStep: nextSmallStep, smallAction: nextSmallStep, firstStep: nextSmallStep, summary, advice };
+    return {
+      triggerEvent,
+      trigger: triggerEvent,
+      coreEmotions,
+      coreEmotion: coreEmotions.join('、'),
+      realNeeds,
+      realNeed: realNeeds.join('、'),
+      nextSmallStep,
+      nextStep: nextSmallStep,
+      smallAction: nextSmallStep,
+      firstStep: nextSmallStep,
+      summary,
+      advice,
+    };
   }
 
   private parseStructuredTaskResult(value: string, taskType: AITaskType) {
     if (taskType === 'breakdown') return this.parseBreakdownResult(value);
-    const normalized = value.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    const normalized = value
+      .replace(/^```json\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
     const parsed = JSON.parse(normalized) as Record<string, unknown>;
-    const arrays = (key: string) => Array.isArray(parsed[key]) ? (parsed[key] as unknown[]).map(String).filter(Boolean) : [];
+    const arrays = (key: string) =>
+      Array.isArray(parsed[key]) ? (parsed[key] as unknown[]).map(String).filter(Boolean) : [];
     if (taskType === 'peer_response_assist') {
       const draft = String(parsed.draft ?? '').trim();
       if (!draft) throw new Error('Remote peer-assist response is incomplete');
-      return { ...parsed, draft, reminders: arrays('reminders'), summary: draft };
+      // The model writes the draft, so its output is the untrusted side here: a draft that
+      // repeats the other party's phone number or address must be redacted before it is
+      // persisted, exactly like human-authored peer text (review P1-5).
+      //
+      // Whitelisted, not spread. `{ ...parsed }` carried every other field the model chose to
+      // emit straight into `structuredResult`, where no redaction had been applied — the
+      // redaction covered only the three fields this code names.
+      return {
+        draft: this.redactPeerPublicText(draft),
+        reminders: arrays('reminders').map((item) => this.redactPeerPublicText(item)),
+        summary: this.redactPeerPublicText(draft),
+      };
     }
     const summary = String(parsed.summary ?? parsed.description ?? parsed.nextStep ?? parsed.question ?? '').trim();
     if (!summary) throw new Error('Remote AI structured response is incomplete');
-    return { ...parsed, summary, facts: arrays('facts'), feelings: arrays('feelings'), needs: arrays('needs'), constraints: arrays('constraints'), risks: arrays('risks'), options: arrays('options'), criteria: arrays('criteria'), signals: arrays('signals'), smallSteps: arrays('smallSteps'), uncertainties: arrays('uncertainties') };
+    return {
+      ...parsed,
+      summary,
+      facts: arrays('facts'),
+      feelings: arrays('feelings'),
+      needs: arrays('needs'),
+      constraints: arrays('constraints'),
+      risks: arrays('risks'),
+      options: arrays('options'),
+      criteria: arrays('criteria'),
+      signals: arrays('signals'),
+      smallSteps: arrays('smallSteps'),
+      uncertainties: arrays('uncertainties'),
+    };
   }
 
   private normalizeTaskType(value?: string): AITaskType {
@@ -2839,44 +9572,45 @@ export class StoreService implements OnModuleInit {
       work_support: 'work',
       future_letter: 'future',
       monthly_report: 'month_report',
+      monthly_recovery_summary: 'monthly_recovery_summary',
       post_reply: 'post_reply',
-      '树洞温柔回应': 'post_reply',
+      树洞温柔回应: 'post_reply',
       today_letter: 'today_letter',
-      '今日回信': 'today_letter',
+      今日回信: 'today_letter',
       breakdown: 'breakdown',
       decompose: 'breakdown',
-      '情绪拆解': 'breakdown',
+      情绪拆解: 'breakdown',
       rewrite: 'rewrite',
-      '负面改写': 'rewrite',
+      负面改写: 'rewrite',
       rant: 'rant',
-      '发疯文案': 'rant',
+      发疯文案: 'rant',
       heal: 'heal',
       'healing-quote': 'heal',
-      '治愈短句': 'heal',
+      治愈短句: 'heal',
       sleep: 'sleep',
       'sleep-comfort': 'sleep',
-      '失眠安慰': 'sleep',
+      失眠安慰: 'sleep',
       work: 'work',
       'work-support': 'work',
-      '工作破防': 'work',
+      工作破防: 'work',
       future: 'future',
       'future-letter': 'future',
-      '写给未来的自己': 'future',
+      写给未来的自己: 'future',
       month_report: 'month_report',
       report: 'month_report',
-      '情绪月报': 'month_report',
+      情绪月报: 'month_report',
       situation_analysis: 'situation_analysis',
-      '情况分析': 'situation_analysis',
+      情况分析: 'situation_analysis',
       action_plan: 'action_plan',
-      '行动计划': 'action_plan',
+      行动计划: 'action_plan',
       journey_summary: 'journey_summary',
-      '旅程总结': 'journey_summary',
+      旅程总结: 'journey_summary',
       support_plan: 'support_plan',
-      '支持计划': 'support_plan',
+      支持计划: 'support_plan',
       decision_clarify: 'decision_clarify',
-      '决策澄清': 'decision_clarify',
+      决策澄清: 'decision_clarify',
       need_analysis: 'need_analysis',
-      '需要分析': 'need_analysis',
+      需要分析: 'need_analysis',
       risk_analysis: 'risk_analysis',
       barrier_analysis: 'barrier_analysis',
       adaptive_action: 'adaptive_action',
@@ -2889,7 +9623,22 @@ export class StoreService implements OnModuleInit {
   }
 
   private defaultStyleForTask(taskType: AITaskType): AIStyle {
-    if (taskType === 'breakdown' || taskType === 'work' || taskType === 'situation_analysis' || taskType === 'action_plan' || taskType === 'support_plan' || taskType === 'decision_clarify' || taskType === 'need_analysis' || taskType === 'risk_analysis' || taskType === 'barrier_analysis' || taskType === 'adaptive_action' || taskType === 'loop_detection' || taskType === 'recovery_summary') return 'rational';
+    if (
+      taskType === 'breakdown' ||
+      taskType === 'work' ||
+      taskType === 'situation_analysis' ||
+      taskType === 'action_plan' ||
+      taskType === 'support_plan' ||
+      taskType === 'decision_clarify' ||
+      taskType === 'need_analysis' ||
+      taskType === 'risk_analysis' ||
+      taskType === 'barrier_analysis' ||
+      taskType === 'adaptive_action' ||
+      taskType === 'loop_detection' ||
+      taskType === 'recovery_summary' ||
+      taskType === 'monthly_recovery_summary'
+    )
+      return 'rational';
     if (taskType === 'future') return 'poetic';
     if (taskType === 'rewrite') return 'clear';
     return 'warm';
@@ -2898,8 +9647,24 @@ export class StoreService implements OnModuleInit {
   private contentTypeForTask(taskType: AITaskType) {
     if (taskType === 'today_letter') return 'Letter';
     if (taskType === 'post_reply') return 'Post';
-    if (taskType === 'month_report') return 'Report';
-    if (['situation_analysis', 'action_plan', 'journey_summary', 'support_plan', 'decision_clarify', 'need_analysis', 'risk_analysis', 'barrier_analysis', 'adaptive_action', 'peer_match_explain', 'loop_detection', 'recovery_summary'].includes(taskType)) return 'LifeJourney';
+    if (taskType === 'month_report' || taskType === 'monthly_recovery_summary') return 'Report';
+    if (
+      [
+        'situation_analysis',
+        'action_plan',
+        'journey_summary',
+        'support_plan',
+        'decision_clarify',
+        'need_analysis',
+        'risk_analysis',
+        'barrier_analysis',
+        'adaptive_action',
+        'peer_match_explain',
+        'loop_detection',
+        'recovery_summary',
+      ].includes(taskType)
+    )
+      return 'LifeJourney';
     return 'ToolTask';
   }
 
@@ -2915,6 +9680,7 @@ export class StoreService implements OnModuleInit {
       work: '工作破防',
       future: '写给未来的自己',
       month_report: '情绪月报',
+      monthly_recovery_summary: '恢复月报总结',
       situation_analysis: '情况分析',
       action_plan: '行动计划',
       journey_summary: '旅程总结',
@@ -2930,31 +9696,34 @@ export class StoreService implements OnModuleInit {
       peer_response_assist: '真人回复整理',
     };
     void map;
-    return ({
-      post_reply: 'public_ai_reply',
-      today_letter: 'warm_letter',
-      breakdown: 'emotion_analysis',
-      rewrite: 'negative_rewrite',
-      rant: 'rant',
-      heal: 'healing_phrase',
-      sleep: 'sleep_comfort',
-      work: 'work_support',
-      future: 'future_letter',
-      month_report: 'monthly_report',
-      situation_analysis: 'situation_analysis',
-      action_plan: 'action_plan',
-      journey_summary: 'journey_summary',
-      support_plan: 'support_plan',
-      decision_clarify: 'decision_clarify',
-      need_analysis: 'need_analysis',
-      risk_analysis: 'risk_analysis',
-      barrier_analysis: 'barrier_analysis',
-      adaptive_action: 'adaptive_action',
-      peer_match_explain: 'peer_match_explain',
-      loop_detection: 'loop_detection',
-      recovery_summary: 'recovery_summary',
-      peer_response_assist: 'peer_response_assist',
-    } as Record<AITaskType, string>)[taskType];
+    return (
+      {
+        post_reply: 'public_ai_reply',
+        today_letter: 'warm_letter',
+        breakdown: 'emotion_analysis',
+        rewrite: 'negative_rewrite',
+        rant: 'rant',
+        heal: 'healing_phrase',
+        sleep: 'sleep_comfort',
+        work: 'work_support',
+        future: 'future_letter',
+        month_report: 'monthly_report',
+        monthly_recovery_summary: 'monthly_recovery_summary',
+        situation_analysis: 'situation_analysis',
+        action_plan: 'action_plan',
+        journey_summary: 'journey_summary',
+        support_plan: 'support_plan',
+        decision_clarify: 'decision_clarify',
+        need_analysis: 'need_analysis',
+        risk_analysis: 'risk_analysis',
+        barrier_analysis: 'barrier_analysis',
+        adaptive_action: 'adaptive_action',
+        peer_match_explain: 'peer_match_explain',
+        loop_detection: 'loop_detection',
+        recovery_summary: 'recovery_summary',
+        peer_response_assist: 'peer_response_assist',
+      } as Record<AITaskType, string>
+    )[taskType];
   }
 
   private publicProviderName(providerId: string) {
@@ -2971,17 +9740,36 @@ export class StoreService implements OnModuleInit {
   }
 
   private latestUserContent(userId: string) {
-    const diary = this.diaries.find((item) => item.userId === userId);
-    const mood = this.moods.find((item) => item.userId === userId);
-    return diary?.content ?? mood?.content ?? '';
+    // Diary is database-authoritative; `queueAI` is on a hot synchronous path, so the caller passes
+    // the already-loaded content instead of this reaching for the table.
+    return this.pendingDiaryContent ?? this.pendingMoodContent ?? '';
   }
 
-  resolveSourceContent(sourceId?: string) {
+  /** Set by `createMood` so a follow-up AI call for the same request can use the mood's content. */
+  private pendingMoodContent?: string;
+  /** Same, for the companion diary a private mood publishes. */
+  private pendingDiaryContent?: string;
+  /** The assets this request already loaded, so a feed loop reads a map rather than the table. */
+  private mediaAssetCache = new Map<string, MediaAsset>();
+  /** Same idea for `resolveSourceContent`: a mood loaded this request, keyed by id. */
+  private pendingSourceContent?: Record<string, string>;
+
+  /**
+   * The text a letter can be generated from, for a source that may not exist.
+   *
+   * A letter whose `sourceMoodId` is null has no source to look up, so this accepts null and
+   * returns '' for it rather than forcing every caller to juggle the two shapes.
+   */
+  async resolveSourceContent(sourceId?: string | null) {
     if (!sourceId) return '';
     return (
-      this.moods.find((item) => item.id === sourceId)?.content ??
-      this.diaries.find((item) => item.id === sourceId)?.content ??
-      this.letters.find((item) => item.id === sourceId)?.content ??
+      (this.pendingSourceContent ?? {})[sourceId] ??
+      // Diary is registered, so the row is read rather than scanned; the array's getter throws.
+      (DIRECT_DB_MODELS.Diary ? await this.diariesDb.get(sourceId) : this.diaries.find((item) => item.id === sourceId))
+        ?.content ??
+      (DIRECT_DB_MODELS.Letter
+        ? ((await this.lettersDb.get(sourceId)) as { content?: string } | null)?.content
+        : this.letters.find((item) => item.id === sourceId)?.content) ??
       ''
     );
   }
@@ -2993,7 +9781,10 @@ export class StoreService implements OnModuleInit {
     if (/喜欢|恋爱|想念|关系|分手|暧昧/.test(text)) return '恋爱' as Emotion;
     if (/委屈|批评|误会|刺|被说|责备/.test(text)) return '委屈' as Emotion;
     if (/焦虑|担心|害怕|紧张|慌|压力/.test(text)) return '焦虑' as Emotion;
-    return '焦虑' as Emotion;
+    // The fallback used to be 焦虑 too, which meant every entry the matcher did not recognise was
+    // described to its author as anxious - a statement about the user that the text does not support.
+    // 平静 asserts nothing; the caller's own emotion is preferred whenever it is known.
+    return '平静' as Emotion;
   }
 
   private extractTopic(content: string) {
@@ -3047,19 +9838,29 @@ export class StoreService implements OnModuleInit {
   }
 
   private dynamicAdvice(mood: string, style: AIStyle, content: string) {
-    if (/睡不着|失眠|凌晨/.test(content) || mood === '失眠') return ['写下担心清单', '做三轮慢呼气', '把明天第一步写小'];
-    if (/工作|领导|汇报|项目/.test(content) || mood === '工作') return ['先列一件小任务', '把反馈和自我价值分开', '给自己留十分钟缓冲'];
+    if (/睡不着|失眠|凌晨/.test(content) || mood === '失眠')
+      return ['写下担心清单', '做三轮慢呼气', '把明天第一步写小'];
+    if (/工作|领导|汇报|项目/.test(content) || mood === '工作')
+      return ['先列一件小任务', '把反馈和自我价值分开', '给自己留十分钟缓冲'];
     if (style === 'poetic') return ['把心事写成一句话', '给房间留一盏小灯', '今晚少责备自己一点'];
     if (style === 'rational') return ['区分事实和猜测', '写下可控的一步', '暂时不做最终判断'];
     return ['喝几口温水', '把肩膀放松下来', '先照顾此刻的身体'];
   }
 
-  private fallbackStructuredTask(input: { taskType: AITaskType; content: string; mood: string; style: AIStyle }, base: Record<string, unknown>) {
+  private fallbackStructuredTask(
+    input: { taskType: AITaskType; content: string; mood: string; style: AIStyle },
+    base: Record<string, unknown>,
+  ) {
     const topic = this.extractTopic(input.content);
-    const domain = /工作|同事|领导|汇报|会议|项目|加班|职场/.test(input.content) ? '工作'
-      : /伴侣|恋爱|分手|暧昧|喜欢|关系/.test(input.content) ? '关系'
-        : /家人|父母|孩子|家庭/.test(input.content) ? '家庭'
-          : /睡不着|失眠|夜里|凌晨/.test(input.content) ? '睡眠' : '其他';
+    const domain = /工作|同事|领导|汇报|会议|项目|加班|职场/.test(input.content)
+      ? '工作'
+      : /伴侣|恋爱|分手|暧昧|喜欢|关系/.test(input.content)
+        ? '关系'
+        : /家人|父母|孩子|家庭/.test(input.content)
+          ? '家庭'
+          : /睡不着|失眠|夜里|凌晨/.test(input.content)
+            ? '睡眠'
+            : '其他';
     const summary = String(base.summary ?? `先把“${topic}”放在这里，再决定要不要走下一步。`);
     if (input.taskType === 'situation_analysis') {
       return {
@@ -3085,45 +9886,166 @@ export class StoreService implements OnModuleInit {
         nextStep: String(base.nextStep ?? ''),
       };
     }
-    if (input.taskType === 'action_plan') return { ...base, title: '先完成一个五分钟的小动作', description: String(base.nextStep ?? ''), dueInDays: 1, why: String(base.realNeed ?? ''), summary };
-    if (input.taskType === 'adaptive_action') return { ...base, title: `把“${topic}”缩小一点`, why: '先降低开始门槛，再根据真实结果调整。', difficulty: 'tiny', expectedDuration: '5 分钟', completionDefinition: String(base.nextStep ?? '写下一句最容易开始的话'), adaptationReason: 'other', summary };
-    if (input.taskType === 'need_analysis') return { ...base, intent: 'JUST_LISTEN', reason: '先由用户选择自己更需要的支持方向。', summary };
-    if (input.taskType === 'risk_analysis') return { ...base, riskLevel: 'low', signals: [], nextStep: String(base.nextStep ?? ''), summary };
-    if (input.taskType === 'barrier_analysis') return { ...base, barrier: 'other', nextStep: String(base.nextStep ?? ''), summary };
-    if (input.taskType === 'peer_match_explain') return { ...base, explanation: '匹配依据只会引用你已确认且允许参与匹配的经历线索。', sharedContext: [], recoveryLead: '', summary };
-    if (input.taskType === 'loop_detection') return { ...base, detected: false, pattern: '', count: 0, windowDays: 7, options: [], summary };
+    if (input.taskType === 'action_plan')
+      return {
+        ...base,
+        title: '先完成一个五分钟的小动作',
+        description: String(base.nextStep ?? ''),
+        dueInDays: 1,
+        why: String(base.realNeed ?? ''),
+        summary,
+      };
+    if (input.taskType === 'adaptive_action')
+      return {
+        ...base,
+        title: `把“${topic}”缩小一点`,
+        why: '先降低开始门槛，再根据真实结果调整。',
+        difficulty: 'tiny',
+        expectedDuration: '5 分钟',
+        completionDefinition: String(base.nextStep ?? '写下一句最容易开始的话'),
+        adaptationReason: 'other',
+        summary,
+      };
+    if (input.taskType === 'need_analysis')
+      return { ...base, intent: 'JUST_LISTEN', reason: '先由用户选择自己更需要的支持方向。', summary };
+    if (input.taskType === 'risk_analysis')
+      return { ...base, riskLevel: 'low', signals: [], nextStep: String(base.nextStep ?? ''), summary };
+    if (input.taskType === 'barrier_analysis')
+      return { ...base, barrier: 'other', nextStep: String(base.nextStep ?? ''), summary };
+    if (input.taskType === 'peer_match_explain')
+      return {
+        ...base,
+        explanation: '匹配依据只会引用你已确认且允许参与匹配的经历线索。',
+        sharedContext: [],
+        recoveryLead: '',
+        summary,
+      };
+    if (input.taskType === 'loop_detection')
+      return { ...base, detected: false, pattern: '', count: 0, windowDays: 7, options: [], summary };
     if (input.taskType === 'recovery_summary') return { ...base, trend: 'unknown', observations: [], summary };
-    if (input.taskType === 'peer_response_assist') return { ...base, draft: '', reminders: ['这只是草稿，发送前请由真人确认。'], summary };
+    if (input.taskType === 'peer_response_assist')
+      return { ...base, draft: '', reminders: ['这只是草稿，发送前请由真人确认。'], summary };
     return base;
   }
 
-  private composeDynamicText(input: { taskType: AITaskType; content: string; mood: string; style: AIStyle; routeLabel: string }) {
+  private composeDynamicText(input: {
+    taskType: AITaskType;
+    content: string;
+    mood: string;
+    style: AIStyle;
+    routeLabel: string;
+    mode?: string;
+    personaId?: string;
+  }) {
     const topic = this.extractTopic(input.content);
     const structured = this.buildStructured(input);
     const action = structured.nextStep as string;
-    const styleText: Record<AIStyle, string> = {
-      warm: `暖心陪伴：我听见你提到“${topic}”。这份${input.mood}不是矫情，它是在提醒你已经撑了一会儿。今晚先不用急着证明自己，先做一件很小的事：${action}。`,
-      rational: `理性分析：围绕“${topic}”，现在可以先分成三层看：事实是事情发生了，情绪是${structured.coreEmotion}，需要是${structured.realNeed}。下一步只保留一个动作：${action}。`,
-      light: `轻松一点：关于“${topic}”，先把脑内音量调低一点。你不用一口气处理完，先把最卡住的地方写出来，再给自己一个短暂停顿：${action}。`,
-      clear: `清醒提醒：你写下“${topic}”，说明这件事已经占用了能量。先别把它扩大成对自己的结论，今晚只处理可控部分：${action}。`,
-      poetic: `诗意疗愈：你把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+
+    const moodPhrases: Record<string, string> = {
+      委屈: '感到有些委屈',
+      焦虑: '心里感到焦虑',
+      失眠: '夜里难以入睡',
+      恋爱: '为感情的事感到困扰',
+      工作: '为工作的事感到烦心',
+      平静: '心情正在平静下来',
     };
-    const taskText: Partial<Record<AITaskType, string>> = {
-      breakdown: `情绪拆解：触发事件可能是“${structured.trigger}”；核心情绪是“${structured.coreEmotion}”；真实需要是“${structured.realNeed}”；可以先做的一小步是“${action}”。`,
-      rewrite: `负面改写：把“${topic}”换成更照顾自己的说法：我正在经历${input.mood}，但这不等于我不够好。我可以先从“${action}”开始。`,
-      rant: `发疯文案：今天这件“${topic}”真的够烦，也够消耗。允许你先吐槽，不急着优雅；吐完以后，把力气收回来一点点：${action}。`,
-      heal: `治愈短句：就算“${topic}”让你很累，你也仍然值得被认真对待。先把自己放回当下：${action}。`,
-      sleep: `失眠安慰：如果“${topic}”还在脑子里转，先告诉自己：现在不是解决全部问题的时间。把担心放进纸上，再做一轮慢呼气。`,
-      work: `工作支撑：面对“${topic}”，先把评价、任务和自我价值分开。你要处理的是下一步任务，不是证明整个人都没问题；先做：${action}。`,
-      future: `写给未来：未来的你会记得，此刻关于“${topic}”的难受并没有浪费。它提醒你要更温柔地安排边界，也提醒你从“${action}”重新开始。`,
-      month_report: `情绪月报：这个阶段反复出现的线索是“${topic}”。${input.mood}背后有真实需要，下个月可以先固定一个小动作：${action}。`,
-      situation_analysis: `情况分析：先把“${topic}”拆成已经发生的事实、此刻的感受和你可以确认的需要，再由你决定下一步是否合适。`,
-      action_plan: `行动建议：围绕“${topic}”，先保留一个五分钟内能完成的小动作：${action}。完成后再根据结果调整，不把一次行动当成对自己的评价。`,
-      journey_summary: `旅程摘要：你正在处理“${topic}”。目前能确认的是你已经把事情说出来，并找到了一步可尝试的动作：${action}。`,
-      support_plan: `现实支持计划：当“${topic}”再次变重时，可以先做：${action}；如果仍然难以独自承受，请联系你信任的人和当地现实支持。`,
-      decision_clarify: `决策澄清：关于“${topic}”，先把选项、在意的条件和还不确定的地方分别写下，不替自己仓促下结论。`,
+    const moodPhrase = moodPhrases[input.mood] ?? `面对这些时`;
+
+    const personaStyleText: Record<string, Record<AIStyle, string>> = {
+      night_companion: {
+        warm: `看到你写下“${topic}”。夜深了，先把紧绷的神经慢慢松开。${moodPhrase}是很自然的事，今晚先安心休息，只做眼前这件小事：${action}。`,
+        rational: `关于“${topic}”，夜深时分先把事情和顾虑放下。事情已经发生了，${moodPhrase}。今晚只先落实一个安静可控的动作：${action}。`,
+        light: `关于“${topic}”，夜里的风已经吹散了白天的嘈杂。今晚给紧绷的自己一个温柔的停顿：${action}。`,
+        clear: `你写下“${topic}”，这一天已经消耗了你太多心神。在深夜里先别急着下定论，只做这一件小事：${action}。`,
+        poetic: `把“${topic}”安放进静谧的夜色里，明月照拂每个疲惫的心灵。愿你今晚安稳入眠，先回归这一小步：${action}。`,
+      },
+      gentle_listener: {
+        warm: `看到你写下“${topic}”。我能真切感受到你心里的难受与${moodPhrase}，受委屈时先好好抱抱自己。不用强撑着向前走，此刻先缓一缓：${action}。`,
+        rational: `面对“${topic}”，委屈和难过都是真实的。不用苛求自己立刻理智，允许负面情绪存在片刻，然后试着做这件小事：${action}。`,
+        light: `“${topic}”让你很累吧？没关系的，无论今天多糟，你都好好度过了。今晚先给自己泡杯温水，做个小动作：${action}。`,
+        clear: `“${topic}”里藏着不少委屈和不易。你不必向所有人证明什么，今晚先善待自己，只做眼前的一小步：${action}。`,
+        poetic: `你写下的“${topic}”，字字句句我都听到了。脆弱不是过错，那是心在渴望喘息。先在这微光里歇一歇：${action}。`,
+      },
+      rational_clarifier: {
+        warm: `看到你写下“${topic}”。温暖不是逃避，而是为理清思路蓄力。${moodPhrase}是正常信号，今晚先完成这一小步：${action}。`,
+        rational: `关于“${topic}”，我们先试着把客观事实与当下情绪分开：${moodPhrase}是情绪信号，而当前最清晰可控的一步是：${action}。`,
+        light: `关于“${topic}”，焦虑往往放大了困难。把大任务切成碎片，今晚先挑最轻的一片来做：${action}。`,
+        clear: `围绕“${topic}”，列清事实、可控边界与不可控因素。今晚只处理完全属于你掌控范围的这一小步：${action}。`,
+        poetic: `思绪如纷飞的落叶，“${topic}”终会落地归根。条理是心灵的锚，今晚先定下一件具体动作：${action}。`,
+      },
+      comfort_guide: {
+        warm: `读到你关于“${topic}”的心情。现在试着深呼吸一口气，放松肩颈与眉头。${moodPhrase}时，先把注意力带回身体的感知：${action}。`,
+        rational: `身体比大脑更早感受到“${topic}”的压力。先调整呼吸节奏，心率放慢之后，再来做这一步：${action}。`,
+        light: `“${topic}”让呼吸都变紧促了吧？来，跟着我慢吸气四秒，呼气六秒。身体放松了，再试这一小步：${action}。`,
+        clear: `精神卡在“${topic}”里时，身体需要重新着陆。感觉一下双脚踩在地面上的触感，然后做这个微习惯：${action}。`,
+        poetic: `一呼一吸之间，“${topic}”的紧绷正在悄然消解。微风拂过草叶，身心自会找到平衡：${action}。`,
+      },
+    };
+
+    const currentPersonaStyles = input.personaId ? personaStyleText[input.personaId] : undefined;
+    const styleText: Record<AIStyle, string> = {
+      warm: currentPersonaStyles?.warm ?? `看到你写下“${topic}”。${moodPhrase}是很自然的事。今晚先不用急着把所有事情理顺，先做一件眼前的小事：${action}。`,
+      rational: currentPersonaStyles?.rational ?? `关于“${topic}”，先把事情本身和情绪分开看：事情已经发生了，${moodPhrase}。今晚只先落实一个具体动作：${action}。`,
+      light: currentPersonaStyles?.light ?? `关于“${topic}”，先把脑内的音量调低一点。今晚不用一口气解决完，先给自己一个短暂停顿：${action}。`,
+      clear: currentPersonaStyles?.clear ?? `你写下“${topic}”，说明这件事已经消耗了不少力气。先别急着下定论，今晚只处理眼前最可控的一步：${action}。`,
+      poetic: currentPersonaStyles?.poetic ?? `把“${topic}”放进树洞里，它就不必再独自压在心口。愿今晚的风轻一点，先让自己回到一个小小的动作里：${action}。`,
+    };
+
+    let rewriteText = `面对“${topic}”，可以试着这样告诉自己：${moodPhrase}并不代表我不够好。现在先从这一小步开始：“${action}”。`;
+    if (input.mode === 'shorter') {
+      rewriteText = `关于“${topic}”：先对自己说一句没关系，今晚先做这件小事：“${action}”。`;
+    } else if (input.mode === 'action') {
+      rewriteText = `围绕“${topic}”，今晚不用想太多，只先做这一小步：“${action}”。`;
+    } else if (input.mode === 'clear') {
+      rewriteText = `关于“${topic}”，事实是事情已经发生了。今晚先从这一步开始：“${action}”。`;
+    }
+
+    let rantText = `今天这件“${topic}”确实很烦人，也消耗了你不少力气。先把堵着的情绪痛快说出来；等情绪放下来一点，再把精力收回眼前：“${action}”。`;
+    if (input.mode === 'raw') {
+      rantText = `今天这件“${topic}”确实太让人烦躁了。允许自己痛快吐槽，怎么想的就怎么写，不要求自己大度。`;
+    } else if (input.mode === 'deep') {
+      rantText = `围绕“${topic}”，之所以这么难受，是因为这件事触碰到了你真正在意的事情。先把情绪倒干净，再慢慢理清。`;
+    }
+
+    let sleepText = `如果“${topic}”还在脑子里反复转，先对自己说一句：今晚不是解决所有问题的时候。把想不通的事留给明天，先做几轮慢呼气。`;
+    if (input.mode === 'breath') {
+      sleepText = `关于“${topic}”，先闭上眼睛，跟着吸气与呼气让呼吸慢下来，把注意力收回身体。`;
+    } else if (input.mode === 'tomorrow') {
+      sleepText = `无论“${topic}”多要紧，今晚你的任务只是睡好觉。把所有顾虑放进备忘录，留到明天醒来再说。`;
+    }
+
+    let workText = `面对“${topic}”，先把事情本身和对自己的评价分开。遇到阻力不代表是你的问题，今晚先做眼前最可控的一步：“${action}”。`;
+    if (input.mode === 'boundary') {
+      workText = `面对“${topic}”，先分清什么是你的责任，什么是环境和他人的问题。不属于你的压力，不要独自扛在肩上。`;
+    } else if (input.mode === 'step') {
+      workText = `在“${topic}”上卡住了，就不要看整个大任务。今晚只做最微小的第一步：“${action}”。`;
+    }
+
+    let futureText = `关于“${topic}”的卡点，现在的你已经尽力了。留给未来的自己一句话：慢慢来，先从“${action}”开始重新出发。`;
+    if (input.mode === 'future_week') {
+      futureText = `写给下周的自己：希望下周看到这封信时，“${topic}”带来的压力已经小了一些。记得对自己好一点。`;
+    } else if (input.mode === 'future_year') {
+      futureText = `写给明年的自己：这一年里无论关于“${topic}”发生了什么，现在的我都希望你平静、健康、自在。`;
+    }
+
+    const taskText: Partial<Record<AITaskType | string, string>> = {
+      breakdown: `关于“${structured.trigger}”：当下的感受是${structured.coreEmotion}，心里希望的是${structured.realNeed}。今晚可以先做的一小步：${action}。`,
+      rewrite: rewriteText,
+      rant: rantText,
+      heal: `关于“${topic}”，就算再累，你也值得被好好对待。今晚先不想太远，先照顾好当下的这一刻：“${action}”。`,
+      sleep: sleepText,
+      work: workText,
+      future: futureText,
+      month_report: `这个阶段反复出现的线索是“${topic}”。${input.mood}背后有你的真实需要，下个月可以先固定一个小动作：${action}。`,
+      situation_analysis: `关于“${topic}”：梳理出已经发生的事实与此刻的感受，由你决定下一步怎么走最舒服。`,
+      action_plan: `围绕“${topic}”，今晚先保留一个五分钟内能完成的小动作：${action}。完成之后再慢慢看，不把一次尝试当成对自己的评价。`,
+      journey_summary: `关于“${topic}”：你已经把事情如实说出来，并迈出了一步可尝试的动作：${action}。`,
+      support_plan: `当“${topic}”再次变沉重时，可以先做：${action}；如果依然难以独自承受，请找信任的朋友或身边的人陪陪你。`,
+      decision_clarify: `关于“${topic}”，先把选项、在意的条件和还不确定的地方分别写下，不替自己仓促下结论。`,
       post_reply: styleText[input.style],
       today_letter: styleText[input.style],
+      warm_letter: styleText[input.style],
+      monthly_recovery_summary: `围绕“${topic}”，这个阶段的实际进展都在这里。步调可以放慢，按自己的节奏走就好。`,
     };
     return {
       result: taskText[input.taskType] ?? `${input.routeLabel}：${styleText[input.style]}`,
@@ -3132,30 +10054,118 @@ export class StoreService implements OnModuleInit {
   }
 
   safetyFilter(text: string) {
-    return text
-      .replace(/我能治愈你/g, '我会陪你整理此刻的感受')
-      .replace(/你一定会好/g, '愿你一点点变得轻松');
+    return text.replace(/我能治愈你/g, '我会陪你整理此刻的感受').replace(/你一定会好/g, '愿你一点点变得轻松');
   }
 
-  createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
-    const post = this.getPost(postId, true);
-    const ownerPrivacy = this.privacySettings[post.userId];
+  async createReply(postId: string, input: { content: string; anonymous?: boolean; visibility?: string }) {
+    const post = await this.getPost(postId, true);
+    // The composer offers "仅作者可见", and the Reply table has no visibility column, so that choice
+    // could not be honoured. Silently accepting it and publishing anyway is the worst outcome - the
+    // reader is told their reply is private when it is not. Refuse instead, so the client can say so.
+    if (input.visibility && input.visibility !== 'PUBLIC') {
+      throw new BadRequestException('暂不支持"仅作者可见"的回应：当前所有回应审核后都会公开显示');
+    }
+    // The owner's consent is read from the DATABASE, not from the process cache: a cache is
+    // per-process, so a revocation committed on another instance would otherwise still let a reply
+    // through here. This is an authorization gate, and the design's rule is that authorization reads
+    // the current committed row.
+    const ownerPrivacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(post.userId)
+      : this.privacySettings[post.userId];
     const systemAllowsHumanReplies = this.systemSettings.allowHumanRepliesDefault?.value !== false;
-    if (post.visibility !== 'PUBLIC' || post.reviewStatus !== 'published' || ownerPrivacy?.allowHumanReplies === false || !systemAllowsHumanReplies) {
+    if (
+      post.visibility !== 'PUBLIC' ||
+      post.reviewStatus !== 'published' ||
+      ownerPrivacy?.allowHumanReplies === false ||
+      !systemAllowsHumanReplies
+    ) {
       throw new ForbiddenException('当前内容不允许真人回应');
     }
     if (!input.content?.trim()) throw new NotFoundException('回复内容不能为空');
-    this.assertCanWrite();
+    // A reply marked anonymous has no author on purpose; a signed reply belongs to the caller.
+    // Either way the identity comes from the request, so a reply can no longer be filed under the
+    // demo account - which is what made "my reply" and "somebody else's reply" the same record.
+    const viewerId = this.requireViewerId();
+    this.assertCanWrite(viewerId);
     const risk = this.detectRisk(input.content);
-    const reply: ReplyItem = { id: id('reply'), postId, userId: input.anonymous ? undefined : this.getDemoUserId(), type: 'USER', style: 'human', content: input.content.trim(), status: 'pending_review', riskLevel: risk.level, likeCount: 0, createdAt: now() };
+    if (DIRECT_DB_MODELS.Reply) {
+      const created = await this.repliesDb.create({
+        postId,
+        userId: input.anonymous ? null : viewerId,
+        type: 'USER',
+        style: 'human',
+        content: input.content.trim(),
+        status: 'pending_review',
+        riskLevel: risk.level,
+      });
+      await this.syncReplyCount(post.id);
+      return created as unknown as ReplyItem;
+    }
+    const reply: ReplyItem = {
+      id: id('reply'),
+      postId,
+      userId: input.anonymous ? undefined : viewerId,
+      type: 'USER',
+      style: 'human',
+      content: input.content.trim(),
+      status: 'pending_review',
+      riskLevel: risk.level,
+      likeCount: 0,
+      createdAt: now(),
+    };
     this.replies.unshift(reply);
     post.replyCount = this.replies.filter((item) => item.postId === postId && item.status === 'published').length;
     this.persist();
     return reply;
   }
 
-  moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
-    const post = this.getPost(postId, true);
+  /**
+   * Keeps `Post.replyCount` equal to the published-reply count. The table is the record and the
+   * in-memory copy has to agree, because the flush still writes Post until the model is registered.
+   */
+  /** Public form for the AI-reply writers in the controller. */
+  async syncReplyCount(postId: string) {
+    const counts = await this.repliesDb.countsForPosts([postId]);
+    const published = counts.get(postId) ?? 0;
+    if (DIRECT_DB_MODELS.Post) {
+      await this.postsDb.setReplyCount(postId, published);
+      return;
+    }
+    const post = this.posts.find((item) => item.id === postId);
+    if (post) post.replyCount = published;
+  }
+
+  /** Author-initiated deletion. Moderation keeps its own admin route (hide/reject). */
+  async deletePostAsAuthor(postId: string) {
+    if (DIRECT_DB_MODELS.Post) return await this.postsDb.markDeleted(postId);
+    const post = await this.getPost(postId, true);
+    post.status = 'deleted';
+    this.persist();
+    await this.flush();
+    return post;
+  }
+
+  /** One reader's report against a post. The post row is database-authoritative now. */
+  async reportPost(postId: string) {
+    if (DIRECT_DB_MODELS.Post) return await this.postsDb.incrementReport(postId);
+    const post = await this.getPost(postId, true);
+    post.reportCount += 1;
+    this.persist();
+    await this.flush();
+    return post;
+  }
+
+  async moderatePost(adminId: string, postId: string, action: 'approve' | 'hide' | 'reject' | 'risk') {
+    if (DIRECT_DB_MODELS.Post) {
+      // The moderation action is a single conditional update; the audit row records the same
+      // before/after pair the legacy path recorded.
+      const before = await this.postsDb.get(postId);
+      if (!before) throw new NotFoundException('树洞不存在');
+      const updated = await this.postsDb.moderate(postId, action);
+      await this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, updated);
+      return updated;
+    }
+    const post = await this.getPost(postId, true);
     const before = { ...post };
     if (action === 'approve') {
       post.reviewStatus = 'published';
@@ -3164,20 +10174,31 @@ export class StoreService implements OnModuleInit {
     if (action === 'hide') post.reviewStatus = 'hidden';
     if (action === 'reject') post.reviewStatus = 'rejected';
     if (action === 'risk') post.reportCount += 1;
-    this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, post);
+    await this.audit(adminId, `POST_${action.toUpperCase()}`, 'Post', postId, before, post);
     this.persist();
     return post;
   }
 
-  moderateReply(adminId: string, replyId: string, action: 'approve' | 'block', content?: string) {
+  async moderateReply(adminId: string, replyId: string, action: 'approve' | 'block', content?: string) {
+    if (DIRECT_DB_MODELS.Reply) {
+      const existing = await this.repliesDb.get(replyId);
+      if (!existing) throw new NotFoundException('回应不存在');
+      const before = { ...existing };
+      const updated = await this.repliesDb.moderate(replyId, action, content);
+      await this.syncReplyCount(existing.postId);
+      await this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, updated);
+      this.persist();
+      return updated;
+    }
     const reply = this.replies.find((item) => item.id === replyId);
     if (!reply) throw new NotFoundException('回应不存在');
     const before = { ...reply };
     if (content) reply.content = content;
     reply.status = action === 'approve' ? 'published' : 'blocked';
     const post = this.posts.find((item) => item.id === reply.postId);
-    if (post) post.replyCount = this.replies.filter((item) => item.postId === post.id && item.status === 'published').length;
-    this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, reply);
+    if (post)
+      post.replyCount = this.replies.filter((item) => item.postId === post.id && item.status === 'published').length;
+    await this.audit(adminId, `REPLY_${action.toUpperCase()}`, 'Reply', replyId, before, reply);
     this.persist();
     return reply;
   }

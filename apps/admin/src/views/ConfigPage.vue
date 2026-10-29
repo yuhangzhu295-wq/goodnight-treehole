@@ -14,6 +14,20 @@ const form = ref<Record<string, any>>({});
 const original = ref<Record<string, any>>({});
 const status = ref('正在读取系统设置…');
 const busy = ref(false);
+// Keys the running service actually reads. Served by the API so this page cannot drift
+// from the backend; a field outside the list is stored but has no effect (ISSUE-003).
+const enforcedKeys = ref<string[]>([]);
+// Keys the backend refuses to save because nothing consumes them yet. They are rendered
+// read-only so the operator cannot save a value that has no effect (ISSUE-003).
+const notImplementedKeys = ref<string[]>([]);
+
+function isEnforced(key: string) {
+  return enforcedKeys.value.includes(key);
+}
+
+function isNotImplemented(key: string) {
+  return notImplementedKeys.value.includes(key);
+}
 
 const groups: SettingGroup[] = [
   {
@@ -141,6 +155,8 @@ async function load() {
     const response = await adminApi.get<any>('/api/admin/v1/system/settings');
     form.value = Object.fromEntries((response.items ?? []).map((item: any) => [item.key, item.value]));
     original.value = { ...form.value };
+    enforcedKeys.value = response.enforcedKeys ?? [];
+    notImplementedKeys.value = response.notImplementedKeys ?? [];
     status.value = '设置已从服务端读取';
   } catch (error: any) {
     status.value = error?.message ?? '设置加载失败';
@@ -209,6 +225,11 @@ onMounted(load);
               <span class="config-field-copy">
                 <strong>{{ labels[key] }}</strong>
                 <small v-if="fieldHint(key)">{{ fieldHint(key) }}</small>
+                <small
+                  v-if="isNotImplemented(key)"
+                  class="config-field-inert"
+                  :data-testid="'admin-config-inert-' + key"
+                >尚未接入业务逻辑，当前不可保存</small>
               </span>
 
               <input
@@ -217,7 +238,7 @@ onMounted(load);
                 class="config-switch"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
                 type="checkbox"
               >
               <select
@@ -225,7 +246,7 @@ onMounted(load);
                 v-model="form[key]"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
               >
                 <option value="PRIVATE">仅自己可见</option>
                 <option value="PUBLIC">匿名公开</option>
@@ -235,7 +256,7 @@ onMounted(load);
                 v-model.number="form[key]"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
                 :max="numberMax(key)"
                 min="0"
                 :step="numberStep(key)"
@@ -246,7 +267,7 @@ onMounted(load);
                 v-model="form[key]"
                 :data-testid="'admin-config-field-' + key"
                 :aria-label="labels[key]"
-                :disabled="busy"
+                :disabled="busy || isNotImplemented(key)"
                 :type="key === 'dailyDigestTime' ? 'time' : key === 'notifyEmail' ? 'email' : 'text'"
               >
             </label>
@@ -279,16 +300,14 @@ onMounted(load);
 }
 
 .config-intro,
+/* Visible, not screen-reader-only: this line reports load and save failures. It used to be
+   clipped to 1px, so a rejected save looked like a silent no-op (ISSUE-023). */
 .config-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+  margin: 6px 0 0;
+}
+
+.config-status:empty {
+  display: none;
 }
 
 .config-cards {
@@ -368,6 +387,12 @@ onMounted(load);
   white-space: nowrap;
   font-size: 11px;
   line-height: 1.35;
+}
+
+/* Flags a stored-but-not-yet-enforced setting so the console does not imply that every
+   field changes product behaviour. */
+.config-field-copy small.config-field-inert {
+  color: #b08968;
 }
 
 .config-field > input:not(.config-switch),

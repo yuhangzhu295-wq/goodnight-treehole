@@ -1,18 +1,18 @@
 :root {
-  --gn-font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --gn-font-display: "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
-  --gn-bg: #fbf8ef;
-  --gn-green: #5f7f3e;
-  --gn-green-dark: #3f6330;
-  --gn-green-light: #eef4e5;
-  --gn-card: rgba(255, 255, 255, 0.88);
-  --gn-border: rgba(95, 127, 62, 0.18);
-  --gn-text: #1f2f24;
-  --gn-subtext: #75806f;
-  --gn-danger: #e8665a;
-  --gn-radius-card: 28px;
+  --gn-font-body: -apple-system, BlinkMacSystemFont, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --gn-font-display: -apple-system, BlinkMacSystemFont, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --gn-bg: #FFFFFF;
+  --gn-green: #275F56;
+  --gn-green-dark: #1E4D45;
+  --gn-green-light: #EAF4EE;
+  --gn-card: #ffffff;
+  --gn-border: #E8EBEF;
+  --gn-text: #242A32;
+  --gn-subtext: #757D87;
+  --gn-danger: #BD4545;
+  --gn-radius-card: 12px;
   --gn-radius-pill: 999px;
-  --gn-shadow-card: 0 14px 36px rgba(93, 98, 62, 0.08);
+  --gn-shadow-card: none;
 }
 
 .goodnight-page {

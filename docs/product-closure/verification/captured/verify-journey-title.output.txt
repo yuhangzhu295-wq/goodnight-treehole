@@ -1,0 +1,13 @@
+PASS a journey with a user title is created :: status=201 title=我的名字-1791113625627
+PASS the created journey carries the user title :: title=我的名字-1791113625627
+PASS the creation job completed (fallback) :: status=fallback
+PASS the async creation result did not rename the user journey :: title=我的名字-1791113625627
+PASS re-analysis can be requested :: status=201
+PASS the re-analysis job completed (fallback) :: status=fallback
+PASS re-analysis did not rename the user journey :: title=我的名字-1791113625627
+PASS the user title is persisted unchanged :: db title=我的名字-1791113625627
+PASS a journey without a user title falls back to the placeholder :: title=正在整理的一件事
+PASS the product may still name a journey the user left unnamed :: title=工作里正在整理的一件事
+PASS a product-generated title may still be refined :: title=工作里正在整理的一件事
+
+11/11 pass

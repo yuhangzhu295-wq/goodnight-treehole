@@ -1,19 +1,71 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Inject, NotFoundException, Param, Patch, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Header,
+  Headers,
+  HttpException,
+  HttpStatus,
+  Inject,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  StreamableFile,
+  UnauthorizedException,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import fs from 'node:fs';
-import type { AIProvider, AIStyle, AIStyleRoute, Emotion, PrivacySetting, Visibility, SupportIntent, ActionBarrier } from '@goodnight/shared-types';
+import crypto from 'node:crypto';
+import type {
+  AIProvider,
+  AIStyle,
+  AIStyleRoute,
+  Emotion,
+  PrivacySetting,
+  Visibility,
+  SupportIntent,
+  ActionBarrier,
+} from '@goodnight/shared-types';
 import { normalizeStoreEmotion, StoreService, type AIGenerateInput } from './store.service.js';
 import { MonthlyReportService } from './monthly-report.service.js';
-import { DAPI_BASE_URL, DAPI_PROVIDER_ID, REMOTE_BACKUP_BASE_URL, REMOTE_BACKUP_PROVIDER_ID } from './remote-ai-provider.service.js';
+import { Batch1PersistenceService } from './batch1-persistence.service.js';
+import { PeerPersistenceService } from './peer-persistence.service.js';
+import { SelfPersistenceService } from './self-persistence.service.js';
+import { FeedbackPersistenceService } from './feedback-persistence.service.js';
+import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
+import { DIRECT_DB_MODELS } from './direct-db-models.js';
+import { demoIdentityAllowed } from './identity-credential.js';
+import { AnonymousSessionService, currentIdentity, SESSION_TTL_MS } from './anonymous-session.service.js';
+import {
+  DAPI_BASE_URL,
+  DAPI_PROVIDER_ID,
+  REMOTE_BACKUP_BASE_URL,
+  REMOTE_BACKUP_PROVIDER_ID,
+} from './remote-ai-provider.service.js';
 import { assertNoLegacyLocalModelEndpoint, visualFixtureIdentity } from './runtime-environment.js';
+import { loginRetryAfterSeconds, recordLoginFailure, recordLoginSuccess } from './login-throttle.js';
+
+const id = (prefix: string) => `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
 
 function tokenFrom(header?: string) {
   return header?.replace(/^Bearer\s+/i, '');
 }
 
 function normalizedProviderUrl(value?: string) {
-  return String(value ?? '').trim().replace(/\/$/, '');
+  return String(value ?? '')
+    .trim()
+    .replace(/\/$/, '');
 }
 
 function assertProviderMutation(current: Partial<AIProvider>, patch: Partial<AIProvider>) {
@@ -32,21 +84,162 @@ function assertProviderMutation(current: Partial<AIProvider>, patch: Partial<AIP
       throw new BadRequestException('远程 AI Provider 必须使用已配置的 DAPI 或远程备用地址。');
     }
   }
-  if (current.id === DAPI_PROVIDER_ID && normalizedProviderUrl(next.baseUrl) !== normalizedProviderUrl(process.env.DAPI_BASE_URL || process.env.AI_PRIMARY_BASE_URL || DAPI_BASE_URL)) {
+  if (
+    current.id === DAPI_PROVIDER_ID &&
+    normalizedProviderUrl(next.baseUrl) !==
+      normalizedProviderUrl(process.env.DAPI_BASE_URL || process.env.AI_PRIMARY_BASE_URL || DAPI_BASE_URL)
+  ) {
     throw new BadRequestException('DAPI 主 Provider 的地址由运行策略固定。');
   }
   if (current.id === DAPI_PROVIDER_ID && patch.enabled === false) {
     throw new BadRequestException('DAPI 主 Provider 由运行策略锁定，不能停用。');
   }
-  if (current.id === REMOTE_BACKUP_PROVIDER_ID && normalizedProviderUrl(next.baseUrl) !== normalizedProviderUrl(process.env.AI_SECONDARY_BASE_URL || REMOTE_BACKUP_BASE_URL)) {
+  if (
+    current.id === REMOTE_BACKUP_PROVIDER_ID &&
+    normalizedProviderUrl(next.baseUrl) !==
+      normalizedProviderUrl(process.env.AI_SECONDARY_BASE_URL || REMOTE_BACKUP_BASE_URL)
+  ) {
     throw new BadRequestException('远程备用 Provider 的地址由运行策略固定。');
   }
 }
 
 const apiStartedAt = new Date().toISOString();
 
-function runtimeUserId(header?: string) {
-  return header?.trim() || undefined;
+// Admin authorization used to be enforced one handler at a time by calling
+// `this.admin(auth)` inside the method body. Any handler that forgot the call was
+// silently public - including destructive ones - which is exactly what the product
+// audit found. A controller guard makes the default deny and keeps the decision in
+// one place, so a new endpoint cannot be added without a token by accident.
+//
+// The guard only proves a valid admin session exists; it does not replace the
+// per-handler `this.admin(auth)` calls, which also resolve the acting admin for the
+// audit trail.
+const ADMIN_PUBLIC_ROUTES = new Set([
+  'POST /api/admin/v1/auth/login',
+  'POST /api/admin/v1/login',
+  'POST /api/admin/v1/auth/logout',
+]);
+
+function normalizeRoutePath(path: string) {
+  const value = path.startsWith('/') ? path : `/${path}`;
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+@Injectable()
+class AdminAuthGuard implements CanActivate {
+  constructor(@Inject(StoreService) private readonly store: StoreService) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<{
+      method?: string;
+      path?: string;
+      url?: string;
+      headers?: Record<string, string | undefined>;
+    }>();
+    const routePath = normalizeRoutePath(request.path ?? (request.url ?? '').split('?')[0]);
+    const key = `${String(request.method ?? 'GET').toUpperCase()} ${routePath}`;
+    if (ADMIN_PUBLIC_ROUTES.has(key)) return true;
+    this.store.verifyToken(tokenFrom(request.headers?.authorization));
+    return true;
+  }
+}
+
+// The header carries a session credential, not a user id, and it is verified once per request by
+// IdentityMiddleware. These helpers read the verified identity from that request's context and
+// ignore the header argument entirely: a caller-supplied id is never an identity. A raw user id in
+// the header is simply an invalid credential, and the middleware rejects it before we get here.
+function runtimeUserId(_header?: string) {
+  return currentIdentity()?.userId;
+}
+
+function requireRuntimeUserId(_header?: string): string {
+  const identity = currentIdentity();
+  if (!identity) {
+    throw new UnauthorizedException('缺少用户身份凭证');
+  }
+  return identity.userId;
+}
+
+/** A nickname is a display label, not a place to smuggle markup or invisible overrides. */
+const NICKNAME_MAX_CHARS = 20;
+const NICKNAME_MAX_BYTES = 80;
+/**
+ * Control characters and format characters can make one name render as another.
+ *
+ * `\p{Cc}` is C0/C1 and `\p{Cf}` is the format category, which covers the soft hyphen, bidi
+ * overrides and zero-width marks. ZWNJ/ZWJ (U+200C/U+200D) are exempt: they are part of legitimate
+ * emoji and Indic sequences. The lookahead keeps those two from matching.
+ */
+const NICKNAME_FORBIDDEN = /(?![\u200C\u200D])[\p{Cc}\p{Cf}]/u;
+
+/**
+ * Default-ignorable characters that are not in the format category.
+ *
+ * U+034F and the Khmer/Mongolian marks are combining marks, U+2028/U+2029 are line/paragraph
+ * separators, and the Hangul fillers render as blank space. They are matched by value rather than in
+ * a character class so a combining mark cannot be misread as part of a grapheme. Variation selectors
+ * (U+FE00-U+FE0F) and emoji tag characters are deliberately not listed: they are invisible on their
+ * own but are part of legitimate emoji sequences.
+ */
+const NICKNAME_INVISIBLE = [
+  '\u034F',
+  '\u115F',
+  '\u1160',
+  '\u17B4',
+  '\u17B5',
+  '\u180B',
+  '\u180C',
+  '\u180D',
+  '\u180F',
+  '\u2028',
+  '\u2029',
+  '\u3164',
+  '\uFFA0',
+];
+
+function hasForbiddenNicknameCharacters(value: string): boolean {
+  return (
+    NICKNAME_FORBIDDEN.test(value) ||
+    NICKNAME_INVISIBLE.some((character) => value.includes(character)) ||
+    /\p{Cs}/u.test(value)
+  );
+}
+
+/**
+ * Validates the only profile field this product lets a person edit.
+ *
+ * The body must contain exactly `nickname`: accepting extra keys would let a caller believe it can
+ * change `anonymousCode` or `status`, and silently ignoring them is how a "saved" profile turns out
+ * to be unchanged. Length is counted in user-visible characters so one emoji is one character.
+ */
+function normalizeNickname(body: unknown): string {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new BadRequestException('请求内容无效');
+  }
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== 'nickname') {
+    throw new BadRequestException('只允许修改昵称');
+  }
+  const raw = (body as { nickname?: unknown }).nickname;
+  if (typeof raw !== 'string') throw new BadRequestException('昵称必须是文本');
+  // Check the raw value before trimming: a leading newline is a control character to reject, not
+  // whitespace to silently drop. Trimming first let "\n昵称" through as "昵称".
+  if (hasForbiddenNicknameCharacters(raw)) {
+    throw new BadRequestException('昵称包含不可见字符');
+  }
+  const nickname = raw.normalize('NFC').trim();
+  if (!nickname) throw new BadRequestException('昵称不能为空');
+  // NFC can compose a sequence into a different code point; re-check the value that will be stored.
+  if (hasForbiddenNicknameCharacters(nickname)) {
+    throw new BadRequestException('昵称包含不可见字符');
+  }
+  if (Array.from(nickname).length > NICKNAME_MAX_CHARS) {
+    throw new BadRequestException(`昵称最多 ${NICKNAME_MAX_CHARS} 个字符`);
+  }
+  if (Buffer.byteLength(nickname, 'utf8') > NICKNAME_MAX_BYTES) {
+    throw new BadRequestException('昵称过长');
+  }
+  return nickname;
 }
 const FINGERPRINT = {
   gitCommitSha: process.env.GIT_COMMIT_SHA ?? 'unknown',
@@ -78,6 +271,51 @@ const CONFIG_DEFAULTS = {
   dailyDigestTime: '09:00',
 };
 
+// Settings the running service actually reads when it makes a decision.
+//
+// Everything in CONFIG_DEFAULTS is persisted and editable, but only the keys below are
+// consulted by backend logic; the rest are stored values with no consumer, so changing
+// them in the admin console has no effect on the product (product audit ISSUE-003).
+// This list is the single source of truth for that distinction and is returned by the
+// config endpoints so the admin UI can say which settings are live instead of implying
+// that every field changes behaviour.
+const ENFORCED_SETTING_KEYS = [
+  'appName',
+  'appShortName',
+  'defaultVisibility',
+  'defaultPageSize',
+  'highRiskBlockEnabled',
+  'allowHumanRepliesDefault',
+  'localModelFirst',
+  'allowMonthlyReportShare',
+  'logRetentionDays',
+];
+
+// Settings that are stored and editable but whose behaviour is deliberately not wired yet.
+// They stay out of the operable part of the console so the operator cannot save a value
+// that looks active but does nothing (product audit ISSUE-003, closure task section 22).
+//   - the four AI keys need the remote provider to be reachable to be verified at all, and
+//     DAPI currently answers HTTP 402, so wiring them would be an unverifiable change to the
+//     failover path; they remain visible and clearly marked as not yet enforced
+//   - the notification keys have no mail transport in this project at all, so they are
+//     presented as a future capability rather than a working setting
+const NOT_IMPLEMENTED_SETTING_KEYS = [
+  // Every public post is gated by manual review already, which is a deliberate product
+  // contract; auto-publishing below a threshold would weaken moderation, so the setting
+  // has no legitimate consumer and stays read-only.
+  'manualReviewThreshold',
+  'cloudModelBackup',
+  'aiTimeoutSeconds',
+  'aiFailoverEnabled',
+  'aiRetryCount',
+  'sensitiveContentEncrypted',
+  'scheduledCacheCleanup',
+  'abnormalNotifyEnabled',
+  'notifyEmail',
+  'dailyDigestEnabled',
+  'dailyDigestTime',
+];
+
 const EMOTION_TO_STORE: Record<string, Emotion> = {
   焦虑: '焦虑' as Emotion,
   委屈: '委屈' as Emotion,
@@ -92,11 +330,11 @@ const EMOTION_TO_STORE: Record<string, Emotion> = {
 
 const EMOTION_TO_VIEW: Record<string, string> = {
   '鐒﹁檻': '焦虑',
-  '濮斿眻': '委屈',
-  '澶辯湢': '失眠',
-  '鎭嬬埍': '恋爱',
-  '宸ヤ綔': '工作',
-  '鍏ㄩ儴': '全部',
+  濮斿眻: '委屈',
+  澶辯湢: '失眠',
+  鎭嬬埍: '恋爱',
+  宸ヤ綔: '工作',
+  鍏ㄩ儴: '全部',
   焦虑: '焦虑',
   委屈: '委屈',
   失眠: '失眠',
@@ -140,11 +378,34 @@ export class PublicController {
   constructor(
     @Inject(StoreService) private readonly store: StoreService,
     @Inject(MonthlyReportService) private readonly reports: MonthlyReportService,
+    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+    @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
+    @Inject(FeedbackPersistenceService) private readonly feedbackPersistence: FeedbackPersistenceService,
+    @Inject(AnonymousSessionService) private readonly sessions: AnonymousSessionService,
   ) {}
 
   @Get('posts')
-  async posts(@Query('emotion') emotion?: string, @Query('mood') mood?: string) {
-    const items = await this.store.publicPosts(mood ?? emotion);
+  async posts(
+    @Query('emotion') emotion?: string,
+    @Query('mood') mood?: string,
+    @Query('sort') sort?: string,
+    @Query('mine') mine?: string,
+    @Headers('x-goodnight-user-id') userIdHeader?: string,
+  ) {
+    const order = sort === 'hot' ? 'hot' : 'latest';
+    if (mine === 'true' || mine === '1') {
+      const runtimeId = requireRuntimeUserId(userIdHeader);
+      const items = await this.store.myPublicPosts(runtimeId);
+      return { items, total: items.length, sort: order };
+    }
+    const items = await this.store.publicPosts(mood ?? emotion, order);
+    return { items, total: items.length, sort: order };
+  }
+
+  @Get('me/posts')
+  async myPosts(@Headers('x-goodnight-user-id') userIdHeader?: string) {
+    const runtimeId = requireRuntimeUserId(userIdHeader);
+    const items = await this.store.myPublicPosts(runtimeId);
     return { items, total: items.length };
   }
 
@@ -153,400 +414,1098 @@ export class PublicController {
     return FINGERPRINT;
   }
 
+  /**
+   * Issues a session for a brand-new anonymous user. This is the only way a client without an
+   * existing identity can obtain one; it cannot be used to obtain somebody else's, because the
+   * server chooses the identity and stores the session.
+   */
+  @Post('auth/anonymous')
+  async createAnonymousIdentity(@Body() body?: { deviceId?: string; deviceLabel?: string }) {
+    const user = await this.store.createAnonymousUser();
+    const session = await this.sessions.issue(user.id, {
+      deviceId: typeof body?.deviceId === 'string' ? body.deviceId.slice(0, 120) : undefined,
+      deviceLabel: typeof body?.deviceLabel === 'string' ? body.deviceLabel.slice(0, 120) : undefined,
+    });
+    return {
+      item: {
+        userId: user.id,
+        credential: session.credential,
+        expiresAt: session.expiresAt.toISOString(),
+        expiresInMs: SESSION_TTL_MS,
+        anonymousCode: user.anonymousCode,
+      },
+    };
+  }
+
+  /**
+   * Issues a session for the seeded demo user so the offline demo keeps working. Disabled unless
+   * ALLOW_DEMO_IDENTITY=true, because the demo user holds seeded content and handing out its session
+   * in production would re-open the hole this exists to close.
+   */
+  @Post('auth/demo')
+  async demoIdentity() {
+    if (!demoIdentityAllowed()) {
+      throw new ForbiddenException('演示身份在当前环境未启用');
+    }
+    const userId = this.store.getDemoUserId();
+    const session = await this.sessions.issue(userId, { deviceLabel: 'demo' });
+    return { item: { userId, credential: session.credential, expiresAt: session.expiresAt.toISOString(), expiresInMs: SESSION_TTL_MS } };
+  }
+
+  /** Ends the caller's session. The row is kept so the revocation stays auditable. */
+  @Post('auth/logout')
+  async logout(@Headers('x-goodnight-user-id') credential?: string) {
+    if (credential?.trim()) {
+      await this.sessions.revoke(credential, 'logout');
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Exchanges the caller's credential for a fresh one. The predecessor is revoked in the same
+   * transaction, so a rotation cannot leave two live credentials.
+   */
+  @Post('auth/rotate')
+  async rotateIdentity(@Headers('x-goodnight-user-id') credential?: string) {
+    if (!credential?.trim()) throw new UnauthorizedException('缺少用户身份凭证');
+    const rotated = await this.sessions.rotate(credential);
+    return { item: { credential: rotated.credential, expiresAt: rotated.expiresAt.toISOString() } };
+  }
+
+  /**
+   * Lists the caller's active sessions, so one can be recognised and cut off.
+   *
+   * `current` is computed server-side from the verified credential. The response carries no secret
+   * material and is not cacheable, because it is tied to the caller's identity.
+   */
+  @Get('auth/sessions')
+  @Header('Cache-Control', 'no-store')
+  async listSessions(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.sessions.listActiveForUser(runtimeId) };
+  }
+
+  /**
+   * Revokes one of the caller's own sessions. The current session is refused (409) and another
+   * user's session id answers exactly like an unknown one (404), so the route cannot be used to
+   * probe for sessions or to lock the caller out of the credential it is using.
+   */
+  @Post('auth/sessions/:id/revoke')
+  async revokeSession(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const revoked = await this.sessions.revokeSession(runtimeId, id, 'session_revoked_by_user');
+    return { ok: true, revoked };
+  }
+
+  /**
+   * Revokes every session of one device: what a lost device needs.
+   *
+   * Deprecated in favour of `POST auth/sessions/:id/revoke`: the C-end never learns a `deviceId`, so
+   * nothing in the product calls this. It stays for operational use, and refuses to revoke the
+   * device behind the current session so it cannot bypass the per-session self-revocation guard.
+   */
+  @Post('auth/revoke-device')
+  async revokeDevice(@Body() body: { deviceId?: string }, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim() : '';
+    if (!deviceId) throw new BadRequestException('缺少设备标识');
+    if ((await this.sessions.currentDeviceId()) === deviceId) {
+      throw new ConflictException('不能撤销当前正在使用的设备');
+    }
+    const revoked = await this.sessions.revokeDevice(runtimeId, deviceId, 'device_revoked_by_user');
+    return { ok: true, revoked };
+  }
+
   @Get('config')
   config() {
     const item = Object.fromEntries(
       Object.entries(CONFIG_DEFAULTS).map(([key, value]) => [key, this.store.systemSettings[key]?.value ?? value]),
     );
-    return { item };
+    return { item, enforcedKeys: ENFORCED_SETTING_KEYS, notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS };
   }
 
+  /**
+   * The home dashboard: the caller's active journey, actions, due check-ins, follow-ups, peer
+   * matches and latest letter. Every one of those is private per-user data, so this is not a public
+   * route. It used to be documented as one ("Tonight summary and inspirational quote") while the
+   * implementation called `tonightHome()` with no user and therefore returned `user_demo`'s private
+   * journey to whoever asked - measured with no credential and with a different user's credential,
+   * both receiving the same PRIVATE journey.
+   */
+  /**
+   * The home dashboard: the caller's active journey, actions, due check-ins, follow-ups, peer
+   * matches and latest letter. Every one of those is private per-user data, so this is not a public
+   * route. It used to be documented as one ("Tonight summary and inspirational quote") while the
+   * implementation called `tonightHome()` with no user and therefore returned `user_demo`'s private
+   * journey to whoever asked - measured with no credential and with a different user's credential,
+   * both receiving the same PRIVATE journey.
+   */
   @Get('tonight')
-  tonight() {
-    return { item: this.store.tonightHome() };
+  async tonight(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    return { item: await this.store.tonightHome(requireRuntimeUserId(requestedUserId)) };
   }
 
   @Get('journeys')
-  journeys() {
-    return { items: this.store.lifeJourneys.filter((item) => item.userId === this.store.getDemoUserId()).map((item) => this.store.journeyDetail(item.id)) };
+  async journeys(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return {
+      items: await this.store.listJourneyDetails(runtimeId),
+    };
+  }
+
+  @Get('archive/journeys')
+  async archiveJourneys(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.archiveJourneys(runtimeId) };
+  }
+
+  @Get('archive/journeys/:id')
+  async archiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.journeyArchiveDetail(id, runtimeId) };
+  }
+
+  @Post('archive/journeys/:id/export')
+  async exportArchiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.createJourneyArchiveExport(id, runtimeId) };
+  }
+
+  @Post('archive/journeys/:id/restore')
+  async restoreArchiveJourney(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.restoreArchivedJourney(id, runtimeId);
+  }
+
+  @Delete('archive/journeys/:id')
+  async deleteArchiveJourney(
+    @Param('id') id: string,
+    @Body() body: { confirmation?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    if (body.confirmation !== 'DELETE_ARCHIVE') throw new BadRequestException('请完成第二次确认后再删除归档');
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.deleteJourneyArchive(id, runtimeId);
   }
 
   @Post('journeys')
-  async createJourney(@Body() body: { title?: string; domain?: string; content?: string; facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; visibility?: Visibility; intensity?: number; scenario?: string; relationScene?: string }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.createJourney(body, runtimeUserId(userId));
+  async createJourney(
+    @Body()
+    body: {
+      title?: string;
+      domain?: string;
+      content?: string;
+      facts?: string[];
+      feelings?: string[];
+      needs?: string[];
+      constraints?: string[];
+      visibility?: Visibility;
+      intensity?: number;
+      scenario?: string;
+      relationScene?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createJourney(body, runtimeId);
   }
 
   @Post('testing/cleanup-browser-fixtures')
-  async cleanupBrowserFixtures(@Headers('x-goodnight-test-cleanup') token: string, @Body() body: { journeyIds?: string[]; notificationIds?: string[]; decisionIds?: string[]; cooldownIds?: string[]; legacy?: boolean }) {
+  async cleanupBrowserFixtures(
+    @Headers('x-goodnight-test-cleanup') token: string,
+    @Body()
+    body: {
+      journeyIds?: string[];
+      notificationIds?: string[];
+      decisionIds?: string[];
+      cooldownIds?: string[];
+      legacy?: boolean;
+    },
+  ) {
     if (token !== 'first-batch-browser') throw new NotFoundException('测试清理入口不可用。');
     return await this.store.cleanupBrowserFixtures(body);
   }
 
   @Get('journeys/:id')
-  journey(@Param('id') id: string) {
-    return { item: this.store.journeyDetail(id) };
+  async journey(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.journeyDetail(id, runtimeId) };
   }
 
   @Get('journeys/:id/fingerprint')
-  journeyFingerprint(@Param('id') id: string) {
-    return { item: this.store.fingerprint(id) };
+  async journeyFingerprint(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.fingerprint(id, runtimeId) };
   }
 
   @Patch('journeys/:id/intent')
-  async journeyIntent(@Param('id') id: string, @Body() body: { intent?: SupportIntent }) {
+  async journeyIntent(
+    @Param('id') id: string,
+    @Body() body: { intent?: SupportIntent },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
     if (!body.intent) throw new BadRequestException('请选择你现在最需要的支持');
-    return await this.store.setJourneyIntent(id, body.intent);
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.setJourneyIntent(id, body.intent, runtimeId);
   }
 
   @Patch('journeys/:id')
-  async patchJourney(@Param('id') id: string, @Body() body: { status?: 'active' | 'paused' | 'archived'; title?: string; summary?: string }) {
-    if (body.status) return await this.store.updateJourneyStatus(id, body.status);
-    const item = this.store.journeyDetail(id).journey;
-    if (typeof body.title === 'string' && body.title.trim()) item.title = body.title.trim().slice(0, 120);
-    if (typeof body.summary === 'string') item.summary = body.summary.trim().slice(0, 500);
-    item.updatedAt = new Date().toISOString();
-    await this.store.flush();
-    return { item };
+  async patchJourney(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      status?: 'active' | 'paused' | 'archived';
+      title?: string;
+      summary?: string;
+      expectedUpdatedAt?: string;
+    },
+    @Headers('x-goodnight-user-id') userIdHeader?: string,
+  ) {
+    const callerId = requireRuntimeUserId(userIdHeader);
+    const item = await this.store.patchJourney(id, body, callerId);
+    if (body.status && !body.title && !body.summary) {
+      return { journey: item };
+    }
+    return { item, journey: item };
   }
 
   @Patch('journeys/:id/situation')
-  async confirmSituation(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[]; domain?: string; subDomain?: string; eventType?: string; stage?: string; contextTags?: string[]; peopleContext?: string[]; decisionContext?: string[]; behaviorSignals?: string[]; recoverySignals?: string[]; intensity?: number; urgency?: number }) {
-    return await this.store.confirmSituation(id, body);
+  async confirmSituation(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      facts?: string[];
+      feelings?: string[];
+      needs?: string[];
+      constraints?: string[];
+      risks?: string[];
+      domain?: string;
+      subDomain?: string;
+      eventType?: string;
+      stage?: string;
+      contextTags?: string[];
+      peopleContext?: string[];
+      decisionContext?: string[];
+      behaviorSignals?: string[];
+      recoverySignals?: string[];
+      intensity?: number;
+      urgency?: number;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.confirmSituation(id, body, runtimeId);
   }
 
   @Post('journeys/:id/snapshots')
-  async confirmSnapshot(@Param('id') id: string, @Body() body: { facts?: string[]; feelings?: string[]; needs?: string[]; constraints?: string[]; risks?: string[]; domain?: string; subDomain?: string; eventType?: string; stage?: string; contextTags?: string[]; peopleContext?: string[]; decisionContext?: string[]; behaviorSignals?: string[]; recoverySignals?: string[]; intensity?: number; urgency?: number }) {
-    return await this.store.confirmSituation(id, body);
+  async confirmSnapshot(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      facts?: string[];
+      feelings?: string[];
+      needs?: string[];
+      constraints?: string[];
+      risks?: string[];
+      domain?: string;
+      subDomain?: string;
+      eventType?: string;
+      stage?: string;
+      contextTags?: string[];
+      peopleContext?: string[];
+      decisionContext?: string[];
+      behaviorSignals?: string[];
+      recoverySignals?: string[];
+      intensity?: number;
+      urgency?: number;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.confirmSituation(id, body, runtimeId);
   }
 
   @Post('journeys/:id/situation/reanalyze')
-  async reanalyzeSituation(@Param('id') id: string) {
-    return await this.store.reanalyzeSituation(id);
+  async reanalyzeSituation(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.reanalyzeSituation(id, runtimeId);
   }
 
   @Post('journeys/:id/safety/acknowledge')
-  async acknowledgeSafety(@Param('id') id: string) {
-    return await this.store.acknowledgeSafety(id);
+  async acknowledgeSafety(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.acknowledgeSafety(id, runtimeId);
   }
 
   @Post('journeys/:id/updates')
-  async journeyUpdate(@Param('id') id: string, @Body() body: { content?: string; kind?: string; outcome?: Record<string, unknown> }) {
-    return await this.store.addJourneyUpdate(id, body);
+  async journeyUpdate(
+    @Param('id') id: string,
+    @Body() body: { content?: string; kind?: string; outcome?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.addJourneyUpdate(id, body, runtimeId);
   }
 
   @Post('journeys/:id/action-plan')
-  async actionPlan(@Param('id') id: string, @Body() body: { content?: string }) {
-    return await this.store.generateActionPlan(id, body.content);
+  async actionPlan(
+    @Param('id') id: string,
+    @Body() body: { content?: string; mode?: 'initial' | 'smaller' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const mode = body.mode === 'smaller' ? 'smaller' : 'initial';
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.generateActionPlan(id, body.content, mode, runtimeId);
   }
 
   @Post('journeys/:id/actions')
-  async createAction(@Param('id') id: string, @Body() body: { title?: string; description?: string; dueAt?: string; reminderAt?: string }) {
-    return await this.store.createActionCommitment(id, body);
+  async createAction(
+    @Param('id') id: string,
+    @Body() body: { title?: string; description?: string; dueAt?: string; reminderAt?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createActionCommitment(id, body, runtimeId);
   }
 
   @Get('journeys/:id/actions')
-  journeyActions(@Param('id') id: string) {
-    return { items: this.store.journeyActions(id) };
+  async journeyActions(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.journeyActions(id, runtimeId) };
   }
 
   @Get('journeys/:id/timeline')
-  journeyTimeline(@Param('id') id: string) {
-    return { items: this.store.journeyTimeline(id) };
+  async journeyTimeline(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.journeyTimeline(id, runtimeId) };
   }
 
   @Patch('journeys/:id/status')
-  async journeyStatus(@Param('id') id: string, @Body() body: { status: 'active' | 'paused' | 'archived' }) {
-    return await this.store.updateJourneyStatus(id, body.status);
+  async journeyStatus(
+    @Param('id') id: string,
+    @Body() body: { status: 'active' | 'paused' | 'archived' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updateJourneyStatus(id, body.status, runtimeId);
   }
 
   @Post('journeys/:id/graduate')
-  async graduate(@Param('id') id: string) {
-    return await this.store.graduateJourney(id);
+  async graduate(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.graduateJourney(id, runtimeId);
   }
 
   @Post('journeys/:id/graduation-consent')
-  async graduationConsent(@Param('id') id: string, @Body() body: { decision?: 'willing' | 'later' | 'no' }) {
-    if (!body.decision || !['willing', 'later', 'no'].includes(body.decision)) throw new BadRequestException('请选择是否匿名分享');
-    return await this.store.saveGraduationConsent(id, body.decision);
+  async graduationConsent(
+    @Param('id') id: string,
+    @Body() body: { decision?: 'willing' | 'later' | 'no' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    if (!body.decision || !['willing', 'later', 'no'].includes(body.decision))
+      throw new BadRequestException('请选择是否匿名分享');
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.saveGraduationConsent(id, body.decision, runtimeId);
   }
 
   @Post('actions/:id/checkin')
-  async actionCheckin(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number; barrier?: ActionBarrier; outcome?: Record<string, unknown> }) {
-    return await this.store.checkinAction(id, body);
+  async actionCheckin(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      status?: string;
+      reflection?: string;
+      result?: string;
+      intensity?: number;
+      barrier?: ActionBarrier;
+      outcome?: Record<string, unknown>;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.checkinAction(id, body, runtimeId);
   }
 
   @Post('actions/:id/checkins')
-  async actionCheckins(@Param('id') id: string, @Body() body: { status?: string; reflection?: string; result?: string; intensity?: number; barrier?: ActionBarrier; outcome?: Record<string, unknown> }) {
-    return await this.store.checkinAction(id, body);
+  async actionCheckins(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      status?: string;
+      reflection?: string;
+      result?: string;
+      intensity?: number;
+      barrier?: ActionBarrier;
+      outcome?: Record<string, unknown>;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.checkinAction(id, body, runtimeId);
   }
 
   @Get('peers')
-  peers(@Headers('x-goodnight-user-id') userId?: string) {
-    return { item: this.store.peerNetwork(runtimeUserId(userId)) };
+  async peers(@Headers('x-goodnight-user-id') userId?: string, @Query('matchId') matchId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.peerNetwork(runtimeId, matchId) };
   }
 
   @Post('peer-experiences')
-  async createPeerExperience(@Body() body: { journeyId?: string; title?: string; domain?: string; stage?: string; content?: string; tags?: string[]; consented?: boolean }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.createPeerExperience(body.journeyId, body, runtimeUserId(userId));
+  async createPeerExperience(
+    @Body()
+    body: {
+      journeyId?: string;
+      title?: string;
+      domain?: string;
+      stage?: string;
+      content?: string;
+      tags?: string[];
+      consented?: boolean;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createPeerExperience(body.journeyId, body, runtimeId);
   }
 
   @Post('journeys/:id/peer-matches')
   async peerMatches(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.suggestPeerMatches(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.suggestPeerMatches(id, runtimeId);
   }
 
   @Get('journeys/:id/peers')
-  journeyPeers(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.journeyPeers(id, runtimeUserId(userId)) };
+  async journeyPeers(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.journeyPeers(id, runtimeId) };
   }
 
   @Patch('peer-matches/:id')
-  async peerMatch(@Param('id') id: string, @Body() body: { status: 'requested' | 'connected' | 'declined' | 'blocked'; requestReason?: string; requestQuestion?: string }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.updatePeerMatch(id, body, runtimeUserId(userId));
+  async peerMatch(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      status: 'requested' | 'connected' | 'declined' | 'blocked';
+      requestReason?: string;
+      requestQuestion?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updatePeerMatch(id, body, runtimeId);
   }
 
   @Post('peer-matches/:id/respond')
-  async peerMatchRespond(@Param('id') id: string, @Body() body: { status: 'connected' | 'declined' | 'blocked' }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.updatePeerMatch(id, body, runtimeUserId(userId));
+  async peerMatchRespond(
+    @Param('id') id: string,
+    @Body() body: { status: 'connected' | 'declined' | 'blocked' },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updatePeerMatch(id, body, runtimeId);
   }
 
   @Post('peer-matches/:id/consent')
   async peerMatchConsent(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.startPeerConversation(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.startPeerConversation(id, runtimeId);
   }
 
   @Get('peer-requests')
-  peerRequests(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: this.store.peerRequestList(runtimeUserId(userId)) };
+  async peerRequests(
+    @Headers('x-goodnight-user-id') userId?: string,
+    @Query('scope') scope?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    // 'received' (the default) is the inbox on the user's own experiences; 'sent' is what the user
+    // asked for. 同路人's 我的请求 tab passes scope=sent.
+    const direction = scope === 'sent' ? 'sent' : 'received';
+    return { items: await this.store.peerRequestList(runtimeId, direction) };
   }
 
   @Patch('peer-experiences/:id')
-  async updatePeerExperience(@Param('id') id: string, @Body() body: { title?: string; content?: string; laterSummary?: Record<string, unknown>; helpfulActions?: string[]; notHelpfulActions?: string[]; retrospective?: string }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.updatePeerExperience(id, body, runtimeUserId(userId));
+  async updatePeerExperience(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      title?: string;
+      content?: string;
+      laterSummary?: Record<string, unknown>;
+      helpfulActions?: string[];
+      notHelpfulActions?: string[];
+      retrospective?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updatePeerExperience(id, body, runtimeId);
   }
 
   @Get('peer-experiences/:id')
-  peerExperience(@Param('id') id: string) {
-    return { item: this.store.peerExperienceDetail(id) };
+  async peerExperience(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { item: await this.store.peerExperienceDetail(id, this.store.resolveRuntimeUserId(runtimeId)) };
   }
 
   @Post('actions/:id/adaptive-plan')
-  async adaptivePlan(@Param('id') id: string, @Body() body: { barrier: ActionBarrier }) {
-    return await this.store.requestAdaptiveAction(id, body.barrier);
+  async adaptivePlan(
+    @Param('id') id: string,
+    @Body() body: { barrier: ActionBarrier },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.requestAdaptiveAction(id, body.barrier, runtimeId);
   }
 
   @Post('actions/:id/adapt')
-  async adaptiveAction(@Param('id') id: string, @Body() body: { title?: string; description?: string; barrier?: ActionBarrier; dueAt?: string }) {
-    return await this.store.createAdaptiveAction(id, body);
+  async adaptiveAction(
+    @Param('id') id: string,
+    @Body() body: { title?: string; description?: string; barrier?: ActionBarrier; dueAt?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createAdaptiveAction(id, body, runtimeId);
   }
 
   @Post('decisions')
-  async decision(@Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[] }) {
-    return await this.store.createDecision(body);
+  async decision(
+    @Body() body: { journeyId?: string; question?: string; options?: string[]; criteria?: string[]; subject?: string; supersedesId?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createDecision(body, runtimeId);
   }
 
   @Get('decisions')
-  decisions() {
-    return { items: this.store.decisionList() };
+  async decisions(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.decisionList(runtimeId) };
   }
 
   @Patch('decisions/:id')
-  async updateDecision(@Param('id') id: string, @Body() body: { decision?: string; status?: string }) {
-    return await this.store.updateDecision(id, body);
+  async updateDecision(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      question?: string;
+      options?: string[];
+      criteria?: string[];
+      decision?: string;
+      outcome?: string;
+      status?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updateDecision(id, body, runtimeId);
   }
 
   @Post('cooldowns')
-  async cooldown(@Body() body: { decisionId?: string; title?: string; reason?: string; hours?: number }) {
-    return await this.store.createCooldown(body);
+  async cooldown(
+    @Body() body: { decisionId?: string; title?: string; reason?: string; hours?: number },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.createCooldown(body, runtimeId);
   }
 
   @Get('cooldown')
-  cooldowns() {
-    return { items: this.store.cooldownList() };
+  async cooldowns(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.cooldownList(runtimeId) };
   }
 
   @Post('handoffs')
-  async handoff(@Body() body: { journeyId?: string; recipient?: string; channel?: string; summary?: string }) {
-    return await this.store.createRealityHandoff(body);
+  async handoff(
+    @Body() body: { journeyId?: string; recipient?: string; channel?: string; summary?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.createRealityHandoff({
+        userId: runtimeId,
+        journeyId: body.journeyId,
+        recipient: body.recipient ?? '',
+        channel: body.channel ?? '',
+        summary: body.summary ?? '',
+      });
+      return { item };
+    }
+    return await this.store.createRealityHandoff(body, runtimeId);
   }
 
   @Post('handoffs/:id/share')
-  async shareHandoff(@Param('id') id: string) {
-    return await this.store.shareRealityHandoff(id);
+  async shareHandoff(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const item = await this.selfPersistence.shareRealityHandoff(id, runtimeId);
+      return { item };
+    }
+    return await this.store.shareRealityHandoff(id, runtimeId);
   }
 
   @Get('handoffs')
-  handoffs() {
-    return { items: this.store.handoffList() };
+  async handoffs(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.RealityHandoff) {
+      const items = await this.selfPersistence.listRealityHandoffs(runtimeId);
+      return { items };
+    }
+    return { items: await this.store.handoffList(runtimeId) };
   }
 
   @Post('trusted-contacts')
-  async trustedContact(@Body() body: { nickname?: string; relation?: string; contactHint?: string }) {
-    return await this.store.saveTrustedContact(body);
+  async trustedContact(
+    @Body() body: { nickname?: string; relation?: string; contactHint?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      const item = await this.selfPersistence.createTrustedContact({
+        userId: runtimeId,
+        nickname: body.nickname ?? '',
+        relation: body.relation ?? '',
+        contactHint: body.contactHint ?? '',
+      });
+      return { item };
+    }
+    return await this.store.saveTrustedContact(body, runtimeId);
   }
 
   @Get('trusted-contacts')
-  trustedContacts() {
-    return { items: this.store.trustedContactList() };
+  async trustedContacts(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.TrustedContact) {
+      const items = await this.selfPersistence.listTrustedContacts(runtimeId);
+      return { items };
+    }
+    return { items: await this.store.trustedContactList(runtimeId) };
   }
 
   @Post('future-messages')
-  async futureMessage(@Body() body: { journeyId?: string; content?: string; deliverAt?: string }) {
-    return await this.store.saveFutureMessage(body);
+  async futureMessage(
+    @Body()
+    body: {
+      journeyId?: string;
+      contextType?: string;
+      contextRefId?: string;
+      content?: string;
+      deliverAt?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.saveFutureMessage(body, runtimeId);
   }
 
   @Get('future-messages')
-  futureMessages() {
-    return { items: this.store.futureMessageList() };
+  async futureMessages(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.futureMessageList(runtimeId) };
   }
 
   @Post('support-plans')
-  async supportPlan(@Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> }) {
-    return await this.store.saveSupportPlan(body);
+  async supportPlan(
+    @Body() body: { journeyId?: string | null; title?: string; plan?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      const item = await this.selfPersistence.saveSupportPlan({
+        userId: runtimeId,
+        journeyId: body.journeyId,
+        title: body.title,
+        plan: body.plan,
+      });
+      return { item };
+    }
+    return await this.store.saveSupportPlan(body, runtimeId);
   }
 
   @Get('me/support-plan')
-  supportPlanCurrent() {
-    return { item: this.store.supportPlan() };
+  async supportPlanCurrent(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      const item = await this.selfPersistence.getSupportPlan(runtimeId);
+      return { item };
+    }
+    return { item: await this.store.supportPlan(runtimeId) };
   }
 
   @Put('me/support-plan')
-  async supportPlanPut(@Body() body: { journeyId?: string; title?: string; plan?: Record<string, unknown> }) {
-    return await this.store.saveSupportPlan(body);
+  async supportPlanPut(
+    @Body() body: { journeyId?: string | null; title?: string; plan?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    return await this.supportPlan(body, userId);
+  }
+
+  @Get('me/stable-self')
+  async stableSelfProfile(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      const item = await this.selfPersistence.getStableSelfProfile(runtimeId);
+      return { item };
+    }
+    return { item: await this.store.stableSelfProfile(runtimeId) };
+  }
+
+  @Put('me/stable-self')
+  async stableSelfProfilePut(
+    @Body() body: { profile?: Record<string, unknown> },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.StableSelfProfile) {
+      const item = await this.selfPersistence.saveStableSelfProfile({
+        userId: runtimeId,
+        profile: body.profile ?? {},
+      });
+      return { item };
+    }
+    return await this.store.saveStableSelfProfile(body, runtimeId);
   }
 
   @Get('me/recovery')
-  recovery() {
-    return { items: this.store.recoveryList() };
+  async recovery(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return { items: await this.store.recoveryList(runtimeId) };
   }
 
   @Post('me/recovery')
-  async recoveryCheckin(@Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string }) {
-    return await this.store.saveRecoveryCheckin(body.journeyId, body.signals ?? {}, body.summary);
+  async recoveryCheckin(
+    @Body() body: { journeyId?: string; signals?: Record<string, unknown>; summary?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.RecoverySnapshot) {
+      const item = await this.selfPersistence.appendRecoverySnapshot({
+        userId: runtimeId,
+        journeyId: body.journeyId,
+        signals: body.signals ?? {},
+        summary: body.summary,
+      });
+      return { item };
+    }
+    return await this.store.saveRecoveryCheckin(
+      body.journeyId,
+      body.signals ?? {},
+      body.summary,
+      runtimeId,
+    );
   }
 
   @Get('notifications')
-  notifications(@Headers('x-goodnight-user-id') userId?: string) {
-    const items = this.store.notificationList(runtimeUserId(userId));
+  async notifications(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const items = await this.store.notificationList(runtimeId);
     return { items, unreadCount: items.filter((item) => item.status === 'unread').length };
   }
 
   @Patch('notifications/:id/read')
   async readNotification(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.readNotification(id, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.readNotification(id, runtimeId);
   }
 
   @Get('peer-conversations')
   async peerConversations(@Headers('x-goodnight-user-id') userId?: string) {
-    return { items: await this.store.conversationList(runtimeUserId(userId)) };
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.conversationList(runtimeId) };
   }
 
   @Post('peer-conversations/:matchId/messages')
-  async peerMessage(@Param('matchId') matchId: string, @Body() body: { content?: string }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.sendPeerMessage(matchId, body.content, runtimeUserId(userId));
+  async peerMessage(
+    @Param('matchId') matchId: string,
+    @Body() body: {
+      content?: string;
+      msgType?: string;
+      replyToId?: string;
+      mediaUrl?: string;
+      clientMsgId?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const payload = {
+      content: typeof body?.content === 'string' ? body.content : '',
+      msgType: typeof body?.msgType === 'string' ? body.msgType : 'TEXT',
+      replyToId: typeof body?.replyToId === 'string' ? body.replyToId : undefined,
+      mediaUrl: typeof body?.mediaUrl === 'string' ? body.mediaUrl : undefined,
+      clientMsgId: typeof body?.clientMsgId === 'string' ? body.clientMsgId : undefined,
+    };
+    return await this.store.sendPeerMessage(matchId, payload, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/assist')
-  async peerMessageAssist(@Param('matchId') matchId: string, @Body() body: { content?: string }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.requestPeerResponseAssist(matchId, body.content, runtimeUserId(userId));
+  async peerMessageAssist(
+    @Param('matchId') matchId: string,
+    @Body() body: { content?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.requestPeerResponseAssist(matchId, body.content, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/close')
   async closePeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.closePeerConversation(matchId, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.closePeerConversation(matchId, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/report')
-  async reportPeerConversation(@Param('matchId') matchId: string, @Body() body: { reason?: string }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.reportPeerConversation(matchId, body.reason, runtimeUserId(userId));
+  async reportPeerConversation(
+    @Param('matchId') matchId: string,
+    @Body() body: { reason?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.reportPeerConversation(matchId, body.reason, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/block')
   async blockPeerConversation(@Param('matchId') matchId: string, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.blockPeerConversation(matchId, runtimeUserId(userId));
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.blockPeerConversation(matchId, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/feedback')
-  async peerConversationFeedback(@Param('matchId') matchId: string, @Body() body: { feedback?: string; note?: string; shareLater?: boolean }, @Headers('x-goodnight-user-id') userId?: string) {
-    return await this.store.savePeerConversationFeedback(matchId, body, runtimeUserId(userId));
+  async peerConversationFeedback(
+    @Param('matchId') matchId: string,
+    @Body() body: { feedback?: string; note?: string; shareLater?: boolean },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.savePeerConversationFeedback(matchId, body, runtimeId);
+  }
+
+  @Post('peer-conversations/:matchId/messages/:messageId/recall')
+  async recallPeerMessage(
+    @Param('matchId') matchId: string,
+    @Param('messageId') messageId: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.recallPeerMessage(matchId, messageId, runtimeId);
+  }
+
+  @Get('peer-conversations/:matchId/sync')
+  async syncPeerConversation(
+    @Param('matchId') matchId: string,
+    @Query('afterSeq') afterSeq?: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    const seq = parseInt(afterSeq ?? '0', 10) || 0;
+    return await this.store.syncPeerConversation(matchId, seq, runtimeId);
+  }
+
+  @Post('peer-conversations/:matchId/call/offer')
+  async createPeerCallOffer(
+    @Param('matchId') _matchId: string,
+    @Body() _body: any,
+    @Headers('x-goodnight-user-id') _userId?: string,
+  ) {
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
+  }
+
+  @Post('peer-conversations/:matchId/call/respond')
+  async respondPeerCall(
+    @Param('matchId') _matchId: string,
+    @Body() _body: any,
+    @Headers('x-goodnight-user-id') _userId?: string,
+  ) {
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
+  }
+
+  @Post('peer-conversations/:matchId/call/end')
+  async endPeerCall(
+    @Param('matchId') _matchId: string,
+    @Body() _body: any,
+    @Headers('x-goodnight-user-id') _userId?: string,
+  ) {
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
+  }
+
+  @Get('peer-conversations/:matchId/call/status')
+  async getPeerCallStatus(
+    @Param('matchId') _matchId: string,
+    @Headers('x-goodnight-user-id') _userId?: string,
+  ) {
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
+  }
+
+  @Get('stickers')
+  async listStickers(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: this.store.socialMultimedia.listStickers(runtimeId) };
+  }
+
+  @Get('stickers/favorites')
+  async getFavoriteStickers(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { favoriteIds: this.store.socialMultimedia.getUserFavoriteStickerIds(runtimeId) };
+  }
+
+  @Post('stickers/favorites')
+  async addFavoriteSticker(
+    @Body() body: { stickerId?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    if (!body || typeof body.stickerId !== 'string' || !body.stickerId.trim()) {
+      throw new BadRequestException('缺少有效的表情包标识');
+    }
+    return this.store.socialMultimedia.addFavoriteSticker(runtimeId, body.stickerId.trim());
+  }
+
+  @Delete('stickers/favorites/:id')
+  async removeFavoriteSticker(
+    @Param('id') stickerId: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.socialMultimedia.removeFavoriteSticker(runtimeId, stickerId);
+  }
+
+  @Get('me/ai-persona')
+  async getAiPersona(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return this.store.getAiPersona(runtimeId);
+  }
+
+  @Post('me/ai-persona')
+  async setAiPersona(
+    @Body() body: { personaId?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    if (!body || typeof body.personaId !== 'string') {
+      throw new BadRequestException('缺少有效的人格标识');
+    }
+    return this.store.setAiPersona(body.personaId, runtimeId);
   }
 
   @Get('memory')
-  memories() {
-    return { items: this.store.memoryItems.filter((item) => item.userId === this.store.getDemoUserId() && !item.deletedAt && Date.parse(item.expiresAt) > Date.now()) };
+  async memories(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return { items: await this.store.memoryList(false, runtimeId) };
   }
 
   @Get('me/memories')
-  memoriesAlias() {
-    return this.memories();
+  async memoriesAlias(@Headers('x-goodnight-user-id') userId?: string) {
+    const targetUserId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    const userJobs = DIRECT_DB_MODELS.AIJob
+      ? await this.batch1Persistence.listAiJobsForUser(targetUserId)
+      : this.store.aiJobs.filter((job) => job.userId === targetUserId);
+    const items = (await this.store.memoryList(true, targetUserId)).map((item) => {
+      const usages = userJobs.flatMap((job) =>
+        (job.traceJson ?? [])
+          .filter(
+            (trace: any) =>
+              trace.event === 'memory-context' && Array.isArray(trace.memoryIds) && trace.memoryIds.includes(item.id),
+          )
+          .map((trace: any) => ({ jobId: job.id, taskType: job.taskType, at: trace.at ?? job.createdAt })),
+      );
+      return { ...item, usages };
+    });
+    return { items };
   }
 
   @Post('memory')
-  async memory(@Body() body: { journeyId?: string; category?: string; content?: string; days?: number }) {
-    return await this.store.saveMemory(body);
+  async memory(
+    @Body()
+    body: {
+      journeyId?: string;
+      category?: string;
+      title?: string;
+      content?: string;
+      days?: number;
+      scope?: string;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.saveMemory({ ...body, source: 'user_saved' }, runtimeId);
+  }
+
+  @Patch('me/memories/:id')
+  async updateMemory(
+    @Param('id') id: string,
+    @Body() body: { title?: string; content?: string; days?: number; scope?: string; status?: string },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.updateMemory(id, body, runtimeId);
   }
 
   @Delete('memory/:id')
-  async deleteMemory(@Param('id') id: string) {
-    return await this.store.deleteMemory(id);
+  async deleteMemory(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.deleteMemory(id, runtimeId);
   }
 
   @Delete('me/memories/:id')
-  async deleteMemoryAlias(@Param('id') id: string) {
-    return await this.store.deleteMemory(id);
+  async deleteMemoryAlias(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.deleteMemory(id, runtimeId);
+  }
+
+  /**
+   * The explicit re-consent action. It is a separate route on purpose: it is the only way an
+   * effectively expired memory becomes usable again, and it writes a fresh consent timestamp, so it
+   * must not be reachable as a side effect of an ordinary edit (§0.5/A5, §0.6/A5).
+   */
+  @Post('me/memories/:id/reactivate')
+  async reactivateMemory(
+    @Param('id') id: string,
+    @Body() body: { days?: number },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.reactivateMemory(id, body?.days, runtimeId);
   }
 
   @Get('posts/:id')
-  post(@Param('id') id: string) {
-    return { item: this.store.getPost(id, true) };
+  async post(@Param('id') id: string) {
+    return { item: await this.store.getPost(id, true) };
   }
 
   @Post('posts/:id/hug')
-  async hug(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    post.hugCount += 1;
-    this.store.persist();
-    await this.store.flush();
-    return { item: post };
+  async hug(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.hugPost(id, runtimeUserId(userId));
   }
 
   @Delete('posts/:id/hug')
-  async unHug(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    post.hugCount = Math.max(0, post.hugCount - 1);
-    this.store.persist();
-    await this.store.flush();
-    return { item: post };
+  async unHug(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.store.unHugPost(id, runtimeUserId(userId));
   }
 
   @Post('posts/:id/hugs')
-  hugs(@Param('id') id: string) {
-    return this.hug(id);
+  hugs(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return this.hug(id, userId);
   }
 
   @Post('posts/:id/favorite')
-  async favorite(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    this.store.addFavorite(this.store.getDemoUserId(), 'post', id);
+  async favorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const post = await this.store.getPost(id, true);
+    await this.store.addFavorite(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    return { item: this.store.decoratePost(post) };
+    // Read again so the response reflects the favourite just added.
+    return { item: await this.store.getPost(id, true) };
   }
 
   @Delete('posts/:id/favorite')
-  async deleteFavorite(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    this.store.removeFavoriteByTarget(this.store.getDemoUserId(), 'post', id);
+  async deleteFavorite(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    await this.store.removeFavoriteByTarget(requireRuntimeUserId(requestedUserId), 'post', id);
     await this.store.persistAndFlush();
-    return { item: this.store.decoratePost(post) };
+    return { item: await this.store.getPost(id, true) };
   }
 
   @Post('posts/:id/report')
   async report(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    post.reportCount += 1;
-    this.store.persist();
-    await this.store.flush();
-    return { item: post };
+    const item = await this.store.reportPost(id);
+    return { item };
   }
 
   @Post('posts/:id/hide')
@@ -556,16 +1515,30 @@ export class PublicController {
   }
 
   @Delete('posts/:id')
-  async deletePost(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
-    post.status = 'deleted';
-    this.store.persist();
-    await this.store.flush();
+  async deletePost(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // Only the author may delete a post. Moderation has its own admin route (hide/reject); without
+    // this check any authenticated caller could take down someone else's public post by id.
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const post = await this.store.getPost(id, true);
+    if (post.userId !== userId) throw new NotFoundException('树洞不存在');
+    await this.store.deletePostAsAuthor(id);
     return { ok: true };
   }
 
   @Post('posts')
-  async createPost(@Body() body: { content: string; emotion?: Emotion; mood?: string; visibility?: Visibility; style?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[]; journeyId?: string }) {
+  async createPost(
+    @Body()
+    body: {
+      content: string;
+      emotion?: Emotion;
+      mood?: string;
+      visibility?: Visibility;
+      style?: AIStyle;
+      replyStyles?: AIStyle[];
+      assetIds?: string[];
+      journeyId?: string;
+    },
+  ) {
     return this.store.createMood({
       content: body.content,
       emotion: normalizeEmotion(body.emotion ?? body.mood),
@@ -578,7 +1551,20 @@ export class PublicController {
   }
 
   @Post('moods')
-  async mood(@Body() body: { content: string; emotion?: Emotion; mood?: string; visibility: Visibility; style?: AIStyle; replyStyle?: AIStyle; replyStyles?: AIStyle[]; assetIds?: string[]; journeyId?: string }) {
+  async mood(
+    @Body()
+    body: {
+      content: string;
+      emotion?: Emotion;
+      mood?: string;
+      visibility: Visibility;
+      style?: AIStyle;
+      replyStyle?: AIStyle;
+      replyStyles?: AIStyle[];
+      assetIds?: string[];
+      journeyId?: string;
+    },
+  ) {
     return this.store.createMood({
       ...body,
       emotion: normalizeEmotion(body.emotion ?? body.mood),
@@ -589,23 +1575,55 @@ export class PublicController {
   }
 
   @Post('moods/:id/queue-ai-replies')
-  queueReplies(@Param('id') id: string) {
-    const mood = this.store.moods.find((item) => item.id === id);
-    const post = this.store.posts.find((item) => item.moodId === id);
+  async queueReplies(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const mood = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.get(id) : this.store.moods.find((item) => item.id === id);
+    const postId = DIRECT_DB_MODELS.Post
+      ? await this.store.postsDb.idByMoodId(id)
+      : (this.store.posts.find((item) => item.moodId === id)?.id ?? null);
     const styles: AIStyle[] = ['warm', 'rational', 'light', 'clear', 'poetic'];
-    const jobs = styles.map((style) => this.store.queueAI({
-      taskType: 'public_ai_reply',
-      userId: mood?.userId ?? this.store.getDemoUserId(),
-      sourceId: id,
-      style,
-      content: mood?.content ?? '',
-    }));
-    if (post) {
-      void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then((completed) => {
-        for (const job of completed.filter((item) => ['succeeded', 'fallback'].includes(item.status))) {
-          this.store.replies.unshift({ id: `reply_${job.id}`, postId: post.id, type: 'AI', style: job.style, content: job.result, status: 'published', riskLevel: 'low', likeCount: 0, createdAt: job.createdAt });
+    const jobs = styles.map((style) =>
+      this.store.queueAI({
+        taskType: 'public_ai_reply',
+        userId: mood?.userId ?? userId,
+        sourceId: id,
+        style,
+        content: mood?.content ?? '',
+      }),
+    );
+    if (postId) {
+      void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then(async (completed) => {
+        const usable = completed.filter((item) => ['succeeded', 'fallback'].includes(item.status));
+        if (DIRECT_DB_MODELS.Reply) {
+          for (const job of usable) {
+            await this.store.repliesDb.create({
+              id: `reply_${job.id}`,
+              postId,
+              type: 'AI',
+              style: job.style,
+              content: job.result,
+              status: 'published',
+              riskLevel: 'low',
+              createdAt: new Date(job.createdAt),
+            });
+          }
+          await this.store.syncReplyCount(postId);
+          return;
         }
-        post.replyCount = this.store.replies.filter((item) => item.postId === post.id && item.status === 'published').length;
+        for (const job of usable) {
+          this.store.replies.unshift({
+            id: `reply_${job.id}`,
+            postId,
+            type: 'AI',
+            style: job.style,
+            content: job.result,
+            status: 'published',
+            riskLevel: 'low',
+            likeCount: 0,
+            createdAt: job.createdAt,
+          });
+        }
+        await this.store.syncReplyCount(postId);
         this.store.persist();
       });
     }
@@ -613,12 +1631,13 @@ export class PublicController {
   }
 
   @Get('posts/:id/replies')
-  replies(@Param('id') id: string) {
+  async replies(@Param('id') id: string) {
+    if (DIRECT_DB_MODELS.Reply) return { items: await this.store.repliesDb.listPublishedForPost(id) };
     return { items: this.store.replies.filter((item) => item.postId === id && item.status === 'published') };
   }
 
   @Get('reply-presets')
-  presets() {
+  async presets() {
     const now = new Date().toISOString();
     const required = ['抱抱你', '我懂你的感受', '会好起来的', '今晚早点休息', '你已经很棒了'].map((text, index) => ({
       id: `first5_preset_${index + 1}`,
@@ -628,9 +1647,9 @@ export class PublicController {
       enabled: true,
       createdAt: now,
     }));
-    const enabled = this.store.replyPresets.filter((item) => item.enabled).sort((a, b) => a.sortOrder - b.sortOrder);
-    const items = [...required, ...enabled].reduce<typeof enabled>((acc, item) => {
-      if (!acc.some((seen) => seen.text === item.text)) acc.push(item);
+    const enabled = await this.feedbackPersistence.listPublicPresets();
+    const items = [...required, ...enabled].reduce<Array<Record<string, unknown>>>((acc, item) => {
+      if (!acc.some((seen) => seen.text === item.text)) acc.push(item as unknown as Record<string, unknown>);
       return acc;
     }, []);
     return { items };
@@ -638,7 +1657,7 @@ export class PublicController {
 
   @Post('posts/:id/replies')
   async reply(@Param('id') id: string, @Body() body: { content: string; anonymous?: boolean; visibility?: string }) {
-    const item = this.store.createReply(id, body);
+    const item = await this.store.createReply(id, body);
     await this.store.flush();
     return { item };
   }
@@ -649,88 +1668,264 @@ export class PublicController {
   }
 
   @Post('ai/generate')
-  aiGenerate(@Body() body: AIGenerateInput) {
-    const job = this.store.queueAI(body);
+  async aiGenerate(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
+    const job = this.store.queueAI({
+      ...body,
+      userId: this.store.resolveRuntimeUserId(runtimeUserId(userId)),
+    });
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(job.id);
+    }
     return { jobId: job.id, status: job.status, job };
   }
 
   @Post('ai/tasks')
-  aiTask(@Body() body: AIGenerateInput) {
-    const job = this.store.queueAI(body);
+  async aiTask(@Body() body: AIGenerateInput, @Headers('x-goodnight-user-id') userId?: string) {
+    const job = this.store.queueAI({
+      ...body,
+      userId: this.store.resolveRuntimeUserId(runtimeUserId(userId)),
+    });
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(job.id);
+    }
     return { jobId: job.id, status: job.status, job };
   }
 
   @Get('ai/tasks/latest')
-  latestAiTask(@Query('taskType') taskType = 'negative_rewrite') {
-    const job = this.store.latestSuccessfulAiJob(this.store.getDemoUserId(), taskType);
+  async latestAiTask(
+    @Query('taskType') taskType = 'negative_rewrite',
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const job = await this.store.latestSuccessfulAiJob(
+      this.store.resolveRuntimeUserId(runtimeUserId(userId)),
+      taskType,
+    );
+    const safeJob = job ? this.store.peerAssistJobForResponse(job) : null;
     return {
-      item: job ?? null,
-      jobId: job?.id ?? null,
-      status: job?.status ?? null,
-      result: job?.result ?? '',
+      item: safeJob,
+      jobId: safeJob?.id ?? null,
+      status: safeJob?.status ?? null,
+      result: safeJob?.result ?? '',
     };
   }
 
   @Get('ai/tasks/:id')
-  aiTaskStatus(@Param('id') id: string) {
+  async aiTaskStatus(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const expectedUserId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(id);
+      const job = await this.batch1Persistence.getAiJob(id);
+      if (!job || job.userId !== expectedUserId) {
+        throw new NotFoundException('AI 任务不存在');
+      }
+      const safeJob = this.store.peerAssistJobForResponse(job);
+      return {
+        jobId: safeJob.id,
+        status: safeJob.status,
+        job: safeJob,
+        result: safeJob.result,
+        structured: safeJob.structuredResult ?? {},
+      };
+    }
     const job = this.store.aiJobs.find((item) => item.id === id);
-    if (!job) throw new BadRequestException('AI 任务不存在');
-    return { jobId: job.id, status: job.status, job, result: job.result, structured: job.structuredResult ?? {} };
+    if (!job || job.userId !== expectedUserId) {
+      throw new NotFoundException('AI 任务不存在');
+    }
+    if (!['queued', 'running'].includes(job.status)) await this.store.flush();
+    const safeJob = this.store.peerAssistJobForResponse(job);
+    return {
+      jobId: safeJob.id,
+      status: safeJob.status,
+      job: safeJob,
+      result: safeJob.result,
+      structured: safeJob.structuredResult ?? {},
+    };
   }
 
   @Get('letters/today')
-  today() {
-    const userId = this.store.getDemoUserId();
-    const letter = this.store.letters.find((item) => item.userId === userId);
-    const sourceId = letter?.sourceMoodId ?? this.store.moods.find((item) => item.userId === userId)?.id ?? 'mood_1';
-    const source = this.store.resolveSourceContent(sourceId) || this.store.diaries.find((item) => item.userId === userId)?.content || '今天也辛苦了';
+  async today(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const letter = (DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findLatestWithContent(userId)
+      : this.store.letters.find((item) => item.userId === userId)) ?? undefined;
+    const sourceId: string | null =
+      letter?.sourceMoodId ??
+      (DIRECT_DB_MODELS.Mood
+        ? (await this.store.moodsDb.latestForUser(userId))?.id
+        : this.store.moods.find((item) => item.userId === userId)?.id) ??
+      null;
+    // `sourceMoodId` is a real foreign key, so a letter may only point at a mood row that exists.
+    // This used to fall back to the literal seed id 'mood_1', which the seed no longer writes - it
+    // writes `mood_seed_*` - so every user without a mood hit a foreign-key violation and the page
+    // 500'd. A letter with no source is legitimate (`sourceMoodId` is nullable), so the fallback is
+    // to leave it null rather than to invent a row that will never satisfy the constraint.
+    // Diary is database-authoritative, so the fallback source is a row read rather than a scan of the
+    // legacy array - whose getter throws.
+    const source =
+      (await this.store.resolveSourceContent(sourceId)) ||
+      (DIRECT_DB_MODELS.Diary ? await this.store.diariesDb.findLatestWithContent(userId) : undefined)?.content ||
+      '今天也辛苦了';
     // A read must never repeatedly enqueue a replacement task for a completed
     // letter. New private moods and explicit style changes already create a
     // real AiJob; GET remains an idempotent read of that persisted state.
     if (!letter || !letter.content) {
-      const queued = this.store.queueLetterGeneration({ userId, sourceMoodId: sourceId, style: letter?.style ?? 'warm', content: source, letter });
-      return { item: this.store.decorateLetter(queued.letter), jobId: queued.job.id, status: queued.job.status };
+      const queued = await this.store.queueLetterGeneration({
+        userId,
+        sourceMoodId: sourceId,
+        style: letter?.style ?? 'warm',
+        content: source,
+        letter,
+      });
+      return {
+        item: { ...this.store.decorateLetter(queued.letter), sourceDiaryId: await this.sourceDiaryIdFor(queued.letter, userId) },
+        jobId: queued.job.id,
+        status: queued.job.status,
+      };
     }
-    return { item: this.store.decorateLetter(letter) };
+    return { item: { ...this.store.decorateLetter(letter), sourceDiaryId: await this.sourceDiaryIdFor(letter, userId) } };
+  }
+
+  /**
+   * The diary entry a letter was written for, as the id that entry currently has.
+   *
+   * The diary row for the source mood when one exists, otherwise the mood itself (the diary list
+   * projects it under the mood id). Returning the mood id alone is not enough: a diary row created for
+   * that mood carries a different id, and the link would land on "没有找到这篇日记".
+   */
+  private async sourceDiaryIdFor(letter: any, caller: string): Promise<string | undefined> {
+    if (!letter?.sourceMoodId) return undefined;
+    const rows = DIRECT_DB_MODELS.Diary
+      ? await this.store.diariesDb.listForUser(caller)
+      : this.store.diaries.filter((item) => item.userId === caller);
+    const linked =
+      rows.find((row) => row.moodId === letter.sourceMoodId) ?? rows.find((row) => row.letterId === letter.id);
+    return linked?.id ?? letter.sourceMoodId;
   }
 
   @Get('letters')
-  letters(@Query('status') status?: string) {
-    const userId = this.store.getDemoUserId();
+  async letters(@Query('status') status?: string, requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    // An unknown filter used to be ignored, so `?status=typo` answered with the whole inbox as if
+    // that were the requested view.
+    if (status && !['all', 'unread', 'read', 'favorited', 'fav'].includes(status)) {
+      throw new BadRequestException('无效的回信状态');
+    }
+    // `Letter.favorite` is the denormalised column FavoritePersistenceService keeps in step with the
+    // favourite table; reading the table per row here would be an N+1 for no gain.
+    const filter = status === 'unread'
+      ? 'unread'
+      : status === 'read'
+        ? 'read'
+        : status === 'favorited' || status === 'fav'
+          ? 'favorited'
+          : undefined;
+
+    if (DIRECT_DB_MODELS.Letter) {
+      const { rows, total } = await this.store.lettersDb.listPageForUser(userId, { status: filter });
+      return {
+        items: rows.map((item) => this.store.decorateLetter(item)),
+        total,
+        truncated: total > rows.length,
+      };
+    }
+
     let items = this.store.letters.filter((item) => item.userId === userId);
-    if (status === 'unread') items = items.filter((item) => item.status === 'unread');
-    if (status === 'favorited' || status === 'fav') items = items.filter((item) => this.store.isFavorite(userId, 'letter', item.id));
-    return { items: items.map((item) => this.store.decorateLetter(item)) };
+    // Newest first, with the id as a tie-breaker so two letters written in the same second do not
+    // swap places between reads.
+    items = [...items].sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
+        String(left.id).localeCompare(String(right.id)),
+    );
+    if (filter === 'unread') items = items.filter((item) => item.status === 'unread');
+    else if (filter === 'read') items = items.filter((item) => item.status !== 'unread');
+    else if (filter === 'favorited') items = items.filter((item) => Boolean(item.favorite));
+    const total = items.length;
+    return {
+      items: items.slice(0, 200).map((item) => this.store.decorateLetter(item)),
+      total,
+      truncated: total > 200,
+    };
   }
 
   @Get('letters/:id')
-  letter(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    return { item: letter ? this.store.decorateLetter(letter) : undefined };
+  async letter(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    // The letter is private to its owner. The ownership check has to happen before the
+    // lookup: an unknown caller id must not silently fall back to the demo user's letters
+    // (product audit ISSUE-017).
+    const caller = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.get(id)
+      : this.store.letters.find((item) => item.id === id);
+    if (letter && letter.userId !== caller) throw new NotFoundException('回信不存在');
+    if (!letter) return { item: undefined };
+    return { item: { ...this.store.decorateLetter(letter), sourceDiaryId: await this.sourceDiaryIdFor(letter, caller) } };
   }
 
   @Patch('letters/:id/read')
-  readLetter(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    if (!letter) return { item: null };
+  async readLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    if (DIRECT_DB_MODELS.Letter) {
+      // Letter is database-authoritative: mutating the object and calling `persist()` only updated
+      // this process's snapshot, so a read letter reverted on the next load.
+      const result = await this.store.lettersDb.markRead(id, userId);
+      if (result.count === 0) throw new NotFoundException('回信不存在');
+      return { item: await this.letterForResponse(id, userId) };
+    }
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     letter.status = 'read';
     this.store.persist();
     return { item: letter };
   }
 
   @Post('letters/:id/like')
-  likeLetter(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    if (!letter) return { item: null };
+  async likeLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    if (DIRECT_DB_MODELS.Letter) {
+      // Same as read: the increment must be a database write, not a snapshot mutation.
+      const result = await this.store.lettersDb.incrementLike(id, userId);
+      if (result.count === 0) throw new NotFoundException('回信不存在');
+      return { item: await this.letterForResponse(id, userId) };
+    }
+    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     letter.likeCount = (letter.likeCount ?? 0) + 1;
     this.store.persist();
     return { item: letter };
   }
 
+  /**
+   * The caller's letter as a response payload, after a successful write.
+   *
+   * The write's affected-row count already proves ownership, but re-reading can still miss if another
+   * device cleared the account's data in between. Reporting success with an empty item would tell the
+   * client a write landed while nothing is left to show, so that case is an explicit error.
+   */
+  private async letterForResponse(id: string, userId: string) {
+    const letter = await this.store.lettersDb.get(id);
+    if (!letter || letter.userId !== userId) throw new NotFoundException('回信不存在');
+    return this.store.decorateLetter(letter);
+  }
+
   @Post('letters/:id/regenerate')
-  regenerate(@Param('id') id: string, @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean }) {
-    const letter = this.store.letters.find((item) => item.id === id) ?? this.store.letters[0];
-    const source = this.store.resolveSourceContent(letter.sourceMoodId) || this.store.diaries.find((item) => item.userId === letter.userId)?.content || letter.content;
+  async regenerate(
+    @Param('id') id: string,
+    @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
+    // The letter must belong to the caller. The old fallback to `letters[0]` meant an unknown id
+    // silently regenerated whichever letter happened to be first in the store - possibly another
+    // user's, using their private content as the AI source.
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
+    const source =
+      (await this.store.resolveSourceContent(letter.sourceMoodId)) ||
+      (DIRECT_DB_MODELS.Diary ? await this.store.diariesDb.findLatestWithContent(letter.userId) : undefined)?.content ||
+      letter.content;
     const job = this.store.queueAI({
       taskType: 'today_letter',
       content: source,
@@ -745,46 +1940,109 @@ export class PublicController {
     // remote result must not overwrite it after the person has moved on.
     letter.aiJobId = job.id;
     letter.generationStatus = job.status;
-    this.store.persist();
-    void this.store.waitForAiJob(job.id).then((completed) => {
-      if (letter.aiJobId !== completed.id) return;
-      letter.style = body.style ?? letter.style;
-      letter.generationStatus = completed.status;
-      if (['succeeded', 'fallback'].includes(completed.status)) {
-        letter.content = completed.result;
-        letter.status = 'unread';
-      }
+    if (DIRECT_DB_MODELS.Letter) {
+      await this.store.lettersDb.applyGenerationResult(letter.id, userId, {
+        aiJobId: job.id,
+        generationStatus: job.status,
+        style: body.style ?? letter.style,
+      });
+    } else {
       this.store.persist();
-    }).catch(() => {
-      if (letter.aiJobId !== job.id) return;
-      letter.generationStatus = 'failed';
-      this.store.persist();
-    });
+    }
+    void this.store
+      .waitForAiJob(job.id)
+      .then(async (completed) => {
+        if (letter.aiJobId !== completed.id) return;
+        letter.style = body.style ?? letter.style;
+        letter.generationStatus = completed.status;
+        if (['succeeded', 'fallback'].includes(completed.status)) {
+          letter.content = completed.result;
+          letter.status = 'unread';
+        }
+        if (DIRECT_DB_MODELS.Letter) {
+          await this.store.lettersDb.applyGenerationResult(
+            letter.id,
+            userId,
+            {
+              aiJobId: completed.id,
+              generationStatus: completed.status,
+              style: body.style ?? letter.style,
+              content: ['succeeded', 'fallback'].includes(completed.status) ? completed.result : undefined,
+            },
+            completed.id,
+          );
+        } else {
+          this.store.persist();
+        }
+      })
+      .catch(async () => {
+        if (letter.aiJobId !== job.id) return;
+        letter.generationStatus = 'failed';
+        if (DIRECT_DB_MODELS.Letter) {
+          await this.store.lettersDb.applyGenerationResult(
+            letter.id,
+            userId,
+            {
+              aiJobId: job.id,
+              generationStatus: 'failed',
+            },
+            job.id,
+          );
+        } else {
+          this.store.persist();
+        }
+      });
     return { item: letter, jobId: job.id, status: job.status, job };
   }
 
   @Post('letters/generate')
-  generateLetter(@Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean }) {
-    const userId = this.store.getDemoUserId();
-    const letter = this.store.letters.find((item) => item.userId === userId);
-    if (letter) return this.regenerate(letter.id, body);
-    const queued = this.store.queueLetterGeneration({ userId, sourceMoodId: 'mood_1', style: body.style ?? 'warm', content: '今天也辛苦了' });
+  async generateLetter(
+    @Body() body: { style?: AIStyle; simulatePrimaryFail?: boolean; simulateBackupFail?: boolean },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? (await this.store.lettersDb.listRecentForUser(userId)).at(-1) ?? null
+      : this.store.letters.find((item) => item.userId === userId);
+    if (letter) return this.regenerate(letter.id, body, userId);
+    // Same nullable-source rule as `today` above: the user may have no mood at all, and inventing a
+    // source id that no row satisfies only turns this into a foreign-key failure.
+    const latestMoodId = DIRECT_DB_MODELS.Mood
+      ? (await this.store.moodsDb.latestForUser(userId))?.id
+      : this.store.moods.find((item) => item.userId === userId)?.id;
+    const queued = await this.store.queueLetterGeneration({
+      userId,
+      sourceMoodId: latestMoodId ?? null,
+      style: body.style ?? 'warm',
+      content: '今天也辛苦了',
+    });
     return { item: queued.letter, jobId: queued.job.id, status: queued.job.status, job: queued.job };
   }
 
   @Post('letters/:id/poster')
-  async poster(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id);
-    if (!letter) throw new BadRequestException('回信不存在');
+  async poster(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
     const asset = await this.store.createLetterPoster(letter);
     return { posterUrl: asset.url, asset, permission: 'album-required' };
   }
 
   @Post('share-image')
-  async shareImage(@Body() body: { id?: string; type?: string; month?: string }) {
-    const letter = body.id ? this.store.letters.find((item) => item.id === body.id) : undefined;
-    if (body.type === 'letter' || letter) {
-      if (!letter) throw new BadRequestException('回信不存在');
+  async shareImage(
+    @Body() body: { id?: string; type?: string; month?: string },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = body.id
+      ? DIRECT_DB_MODELS.Letter
+        ? await this.store.lettersDb.findOwned(body.id, userId)
+        : this.store.letters.find((item) => item.id === body.id && item.userId === userId)
+      : undefined;
+    if (body.type === 'letter' || body.id) {
+      if (!letter) throw new NotFoundException('回信不存在');
       const asset = await this.store.createLetterPoster(letter);
       return { posterUrl: asset.url, asset, permission: 'album-required' };
     }
@@ -793,31 +2051,67 @@ export class PublicController {
   }
 
   @Post('letters/:id/save-to-diary')
-  async saveToDiary(@Param('id') id: string) {
-    const letter = this.store.letters.find((item) => item.id === id)!;
+  async saveToDiary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
+    if (!letter) throw new NotFoundException('回信不存在');
+    const savedDiary = {
+      id: `diary_${Date.now()}`,
+      userId: letter.userId,
+      letterId: id,
+      emotion: '委屈' as Emotion,
+      content: letter.content,
+      hasLetter: true,
+      createdAt: new Date().toISOString(),
+    };
+    if (DIRECT_DB_MODELS.Letter && DIRECT_DB_MODELS.Diary) {
+      // One transaction: the flag and the diary entry either both land or neither does. Split across
+      // two writes, a failed insert left the letter marked saved with no diary behind it, and the flag
+      // has to reach the row rather than just the object returned to this caller - otherwise the page
+      // showed 已收藏 until the next read and then 收藏 again.
+      const result = await this.store.lettersDb.saveToDiaryAtomically(id, userId, {
+        id: savedDiary.id,
+        emotion: savedDiary.emotion,
+        content: savedDiary.content,
+        createdAt: new Date(savedDiary.createdAt),
+      });
+      if (!result.saved) throw new NotFoundException('回信不存在');
+      letter.savedToDiary = true;
+      return { item: letter };
+    }
     letter.savedToDiary = true;
-    this.store.diaries.unshift({ id: `diary_${Date.now()}`, userId: letter.userId, letterId: id, emotion: '委屈', content: letter.content, hasLetter: true, createdAt: new Date().toISOString() });
+    if (DIRECT_DB_MODELS.Diary) {
+      await this.store.diariesDb.create({ ...savedDiary, createdAt: new Date(savedDiary.createdAt) });
+    } else {
+      this.store.diaries.unshift(savedDiary);
+    }
     this.store.persist();
     await this.store.flush();
     return { item: letter };
   }
 
   @Post('letters/:id/favorite')
-  async favoriteLetter(@Param('id') id: string) {
-    const userId = this.store.getDemoUserId();
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+  async favoriteLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
-    this.store.addFavorite(userId, 'letter', id);
+    await this.store.addFavorite(userId, 'letter', id);
     await this.store.persistAndFlush();
     return { item: this.store.decorateLetter(letter) };
   }
 
   @Delete('letters/:id/favorite')
-  async deleteFavoriteLetter(@Param('id') id: string) {
-    const userId = this.store.getDemoUserId();
-    const letter = this.store.letters.find((item) => item.id === id && item.userId === userId);
+  async deleteFavoriteLetter(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const letter = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.findOwned(id, userId)
+      : this.store.letters.find((item) => item.id === id && item.userId === userId);
     if (!letter) throw new NotFoundException('回信不存在');
-    this.store.removeFavoriteByTarget(userId, 'letter', id);
+    await this.store.removeFavoriteByTarget(userId, 'letter', id);
     await this.store.persistAndFlush();
     return { ok: true, item: this.store.decorateLetter(letter) };
   }
@@ -839,25 +2133,25 @@ export class PublicController {
   }
 
   @Post('tools/emotion-decompose')
-  decompose(@Body() body: { content: string }) {
+  decompose(@Body() body: { content: string }, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const job = this.store.queueAI({
       taskType: 'breakdown',
       content: body.content,
       style: 'rational',
-      userId: this.store.getDemoUserId(),
+      userId: requireRuntimeUserId(requestedUserId),
       sourceId: `task_${Date.now()}`,
     });
     return { taskId: job.id, jobId: job.id, status: job.status, job };
   }
 
   @Post('ai/tools/breakdown')
-  aiBreakdown(@Body() body: { content: string; mood?: string; style?: AIStyle }) {
+  aiBreakdown(@Body() body: { content: string; mood?: string; style?: AIStyle }, @Headers('x-goodnight-user-id') requestedUserId?: string) {
     const job = this.store.queueAI({
       taskType: 'breakdown',
       content: body.content,
       mood: body.mood,
       style: body.style ?? 'rational',
-      userId: this.store.getDemoUserId(),
+      userId: requireRuntimeUserId(requestedUserId),
       sourceId: `task_${Date.now()}`,
     });
     return { taskId: job.id, jobId: job.id, status: job.status, job };
@@ -869,12 +2163,25 @@ export class PublicController {
   }
 
   @Post('tools/run')
-  runTool(@Body() body: { toolId?: string; type?: string; content?: string; input?: string; style?: AIStyle }) {
+  runTool(
+    @Body() body: { toolId?: string; type?: string; content?: string; input?: string; style?: AIStyle },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
     const toolType = body.type ?? body.toolId ?? 'rewrite';
     const text = body.input ?? body.content ?? '';
-    const style = body.style ?? (toolType.includes('rewrite') ? 'clear' : toolType.includes('future') ? 'poetic' : toolType.includes('work') ? 'rational' : toolType.includes('rant') ? 'light' : 'warm');
+    const style =
+      body.style ??
+      (toolType.includes('rewrite')
+        ? 'clear'
+        : toolType.includes('future')
+          ? 'poetic'
+          : toolType.includes('work')
+            ? 'rational'
+            : toolType.includes('rant')
+              ? 'light'
+              : 'warm');
     const job = this.store.queueAI({
-      userId: this.store.getDemoUserId(),
+      userId: requireRuntimeUserId(requestedUserId),
       sourceId: `tool_${Date.now()}`,
       taskType: toolType,
       style,
@@ -914,64 +2221,128 @@ export class PublicController {
   }
 
   @Post('tools/emotion-decompose/:taskId/save')
-  saveDecompose(@Param('taskId') taskId: string) {
-    const job = this.store.aiJobs.find((item) => item.id === taskId);
-    const structured = (job?.traceJson.find((item) => typeof item === 'object' && item && 'structured' in item) as { structured?: unknown } | undefined)?.structured;
-    this.store.diaries.unshift({
-      id: `diary_${Date.now()}`,
-      userId: this.store.getDemoUserId(),
-      emotion: '焦虑',
+  async saveDecompose(@Param('taskId') taskId: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const job = DIRECT_DB_MODELS.AIJob
+      ? await this.batch1Persistence.getAiJob(taskId)
+      : this.store.aiJobs.find((item) => item.id === taskId);
+    const structured = (
+      job?.traceJson.find((item) => typeof item === 'object' && item && 'structured' in item) as
+        { structured?: unknown } | undefined
+    )?.structured;
+    const decomposedDiary = {
+      id: id('diary'),
+      userId,
+      emotion: '焦虑' as Emotion,
       content: job?.result ?? `情绪拆解结果 ${taskId}`,
       hasLetter: false,
       source: 'tool-decompose',
-      toolResult: structured,
       createdAt: new Date().toISOString(),
-    });
-    this.store.persist();
+    };
+    if (DIRECT_DB_MODELS.Diary) {
+      await this.store.diariesDb.create({ ...decomposedDiary, createdAt: new Date(decomposedDiary.createdAt) });
+    } else {
+      this.store.diaries.unshift(decomposedDiary);
+    }
+    await this.store.persistAndFlush();
     return { ok: true };
   }
 
+  /**
+   * The caller's anonymous profile.
+   *
+   * Read from the database, not the boot-time snapshot: `nickname` is editable and
+   * database-authoritative (UI-V2-29-D1), and the snapshot would show a stale name after an edit on
+   * another instance. The response is a whitelist projection - no `openid` - and is not cacheable.
+   */
   @Get('me/profile')
-  profile() {
-    return { item: this.store.users[0] };
+  @Header('Cache-Control', 'no-store')
+  async profile(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return { item: await this.store.readUserProfile(runtimeId) };
+  }
+
+  /** Saves the caller's nickname. Only `nickname` is accepted; identity is never taken from the body. */
+  @Patch('me/profile')
+  @Header('Cache-Control', 'no-store')
+  async updateProfile(@Body() body: unknown, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return { item: await this.store.updateUserNickname(runtimeId, normalizeNickname(body)) };
   }
 
   @Get('me/stats')
-  stats() {
+  async stats(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     const month = currentMonth();
+    const userDiaries = DIRECT_DB_MODELS.Diary
+      ? await this.store.diariesDb.listForUser(runtimeId)
+      : this.store.diaries.filter((item) => item.userId === runtimeId);
+    const userLetters = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.listForUser(runtimeId)
+      : this.store.letters.filter((item) => item.userId === runtimeId);
+    // Favorite is database-authoritative; counting the in-memory array would always report 0.
+    const favoriteCount = await this.store.favoritesDb.countForUser(runtimeId);
     return {
       item: {
-        diaryCount: this.store.diaries.length,
-        letterCount: this.store.letters.length,
-        favoriteCount: this.store.favorites.filter((item) => item.userId === this.store.getDemoUserId()).length,
+        diaryCount: userDiaries.length,
+        letterCount: userLetters.length,
+        favoriteCount,
         growthDays: 21,
-        streakDays: Math.min(7, Math.max(1, this.store.diaries.length + 3)),
-        replyCount: this.store.letters.length,
-        monthlyDiaryCount: this.store.diaries.filter((item) => item.createdAt.startsWith(month)).length,
+        streakDays: Math.min(7, Math.max(1, userDiaries.length + 3)),
+        replyCount: userLetters.length,
+        monthlyDiaryCount: userDiaries.filter((item) => new Date(item.createdAt).toISOString().startsWith(month)).length,
       },
     };
   }
 
   @Get('me/growth-card')
-  growthCard() {
+  growthCard(@Headers('x-goodnight-user-id') userId?: string) {
+    this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
     return { item: { title: '情绪成长卡', streak: 7, sentence: '你在认真照顾自己。' } };
   }
 
   @Delete('me/data')
-  async clearData() {
-    const userId = this.store.getDemoUserId();
-    this.store.clearFavoritesForUser(userId);
-    this.store.diaries = this.store.diaries.filter((item) => item.userId !== userId);
-    this.store.letters = this.store.letters.filter((item) => item.userId !== userId);
-    await this.store.persistAndFlush();
-    return { ok: true };
+  async clearData(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return await this.store.withUserDataLock(runtimeId, async () => {
+      await this.store.clearFavoritesForUser(runtimeId);
+      this.store.socialMultimedia.clearUserFavorites(runtimeId);
+      this.store.aiPersona.clearUserPersona(runtimeId);
+      if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
+      else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
+      if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(runtimeId);
+      else this.store.letters = this.store.letters.filter((item) => item.userId !== runtimeId);
+
+      // Private moods project as diary entries when companion Diary rows are absent; deleting
+      // them ensures the diary list is completely clean after a data clear.
+      await this.store.deletePrivateMoodsForUser(runtimeId);
+
+      // Comprehensive media asset & file cleanup:
+      // Cleans up all orphaned user uploads (mood/diary images), exports, and posters
+      await this.store.cleanupUserMediaAndExports(runtimeId);
+
+      await this.store.persistAndFlush();
+      return { ok: true };
+    });
   }
 
   @Post('diaries')
-  async createDiary(@Body() body: { content: string; emotion?: string; letterId?: string; hasLetter?: boolean; source?: string; toolResult?: unknown }) {
+  async createDiary(
+    @Body()
+    body: {
+      content: string;
+      emotion?: string;
+      letterId?: string;
+      hasLetter?: boolean;
+      source?: string;
+      toolResult?: unknown;
+    },
+    requestedUserId?: string,
+  ) {
+    const targetUserId = requireRuntimeUserId(requestedUserId);
     const diary = {
       id: `diary_${Date.now()}`,
-      userId: this.store.getDemoUserId(),
+      userId: targetUserId,
       letterId: body.letterId,
       emotion: normalizeEmotion(body.emotion),
       content: body.content?.trim() || '今天认真照顾了自己的心情。',
@@ -980,6 +2351,19 @@ export class PublicController {
       toolResult: body.toolResult,
       createdAt: new Date().toISOString(),
     };
+    if (DIRECT_DB_MODELS.Diary) {
+      const created = await this.store.diariesDb.create({
+        id: diary.id,
+        userId: targetUserId,
+        content: diary.content,
+        emotion: diary.emotion,
+        letterId: diary.letterId,
+        source: diary.source,
+        toolResult: diary.toolResult,
+        createdAt: new Date(diary.createdAt),
+      });
+      return { item: created };
+    }
     this.store.diaries.unshift(diary);
     this.store.persist();
     await this.store.flush();
@@ -987,13 +2371,13 @@ export class PublicController {
   }
 
   @Post('diaries/export')
-  async exportDiaries() {
-    return { item: await this.store.createDiaryExport(this.store.getDemoUserId()) };
+  async exportDiaries(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    return { item: await this.store.createDiaryExport(requireRuntimeUserId(requestedUserId)) };
   }
 
   @Get('exports/:assetId/download')
-  downloadDiaryExport(@Param('assetId') assetId: string) {
-    const download = this.store.getDiaryExportDownload(assetId, this.store.getDemoUserId());
+  async downloadDiaryExport(@Param('assetId') assetId: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const download = await this.store.getExportDownload(assetId, requireRuntimeUserId(requestedUserId));
     return new StreamableFile(fs.createReadStream(download.filePath), {
       type: download.asset.mimeType,
       length: download.asset.size,
@@ -1008,14 +2392,37 @@ export class PublicController {
    * Present those records as a read-only diary projection instead of making
    * the diary index silently empty or inserting duplicate business records.
    */
-  private diaryEntries(userId: string) {
-    const persisted = this.store.diaries.filter((item) => item.userId === userId);
+  private async diaryEntries(userId: string) {
+    // Diary is database-authoritative since Batch 4, so the list is a table read. The legacy array
+    // read that used to sit here threw - its getter is disabled - which made every diary list a 500.
+    const persisted = DIRECT_DB_MODELS.Diary
+      ? await this.store.diariesDb.listForUser(userId)
+      : this.store.diaries.filter((item) => item.userId === userId);
     const linkedMoodIds = new Set(persisted.map((item) => item.moodId).filter((item): item is string => Boolean(item)));
-    const projectedMoods = this.store.moods
-      .filter((item) => item.userId === userId && item.visibility === 'PRIVATE' && item.status === 'active' && !linkedMoodIds.has(item.id))
+    const moodRows = DIRECT_DB_MODELS.Mood ? await this.store.moodsDb.listForUser(userId) : this.store.moods;
+    // The companion letter for each candidate mood is fetched once, because the projection needs it
+    // for every row that survives the filter and a per-row read would be an N+1 over the same ids.
+    const letterByMoodId = DIRECT_DB_MODELS.Letter
+      ? await this.store.lettersDb.latestBySourceMoods(
+          (moodRows as Array<{ id: string }>).map((item) => item.id),
+          userId,
+        )
+      : new Map<string, { generationStatus?: string; id?: string } | null>();
+    const projectedMoods = moodRows
+      .filter(
+        (item) =>
+          item.userId === userId &&
+          item.visibility === 'PRIVATE' &&
+          item.status === 'active' &&
+          !linkedMoodIds.has(item.id),
+      )
       .map((mood) => {
-        const letter = this.store.letters.find((item) => item.userId === userId && item.sourceMoodId === mood.id);
-        const hasLetter = Boolean(letter && (!letter.generationStatus || ['succeeded', 'fallback'].includes(letter.generationStatus)));
+        const letter = DIRECT_DB_MODELS.Letter
+          ? letterByMoodId.get(mood.id)
+          : this.store.letters.find((item) => item.userId === userId && item.sourceMoodId === mood.id);
+        const hasLetter = Boolean(
+          letter && (!letter.generationStatus || ['succeeded', 'fallback'].includes(letter.generationStatus)),
+        );
         return {
           id: mood.id,
           userId: mood.userId,
@@ -1025,131 +2432,232 @@ export class PublicController {
           content: mood.content,
           hasLetter,
           source: 'private-mood-projection',
-          attachmentIds: mood.attachmentIds ?? [],
-          createdAt: mood.createdAt,
+          attachmentIds: 'attachmentIds' in mood ? (mood.attachmentIds ?? []) : [],
+          createdAt: typeof mood.createdAt === 'string' ? mood.createdAt : mood.createdAt.toISOString(),
         };
       });
     return [...persisted, ...projectedMoods].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  private decorateDiaryEntry(item: { emotion: Emotion; moodId?: string; attachmentIds?: string[] }) {
+  /**
+   * Turns a diary or projected mood row into the shape the page renders.
+   *
+   * The attachments are the mood's, which is where the upload actually lives (`Post.moodId` is
+   * unique and the mood owns its files). MediaAsset is database-authoritative, so resolving the ids
+   * is an async table read, which is why this is async and both call sites await it.
+   */
+  private async decorateDiaryEntry(item: { emotion: string; moodId?: string; attachmentIds?: string[] }) {
+    const attachmentIds =
+      item.attachmentIds ??
+      (DIRECT_DB_MODELS.Mood
+        ? await this.store.moodsDb.attachmentIdsFor(item.moodId ?? '')
+        : this.store.moods.find((mood) => mood.id === item.moodId)?.attachmentIds) ??
+      [];
     return {
       ...item,
-      attachments: this.store.mediaByIds(item.attachmentIds ?? this.store.moods.find((mood) => mood.id === item.moodId)?.attachmentIds ?? []),
+      attachments: await this.store.mediaByIds(attachmentIds),
       emotionLabel: emotionLabel(item.emotion),
     };
   }
 
   @Get('diaries')
-  diaries(@Query('month') month?: string, @Query('emotion') emotion?: string, @Query('hasLetter') hasLetter?: string) {
+  async diaries(
+    @Query('month') month?: string,
+    @Query('emotion') emotion?: string,
+    @Query('hasLetter') hasLetter?: string,
+    requestedUserId?: string,
+  ) {
+    const userId = requireRuntimeUserId(requestedUserId);
     const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
-    const items = this.diaryEntries(this.store.getDemoUserId())
-      .filter((item) => !month || item.createdAt.startsWith(month))
-      .filter((item) => (!emotion || emotion === '全部' || emotion === '鍏ㄩ儴' || item.emotion === normalizedEmotion))
-      .filter((item) => (!hasLetter || String(item.hasLetter) === hasLetter))
-      .map((item) => this.decorateDiaryEntry(item));
+    const entries = await this.diaryEntries(userId);
+    const items = await Promise.all(
+      entries
+        .filter((item) => !month || item.createdAt.startsWith(month))
+        .filter((item) => !emotion || emotion === '全部' || emotion === '全部' || item.emotion === normalizedEmotion)
+        .filter((item) => !hasLetter || String(item.hasLetter) === hasLetter)
+        .map((item) => this.decorateDiaryEntry(item)),
+    );
     return { items };
   }
 
   @Get('diaries/months')
-  diaryMonths() {
-    const items = [...new Set(this.diaryEntries(this.store.getDemoUserId()).map((item) => item.createdAt.slice(0, 7)).filter(Boolean))]
-      .sort((left, right) => right.localeCompare(left));
+  async diaryMonths(requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    const entries = await this.diaryEntries(userId);
+    const items = [
+      ...new Set(entries.map((item) => item.createdAt.slice(0, 7)).filter(Boolean)),
+    ].sort((left, right) => right.localeCompare(left));
     return { items };
   }
 
   @Get('me/diaries')
-  meDiaries(@Query('month') month?: string, @Query('emotion') emotion?: string, @Query('hasLetter') hasLetter?: string) {
-    return this.diaries(month, emotion, hasLetter);
+  meDiaries(
+    @Query('month') month?: string,
+    @Query('emotion') emotion?: string,
+    @Query('hasLetter') hasLetter?: string,
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.diaries(month, emotion, hasLetter, runtimeId);
   }
 
   @Get('me/diaries/months')
-  meDiaryMonths() {
-    return this.diaryMonths();
+  meDiaryMonths(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.diaryMonths(runtimeId);
   }
 
   @Post('me/diaries')
-  createMeDiary(@Body() body: { content: string; emotion?: string; letterId?: string; hasLetter?: boolean; source?: string; toolResult?: unknown }) {
-    return this.createDiary(body);
+  createMeDiary(
+    @Body()
+    body: {
+      content: string;
+      emotion?: string;
+      letterId?: string;
+      hasLetter?: boolean;
+      source?: string;
+      toolResult?: unknown;
+    },
+    @Headers('x-goodnight-user-id') userId?: string,
+  ) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.createDiary(body, runtimeId);
   }
 
   @Get('diaries/:id')
-  diary(@Param('id') id: string) {
-    const item = this.diaryEntries(this.store.getDemoUserId()).find((diary) => diary.id === id);
+  async diary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const entries = await this.diaryEntries(requireRuntimeUserId(requestedUserId));
+    const item = entries.find((diary) => diary.id === id);
     if (!item) return { item: null };
-    return { item: this.decorateDiaryEntry(item) };
+    return { item: await this.decorateDiaryEntry(item) };
   }
 
   @Delete('diaries/:id')
-  deleteDiary(@Param('id') id: string) {
-    this.store.diaries = this.store.diaries.filter((item) => item.id !== id);
+  async deleteDiary(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // A diary id is not a capability. Without the owner scope any authenticated caller could delete
+    // someone else's entry by guessing an id, and the ids are timestamp-derived.
+    const userId = this.store.resolveRuntimeUserId(requireRuntimeUserId(requestedUserId));
+    // The delete has to reach the table before the response: a 200 followed by a restart used to
+    // bring the entry back, because the handler mutated memory and never flushed.
+    await this.store.diariesDb.deleteOwned(id, userId);
     return { ok: true };
   }
 
   @Get('favorites')
-  favorites(@Query('type') type?: string) {
-    const userId = this.store.getDemoUserId();
-    const items = this.store.favorites
-      .filter((item) => item.userId === userId && (!type || item.targetType === type))
-      .map((item) => {
-        const post = item.targetType === 'post' ? this.store.posts.find((postItem) => postItem.id === item.targetId) : undefined;
-        const letter = item.targetType === 'letter' ? this.store.letters.find((letterItem) => letterItem.id === item.targetId) : undefined;
-        const diary = item.targetType === 'diary' ? this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId) : undefined;
-        return {
-          ...item,
-          title: letter?.title ?? (post ? '收藏的树洞' : diary ? '收藏的日记' : '收藏内容'),
-          preview: letter?.content ?? post?.content ?? diary?.content ?? item.targetId,
-          emotion: post?.emotion ? emotionLabel(post.emotion) : diary?.emotion ? emotionLabel(diary.emotion) : undefined,
-        };
-      });
-    return { items };
+  async favorites(@Query('type') type?: string, requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    // Favorite is database-authoritative; the in-memory array is empty once it is registered.
+    const { rows, total } = await this.store.favoritesDb.listForUser(userId, type);
+    // The preview comes from the favourite's target. Post is database-authoritative too, so its rows
+    // are read from the table; Letter and Diary still come from the store's arrays.
+    const favouritePosts = DIRECT_DB_MODELS.Post
+      ? await this.store.postsDb.findByIds(rows.filter((item) => item.targetType === 'post').map((item) => item.targetId))
+      : [];
+    const items = (
+      await Promise.all(
+        rows.map(async (item) => {
+          const post =
+            item.targetType === 'post'
+              ? favouritePosts.find((postItem) => postItem.id === item.targetId)
+              : undefined;
+          const letter =
+            item.targetType === 'letter'
+              ? DIRECT_DB_MODELS.Letter
+                ? await this.store.lettersDb.get(item.targetId)
+                : this.store.letters.find((letterItem) => letterItem.id === item.targetId)
+              : undefined;
+          const diary =
+            item.targetType === 'diary'
+              ? DIRECT_DB_MODELS.Diary
+                ? await this.store.diariesDb.get(item.targetId)
+                : this.store.diaries.find((diaryItem) => diaryItem.id === item.targetId)
+              : undefined;
+
+          // A favourite outlives its target: posts are soft-deleted, diaries hard-deleted, and the
+          // Favourite table has no foreign key. Serving the row anyway showed the original text and
+          // then a 404 on tap, so only a target the detail route would still open is listed.
+          if (item.targetType === 'post') {
+            if (!post || post.status !== 'active' || post.reviewStatus === 'hidden') return null;
+            return {
+              ...item,
+              title: '收藏的树洞',
+              preview: post.content,
+              emotion: post.emotion ? emotionLabel(post.emotion) : undefined,
+            };
+          }
+          if (item.targetType === 'letter') {
+            if (!letter) return null;
+            return { ...item, title: letter.title, preview: letter.content };
+          }
+          if (item.targetType === 'diary') {
+            if (!diary) return null;
+            return {
+              ...item,
+              title: '收藏的日记',
+              preview: diary.content,
+              emotion: diary.emotion ? emotionLabel(diary.emotion) : undefined,
+            };
+          }
+          return null;
+        }),
+      )
+    ).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    // `truncated` compares the window to the table, not to the filtered list: a dangling favourite
+    // is not a reason to tell the reader there are more rows to scroll.
+    return { items, total, truncated: total > rows.length };
   }
 
   @Get('me/favorites')
-  meFavorites(@Query('type') type?: string) {
-    return this.favorites(type);
+  async meFavorites(@Query('type') type?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return await this.favorites(type, runtimeId);
   }
 
   @Get('me/letters')
-  meLetters(@Query('status') status?: string) {
-    return this.letters(status);
+  meLetters(@Query('status') status?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return this.letters(status, runtimeId);
   }
 
   @Delete('favorites/:id')
-  async deleteFavoriteItem(@Param('id') id: string) {
-    this.store.removeFavoriteById(this.store.getDemoUserId(), id);
+  async deleteFavoriteItem(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // The affected row is what proves this caller's favourite was removed. Answering `ok` for a
+    // missing or foreign id would let the page claim success while nothing was deleted.
+    const removed = await this.store.removeFavoriteById(requireRuntimeUserId(requestedUserId), id);
+    if (!removed) throw new NotFoundException('收藏不存在');
     await this.store.persistAndFlush();
-    return { ok: true };
+    return { ok: true, id: removed.id };
   }
 
   @Get('reports/monthly')
-  async monthly(@Query('month') month?: string) {
-    return await this.reports.monthly(month);
+  async monthly(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.monthly(month, runtimeUserId(userId));
   }
 
   @Get('reports/monthly/months')
-  async monthlyMonths() {
-    return await this.reports.availableMonths();
+  async monthlyMonths(@Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.availableMonths(runtimeUserId(userId));
   }
 
   @Get('report/month')
-  async monthReportAlias(@Query('month') month?: string) {
-    return await this.monthly(month);
+  async monthReportAlias(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.monthly(month, userId);
   }
 
   @Get('me/month-report')
-  async meMonthReport(@Query('month') month?: string) {
-    return await this.monthly(month);
+  async meMonthReport(@Query('month') month?: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    return await this.monthly(month, runtimeId);
   }
 
   @Get('reports/monthly/:month/advice')
-  async advice(@Param('month') month: string) {
-    return await this.reports.advice(month);
+  async advice(@Param('month') month: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.advice(month, runtimeUserId(userId));
   }
 
   @Post('reports/monthly/:month/poster')
-  async reportPoster(@Param('month') month: string) {
-    return await this.reports.poster(month);
+  async reportPoster(@Param('month') month: string, @Headers('x-goodnight-user-id') userId?: string) {
+    return await this.reports.poster(month, runtimeUserId(userId));
   }
 
   @Post('report/share-image')
@@ -1158,25 +2666,58 @@ export class PublicController {
   }
 
   @Get('settings/privacy')
-  privacy(@Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
+  async privacy(@Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      const item = await this.selfPersistence.getPrivacySettings(runtimeId);
+      return { item };
+    }
     return { item: this.store.privacySettings[runtimeId] };
   }
 
   @Get('me/privacy')
-  mePrivacy(@Headers('x-goodnight-user-id') userId?: string) {
-    return this.privacy(userId);
+  async mePrivacy(@Headers('x-goodnight-user-id') userId?: string) {
+    return await this.privacy(userId);
   }
 
   @Get('privacy-settings')
-  privacySettingsAlias(@Headers('x-goodnight-user-id') userId?: string) {
-    return this.privacy(userId);
+  async privacySettingsAlias(@Headers('x-goodnight-user-id') userId?: string) {
+    return await this.privacy(userId);
   }
 
   @Put('settings/privacy')
   async updatePrivacy(@Body() body: Partial<PrivacySetting>, @Headers('x-goodnight-user-id') userId?: string) {
-    const runtimeId = this.store.resolveRuntimeUserId(runtimeUserId(userId));
-    this.store.privacySettings[runtimeId] = { ...this.store.privacySettings[runtimeId], ...body };
+    const runtimeId = this.store.resolveRuntimeUserId(requireRuntimeUserId(userId));
+    const allowedKeys = [
+      'defaultVisibility',
+      'allowAnonymousPublic',
+      'allowHumanReplies',
+      'allowMonthlyReportShare',
+      'allowPeerMatching',
+      'allowAnonymousExperienceStats',
+      'allowRecoveryData',
+      'allowJourneyLongTermAnalysis',
+      'allowLongTermMemory',
+      'allowAiMemoryUse',
+      'allowAnonymousExperienceShare',
+      'allowJourneyArchiveRetention',
+      'allowFutureSelfNotifications',
+      'allowDataExport',
+    ] as const;
+    const patch: any = {};
+    for (const key of allowedKeys) {
+      const value = body[key];
+      if (key === 'defaultVisibility') {
+        if (value === 'PRIVATE' || value === 'PUBLIC') patch.defaultVisibility = value;
+      } else if (typeof value === 'boolean') {
+        patch[key] = value;
+      }
+    }
+    if (DIRECT_DB_MODELS.PrivacySetting) {
+      const item = await this.selfPersistence.updatePrivacySettings(runtimeId, patch);
+      return { item };
+    }
+    this.store.privacySettings[runtimeId] = { ...this.store.privacySettings[runtimeId], ...patch };
     this.store.persist();
     await this.store.flush();
     return { item: this.store.privacySettings[runtimeId] };
@@ -1198,34 +2739,41 @@ export class PublicController {
   }
 
   @Get('feedback/categories')
-  categories() {
-    return { items: this.store.feedbackCategories.filter((item) => item.enabled).sort((a, b) => a.sortOrder - b.sortOrder) };
+  async categories() {
+    return { items: await this.feedbackPersistence.listPublicCategories() };
   }
 
   @Get('feedback/faqs')
-  faqs() {
-    // The frontend reads exactly the same records the admin CRUD writes.
-    // Do not inject display-only fallback questions here: a disabled/deleted FAQ
-    // must disappear after the next frontend reload.
-    return { items: this.store.faqs.filter((item) => item.enabled).slice().sort((a, b) => a.sortOrder - b.sortOrder) };
+  async faqs() {
+    // Read from the table the console writes. Do not inject display-only fallback questions here: a
+    // disabled/deleted FAQ must disappear after the next frontend reload.
+    return { items: await this.feedbackPersistence.listPublicFaqs() };
   }
 
   @Post('feedback')
-  async feedback(@Body() body: { categoryId?: string; content: string; sourcePage?: string; assetIds?: string[]; images?: string[] }) {
-    const ticket = await this.store.createFeedbackTicket({
+  async feedback(
+    @Body() body: { categoryId?: string; content: string; sourcePage?: string; assetIds?: string[]; images?: string[] },
+    @Headers('x-goodnight-user-id') requestedUserId?: string,
+  ) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    // The screenshot check still runs in the store, because MediaAsset is not converted yet and its
+    // checks include a filesystem existence probe. The ids it returns are handed to the ticket writer,
+    // which owns the row - the two models convert together with FeedbackCategory.
+    const screenshots = await this.store.resolveFeedbackScreenshotIds(userId, body.assetIds ?? body.images);
+    const ticket = await this.feedbackPersistence.createTicket({
+      userId,
       categoryId: body.categoryId,
       content: body.content,
       sourcePage: body.sourcePage,
-      // Legacy callers can still submit asset IDs through images, but raw URLs
-      // are rejected by StoreService instead of being treated as screenshots.
-      assetIds: body.assetIds ?? body.images,
+      screenshots,
     });
-    return { item: this.store.decorateFeedbackTicket(ticket) };
+    return { item: ticket };
   }
 
   @Get('feedback')
-  feedbackTickets() {
-    return { items: this.store.feedbackTickets.filter((item) => item.userId === this.store.getDemoUserId()).map((item) => this.store.decorateFeedbackTicket(item)) };
+  async feedbackTickets(@Headers('x-goodnight-user-id') requestedUserId?: string) {
+    const userId = requireRuntimeUserId(requestedUserId);
+    return { items: await this.feedbackPersistence.listTicketsForUser(userId) };
   }
 
   @Post('media/upload')
@@ -1238,17 +2786,23 @@ export class PublicController {
   }
 
   @Delete('media/:id')
-  async deleteMedia(@Param('id') id: string) {
-    await this.store.deleteMediaAsset(id);
+  async deleteMedia(@Param('id') id: string, @Headers('x-goodnight-user-id') requestedUserId?: string) {
+    // The caller's own identity, so the delete is scoped to the same owner the upload attributed the
+    // row to. Without it a non-demo user's draft image is a 404 to its own author.
+    await this.store.deleteMediaAsset(id, requireRuntimeUserId(requestedUserId));
     return { ok: true };
   }
 
   // Legacy metadata-only upload endpoints are intentionally disabled: an uploaded asset must have a real file.
   @Post('upload')
-  uploadAlias() { throw new BadRequestException('请使用 multipart /api/v1/media/upload 上传真实文件'); }
+  uploadAlias() {
+    throw new BadRequestException('请使用 multipart /api/v1/media/upload 上传真实文件');
+  }
 
   @Post('uploads')
-  uploadsAlias() { throw new BadRequestException('请使用 multipart /api/v1/media/upload 上传真实文件'); }
+  uploadsAlias() {
+    throw new BadRequestException('请使用 multipart /api/v1/media/upload 上传真实文件');
+  }
 
   @Post('export/diaries')
   exportDiariesAlias() {
@@ -1261,105 +2815,258 @@ export class PublicController {
   }
 
   @Post('assets/complete')
-  complete() { throw new BadRequestException('请使用 multipart /api/v1/media/upload 上传真实文件'); }
+  complete() {
+    throw new BadRequestException('请使用 multipart /api/v1/media/upload 上传真实文件');
+  }
 }
 
 @ApiTags('admin')
 @ApiBearerAuth()
 @Controller('api/admin/v1')
+@UseGuards(AdminAuthGuard)
 export class AdminController {
-  constructor(@Inject(StoreService) private readonly store: StoreService) {}
+  constructor(
+    @Inject(StoreService) private readonly store: StoreService,
+    @Inject(Batch1PersistenceService) private readonly batch1Persistence: Batch1PersistenceService,
+    @Inject(PeerPersistenceService) private readonly peerPersistence: PeerPersistenceService,
+    @Inject(SelfPersistenceService) private readonly selfPersistence: SelfPersistenceService,
+    @Inject(FeedbackPersistenceService) private readonly feedbackPersistence: FeedbackPersistenceService,
+    @Inject(AdminNotesPersistenceService) private readonly adminNotes: AdminNotesPersistenceService,
+  ) {}
 
-  private admin(auth?: string) {
-    return this.store.verifyToken(tokenFrom(auth));
+  private admin(auth?: string, allowedRoles?: string[]) {
+    const admin = this.store.verifyToken(tokenFrom(auth));
+    if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(admin.role)) {
+      throw new ForbiddenException('当前角色无权访问敏感管理数据');
+    }
+    return admin;
+  }
+
+  /** The same page defaults as `list()`, for endpoints that paginate in the database. */
+  private pageParams(pageValue?: string | number, pageSizeValue?: string | number) {
+    const configured = Number(this.store.systemSettings.defaultPageSize?.value);
+    const fallbackSize = Number.isFinite(configured) && configured > 0 ? configured : 20;
+    const page = Math.max(1, Number(pageValue ?? 1) || 1);
+    const pageSize = Math.max(1, Math.min(100, Number(pageSizeValue ?? fallbackSize) || fallbackSize));
+    return { page, pageSize };
   }
 
   private list<T>(items: T[], pageValue?: string | number, pageSizeValue?: string | number) {
+    // `defaultPageSize` (admin 系统设置) supplies the page size when the caller does not ask
+    // for one, so the setting changes real list behaviour instead of being stored and
+    // ignored (product audit ISSUE-003).
+    const configured = Number(this.store.systemSettings.defaultPageSize?.value);
+    const fallbackSize = Number.isFinite(configured) && configured > 0 ? configured : 20;
     const page = Math.max(1, Number(pageValue ?? 1) || 1);
-    const pageSize = Math.max(1, Math.min(100, Number(pageSizeValue ?? 20) || 20));
+    const pageSize = Math.max(1, Math.min(100, Number(pageSizeValue ?? fallbackSize) || fallbackSize));
     const total = items.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const start = (page - 1) * pageSize;
     return { items: items.slice(start, start + pageSize), page, pageSize, total, totalPages };
   }
 
-  private dashboardData() {
+  private matchesNeedle(values: unknown[], needle: string) {
+    return values.some((value) =>
+      String(value ?? '')
+        .toLowerCase()
+        .includes(needle),
+    );
+  }
+
+  private safetyTriggerText(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return '';
+    const record = payload as Record<string, unknown>;
+    return [record.triggerExcerpt, record.intent]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .join(' · ');
+  }
+
+  private async dashboardData() {
     const today = new Date().toISOString().slice(0, 10);
     const dayKeys = Array.from({ length: 7 }, (_, index) => {
       const day = new Date();
       day.setDate(day.getDate() - (6 - index));
       return day.toISOString().slice(0, 10);
     });
-    const activeTrend = dayKeys.map((day) => ({
+    let aiMetrics: {
+      trendByDay: Record<string, number>;
+      successfulJobs: number;
+      todayJobsCount: number;
+      completedJobsCount: number;
+      failedJobsCount: number;
+      fallbackJobsCount: number;
+      averageDurationMs: number;
+      aiSuccessRate: number;
+      latestJobs: any[];
+      summary: { total: number; succeeded: number; fallback: number; failed: number };
+    };
+
+    if (DIRECT_DB_MODELS.AIJob) {
+      aiMetrics = await this.batch1Persistence.getAiJobDashboardMetrics(dayKeys, today);
+    } else {
+      const successfulJobs = this.store.aiJobs.filter((job) => ['succeeded', 'fallback'].includes(job.status)).length;
+      const todayJobs = this.store.aiJobs.filter((job) => job.createdAt?.startsWith(today));
+      const completedJobs = this.store.aiJobs.filter((job) => ['succeeded', 'failed', 'fallback'].includes(job.status));
+      const failedJobs = completedJobs.filter((job) => job.status === 'failed');
+      const fallbackJobs = completedJobs.filter((job) => job.status === 'fallback');
+      aiMetrics = {
+        trendByDay: Object.fromEntries(
+          dayKeys.map((day) => [day, this.store.aiJobs.filter((item) => item.createdAt?.startsWith(day)).length]),
+        ),
+        successfulJobs,
+        todayJobsCount: todayJobs.length,
+        completedJobsCount: completedJobs.length,
+        failedJobsCount: failedJobs.length,
+        fallbackJobsCount: fallbackJobs.length,
+        averageDurationMs: completedJobs.length
+          ? Math.round(completedJobs.reduce((sum, job) => sum + job.durationMs, 0) / completedJobs.length)
+          : 0,
+        aiSuccessRate: this.store.aiJobs.length
+          ? Math.round((successfulJobs / this.store.aiJobs.length) * 1000) / 10
+          : 100,
+        latestJobs: this.store.aiJobs.slice(0, 8),
+        summary: {
+          total: this.store.aiJobs.length,
+          succeeded: this.store.aiJobs.filter((job) => job.status === 'succeeded').length,
+          fallback: fallbackJobs.length,
+          failed: failedJobs.length,
+        },
+      };
+    }
+
+    const replyCountsByDay = DIRECT_DB_MODELS.Reply
+      ? await this.store.repliesDb.countsByDay(new Date(`${dayKeys[0]}T00:00:00.000Z`))
+      : null;
+    // Post is database-authoritative; its three dashboard figures come from the table.
+    const postsCreatedByDay = DIRECT_DB_MODELS.Post
+      ? await Promise.all(
+          dayKeys.map(async (day) => [
+            day,
+            await this.store.postsDb.countCreatedSince(new Date(`${day}T00:00:00.000Z`)),
+          ] as const),
+        )
+      : null;
+    const todayPostCount =
+      (postsCreatedByDay?.at(-1)?.[1] ??
+        this.store.posts.filter((p) => p.createdAt?.startsWith(today)).length) as number;
+    const activeTrend = dayKeys.map(([day], index) => ({
       date: day,
       users: this.store.users.filter((item) => item.createdAt?.startsWith(day)).length,
-      posts: this.store.posts.filter((item) => item.createdAt?.startsWith(day)).length,
-      replies: this.store.replies.filter((item) => item.createdAt?.startsWith(day)).length,
-      aiJobs: this.store.aiJobs.filter((item) => item.createdAt?.startsWith(day)).length,
+      posts: postsCreatedByDay
+        ? postsCreatedByDay[index][1]
+        : this.store.posts.filter((item) => item.createdAt?.startsWith(day)).length,
+      replies: replyCountsByDay
+        ? (replyCountsByDay[day] ?? 0)
+        : this.store.replies.filter((item) => item.createdAt?.startsWith(day)).length,
+      aiJobs: aiMetrics.trendByDay[day] ?? 0,
     }));
-    const emotionDistribution = this.store.posts.reduce<Record<string, number>>((acc, post) => {
-      acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
-      return acc;
-    }, {});
-    const successfulJobs = this.store.aiJobs.filter((job) => ['succeeded', 'fallback'].includes(job.status)).length;
-    const todayJobs = this.store.aiJobs.filter((job) => job.createdAt?.startsWith(today));
-    const completedJobs = this.store.aiJobs.filter((job) => ['succeeded', 'failed', 'fallback'].includes(job.status));
-    const failedJobs = completedJobs.filter((job) => job.status === 'failed');
-    const fallbackJobs = completedJobs.filter((job) => job.status === 'fallback');
-    const ollama = this.store.ollamaStatus();
+    const emotionDistribution = DIRECT_DB_MODELS.Post
+      ? (await this.store.postsDb.listRecent(500)).reduce<Record<string, number>>((acc, post) => {
+          acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
+          return acc;
+        }, {})
+      : this.store.posts.reduce<Record<string, number>>((acc, post) => {
+          acc[post.emotion] = (acc[post.emotion] ?? 0) + 1;
+          return acc;
+        }, {});
+    const ollama = await this.store.ollamaStatus();
     return {
       todayUsers: this.store.users.filter((u) => u.createdAt?.startsWith(today)).length,
-      todayPosts: this.store.posts.filter((p) => p.createdAt?.startsWith(today)).length,
-      pendingReviews: this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length + this.store.replies.filter((r) => r.status === 'pending_review').length,
+      todayPosts: todayPostCount,
+      pendingReviews:
+        (DIRECT_DB_MODELS.Post
+          ? (await this.store.postsDb.listPendingReview()).length
+          : this.store.posts.filter((p) => p.reviewStatus === 'pending_review').length) +
+        (DIRECT_DB_MODELS.Reply
+          ? await this.store.repliesDb.countPending()
+          : this.store.replies.filter((r) => r.status === 'pending_review').length),
       journeySummary: {
-        total: this.store.lifeJourneys.length,
-        active: this.store.lifeJourneys.filter((item) => item.status === 'active').length,
-        actions: this.store.actionCommitments.filter((item) => item.status === 'active').length,
-        dueCheckins: this.store.outcomeCheckins.filter((item) => item.status === 'pending' && (!item.dueAt || Date.parse(item.dueAt) <= Date.now())).length,
-        peerExperiences: this.store.peerExperiences.filter((item) => item.status === 'published').length,
-        safetyEvents: this.store.safetyEvents.filter((item) => item.level === 'high').length,
-        supportPlans: this.store.personalSupportPlans.filter((item) => item.active).length,
+        total: await this.batch1Persistence.countTotalJourneys(),
+        active: await this.batch1Persistence.countActiveJourneys(),
+        actions: await this.batch1Persistence.countActiveActions(),
+        dueCheckins: await this.batch1Persistence.countDueCheckins(),
+        peerExperiences: DIRECT_DB_MODELS.PeerExperience
+          ? await this.peerPersistence.countPublishedExperiences()
+          : this.store.peerExperiences.filter((item) => item.status === 'published').length,
+        safetyEvents: await this.store.countHighRiskSafetyEvents(),
+        supportPlans: DIRECT_DB_MODELS.PersonalSupportPlan
+          ? await this.selfPersistence.countActiveSupportPlans()
+          : this.store.personalSupportPlans.filter((item) => item.active).length,
         followUps: this.store.followUpJobs.filter((item) => ['pending', 'scheduled'].includes(item.status)).length,
-        unreadNotifications: this.store.notifications.filter((item) => item.status === 'unread').length,
-        peerRequests: this.store.peerMatches.filter((item) => item.status === 'requested').length,
-        connectedPeerConversations: this.store.peerConversations.filter((item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now()).length,
-        recoveryRecords: this.store.recoverySnapshots.length,
+        unreadNotifications: await this.store.countUnreadNotifications(),
+        peerRequests: DIRECT_DB_MODELS.PeerMatch
+          ? await this.peerPersistence.countRequestedMatches()
+          : this.store.peerMatches.filter((item) => item.status === 'requested').length,
+        connectedPeerConversations: DIRECT_DB_MODELS.PeerConversation
+          ? await this.peerPersistence.countConnectedConversations()
+          : this.store.peerConversations.filter(
+              (item) => item.status === 'active' && Date.parse(item.expiresAt) > Date.now(),
+            ).length,
+        recoveryRecords: DIRECT_DB_MODELS.RecoverySnapshot
+          ? await this.selfPersistence.countRecoverySnapshots()
+          : this.store.recoverySnapshots.length,
       },
-      supportIntentDistribution: this.store.lifeJourneys.reduce<Record<string, number>>((acc, item) => { if (item.currentIntent) acc[item.currentIntent] = (acc[item.currentIntent] ?? 0) + 1; return acc; }, {}),
-      aiSuccessRate: this.store.aiJobs.length ? Math.round((successfulJobs / this.store.aiJobs.length) * 1000) / 10 : 100,
+      supportIntentDistribution: await this.batch1Persistence.getSupportIntentDistribution(),
+      aiSuccessRate: aiMetrics.aiSuccessRate,
       activeTrend,
       emotionDistribution,
-      latestPosts: this.store.posts.slice(0, 8),
-      aiJobs: this.store.aiJobs.slice(0, 8),
-      aiSummary: {
-        total: this.store.aiJobs.length,
-        succeeded: this.store.aiJobs.filter((job) => job.status === 'succeeded').length,
-        fallback: this.store.aiJobs.filter((job) => job.status === 'fallback').length,
-        failed: this.store.aiJobs.filter((job) => job.status === 'failed').length,
-      },
+      latestPosts: DIRECT_DB_MODELS.Post ? await this.store.postsDb.listRecent(8) : this.store.posts.slice(0, 8),
+      aiJobs: aiMetrics.latestJobs,
+      aiSummary: aiMetrics.summary,
       aiMonitor: {
         ollamaOnline: ollama.online,
         localModelCount: ollama.modelCount,
-        todayCalls: todayJobs.length,
-        successRate: completedJobs.length ? Math.round(((completedJobs.length - failedJobs.length) / completedJobs.length) * 1000) / 10 : 100,
-        failureRate: completedJobs.length ? Math.round((failedJobs.length / completedJobs.length) * 1000) / 10 : 0,
-        averageDurationMs: completedJobs.length ? Math.round(completedJobs.reduce((sum, job) => sum + job.durationMs, 0) / completedJobs.length) : 0,
-        fallbackCount: fallbackJobs.length,
+        todayCalls: aiMetrics.todayJobsCount,
+        successRate: aiMetrics.completedJobsCount
+          ? Math.round(
+              ((aiMetrics.completedJobsCount - aiMetrics.failedJobsCount) / aiMetrics.completedJobsCount) * 1000,
+            ) / 10
+          : 100,
+        failureRate: aiMetrics.completedJobsCount
+          ? Math.round((aiMetrics.failedJobsCount / aiMetrics.completedJobsCount) * 1000) / 10
+          : 0,
+        averageDurationMs: aiMetrics.averageDurationMs,
+        fallbackCount: aiMetrics.fallbackJobsCount,
         lastCheckedAt: ollama.lastCheckedAt,
       },
     };
   }
 
   @Post('auth/login')
-  async login(@Body() body: { username: string; password: string }) {
-    const result = this.store.login(body.username, body.password);
-    await this.store.flush();
-    return result;
+  async login(
+    @Body() body: { username: string; password: string },
+    @Headers('x-forwarded-for') forwardedFor?: string,
+    @Headers('x-real-ip') realIp?: string,
+  ) {
+    // Real server-side throttling replaces the decorative captcha. A 429 carries Retry-After
+    // so the client can tell the user how long to wait instead of guessing.
+    const ip = (forwardedFor ?? realIp ?? 'unknown').split(',')[0].trim() || 'unknown';
+    const username = String(body?.username ?? '');
+    const retryAfter = loginRetryAfterSeconds(ip, username);
+    if (retryAfter > 0) {
+      throw new HttpException(
+        { message: '登录尝试过于频繁，请稍后再试。', retryAfterSeconds: retryAfter },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    try {
+      const result = this.store.login(body.username, body.password);
+      recordLoginSuccess(ip, username);
+      await this.store.flush();
+      return result;
+    } catch (error) {
+      recordLoginFailure(ip, username);
+      throw error;
+    }
   }
 
   @Post('login')
-  async loginAlias(@Body() body: { username: string; password: string }) {
-    return await this.login(body);
+  async loginAlias(
+    @Body() body: { username: string; password: string },
+    @Headers('x-forwarded-for') forwardedFor?: string,
+    @Headers('x-real-ip') realIp?: string,
+  ) {
+    return await this.login(body, forwardedFor, realIp);
   }
 
   @Post('auth/logout')
@@ -1379,60 +3086,157 @@ export class AdminController {
   }
 
   @Get('dashboard/overview')
-  overview() {
-    return { item: this.dashboardData() };
+  async overview() {
+    return { item: await this.dashboardData() };
   }
 
   @Get('dashboard')
-  dashboardAlias() {
-    return this.overview();
+  async dashboardAlias() {
+    return await this.overview();
   }
 
   @Get('dashboard/summary')
-  dashboardSummary() {
-    const item = this.dashboardData();
-    return { item: { todayUsers: item.todayUsers, todayPosts: item.todayPosts, pendingReviews: item.pendingReviews, aiSuccessRate: item.aiSuccessRate } };
+  async dashboardSummary() {
+    const item = await this.dashboardData();
+    return {
+      item: {
+        todayUsers: item.todayUsers,
+        todayPosts: item.todayPosts,
+        pendingReviews: item.pendingReviews,
+        aiSuccessRate: item.aiSuccessRate,
+      },
+    };
   }
 
   @Get('dashboard/activity')
-  dashboardActivity() {
-    return { items: this.dashboardData().activeTrend };
+  async dashboardActivity() {
+    return { items: (await this.dashboardData()).activeTrend };
   }
 
   @Get('dashboard/emotion-distribution')
-  dashboardEmotionDistribution() {
-    return { item: this.dashboardData().emotionDistribution };
+  async dashboardEmotionDistribution() {
+    return { item: (await this.dashboardData()).emotionDistribution };
   }
 
   @Get('journeys')
-  adminJourneys(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminJourneys(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     this.admin(auth);
-    const items = this.store.lifeJourneys.filter((item) => !status || status === 'all' || item.status === status).map((item) => ({ ...item, updates: this.store.journeyUpdates.filter((update) => update.journeyId === item.id).length, actions: this.store.actionCommitments.filter((action) => action.journeyId === item.id).length }));
+    const needle = q?.trim().toLowerCase();
+    const userNames = new Map(this.store.users.map((user) => [user.id, user.nickname]));
+    const dbJourneys = await this.batch1Persistence.listAdminJourneys();
+    const journeyIds = dbJourneys.map((j) => j.id);
+    const updateCounts = await this.batch1Persistence.countUpdatesByJourneyIds(journeyIds);
+    const actionCounts = await this.batch1Persistence.countActionsByJourneyIds(journeyIds);
+    const items = dbJourneys
+      .filter((item) => {
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle(
+            [item.id, item.userId, userNames.get(item.userId), item.title, item.domain, item.summary],
+            needle,
+          );
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        return matchesQuery && matchesStatus;
+      })
+      .map((item) => ({
+        ...item,
+        updates: updateCounts.get(item.id) ?? 0,
+        actions: actionCounts.get(item.id) ?? 0,
+      }));
     return this.list(items, page, pageSize);
   }
 
   @Get('actions')
-  adminActions(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminActions(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     this.admin(auth);
-    return this.list(this.store.actionCommitments.filter((item) => !status || status === 'all' || item.status === status), page, pageSize);
+    const needle = q?.trim().toLowerCase();
+    const actions = await this.batch1Persistence.listAdminActions();
+    return this.list(
+      actions.filter((item) => {
+        const matchesQuery =
+          !needle || this.matchesNeedle([item.id, item.userId, item.title, item.description], needle);
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        return matchesQuery && matchesStatus;
+      }),
+      page,
+      pageSize,
+    );
   }
 
   @Get('checkins')
-  adminCheckins(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminCheckins(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     this.admin(auth);
-    return this.list(this.store.outcomeCheckins.filter((item) => !status || status === 'all' || item.status === status), page, pageSize);
+    const needle = q?.trim().toLowerCase();
+    const checkins = await this.batch1Persistence.listAdminCheckins();
+    return this.list(
+      checkins.filter((item) => {
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle(
+            [item.id, item.userId, item.journeyId, item.reflection, item.result, item.barrier],
+            needle,
+          );
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        return matchesQuery && matchesStatus;
+      }),
+      page,
+      pageSize,
+    );
   }
 
   @Get('peer-experiences')
-  adminPeerExperiences(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminPeerExperiences(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     this.admin(auth);
-    const items = this.store.peerExperiences.filter((item) => !status || status === 'all' || item.status === status);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const items = await this.peerPersistence.listExperiencesForAdmin({ q, status });
+      return this.list(items, page, pageSize);
+    }
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.peerExperiences.filter((item) => {
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle([item.id, item.userId, item.title, item.domain, item.subDomain, item.content], needle);
+      const matchesStatus = !status || status === 'all' || item.status === status;
+      return matchesQuery && matchesStatus;
+    });
     return this.list(items, page, pageSize);
   }
 
   @Patch('peer-experiences/:id/review')
-  async reviewPeerExperience(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status: 'published' | 'hidden' | 'rejected' }) {
+  async reviewPeerExperience(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status: 'published' | 'hidden' | 'rejected' },
+  ) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerExperience) {
+      const item = await this.peerPersistence.reviewExperience(id, admin.id, body.status);
+      return { item };
+    }
     const item = this.store.peerExperiences.find((experience) => experience.id === id);
     if (!item) throw new NotFoundException('同路经历不存在');
     const before = { ...item };
@@ -1443,138 +3247,488 @@ export class AdminController {
   }
 
   @Get('peer-matches')
-  adminPeerMatches(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminPeerMatches(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     this.admin(auth);
-    const items = this.store.peerMatches.filter((item) => !status || status === 'all' || item.status === status);
-    return this.list(items, page, pageSize);
-  }
-
-  @Get('follow-ups')
-  adminFollowUps(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    this.admin(auth);
-    const items = this.store.followUpJobs.filter((item) => !status || status === 'all' || item.status === status);
-    return this.list(items, page, pageSize);
-  }
-
-  @Get('notifications')
-  adminNotifications(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    this.admin(auth);
-    const items = this.store.notifications.filter((item) => !status || status === 'all' || item.status === status);
-    return this.list(items, page, pageSize);
-  }
-
-  @Get('peer-conversations')
-  adminPeerConversations(@Headers('authorization') auth: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    this.admin(auth);
-    const items = this.store.peerConversations.filter((item) => !status || status === 'all' || item.status === status).map((item) => ({ ...item, messageCount: this.store.peerMessages.filter((message) => message.conversationId === item.id).length }));
-    return this.list(items, page, pageSize);
-  }
-
-  @Get('safety/events')
-  safetyEvents(@Headers('authorization') auth: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    this.admin(auth);
-    return this.list(this.store.safetyEvents, page, pageSize);
-  }
-
-  @Get('support/plans')
-  supportPlans(@Headers('authorization') auth: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    this.admin(auth);
-    return this.list(this.store.personalSupportPlans, page, pageSize);
-  }
-
-  @Get('memory')
-  adminMemory(@Headers('authorization') auth: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    this.admin(auth);
-    return this.list(this.store.memoryItems.filter((item) => !item.deletedAt), page, pageSize);
-  }
-
-  @Get('dashboard/ai-summary')
-  dashboardAiSummary() {
-    return { item: this.dashboardData().aiSummary };
-  }
-
-  @Get('users')
-  users(@Query('q') q?: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    if (DIRECT_DB_MODELS.PeerMatch) {
+      const items = await this.peerPersistence.listMatchesForAdmin({ q, status });
+      return this.list(items, page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
-    const items = this.store.users.filter((user) => {
-      const matchesQuery = !needle || [user.id, user.nickname, user.anonymousCode, user.openid].some((value) => value.toLowerCase().includes(needle));
-      const matchesStatus = !status || status === 'all' || user.status === status;
+    const items = this.store.peerMatches.filter((item) => {
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle(
+          [item.id, item.userId, item.peerExperienceId, item.explanation, item.requestReason, item.requestQuestion],
+          needle,
+        );
+      const matchesStatus = !status || status === 'all' || item.status === status;
       return matchesQuery && matchesStatus;
     });
     return this.list(items, page, pageSize);
   }
-  @Get('users/:id')
-  user(@Param('id') id: string) { return { item: this.store.users.find((u) => u.id === id), privacy: this.store.privacySettings[id] }; }
-  @Patch('users/:id/status')
-  async userStatus(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status: 'normal' | 'limited' | 'muted' | 'banned' | 'deleted' }) {
-    const admin = this.admin(auth);
-    const user = this.store.users.find((u) => u.id === id)!;
-    const before = { ...user };
-    user.status = body.status === 'muted' ? 'limited' : body.status === 'deleted' ? 'banned' : body.status;
-    this.store.audit(admin.id, 'USER_STATUS', 'User', id, before, user);
-    this.store.persist();
-    await this.store.flush();
-    return { item: user };
+
+  @Get('follow-ups')
+  adminFollowUps(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.followUpJobs.filter((item) => {
+      const matchesQuery = !needle || this.matchesNeedle([item.id, item.userId, item.journeyId, item.kind], needle);
+      const matchesStatus = !status || status === 'all' || item.status === status;
+      return matchesQuery && matchesStatus;
+    });
+    return this.list(items, page, pageSize);
   }
 
-  @Post('users/:id/note')
-  userNote(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { note?: string; tags?: string[] }) {
+  @Get('notifications')
+  async adminNotifications(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    const needle = q?.trim().toLowerCase();
+    const all = await this.store.adminNotificationList({ status });
+    const items = all.filter((item) => {
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle([item.id, item.userId, item.type, item.title, item.body, item.targetRoute], needle);
+      return matchesQuery;
+    });
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('peer-conversations')
+  async adminPeerConversations(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('reported') reported?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerConversation) {
+      const items = await this.peerPersistence.listConversationsForAdmin({ q, status, reported });
+      return this.list(items, page, pageSize);
+    }
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.peerConversations
+      .filter((item) => {
+        const matchesQuery =
+          !needle ||
+          this.matchesNeedle(
+            [item.id, item.matchId, item.starterUserId, item.receiverUserId, item.reportReason],
+            needle,
+          );
+        const matchesStatus = !status || status === 'all' || item.status === status;
+        const matchesReported = reported !== 'true' || Boolean(item.reportedAt);
+        return matchesQuery && matchesStatus && matchesReported;
+      })
+      .map((item) => ({
+        ...item,
+        messageCount: this.store.peerMessages.filter((message) => message.conversationId === item.id).length,
+      }));
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('safety/events')
+  async safetyEvents(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    const needle = q?.trim().toLowerCase();
+    const userNames = new Map(this.store.users.map((user) => [user.id, user.nickname]));
+    const all = await this.store.adminSafetyEventList({ status });
+    const items = all.filter((event) => {
+      const matchesQuery =
+        !needle ||
+        this.matchesNeedle(
+          [event.id, event.userId, event.userNickname ?? userNames.get(event.userId), event.triggerExcerpt],
+          needle,
+        );
+      return matchesQuery;
+    });
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('safety/events/:id')
+  async safetyEventDetail(@Headers('authorization') auth: string, @Param('id') id: string) {
+    this.admin(auth);
+    const item = await this.store.getSafetyEvent(id);
+    if (!item) throw new NotFoundException('安全事件不存在');
+    return { item: { ...item, triggerExcerpt: this.safetyTriggerText(item.payload) } };
+  }
+
+  @Patch('safety/events/:id/handle')
+  async handleSafetyEvent(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status?: 'open' | 'handled'; note?: string },
+  ) {
     const admin = this.admin(auth);
-    const before = this.store.auditLogs.filter((item) => item.resourceType === 'User' && item.resourceId === id).slice(0, 3);
-    const item = { id, note: body.note ?? '', tags: body.tags ?? [], updatedAt: new Date().toISOString() };
-    this.store.audit(admin.id, 'USER_NOTE', 'User', id, before, item);
-    this.store.persist();
+    return await this.store.handleSafetyEvent(id, admin.id, body ?? {});
+  }
+
+  // One row per report, so an operator sees every report rather than only the most recent one
+  // per conversation. The reporter identity is exposed here on purpose: acting on a report
+  // needs it, and this route sits behind AdminAuthGuard. It is never exposed to the peers.
+  @Get('peer-reports')
+  async peerReports(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerReport) {
+      const items = await this.peerPersistence.listReportsForAdmin({ q, status });
+      return this.list(items, page, pageSize);
+    }
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.peerReports
+      .filter((report) => {
+        const matchesStatus = !status || status === 'all' || report.status === status;
+        if (!matchesStatus) return false;
+        if (!needle) return true;
+        const view = this.store.peerReportForAdmin(report);
+        return this.matchesNeedle(
+          [report.id, report.reason, report.reporterUserId, view.reporterNickname, view.matchId, view.experienceTitle],
+          needle,
+        );
+      })
+      .map((report) => this.store.peerReportForAdmin(report));
+    return this.list(items, page, pageSize);
+  }
+
+  @Patch('peer-reports/:id/handle')
+  async handlePeerReport(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status?: 'open' | 'handled'; note?: string },
+  ) {
+    const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.PeerReport) {
+      if (!body?.status || !['open', 'handled'].includes(body.status)) {
+        throw new BadRequestException('处理状态无效');
+      }
+      return await this.peerPersistence.handleReport(id, admin.id, body.status, body.note);
+    }
+    const existing = this.store.peerReports.find((report) => report.id === id);
+    if (!existing) throw new NotFoundException('举报记录不存在');
+    const before = { ...existing };
+    const result = this.store.handlePeerReport(id, admin.id, body ?? {});
+    this.store.audit(admin.id, 'PEER_REPORT_HANDLE', 'PeerReport', id, before, result.item);
+    await this.store.persistAndFlush();
+    return result;
+  }
+
+  @Get('support/plans')
+  async supportPlans(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    if (DIRECT_DB_MODELS.PersonalSupportPlan) {
+      return await this.selfPersistence.listSupportPlansForAdmin({
+        q,
+        page: page ? parseInt(page, 10) : undefined,
+        pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      });
+    }
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.personalSupportPlans
+      .filter((item) => !needle || this.matchesNeedle([item.id, item.userId, item.title], needle))
+      .map(({ plan: _plan, ...rest }: any) => rest);
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('support/plans/:id')
+  async supportPlanDetail(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+  ) {
+    const admin = this.admin(auth, ['super_admin', 'admin']);
+    return await this.selfPersistence.getAuditedSupportPlanForAdmin(id, admin.id);
+  }
+
+  @Get('memory/:id')
+  async memoryDetail(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+  ) {
+    const admin = this.admin(auth, ['super_admin', 'admin']);
+    return await this.selfPersistence.getAuditedMemoryForAdmin(id, admin.id);
+  }
+
+  @Get('memory')
+  async adminMemory(
+    @Headers('authorization') auth: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.admin(auth);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      // Metadata only, and the search never runs over the memory text (§0.4/S4, §0.5/A7). Full
+      // content is a separate audited single-record read.
+      return await this.selfPersistence.listMemoriesForAdmin({
+        q,
+        page: Number(page ?? 1),
+        pageSize: Number(pageSize ?? 20),
+      });
+    }
+    const needle = q?.trim().toLowerCase();
+    const items = this.store.memoryItems
+      .filter(
+        (item) =>
+          !item.deletedAt &&
+          (!needle || this.matchesNeedle([item.id, item.userId, item.category, item.title], needle)),
+      )
+      .map(({ content: _content, ...rest }: any) => rest);
+    return this.list(items, page, pageSize);
+  }
+
+  @Get('dashboard/ai-summary')
+  async dashboardAiSummary() {
+    return { item: (await this.dashboardData()).aiSummary };
+  }
+
+  @Get('users')
+  async users(
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    // Filter and paginate in the database: nickname and status are database-authoritative, so a
+    // boot-time snapshot would both show and search stale values, and a full read would grow with
+    // the user table instead of with the page.
+    const params = this.pageParams(page, pageSize);
+    const { total, items } = await this.store.listUsersForAdmin({
+      q: q?.trim(),
+      status,
+      page: params.page,
+      pageSize: params.pageSize,
+    });
+    // The operator list carries each user's current note. The admin view read `user.note`
+    // before, which this payload never contained, so the saved note vanished on the next load
+    // (ISSUE-027). One query for the whole page rather than one per row.
+    const notes = await this.adminNotes.currentNotesForUsers(items.map((user) => user.id));
+    const withNotes = items.map((user) => {
+      const note = notes.get(user.id);
+      return { ...user, note: note?.content, noteUpdatedAt: note?.updatedAt };
+    });
+    return {
+      items: withNotes,
+      page: params.page,
+      pageSize: params.pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / params.pageSize)),
+    };
+  }
+  // Declared before @Get('users/:id') on purpose. Nest matches routes in declaration
+  // order, so a literal segment declared after the parameterised one is shadowed: the
+  // previous `users/export` answered as `users/:id` with an empty body, which is why the
+  // admin export button reported success while producing nothing (ISSUE-002).
+  @Get('users/export')
+  async exportUsers(@Headers('authorization') auth: string) {
+    const admin = this.admin(auth);
+    const item = await this.store.createUserExport();
+    this.store.audit(admin.id, 'USER_EXPORT', 'User', 'export', null, { count: item.count, assetId: item.assetId });
+    await this.store.flush();
     return { item };
   }
 
-  @Get('users/export')
-  exportUsers() {
-    return { item: { count: this.store.users.length, downloadUrl: `/exports/users-${Date.now()}.json`, generatedAt: new Date().toISOString() } };
+  @Get('users/export/:assetId/download')
+  async userExportDownload(@Headers('authorization') auth: string, @Param('assetId') assetId: string) {
+    this.admin(auth);
+    const download = await this.store.getUserExportDownload(assetId);
+    return new StreamableFile(fs.createReadStream(download.filePath), {
+      type: download.asset.mimeType,
+      length: download.asset.size,
+      disposition: `attachment; filename="${download.filename}"`,
+    });
   }
+
+  @Get('users/:id')
+  async user(@Param('id') id: string) {
+    const privacy = DIRECT_DB_MODELS.PrivacySetting
+      ? await this.selfPersistence.getPrivacySettings(id)
+      : this.store.privacySettings[id];
+    return { item: await this.store.readUserForAdmin(id), privacy };
+  }
+  @Patch('users/:id/status')
+  async userStatus(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status: 'normal' | 'limited' | 'muted' | 'banned' | 'deleted' },
+  ) {
+    const admin = this.admin(auth);
+    const before = await this.store.readUserForAdmin(id);
+    if (!before) throw new NotFoundException('用户不存在');
+    const status = body.status === 'muted' ? 'limited' : body.status === 'deleted' ? 'banned' : body.status;
+    // The status and its audit row commit together, so a success response cannot be missing its
+    // evidence and a failed audit cannot leave the status applied.
+    const item = await this.store.updateUserStatus(id, status, { adminUserId: admin.id, before });
+    return { item };
+  }
+
+  // Kept for compatibility with the existing admin call, but it now writes real business data
+  // instead of only an AuditLog row (ISSUE-027). New callers should use POST users/:id/notes.
+  @Post('users/:id/note')
+  async userNote(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { note?: string; tags?: string[] },
+  ) {
+    const admin = this.admin(auth);
+    const note = await this.adminNotes.createNote({ userId: id, authorAdminId: admin.id, content: body?.note });
+    this.store.audit(admin.id, 'USER_NOTE', 'User', id, null, { noteId: note.id, content: note.content });
+    return { item: { id, note: note.content, noteId: note.id, tags: body?.tags ?? [], updatedAt: note.updatedAt } };
+  }
+
+  @Get('users/:id/notes')
+  async userNotes(@Headers('authorization') auth: string, @Param('id') id: string) {
+    this.admin(auth);
+    const items = await this.adminNotes.listNotes(id);
+    return { items, current: items[0] ?? null, total: items.length };
+  }
+
+  @Post('users/:id/notes')
+  async createUserNote(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { content?: string },
+  ) {
+    const admin = this.admin(auth);
+    const note = await this.adminNotes.createNote({ userId: id, authorAdminId: admin.id, content: body?.content });
+    this.store.audit(admin.id, 'USER_NOTE_CREATE', 'AdminUserNote', note.id, null, note);
+    return { item: note };
+  }
+
+  @Delete('users/:id/notes/:noteId')
+  async deleteUserNote(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+  ) {
+    const admin = this.admin(auth);
+    // The retraction hands the removed row back so the audit entry names it rather than only its id.
+    const { deleted } = await this.adminNotes.deleteNote(id, noteId);
+    this.store.audit(admin.id, 'USER_NOTE_DELETE', 'AdminUserNote', noteId, deleted, null);
+    return { item: deleted };
+  }
+
   @Patch('users/:id/tags')
-  userTags(@Param('id') id: string, @Body() body: { tags: string[] }) {
-    return { item: { id, tags: body.tags } };
+  userTags(@Headers('authorization') auth: string, @Param('id') _id: string, @Body() _body?: unknown) {
+    this.admin(auth);
+    throw new HttpException(
+      { code: 'ENDPOINT_DEPRECATED', message: '用户标签功能未实现；本请求未保存任何标签' },
+      HttpStatus.GONE,
+    );
   }
 
   @Post('users/:id/tags')
-  userTagsPost(@Param('id') id: string, @Body() body: { tags: string[] }) {
-    return this.userTags(id, body);
+  userTagsPost(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body?: unknown) {
+    return this.userTags(auth, id, body);
   }
 
   @Delete('users/:id/data')
   async deleteUserData(@Param('id') id: string) {
-    this.store.clearFavoritesForUser(id);
+    await this.store.clearFavoritesForUser(id);
     this.store.diaries = this.store.diaries.filter((item) => item.userId !== id);
-    this.store.letters = this.store.letters.filter((item) => item.userId !== id);
+    if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(id);
+    else this.store.letters = this.store.letters.filter((item) => item.userId !== id);
     await this.store.persistAndFlush();
     return { ok: true };
   }
 
   @Get('posts')
-  adminPosts(@Query('q') q?: string, @Query('emotion') emotion?: string, @Query('reviewStatus') reviewStatus?: string, @Query('visibility') visibility?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminPosts(
+    @Query('q') q?: string,
+    @Query('emotion') emotion?: string,
+    @Query('reviewStatus') reviewStatus?: string,
+    @Query('visibility') visibility?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     const needle = q?.trim().toLowerCase();
+    if (DIRECT_DB_MODELS.Post) {
+      const rows = await this.store.postsDb.idsForAdmin({ status: reviewStatus });
+      return this.list(rows, page, pageSize);
+    }
     const items = this.store.posts.filter((post) => {
-      const matchesQuery = !needle || [post.id, post.content, post.userId, post.emotion].some((value) => String(value).toLowerCase().includes(needle));
+      const matchesQuery =
+        !needle ||
+        [post.id, post.content, post.userId, post.emotion].some((value) =>
+          String(value).toLowerCase().includes(needle),
+        );
       const matchesEmotion = !emotion || emotion === 'all' || post.emotion === normalizeEmotion(emotion);
       const matchesReview = !reviewStatus || reviewStatus === 'all' || post.reviewStatus === reviewStatus;
       const matchesVisibility = !visibility || visibility === 'all' || post.visibility === visibility;
       return matchesQuery && matchesEmotion && matchesReview && matchesVisibility;
     });
-    items.forEach((post) => this.store.decoratePost(post));
+    // One context for the whole page rather than a lookup per row.
+    const adminContext = await this.store.buildPostDecorationContext(items);
+    items.forEach((post) => this.store.decoratePost(post, adminContext));
     return this.list(items, page, pageSize);
   }
   @Get('posts/:id')
-  adminPost(@Param('id') id: string) { return { item: this.store.getPost(id, true), replies: this.store.replies.filter((r) => r.postId === id) }; }
+  async adminPost(@Param('id') id: string) {
+    return {
+      item: await this.store.getPost(id, true),
+      replies: DIRECT_DB_MODELS.Reply
+        ? await this.store.repliesDb.listForPost(id)
+        : this.store.replies.filter((r) => r.postId === id),
+    };
+  }
   @Patch('posts/:id/moderation')
-  async postModeration(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { action: 'approve' | 'hide' | 'reject' | 'risk' }) {
-    const item = this.store.moderatePost(this.admin(auth).id, id, body.action);
+  async postModeration(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { action: 'approve' | 'hide' | 'reject' | 'risk' },
+  ) {
+    const item = await this.store.moderatePost(this.admin(auth).id, id, body.action);
     await this.store.flush();
     return { item };
   }
 
   @Patch('posts/:id/review')
-  async postReview(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status?: string; action?: 'approve' | 'hide' | 'reject' | 'risk' }) {
-    const action = body.action ?? (body.status === 'published' || body.status === 'approve' ? 'approve' : body.status === 'hidden' || body.status === 'hide' ? 'hide' : body.status === 'rejected' || body.status === 'reject' ? 'reject' : 'risk');
+  async postReview(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status?: string; action?: 'approve' | 'hide' | 'reject' | 'risk' },
+  ) {
+    const action =
+      body.action ??
+      (body.status === 'published' || body.status === 'approve'
+        ? 'approve'
+        : body.status === 'hidden' || body.status === 'hide'
+          ? 'hide'
+          : body.status === 'rejected' || body.status === 'reject'
+            ? 'reject'
+            : 'risk');
     return await this.postModeration(auth, id, { action });
   }
 
@@ -1589,22 +3743,19 @@ export class AdminController {
   }
 
   @Patch('posts/:id/block')
-  postBlock(@Headers('authorization') auth: string, @Param('id') id: string) {
-    return { item: this.store.moderatePost(this.admin(auth).id, id, 'hide') };
+  async postBlock(@Headers('authorization') auth: string, @Param('id') id: string) {
+    return { item: await this.store.moderatePost(this.admin(auth).id, id, 'hide') };
   }
   @Patch('posts/:id/visibility')
-  postVisibility(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { visibility: Visibility; reviewStatus?: string }) {
-    const admin = this.admin(auth);
-    const post = this.store.getPost(id, true);
-    const before = { ...post };
-    post.visibility = body.visibility;
-    if (body.reviewStatus) {
-      post.reviewStatus = body.reviewStatus as typeof post.reviewStatus;
-      if (post.reviewStatus === 'published') post.publishedAt ??= new Date().toISOString();
-    }
-    this.store.audit(admin.id, 'POST_VISIBILITY', 'Post', id, before, post);
-    this.store.persist();
-    return { item: post };
+  postVisibility(@Headers('authorization') auth: string, @Param('id') _id: string, @Body() _body?: unknown) {
+    this.admin(auth);
+    throw new HttpException(
+      {
+        code: 'ENDPOINT_DEPRECATED',
+        message: '该接口不再修改帖子内容或可见范围；审核、隐藏与恢复请使用 PATCH /api/admin/v1/posts/:id/review',
+      },
+      HttpStatus.GONE,
+    );
   }
 
   @Patch('posts/:id/risk')
@@ -1613,50 +3764,117 @@ export class AdminController {
   }
 
   @Post('posts/:id/regenerate-replies')
-  regenerateReplies(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
+  async regenerateReplies(@Param('id') id: string) {
+    const post = await this.store.getPost(id, true);
     const styles: AIStyle[] = ['warm', 'rational'];
-    const jobs = styles.map((style) => this.store.queueAI({ taskType: 'public_ai_reply', userId: post.userId, sourceId: post.moodId, mood: post.emotion, style, content: post.content }));
-    void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then((completed) => {
-      for (const job of completed.filter((item) => ['succeeded', 'fallback'].includes(item.status))) {
-        this.store.replies.unshift({ id: `reply_${job.id}`, postId: post.id, type: 'AI', style: job.style, content: job.result, status: 'published', riskLevel: 'low', createdAt: job.createdAt });
+    const jobs = styles.map((style) =>
+      this.store.queueAI({
+        taskType: 'public_ai_reply',
+        userId: post.userId,
+        sourceId: post.moodId,
+        mood: post.emotion,
+        style,
+        content: post.content,
+      }),
+    );
+    void Promise.all(jobs.map((job) => this.store.waitForAiJob(job.id))).then(async (completed) => {
+      const usable = completed.filter((item) => ['succeeded', 'fallback'].includes(item.status));
+      if (DIRECT_DB_MODELS.Reply) {
+        for (const job of usable) {
+          await this.store.repliesDb.create({
+            id: `reply_${job.id}`,
+            postId: post.id,
+            type: 'AI',
+            style: job.style,
+            content: job.result,
+            status: 'published',
+            riskLevel: 'low',
+            createdAt: new Date(job.createdAt),
+          });
+        }
+        await this.store.syncReplyCount(post.id);
+        return;
       }
-      post.replyCount = this.store.replies.filter((item) => item.postId === post.id && item.status === 'published').length;
+      for (const job of usable) {
+        this.store.replies.unshift({
+          id: `reply_${job.id}`,
+          postId: post.id,
+          type: 'AI',
+          style: job.style,
+          content: job.result,
+          status: 'published',
+          riskLevel: 'low',
+          createdAt: job.createdAt,
+        });
+      }
+      post.replyCount = this.store.replies.filter(
+        (item) => item.postId === post.id && item.status === 'published',
+      ).length;
       this.store.persist();
     });
     return { item: post, jobs, jobIds: jobs.map((job) => job.id), status: 'queued' };
   }
   @Delete('posts/:id')
-  adminDeletePost(@Param('id') id: string) {
-    const post = this.store.getPost(id, true);
+  async adminDeletePost(@Param('id') id: string) {
+    const post = await this.store.getPost(id, true);
     post.status = 'deleted';
     this.store.persist();
     return { ok: true };
   }
 
   @Get('replies')
-  adminReplies(@Query('type') type?: string, @Query('status') status?: string, @Query('q') q?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async adminReplies(
+    @Query('type') type?: string,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    if (DIRECT_DB_MODELS.Reply) {
+      return this.list(await this.store.repliesDb.listForAdmin({ type, status, q }), page, pageSize);
+    }
     const needle = q?.trim().toLowerCase();
     const items = this.store.replies.filter((reply) => {
       const matchesType = !type || type === 'all' || reply.type === type;
       const matchesStatus = !status || status === 'all' || reply.status === status;
-      const matchesQuery = !needle || [reply.id, reply.postId, reply.content, reply.type].some((value) => String(value).toLowerCase().includes(needle));
+      const matchesQuery =
+        !needle ||
+        [reply.id, reply.postId, reply.content, reply.type].some((value) =>
+          String(value).toLowerCase().includes(needle),
+        );
       return matchesType && matchesStatus && matchesQuery;
     });
     return this.list(items, page, pageSize);
   }
   @Get('replies/:id')
-  adminReply(@Param('id') id: string) { return { item: this.store.replies.find((r) => r.id === id) }; }
+  async adminReply(@Param('id') id: string) {
+    return {
+      item: DIRECT_DB_MODELS.Reply
+        ? await this.store.repliesDb.get(id)
+        : this.store.replies.find((r) => r.id === id),
+    };
+  }
   @Patch('replies/:id/moderation')
-  async replyModeration(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { action: 'approve' | 'block'; content?: string }) {
-    const item = this.store.moderateReply(this.admin(auth).id, id, body.action, body.content);
+  async replyModeration(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { action: 'approve' | 'block'; content?: string },
+  ) {
+    const item = await this.store.moderateReply(this.admin(auth).id, id, body.action, body.content);
     await this.store.flush();
     return { item };
   }
 
   @Patch('replies/:id/review')
-  async replyReview(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status?: string; action?: 'approve' | 'block' | 'hide'; content?: string }) {
-    const action = body.action === 'hide' ? 'block' : body.action ?? (body.status === 'approved' || body.status === 'published' ? 'approve' : 'block');
+  async replyReview(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status?: string; action?: 'approve' | 'block' | 'hide'; content?: string },
+  ) {
+    const action =
+      body.action === 'hide'
+        ? 'block'
+        : (body.action ?? (body.status === 'approved' || body.status === 'published' ? 'approve' : 'block'));
     return await this.replyModeration(auth, id, { action, content: body.content });
   }
 
@@ -1666,7 +3884,11 @@ export class AdminController {
   }
 
   @Patch('replies/:id/approve')
-  async replyApprove(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { content?: string }) {
+  async replyApprove(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { content?: string },
+  ) {
     return await this.replyModeration(auth, id, { action: 'approve', content: body.content });
   }
 
@@ -1681,51 +3903,96 @@ export class AdminController {
   }
 
   @Get('ai/providers')
-  providers(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.list(this.store.aiProviders.map((p) => ({ ...p, apiKeySecretRef: undefined, apiKeyMasked: p.apiKeyStatus === 'missing' ? '未配置' : '••••••••' })), page, pageSize);
+  async providers(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    const rows = DIRECT_DB_MODELS.AIProvider
+      ? await this.store.aiRoutingDb.listProviders()
+      : this.store.aiProviders;
+    return this.list(
+      rows.map((p) => ({
+        ...p,
+        apiKeySecretRef: undefined,
+        apiKeyMasked: p.apiKeyStatus === 'missing' ? '未配置' : '••••••••',
+      })),
+      page,
+      pageSize,
+    );
   }
   @Post('ai/providers')
   async createProvider(@Headers('authorization') auth: string, @Body() body: Partial<AIProvider>) {
     const admin = this.admin(auth);
     assertProviderMutation({}, body);
-    const provider: AIProvider = { id: `provider_${Date.now()}`, name: body.name ?? '新供应商', type: body.type ?? 'cloud', providerKind: body.providerKind ?? 'openai-compatible', baseUrl: body.baseUrl ?? DAPI_BASE_URL, modelName: body.modelName ?? '', apiKeyStatus: 'configured', enabled: body.enabled ?? true, priority: body.priority ?? 10, dailyLimit: body.dailyLimit ?? 1000, timeoutSeconds: body.timeoutSeconds ?? 12, failoverEnabled: body.failoverEnabled ?? true, usageTags: body.usageTags ?? [], failureRate: 0, avgLatencyMs: 0, todayCalls: 0 };
-    this.store.aiProviders.unshift(provider);
-    this.store.audit(admin.id, 'AI_PROVIDER_CREATE', 'AIProvider', provider.id, null, provider);
+    const provider: AIProvider = {
+      id: `provider_${Date.now()}`,
+      name: body.name ?? '新供应商',
+      type: body.type ?? 'cloud',
+      providerKind: body.providerKind ?? 'openai-compatible',
+      baseUrl: body.baseUrl ?? DAPI_BASE_URL,
+      modelName: body.modelName ?? '',
+      apiKeyStatus: 'configured',
+      enabled: body.enabled ?? true,
+      priority: body.priority ?? 10,
+      dailyLimit: body.dailyLimit ?? 1000,
+      timeoutSeconds: body.timeoutSeconds ?? 12,
+      failoverEnabled: body.failoverEnabled ?? true,
+      usageTags: body.usageTags ?? [],
+      failureRate: 0,
+      avgLatencyMs: 0,
+      todayCalls: 0,
+    };
+    if (DIRECT_DB_MODELS.AIProvider) await this.store.aiRoutingDb.saveProvider(provider as never);
+    else this.store.aiProviders.unshift(provider);
+    await this.store.audit(admin.id, 'AI_PROVIDER_CREATE', 'AIProvider', provider.id, null, provider);
     this.store.persist();
     await this.store.flush();
     return { item: provider };
   }
   @Put('ai/providers/:id')
-  async updateProvider(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<AIProvider>) {
+  async updateProvider(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<AIProvider>,
+  ) {
     const admin = this.admin(auth);
-    const provider = this.store.aiProviders.find((p) => p.id === id);
-    if (!provider) throw new NotFoundException('AI Provider 不存在');
-    assertProviderMutation(provider, body);
-    const before = { ...provider };
-    Object.assign(provider, body);
-    this.store.audit(admin.id, 'AI_PROVIDER_UPDATE', 'AIProvider', id, before, provider);
+    const existing = DIRECT_DB_MODELS.AIProvider
+      ? await this.store.aiRoutingDb.getProvider(id)
+      : this.store.aiProviders.find((p) => p.id === id);
+    if (!existing) throw new NotFoundException('AI Provider 不存在');
+    assertProviderMutation(existing as never, body);
+    const before = { ...existing };
+    const merged = { ...existing, ...body };
+    if (DIRECT_DB_MODELS.AIProvider) await this.store.aiRoutingDb.saveProvider(merged as never);
+    else Object.assign(this.store.aiProviders.find((p) => p.id === id)!, merged);
+    await this.store.audit(admin.id, 'AI_PROVIDER_UPDATE', 'AIProvider', id, before, merged);
     this.store.persist();
     await this.store.flush();
-    return { item: provider };
+    return { item: merged };
   }
 
   @Patch('ai/providers/:id')
-  async patchProvider(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<AIProvider>) {
+  async patchProvider(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<AIProvider>,
+  ) {
     return await this.updateProvider(auth, id, body);
   }
   @Post('ai/providers/:id/test')
   async testProvider(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
     const item = await this.store.testAiProvider(id);
-    this.store.audit(admin.id, 'AI_PROVIDER_TEST', 'AIProvider', id, null, { ok: item.ok, modelName: item.modelName, durationMs: item.durationMs });
+    this.store.audit(admin.id, 'AI_PROVIDER_TEST', 'AIProvider', id, null, {
+      ok: item.ok,
+      modelName: item.modelName,
+      durationMs: item.durationMs,
+    });
     this.store.persist();
     await this.store.flush();
     return { ok: item.ok, message: item.ok ? '真实模型调用成功' : item.result, item };
   }
 
   @Get('ai/ollama/status')
-  ollamaStatus() {
-    return { item: this.store.ollamaStatus() };
+  async ollamaStatus() {
+    return { item: await this.store.ollamaStatus() };
   }
 
   @Post('ai/ollama/sync-models')
@@ -1737,26 +4004,46 @@ export class AdminController {
   @Delete('ai/providers/:id')
   async deleteProvider(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const provider = this.store.aiProviders.find((p) => p.id === id);
-    const before = provider ? { ...provider } : null;
-    if (provider) provider.enabled = false;
-    if (provider) this.store.audit(admin.id, 'AI_PROVIDER_DISABLE', 'AIProvider', id, before, provider);
+    const existing = DIRECT_DB_MODELS.AIProvider
+      ? await this.store.aiRoutingDb.getProvider(id)
+      : this.store.aiProviders.find((p) => p.id === id);
+    const before = existing ? { ...existing } : null;
+    if (existing) {
+      const next = { ...existing, enabled: false };
+      if (DIRECT_DB_MODELS.AIProvider) await this.store.aiRoutingDb.saveProvider(next as never);
+      else this.store.aiProviders.find((p) => p.id === id)!.enabled = false;
+      await this.store.audit(admin.id, 'AI_PROVIDER_DISABLE', 'AIProvider', id, before, next);
+    }
     this.store.persist();
     await this.store.flush();
-    return { item: provider };
+    return { item: existing ? { ...existing, enabled: false } : null };
   }
 
   @Get('ai/routes')
-  routes(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.list(this.store.aiRoutes, page, pageSize); }
+  async routes(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    const rows: unknown[] = DIRECT_DB_MODELS.AIStyleRoute ? await this.store.aiRoutingDb.listRoutes() : this.store.aiRoutes;
+    return this.list(rows, page, pageSize);
+  }
   @Put('ai/routes/:style')
-  async updateRoute(@Headers('authorization') auth: string, @Param('style') style: AIStyle, @Body() body: Partial<AIStyleRoute>) {
+  async updateRoute(
+    @Headers('authorization') auth: string,
+    @Param('style') style: AIStyle,
+    @Body() body: Partial<AIStyleRoute>,
+  ) {
     const admin = this.admin(auth);
-    const route = this.store.aiRoutes.find((r) => r.style === style);
+    const route = DIRECT_DB_MODELS.AIStyleRoute
+      ? await this.store.aiRoutingDb.getRouteByStyle(style)
+      : this.store.aiRoutes.find((r) => r.style === style);
     if (!route) throw new NotFoundException('AI 路由不存在');
     const nextPrimary = body.primaryProviderId ?? route.primaryProviderId;
     const nextBackup = body.backupProviderId ?? route.backupProviderId;
-    for (const [role, providerId] of [['主路由', nextPrimary], ['备用路由', nextBackup]] as const) {
-      const provider = this.store.aiProviders.find((item) => item.id === providerId);
+    for (const [role, providerId] of [
+      ['主路由', nextPrimary],
+      ['备用路由', nextBackup],
+    ] as const) {
+      const provider = DIRECT_DB_MODELS.AIProvider
+        ? await this.store.aiRoutingDb.getProvider(providerId)
+        : this.store.aiProviders.find((item) => item.id === providerId);
       if (!provider) throw new BadRequestException(`${role}供应商不存在`);
       if (!provider.enabled) throw new BadRequestException(`${role}供应商未启用`);
       if (provider.type === 'local' || provider.providerKind !== 'openai-compatible') {
@@ -1764,38 +4051,91 @@ export class AdminController {
       }
     }
     const before = { ...route };
-    Object.assign(route, body, { routeVersion: route.routeVersion + 1 });
-    this.store.audit(admin.id, 'AI_ROUTE_UPDATE', 'AIStyleRoute', style, before, route);
+    const merged = { ...route, ...body, routeVersion: route.routeVersion + 1 };
+    if (DIRECT_DB_MODELS.AIStyleRoute) {
+      await this.store.aiRoutingDb.saveRoute({ ...merged, bumpVersion: false } as never);
+    } else {
+      Object.assign(this.store.aiRoutes.find((r) => r.style === style)!, merged);
+    }
+    await this.store.audit(admin.id, 'AI_ROUTE_UPDATE', 'AIStyleRoute', style, before, merged);
     this.store.persist();
     await this.store.flush();
-    return { item: route };
+    return { item: merged };
   }
 
   @Patch('ai/routes/:style')
-  async patchRoute(@Headers('authorization') auth: string, @Param('style') style: AIStyle, @Body() body: Partial<AIStyleRoute>) {
+  async patchRoute(
+    @Headers('authorization') auth: string,
+    @Param('style') style: AIStyle,
+    @Body() body: Partial<AIStyleRoute>,
+  ) {
     return await this.updateRoute(auth, style, body);
   }
 
   @Post('ai/routes/:style/test')
-  async testRoute(@Headers('authorization') auth: string, @Param('style') style: AIStyle, @Body() body: { content?: string }) {
+  async testRoute(
+    @Headers('authorization') auth: string,
+    @Param('style') style: AIStyle,
+    @Body() body: { content?: string },
+  ) {
     const admin = this.admin(auth);
-    const job = this.store.queueAI({ taskType: 'public_ai_reply', userId: this.store.getDemoUserId(), sourceId: `route_test_${Date.now()}`, style, content: body.content ?? 'admin route test' });
-    this.store.audit(admin.id, 'AI_ROUTE_TEST', 'AIStyleRoute', style, null, { jobId: job.id, style, routeVersion: job.routeVersion });
+    const job = this.store.queueAI({
+      taskType: 'public_ai_reply',
+      userId: this.store.getDemoUserId(),
+      sourceId: `route_test_${Date.now()}`,
+      style,
+      content: body.content ?? 'admin route test',
+    });
+    this.store.audit(admin.id, 'AI_ROUTE_TEST', 'AIStyleRoute', style, null, {
+      jobId: job.id,
+      style,
+      routeVersion: job.routeVersion,
+    });
     this.store.persist();
     await this.store.flush();
     return { ok: true, jobId: job.id, status: job.status, job };
   }
 
   @Get('ai/jobs')
-  jobs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.list(this.store.aiJobs, page, pageSize); }
+  async jobs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    if (DIRECT_DB_MODELS.AIJob) {
+      const listed = await this.batch1Persistence.listAdminAiJobs(page, pageSize);
+      // The operator list carries model-generated peer drafts, so the same response-boundary
+      // redaction the user-facing task endpoints apply is applied here (review P1-5).
+      return { ...listed, items: listed.items.map((job) => this.store.peerAssistJobForResponse(job)) };
+    }
+    return this.list(this.store.aiJobs, page, pageSize);
+  }
   @Get('ai/jobs/:id')
-  job(@Param('id') id: string) { return { item: this.store.aiJobs.find((j) => j.id === id) }; }
+  async job(@Param('id') id: string) {
+    if (DIRECT_DB_MODELS.AIJob) {
+      const found = await this.batch1Persistence.getAiJob(id);
+      return { item: found ? this.store.peerAssistJobForResponse(found) : found };
+    }
+    return { item: this.store.aiJobs.find((j) => j.id === id) };
+  }
   @Post('ai/jobs/:id/retry')
   async retryJob(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const job = this.store.aiJobs.find((j) => j.id === id)!;
-    const retry = this.store.queueAiJob({ userId: job.userId, contentId: job.contentId, contentType: job.contentType, jobType: job.jobType, taskType: job.taskType, style: job.style, promptSummary: job.promptSummary });
+    const job = DIRECT_DB_MODELS.AIJob
+      ? await this.batch1Persistence.getAiJob(id)
+      : this.store.aiJobs.find((j) => j.id === id);
+    if (!job) throw new NotFoundException('AI 任务不存在');
+    const retry = this.store.queueAiJob({
+      userId: job.userId,
+      contentId: job.contentId,
+      contentType: job.contentType,
+      jobType: job.jobType,
+      taskType: job.taskType,
+      style: job.style,
+      promptSummary: job.promptSummary,
+      retryCount: job.retryCount + 1,
+    });
     retry.retryCount = job.retryCount + 1;
+    if (DIRECT_DB_MODELS.AIJob) {
+      await this.store.awaitJobCommit(retry.id);
+      await this.batch1Persistence.updateJobRetryCount(retry.id, retry.retryCount);
+    }
     this.store.audit(admin.id, 'AI_JOB_RETRY', 'AIJob', retry.id, { retryOf: job.id }, retry);
     this.store.persist();
     await this.store.flush();
@@ -1807,33 +4147,66 @@ export class AdminController {
   }
 
   @Get('feedback/tickets')
-  tickets(@Query('q') q?: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    const needle = q?.trim().toLowerCase();
-    const items = this.store.feedbackTickets.filter((ticket) => {
-      const matchesQuery = !needle || [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) => String(value).toLowerCase().includes(needle));
-      const matchesStatus = !status || status === 'all' || ticket.status === status;
-      return matchesQuery && matchesStatus;
-    });
-    return this.list(items.map((ticket) => this.store.decorateFeedbackTicket(ticket)), page, pageSize);
+  async tickets(
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    // The console has to see tickets the C-end wrote. The legacy array only held rows this process
+    // had flushed, so a real submission was invisible to the operator until a restart re-hydrated it
+    // (and after Batch 4's conversion, not even then).
+    const items = DIRECT_DB_MODELS.FeedbackTicket
+      ? await this.feedbackPersistence.listTicketsForAdmin({ q, status })
+      : this.store.feedbackTickets.filter((ticket) => {
+          const needle = q?.trim().toLowerCase();
+          const matchesQuery =
+            !needle ||
+            [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
+              String(value).toLowerCase().includes(needle),
+            );
+          const matchesStatus = !status || status === 'all' || ticket.status === status;
+          return matchesQuery && matchesStatus;
+        });
+    return this.list(
+      await Promise.all(items.map((ticket) => this.store.decorateFeedbackTicket(ticket))),
+      page,
+      pageSize,
+    );
   }
 
   @Get('feedback/summary')
-  feedbackSummary(@Query('q') q?: string, @Query('status') status?: string) {
-    const ticketMatches = this.store.feedbackTickets.filter((ticket) => {
-      const needle = q?.trim().toLowerCase();
-      const matchesQuery = !needle || [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) => String(value).toLowerCase().includes(needle));
-      return matchesQuery && (!status || status === 'all' || ticket.status === status);
-    });
+  async feedbackSummary(@Query('q') q?: string, @Query('status') status?: string) {
+    const ticketMatches = DIRECT_DB_MODELS.FeedbackTicket
+      ? await this.feedbackPersistence.listTicketsForAdmin({ q, status })
+      : this.store.feedbackTickets.filter((ticket) => {
+          const needle = q?.trim().toLowerCase();
+          const matchesQuery =
+            !needle ||
+            [ticket.id, ticket.content, ticket.sourcePage, ticket.categoryId].some((value) =>
+              String(value).toLowerCase().includes(needle),
+            );
+          return matchesQuery && (!status || status === 'all' || ticket.status === status);
+        });
     const actual = {
       open: ticketMatches.filter((item) => item.status === 'open').length,
-      today: ticketMatches.filter((item) => String(item.createdAt ?? '').startsWith(new Date().toISOString().slice(0, 10))).length,
-      high: ticketMatches.filter((item) => ['high', 'urgent', 'critical'].includes(String(item.priority ?? '').toLowerCase())).length,
+      // A database row carries a Date; `String(date)` is not ISO and the old prefix test silently
+      // counted zero. Both shapes go through `Date` so the count means the same thing either way.
+      today: ticketMatches.filter((item) =>
+        (item.createdAt ? new Date(item.createdAt) : new Date(0)).toISOString().startsWith(new Date().toISOString().slice(0, 10)),
+      ).length,
+      high: ticketMatches.filter((item) =>
+        ['high', 'urgent', 'critical'].includes(String(item.priority ?? '').toLowerCase()),
+      ).length,
       resolved: ticketMatches.filter((item) => item.status === 'resolved').length,
       total: ticketMatches.length,
     };
-    const fixtureSnapshot = !q && (!status || status === 'all') ? this.store.systemSettings.feedbackTicketMetrics?.value : undefined;
-    const snapshot = fixtureSnapshot && typeof fixtureSnapshot === 'object' ? fixtureSnapshot as Record<string, unknown> : undefined;
-    const value = (key: keyof typeof actual) => Number.isFinite(Number(snapshot?.[key])) ? Number(snapshot?.[key]) : actual[key];
+    const fixtureSnapshot =
+      !q && (!status || status === 'all') ? this.store.systemSettings.feedbackTicketMetrics?.value : undefined;
+    const snapshot =
+      fixtureSnapshot && typeof fixtureSnapshot === 'object' ? (fixtureSnapshot as Record<string, unknown>) : undefined;
+    const value = (key: keyof typeof actual) =>
+      Number.isFinite(Number(snapshot?.[key])) ? Number(snapshot?.[key]) : actual[key];
     return {
       item: {
         open: value('open'),
@@ -1848,39 +4221,79 @@ export class AdminController {
   }
 
   @Get('feedback')
-  feedbackAlias(@Query('q') q?: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.tickets(q, status, page, pageSize); }
+  feedbackAlias(
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.tickets(q, status, page, pageSize);
+  }
   @Get('feedback/tickets/:id')
-  ticket(@Param('id') id: string) { return { item: this.store.decorateFeedbackTicket(this.store.feedbackTicketOrThrow(id)) }; }
+  async ticket(@Param('id') id: string) {
+    const row = DIRECT_DB_MODELS.FeedbackTicket
+      ? await this.feedbackPersistence.findTicketForAdmin(id)
+      : this.store.feedbackTicketOrThrow(id);
+    return { item: await this.store.decorateFeedbackTicket(row) };
+  }
 
   @Get('feedback/:id')
-  feedbackItemAlias(@Param('id') id: string) { return this.ticket(id); }
+  feedbackItemAlias(@Param('id') id: string) {
+    return this.ticket(id);
+  }
 
   @Post('feedback/tickets/:id/reply')
   async ticketReply(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { reply: string }) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.FeedbackTicket) {
+      // The persistence method writes the AuditLog row inside the same transaction as the ticket update.
+      const { after } = await this.feedbackPersistence.replyToTicketAsAdmin(id, body.reply, admin.id);
+      return { item: await this.store.decorateFeedbackTicket(after) };
+    }
     const ticket = await this.store.replyToFeedbackTicket(admin.id, id, body.reply);
-    return { item: this.store.decorateFeedbackTicket(ticket) };
+    return { item: await this.store.decorateFeedbackTicket(ticket) };
   }
 
   @Patch('feedback/:id/reply')
-  async feedbackReplyAlias(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { reply: string }) {
+  async feedbackReplyAlias(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { reply: string },
+  ) {
     return await this.ticketReply(auth, id, body);
   }
 
   @Post('feedback/:id/reply')
-  async feedbackReplyPostAlias(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { reply: string }) {
+  async feedbackReplyPostAlias(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { reply: string },
+  ) {
     return await this.ticketReply(auth, id, body);
   }
 
   @Patch('feedback/tickets/:id/status')
-  async ticketStatus(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status: string }) {
+  async ticketStatus(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status: string },
+  ) {
     const admin = this.admin(auth);
+    if (DIRECT_DB_MODELS.FeedbackTicket) {
+      // The persistence method writes the AuditLog row inside the same transaction as the ticket update.
+      const { after } = await this.feedbackPersistence.updateTicketStatusAsAdmin(id, body.status, admin.id);
+      return { item: await this.store.decorateFeedbackTicket(after) };
+    }
     const ticket = await this.store.updateFeedbackTicketStatus(admin.id, id, body.status);
-    return { item: this.store.decorateFeedbackTicket(ticket) };
+    return { item: await this.store.decorateFeedbackTicket(ticket) };
   }
 
   @Patch('feedback/:id/status')
-  async feedbackStatusAlias(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: { status: string }) {
+  async feedbackStatusAlias(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: { status: string },
+  ) {
     return await this.ticketStatus(auth, id, body);
   }
 
@@ -1890,143 +4303,131 @@ export class AdminController {
   }
 
   @Get('faqs')
-  adminFaqs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.list(this.store.faqs, page, pageSize); }
+  async adminFaqs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.list(await this.feedbackPersistence.listFaqsForAdmin(), page, pageSize);
+  }
   @Post('faqs')
-  async createFaq(@Headers('authorization') auth: string, @Body() body: { question: string; answer: string }) {
+  async createFaq(@Headers('authorization') auth: string, @Body() body: { question: string; answer: string; sortOrder?: number }) {
     const admin = this.admin(auth);
     const question = body.question?.trim();
     const answer = body.answer?.trim();
     if (!question || !answer) throw new BadRequestException('问题和答案不能为空');
-    const faq = { id: `faq_${Date.now()}`, question, answer, sortOrder: this.store.faqs.length + 1, enabled: true, createdAt: new Date().toISOString() };
-    this.store.faqs.unshift(faq);
+    const faq = await this.feedbackPersistence.createFaq({ question, answer, sortOrder: body.sortOrder });
     this.store.audit(admin.id, 'FAQ_CREATE', 'FAQ', faq.id, null, faq);
-    this.store.persist();
-    await this.store.flush();
     return { item: faq };
   }
   @Put('faqs/:id')
-  async updateFaq(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<{ question: string; answer: string; enabled: boolean; sortOrder: number }>) {
+  async updateFaq(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<{ question: string; answer: string; enabled: boolean; sortOrder: number }>,
+  ) {
     const admin = this.admin(auth);
-    const faq = this.store.faqs.find((f) => f.id === id);
-    if (!faq) throw new NotFoundException('FAQ 不存在');
-    const before = { ...faq };
-    const update = { ...body };
-    if (update.question !== undefined) update.question = update.question.trim();
-    if (update.answer !== undefined) update.answer = update.answer.trim();
-    if ((update.question !== undefined && !update.question) || (update.answer !== undefined && !update.answer)) throw new BadRequestException('问题和答案不能为空');
-    Object.assign(faq, update);
-    this.store.audit(admin.id, 'FAQ_UPDATE', 'FAQ', id, before, faq);
-    this.store.persist();
-    await this.store.flush();
+    if (body.question !== undefined && !String(body.question).trim()) throw new BadRequestException('问题和答案不能为空');
+    if (body.answer !== undefined && !String(body.answer).trim()) throw new BadRequestException('问题和答案不能为空');
+    const faq = await this.feedbackPersistence.updateFaq(id, body);
+    this.store.audit(admin.id, 'FAQ_UPDATE', 'FAQ', id, null, faq);
     return { item: faq };
   }
 
   @Patch('faqs/:id')
-  patchFaq(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<{ question: string; answer: string; enabled: boolean; sortOrder: number }>) {
+  patchFaq(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<{ question: string; answer: string; enabled: boolean; sortOrder: number }>,
+  ) {
     return this.updateFaq(auth, id, body);
   }
   @Delete('faqs/:id')
   async deleteFaq(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const faq = this.store.faqs.find((item) => item.id === id);
-    if (!faq) throw new NotFoundException('FAQ 不存在');
-    this.store.faqs = this.store.faqs.filter((f) => f.id !== id);
-    this.store.audit(admin.id, 'FAQ_DELETE', 'FAQ', id, faq, null);
-    await this.store.flush();
+    // The service answers 404 for an id it does not have, and hands the deleted row back so the
+    // audit record can name what was removed rather than only its id.
+    const { deleted } = await this.feedbackPersistence.deleteFaq(id);
+    this.store.audit(admin.id, 'FAQ_DELETE', 'FAQ', id, deleted, null);
     return { ok: true };
   }
 
   @Get('reply-presets')
-  adminPresets(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.list(this.store.replyPresets, page, pageSize); }
+  async adminPresets(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.list(await this.feedbackPersistence.listPresetsForAdmin(), page, pageSize);
+  }
   @Post('reply-presets')
-  async createPreset(@Headers('authorization') auth: string, @Body() body: { text: string; scene?: string }) {
+  async createPreset(@Headers('authorization') auth: string, @Body() body: { text: string; scene?: string; sortOrder?: number }) {
     const admin = this.admin(auth);
-    const text = body.text?.trim();
-    if (!text) throw new BadRequestException('回复预设内容不能为空');
-    const item = { id: `preset_${Date.now()}`, text, scene: body.scene ?? 'comfort', sortOrder: this.store.replyPresets.length + 1, enabled: true, createdAt: new Date().toISOString() };
-    this.store.replyPresets.unshift(item);
+    const item = await this.feedbackPersistence.createPreset({ text: body.text, scene: body.scene, sortOrder: body.sortOrder });
     this.store.audit(admin.id, 'REPLY_PRESET_CREATE', 'ReplyPreset', item.id, null, item);
-    this.store.persist();
-    await this.store.flush();
     return { item };
   }
   @Put('reply-presets/:id')
-  async updatePreset(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<{ text: string; scene: string; enabled: boolean; sortOrder: number }>) {
+  async updatePreset(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<{ text: string; scene: string; enabled: boolean; sortOrder: number }>,
+  ) {
     const admin = this.admin(auth);
-    const item = this.store.replyPresets.find((p) => p.id === id);
-    if (!item) throw new NotFoundException('回复预设不存在');
-    const before = { ...item };
-    const update = { ...body };
-    if (update.text !== undefined) update.text = update.text.trim();
-    if (update.text !== undefined && !update.text) throw new BadRequestException('回复预设内容不能为空');
-    Object.assign(item, update);
-    this.store.audit(admin.id, 'REPLY_PRESET_UPDATE', 'ReplyPreset', id, before, item);
-    this.store.persist();
-    await this.store.flush();
+    const item = await this.feedbackPersistence.updatePreset(id, body);
+    this.store.audit(admin.id, 'REPLY_PRESET_UPDATE', 'ReplyPreset', id, null, item);
     return { item };
   }
 
   @Patch('reply-presets/:id')
-  patchPreset(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<{ text: string; scene: string; enabled: boolean; sortOrder: number }>) {
+  patchPreset(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<{ text: string; scene: string; enabled: boolean; sortOrder: number }>,
+  ) {
     return this.updatePreset(auth, id, body);
   }
   @Delete('reply-presets/:id')
   async deletePreset(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const item = this.store.replyPresets.find((preset) => preset.id === id);
-    if (!item) throw new NotFoundException('回复预设不存在');
-    this.store.replyPresets = this.store.replyPresets.filter((p) => p.id !== id);
-    this.store.audit(admin.id, 'REPLY_PRESET_DELETE', 'ReplyPreset', id, item, null);
-    await this.store.flush();
+    const { deleted } = await this.feedbackPersistence.deletePreset(id);
+    this.store.audit(admin.id, 'REPLY_PRESET_DELETE', 'ReplyPreset', id, deleted, null);
     return { ok: true };
   }
 
   @Get('feedback-categories')
-  adminCategories(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    const items = this.store.feedbackCategories.map((item) => ({ ...item, ticketCount: this.store.feedbackTickets.filter((ticket) => ticket.categoryId === item.id).length }));
-    return this.list(items, page, pageSize);
+  async adminCategories(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.list(await this.feedbackPersistence.listCategoriesForAdmin(), page, pageSize);
   }
   @Post('feedback-categories')
-  async createCategory(@Headers('authorization') auth: string, @Body() body: { name: string }) {
+  async createCategory(@Headers('authorization') auth: string, @Body() body: { name: string; sortOrder?: number }) {
     const admin = this.admin(auth);
-    const name = body.name?.trim();
-    if (!name) throw new BadRequestException('分类名称不能为空');
-    const item = { id: `cat_${Date.now()}`, name, sortOrder: this.store.feedbackCategories.length + 1, enabled: true };
-    this.store.feedbackCategories.unshift(item);
+    const item = await this.feedbackPersistence.createCategory({ name: body.name, sortOrder: body.sortOrder });
     this.store.audit(admin.id, 'FEEDBACK_CATEGORY_CREATE', 'FeedbackCategory', item.id, null, item);
-    this.store.persist();
-    await this.store.flush();
     return { item };
   }
   @Put('feedback-categories/:id')
-  async updateCategory(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<{ name: string; enabled: boolean; sortOrder: number }>) {
+  async updateCategory(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<{ name: string; enabled: boolean; sortOrder: number }>,
+  ) {
     const admin = this.admin(auth);
-    const item = this.store.feedbackCategories.find((c) => c.id === id);
-    if (!item) throw new NotFoundException('反馈分类不存在');
-    const before = { ...item };
-    const update = { ...body };
-    if (update.name !== undefined) update.name = update.name.trim();
-    if (update.name !== undefined && !update.name) throw new BadRequestException('分类名称不能为空');
-    Object.assign(item, update);
-    this.store.audit(admin.id, 'FEEDBACK_CATEGORY_UPDATE', 'FeedbackCategory', id, before, item);
-    this.store.persist();
-    await this.store.flush();
+    if (body.name !== undefined && !String(body.name).trim()) throw new BadRequestException('分类名称不能为空');
+    const item = await this.feedbackPersistence.updateCategory(id, body);
+    this.store.audit(admin.id, 'FEEDBACK_CATEGORY_UPDATE', 'FeedbackCategory', id, null, item);
     return { item };
   }
 
   @Patch('feedback-categories/:id')
-  patchCategory(@Headers('authorization') auth: string, @Param('id') id: string, @Body() body: Partial<{ name: string; enabled: boolean; sortOrder: number }>) {
+  patchCategory(
+    @Headers('authorization') auth: string,
+    @Param('id') id: string,
+    @Body() body: Partial<{ name: string; enabled: boolean; sortOrder: number }>,
+  ) {
     return this.updateCategory(auth, id, body);
   }
   @Delete('feedback-categories/:id')
   async deleteCategory(@Headers('authorization') auth: string, @Param('id') id: string) {
     const admin = this.admin(auth);
-    const item = this.store.feedbackCategories.find((category) => category.id === id);
+    const item = await this.feedbackPersistence.findCategory(id).catch(() => null);
     if (!item) throw new NotFoundException('反馈分类不存在');
-    if (this.store.feedbackTickets.some((ticket) => ticket.categoryId === id)) throw new BadRequestException('该分类仍有关联工单，请先停用或迁移工单');
-    this.store.feedbackCategories = this.store.feedbackCategories.filter((c) => c.id !== id);
+    if (await this.feedbackPersistence.categoryHasTickets(id))
+      throw new BadRequestException('该分类仍有关联工单，请先停用或迁移工单');
+    await this.feedbackPersistence.deleteCategory(id);
     this.store.audit(admin.id, 'FEEDBACK_CATEGORY_DELETE', 'FeedbackCategory', id, item, null);
-    await this.store.flush();
     return { ok: true };
   }
 
@@ -2043,15 +4444,30 @@ export class AdminController {
 
   @Get('system/settings')
   settings() {
-    return { items: Object.entries(this.configObject()).map(([key, value]) => ({ key, value, description: this.store.systemSettings[key]?.description ?? key, updatedAt: this.store.systemSettings[key]?.updatedAt })) };
+    return {
+      items: Object.entries(this.configObject()).map(([key, value]) => ({
+        key,
+        value,
+        description: this.store.systemSettings[key]?.description ?? key,
+        updatedAt: this.store.systemSettings[key]?.updatedAt,
+      })),
+      enforcedKeys: ENFORCED_SETTING_KEYS,
+      notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS,
+    };
   }
 
   @Get('settings')
-  settingsAlias() { return this.settings(); }
+  settingsAlias() {
+    return this.settings();
+  }
 
   @Get('config')
   config() {
-    return { item: this.configObject() };
+    return {
+      item: this.configObject(),
+      enforcedKeys: ENFORCED_SETTING_KEYS,
+      notImplementedKeys: NOT_IMPLEMENTED_SETTING_KEYS,
+    };
   }
 
   @Put('system/settings')
@@ -2061,11 +4477,27 @@ export class AdminController {
     if (body.localModelFirst === true) {
       throw new BadRequestException('本地模型已被 DAPI-only 运行策略永久禁用。');
     }
+    // A setting that is presented as a future capability must not be saved as if it were
+    // active: accepting the write would let the console report a change that has no effect
+    // (closure task sections 22 and 57).
+    const refused = Object.keys(body).filter((key) => NOT_IMPLEMENTED_SETTING_KEYS.includes(key));
+    if (refused.length > 0) {
+      throw new BadRequestException(`这些设置当前版本尚未接入业务逻辑，无法保存：${refused.join('、')}`);
+    }
     for (const [key, value] of Object.entries(body)) {
-      this.store.systemSettings[key] = { ...(this.store.systemSettings[key] ?? { description: key }), value, updatedBy: admin.id, updatedAt: new Date().toISOString() };
+      this.store.systemSettings[key] = {
+        ...(this.store.systemSettings[key] ?? { description: key }),
+        value,
+        updatedBy: admin.id,
+        updatedAt: new Date().toISOString(),
+      };
       if (key === 'defaultVisibility') {
-        for (const userId in this.store.privacySettings) {
-          this.store.privacySettings[userId].defaultVisibility = value as 'PUBLIC' | 'PRIVATE';
+        if (DIRECT_DB_MODELS.PrivacySetting) {
+          await this.selfPersistence.updateDefaultVisibilityFanOut(value as 'PUBLIC' | 'PRIVATE');
+        } else {
+          for (const userId in this.store.privacySettings) {
+            this.store.privacySettings[userId].defaultVisibility = value as 'PUBLIC' | 'PRIVATE';
+          }
         }
       }
     }
@@ -2097,5 +4529,18 @@ export class AdminController {
   }
 
   @Get('audit-logs')
-  auditLogs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.list(this.store.auditLogs, page, pageSize); }
+  async auditLogs(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    // The table is the source of truth. Audited single-record reads write there directly, so an
+    // in-memory-only list hid them until a restart. Rows a handler has queued but not yet flushed
+    // are merged in by id, so a moderation action just performed is not missing from the list.
+    const persisted = await this.selfPersistence.listAuditLogsForAdmin();
+    const byId = new Map(persisted.map((item) => [item.id, item as any]));
+    for (const item of this.store.auditLogs) {
+      if (!byId.has(item.id)) byId.set(item.id, item);
+    }
+    const merged = [...byId.values()].sort((left, right) =>
+      String(right.createdAt).localeCompare(String(left.createdAt)),
+    );
+    return this.list(merged, page, pageSize);
+  }
 }

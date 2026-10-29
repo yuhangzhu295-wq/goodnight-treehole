@@ -80,6 +80,23 @@ export interface PrivacySetting {
   allowRecoveryData?: boolean;
   allowJourneyLongTermAnalysis?: boolean;
   allowLongTermMemory?: boolean;
+  allowAiMemoryUse?: boolean;
+  allowAnonymousExperienceShare?: boolean;
+  allowJourneyArchiveRetention?: boolean;
+  allowFutureSelfNotifications?: boolean;
+  allowDataExport?: boolean;
+}
+
+export interface MemoryItem {
+  id: string;
+  userId: string;
+  title: string;
+  content: string;
+  scope: string;
+  status: 'active' | 'disabled' | 'expired' | 'archived' | 'deleted';
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LifeJourney {

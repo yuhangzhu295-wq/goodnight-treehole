@@ -1,13 +1,59 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { StoreService } from './store.service.js';
 import { AdminController, HealthController, PublicController } from './controllers.js';
 import { RemoteAiProviderService } from './remote-ai-provider.service.js';
 import { PrismaRuntimeService } from './prisma-runtime.service.js';
 import { MonthlyReportService } from './monthly-report.service.js';
 import { FollowUpWorkerService } from './follow-up-worker.service.js';
+import { Batch1PersistenceService } from './batch1-persistence.service.js';
+import { PeerPersistenceService } from './peer-persistence.service.js';
+import { SelfPersistenceService } from './self-persistence.service.js';
+import { FeedbackPersistenceService } from './feedback-persistence.service.js';
+import { FavoritePersistenceService } from './favorite-persistence.service.js';
+import { ReplyPersistenceService } from './reply-persistence.service.js';
+import { PostPersistenceService } from './post-persistence.service.js';
+import { AiRoutingPersistenceService } from './ai-routing-persistence.service.js';
+import { MoodPersistenceService } from './mood-persistence.service.js';
+import { DiaryPersistenceService } from './diary-persistence.service.js';
+import { LetterPersistenceService } from './letter-persistence.service.js';
+import { MediaAssetPersistenceService } from './media-asset-persistence.service.js';
+import { AdminNotesPersistenceService } from './admin-notes-persistence.service.js';
+import { AnonymousSessionService } from './anonymous-session.service.js';
+import { IdentityMiddleware } from './identity.middleware.js';
+import { SocialMultimediaService } from './social-multimedia.service.js';
+import { AiPersonaService } from './ai-persona.service.js';
 
 @Module({
   controllers: [HealthController, PublicController, AdminController],
-  providers: [RemoteAiProviderService, PrismaRuntimeService, StoreService, MonthlyReportService, FollowUpWorkerService],
+  providers: [
+    RemoteAiProviderService,
+    PrismaRuntimeService,
+    Batch1PersistenceService,
+    PeerPersistenceService,
+    SelfPersistenceService,
+    FeedbackPersistenceService,
+    FavoritePersistenceService,
+    ReplyPersistenceService,
+    PostPersistenceService,
+    AiRoutingPersistenceService,
+    MoodPersistenceService,
+    DiaryPersistenceService,
+    LetterPersistenceService,
+    MediaAssetPersistenceService,
+    AdminNotesPersistenceService,
+    StoreService,
+    MonthlyReportService,
+    FollowUpWorkerService,
+    AnonymousSessionService,
+    IdentityMiddleware,
+    SocialMultimediaService,
+    AiPersonaService,
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Applied to every route so no C-end handler can be reached without its credential having been
+    // resolved. Admin routes ignore the result: they authenticate with their own bearer token.
+    consumer.apply(IdentityMiddleware).forRoutes('*');
+  }
+}

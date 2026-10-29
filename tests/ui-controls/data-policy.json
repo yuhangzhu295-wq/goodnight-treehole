@@ -1,0 +1,53 @@
+[
+ {
+  "selector": "front-data-policy-back",
+  "expect": {
+   "urlChanged": true
+  }
+ },
+ {
+  "selector": "policy-toggle-keep",
+  "expect": {
+   "gone": "[data-testid=\"policy-body-keep\"]"
+  }
+ },
+ {
+  "selector": "policy-toggle-ai",
+  "settleMs": 400,
+  "expect": {
+   "present": "[data-testid=\"policy-toggle-ai\"][aria-expanded=\"false\"]",
+   "gone": "[data-testid=\"policy-body-ai\"]"
+  }
+ },
+ {
+  "selector": "policy-toggle-manage",
+  "settleMs": 400,
+  "expect": {
+   "present": "[data-testid=\"policy-toggle-manage\"][aria-expanded=\"false\"]",
+   "gone": "[data-testid=\"policy-body-manage\"]"
+  }
+ },
+ {
+  "selector": "btn-data-policy-open-privacy",
+  "prefill": [
+   {
+    "click": "policy-toggle-manage"
+   },
+   {
+    "click": "policy-toggle-manage",
+    "waitFor": "btn-data-policy-open-privacy"
+   }
+  ],
+  "settleMs": 2500,
+  "expect": {
+   "url": "/pages/settings/privacy"
+  }
+ },
+ {
+  "selector": "policy-toggle-share",
+  "settleMs": 400,
+  "expect": {
+   "present": "[data-testid=\"policy-toggle-share\"][aria-expanded=\"false\"]"
+  }
+ }
+]

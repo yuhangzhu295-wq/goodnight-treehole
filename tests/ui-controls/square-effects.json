@@ -1,0 +1,18 @@
+[
+ {
+  "selector": "filter-jiaolv",
+  "expect": {
+   "apiRead": "/api/v1/posts?mood=anxious",
+   "pick": "b => b.items.length",
+   "assert": "positive"
+  },
+  "waitFor": "[data-testid=\"post-card-first\"]"
+ },
+ {
+  "selector": "btn-square-reply-first",
+  "expect": {
+   "url": "/pages/post/detail"
+  },
+  "waitFor": "[data-testid=\"post-card-first\"]"
+ }
+]

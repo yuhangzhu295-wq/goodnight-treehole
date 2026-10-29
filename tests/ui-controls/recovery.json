@@ -1,0 +1,11 @@
+[
+ {
+  "selector": "recovery-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "recovery-save",
+  "settleMs": 800,
+  "expect": { "present": "[data-testid=\"recovery-save\"]" }
+ }
+]
