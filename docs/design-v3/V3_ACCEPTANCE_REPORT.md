@@ -2,7 +2,7 @@
 
 > **报告版本**：V3.1.0-GATE-VERIFIED  
 > **分支**：`feat/v3-social-ai-persona`  
-> **当前 HEAD**：`d16eba7`  
+> **当前 HEAD**：`26b9931`  
 > **执行标准**：《晚安树洞 V3 — 多代理复审、AI 人格记忆与现代社交功能全自动开发总任务书》  
 > **核心原则**：严格执行独立审查门禁、不自动合并 `main`、不发布生产、真实数据库持久化、严格双向同意与低唤醒心理庇护所定位。
 
@@ -128,7 +128,7 @@
 ================================================================================
 测试项                             执行命令                                                结果
 --------------------------------------------------------------------------------
-V3 业务集成测试                    pnpm vitest run tests/business/v3-social-*.spec.ts      17/17 passed (100%)
+V3 业务集成测试                    pnpm vitest run tests/business/v3-social-*.spec.ts      18/18 passed (100%)
 通用单元测试                      pnpm test:unit                                          45/45 passed (100%)
 全仓 TypeScript 静态类型检查       pnpm typecheck                                          0 errors
 ESLint 代码规范                   pnpm lint                                               0 errors (85 warnings)
