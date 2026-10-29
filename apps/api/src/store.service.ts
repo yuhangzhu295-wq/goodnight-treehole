@@ -6708,11 +6708,12 @@ export class StoreService implements OnModuleInit {
         throw new NotFoundException('匿名会话不存在');
       }
 
+      const all = await this.peerPersistence.getMessagesForConversation(conv.id);
+
       // Deduplication check
       if (clientMsgId) {
-        const existingId = this.socialMultimedia.isDuplicateMessage(conv.id, clientMsgId);
+        const existingId = this.socialMultimedia.isDuplicateMessage(conv.id, userId, clientMsgId);
         if (existingId) {
-          const all = await this.peerPersistence.getMessagesForConversation(conv.id);
           const found = all.find((m) => m.id === existingId);
           if (found) return { item: this.peerMessageForUser(found, userId, all) };
         }
@@ -6720,7 +6721,6 @@ export class StoreService implements OnModuleInit {
 
       // Quote verification: derive quote text from target message on server
       if (replyToId) {
-        const all = await this.peerPersistence.getMessagesForConversation(conv.id);
         const target = all.find((m) => m.id === replyToId);
         if (target) {
           replyToContent = target.recalledAt ? '一条消息已撤回' : target.content.slice(0, 100);
@@ -6729,7 +6729,11 @@ export class StoreService implements OnModuleInit {
         }
       }
 
-      const seq = this.socialMultimedia.getNextSeq(conv.id);
+      const currentMaxSeq = all.reduce(
+        (max, m) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+        0,
+      );
+      const seq = this.socialMultimedia.getNextSeq(conv.id, currentMaxSeq);
       const extraMeta = {
         msgType,
         replyToId,
@@ -6744,30 +6748,29 @@ export class StoreService implements OnModuleInit {
 
       const msg = await this.peerPersistence.sendMessage(matchId, userId, text, {}, extraMeta);
       if (clientMsgId) {
-        this.socialMultimedia.recordClientMessage(conv.id, clientMsgId, msg.id);
+        this.socialMultimedia.recordClientMessage(conv.id, userId, clientMsgId, msg.id);
       }
-      return { item: this.peerMessageForUser(msg, userId) };
+      return { item: this.peerMessageForUser(msg, userId, all) };
     }
 
     const { conversation } = await this.requirePeerConversation(matchId, requestedUserId);
     if (conversation.status !== 'active' || Date.parse(conversation.expiresAt) <= Date.now())
       throw new BadRequestException('这段 72 小时会话已经结束');
 
+    const convMsgs = this.peerMessages.filter((m) => m.conversationId === conversation.id);
+
     // Deduplication check
     if (clientMsgId) {
-      const existingId = this.socialMultimedia.isDuplicateMessage(conversation.id, clientMsgId);
+      const existingId = this.socialMultimedia.isDuplicateMessage(conversation.id, userId, clientMsgId);
       if (existingId) {
-        const found = this.peerMessages.find((m) => m.id === existingId);
-        if (found) {
-          const convMsgs = this.peerMessages.filter((m) => m.conversationId === conversation.id);
-          return { item: this.peerMessageForUser(found, userId, convMsgs) };
-        }
+        const found = convMsgs.find((m) => m.id === existingId);
+        if (found) return { item: this.peerMessageForUser(found, userId, convMsgs) };
       }
     }
 
     // Quote verification: derive quote text from target message on server
     if (replyToId) {
-      const target = this.peerMessages.find((m) => m.id === replyToId && m.conversationId === conversation.id);
+      const target = convMsgs.find((m) => m.id === replyToId);
       if (target) {
         replyToContent = target.recalledAt ? '一条消息已撤回' : target.content.slice(0, 100);
       } else {
@@ -6775,7 +6778,11 @@ export class StoreService implements OnModuleInit {
       }
     }
 
-    const seq = this.socialMultimedia.getNextSeq(conversation.id);
+    const currentMaxSeq = convMsgs.reduce(
+      (max, m) => Math.max(max, typeof m.seq === 'number' ? m.seq : 0),
+      0,
+    );
+    const seq = this.socialMultimedia.getNextSeq(conversation.id, currentMaxSeq);
     const item: PeerMessageRecord = {
       id: id('peer_message'),
       conversationId: conversation.id,
@@ -6796,10 +6803,10 @@ export class StoreService implements OnModuleInit {
     };
     this.peerMessages.unshift(item);
     if (clientMsgId) {
-      this.socialMultimedia.recordClientMessage(conversation.id, clientMsgId, item.id);
+      this.socialMultimedia.recordClientMessage(conversation.id, userId, clientMsgId, item.id);
     }
     await this.persistAndFlush();
-    return { item: this.peerMessageForUser(item, userId) };
+    return { item: this.peerMessageForUser(item, userId, convMsgs) };
   }
 
   async recallPeerMessage(matchId: string, messageId: string, requestedUserId?: string) {

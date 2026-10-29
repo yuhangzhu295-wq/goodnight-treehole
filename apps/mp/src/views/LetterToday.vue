@@ -76,7 +76,7 @@ const LEGACY_STYLE_PREFIX = /^(?:暖心陪伴|理性分析|轻松一点|清醒�
 const letterBody = computed(() => String(letter.value?.content ?? '').replace(LEGACY_STYLE_PREFIX, ''));
 
 const signatureText = computed(() => {
-  return '晚安。';
+  return activePersona.value ? `—— ${activePersona.value.name} · 晚安。` : '晚安。';
 });
 /**
  * The suggestions the API returned, and only those.
@@ -208,12 +208,39 @@ async function makeShareImage() {
   busyAction.value = '';
 }
 
+const activePersona = ref<any>(null);
+const personas = ref<any[]>([]);
+
+async function loadPersona() {
+  try {
+    const res = await api.get<{ persona: any; available: any[] }>('/api/v1/me/ai-persona');
+    activePersona.value = res.persona;
+    personas.value = res.available ?? [];
+  } catch {
+    // optional persona
+  }
+}
+
+async function selectPersona(personaId: string) {
+  try {
+    const res = await api.post<{ persona: any }>('/api/v1/me/ai-persona', { personaId });
+    activePersona.value = res.persona;
+    statusText.value = `已切换陪伴角色为「${res.persona.name}」`;
+    await regenerate();
+  } catch (err: any) {
+    statusText.value = err?.message ?? '切换角色失败';
+  }
+}
+
 function chooseAdvice(key: string) {
   activeAdvice.value = key;
   statusText.value = activeAdviceText.value;
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadPersona();
+});
 </script>
 
 <template>
@@ -281,14 +308,30 @@ onMounted(load);
     <div v-if="menuOpen" class="sheet-mask" data-state="letter-menu" @click.self="menuOpen = false">
       <div class="sheet menu-sheet">
         <h2>回信设置</h2>
-        <button
-          v-for="item in styles"
-          :key="item.key"
-          :data-testid="item.testId"
-          type="button"
-          :disabled="Boolean(busyAction)"
-          @click="menuOpen = false; regenerate(item.key)"
-        >换成{{ item.label }}的语气</button>
+        <div v-if="personas.length" class="menu-section">
+          <small class="menu-subhead">陪伴角色</small>
+          <button
+            v-for="p in personas"
+            :key="p.id"
+            :class="['menu-persona-btn', { active: activePersona?.id === p.id }]"
+            type="button"
+            :disabled="Boolean(busyAction)"
+            @click="menuOpen = false; selectPersona(p.id)"
+          >
+            {{ p.name }}
+          </button>
+        </div>
+        <div class="menu-section">
+          <small class="menu-subhead">语气风格</small>
+          <button
+            v-for="item in styles"
+            :key="item.key"
+            :data-testid="item.testId"
+            type="button"
+            :disabled="Boolean(busyAction)"
+            @click="menuOpen = false; regenerate(item.key)"
+          >换成{{ item.label }}的语气</button>
+        </div>
         <button data-testid="btn-letter-regenerate" type="button" :disabled="Boolean(busyAction)" @click="menuOpen = false; regenerate()">重新生成</button>
         <button data-testid="btn-letter-poster" type="button" :disabled="Boolean(busyAction)" @click="menuOpen = false; makeShareImage()">分享图片</button>
         <button data-testid="letter-menu-cancel" type="button" @click="menuOpen = false">取消</button>
@@ -671,5 +714,36 @@ onMounted(load);
 
 .letter-page .letter-actions {
   scroll-margin-bottom: calc(104px + env(safe-area-inset-bottom));
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.menu-subhead {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gn-muted, #757d87);
+}
+
+.menu-persona-btn {
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--gn-line, #e5e7eb);
+  background: #ffffff;
+  color: var(--gn-text, #242a32);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.menu-persona-btn.active {
+  background: #eaf4ee;
+  border-color: #275f56;
+  color: #275f56;
+  font-weight: 600;
 }
 </style>

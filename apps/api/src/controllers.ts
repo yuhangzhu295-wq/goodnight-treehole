@@ -1302,42 +1302,37 @@ export class PublicController {
 
   @Post('peer-conversations/:matchId/call/offer')
   async createPeerCallOffer(
-    @Param('matchId') matchId: string,
-    @Body() body: { callType?: 'AUDIO' | 'VIDEO' },
-    @Headers('x-goodnight-user-id') userId?: string,
+    @Param('matchId') _matchId: string,
+    @Body() _body: any,
+    @Headers('x-goodnight-user-id') _userId?: string,
   ) {
-    const runtimeId = requireRuntimeUserId(userId);
-    const callType = body?.callType === 'VIDEO' ? 'VIDEO' : 'AUDIO';
-    return await this.store.createPeerCallOffer(matchId, callType, runtimeId);
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
   }
 
   @Post('peer-conversations/:matchId/call/respond')
   async respondPeerCall(
-    @Param('matchId') matchId: string,
-    @Body() body: { offerId: string; action: 'ACCEPT' | 'DECLINED' },
-    @Headers('x-goodnight-user-id') userId?: string,
+    @Param('matchId') _matchId: string,
+    @Body() _body: any,
+    @Headers('x-goodnight-user-id') _userId?: string,
   ) {
-    const runtimeId = requireRuntimeUserId(userId);
-    return await this.store.respondPeerCall(matchId, body.offerId, body.action, runtimeId);
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
   }
 
   @Post('peer-conversations/:matchId/call/end')
   async endPeerCall(
-    @Param('matchId') matchId: string,
-    @Body() body: { callId: string; reason?: string },
-    @Headers('x-goodnight-user-id') userId?: string,
+    @Param('matchId') _matchId: string,
+    @Body() _body: any,
+    @Headers('x-goodnight-user-id') _userId?: string,
   ) {
-    const runtimeId = requireRuntimeUserId(userId);
-    return await this.store.endPeerCall(matchId, body.callId, body.reason, runtimeId);
+    throw new HttpException('实时音视频通话功能尚未启用', HttpStatus.NOT_IMPLEMENTED);
   }
 
   @Get('peer-conversations/:matchId/call/status')
   async getPeerCallStatus(
-    @Param('matchId') matchId: string,
-    @Headers('x-goodnight-user-id') userId?: string,
+    @Param('matchId') _matchId: string,
+    @Headers('x-goodnight-user-id') _userId?: string,
   ) {
-    const runtimeId = requireRuntimeUserId(userId);
-    return this.store.getPeerCallStatus(matchId, runtimeId);
+    return { call: null };
   }
 
   @Get('stickers')
@@ -1354,11 +1349,14 @@ export class PublicController {
 
   @Post('stickers/favorites')
   async addFavoriteSticker(
-    @Body() body: { stickerId: string },
+    @Body() body: { stickerId?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
     const runtimeId = requireRuntimeUserId(userId);
-    return this.store.socialMultimedia.addFavoriteSticker(runtimeId, body.stickerId);
+    if (!body || typeof body.stickerId !== 'string' || !body.stickerId.trim()) {
+      throw new BadRequestException('缺少有效的表情包标识');
+    }
+    return this.store.socialMultimedia.addFavoriteSticker(runtimeId, body.stickerId.trim());
   }
 
   @Delete('stickers/favorites/:id')

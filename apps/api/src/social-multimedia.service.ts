@@ -86,20 +86,51 @@ export class SocialMultimediaService {
   /** Deduplication cache: `${conversationId}:${clientMsgId}` -> messageId */
   private deduplicationMap = new Map<string, string>();
 
-  getNextSeq(conversationId: string): number {
-    const current = this.conversationSeqMap.get(conversationId) ?? 0;
-    const next = current + 1;
+  getNextSeq(conversationId: string, currentMaxSeq = 0): number {
+    const current = this.conversationSeqMap.get(conversationId);
+    const base = current !== undefined ? current : currentMaxSeq;
+    const next = Math.max(base, currentMaxSeq) + 1;
     this.conversationSeqMap.set(conversationId, next);
     return next;
   }
 
-  isDuplicateMessage(conversationId: string, clientMsgId?: string): string | null {
-    if (!clientMsgId) return null;
-    return this.deduplicationMap.get(`${conversationId}:${clientMsgId}`) ?? null;
+  isDuplicateMessage(
+    conversationId: string,
+    senderOrClientMsgId: string,
+    clientMsgId?: string,
+  ): string | null {
+    if (clientMsgId) {
+      return this.deduplicationMap.get(`${conversationId}:${senderOrClientMsgId}:${clientMsgId}`) ?? null;
+    }
+    const exact = this.deduplicationMap.get(`${conversationId}:${senderOrClientMsgId}`);
+    if (exact) return exact;
+    for (const [k, v] of this.deduplicationMap.entries()) {
+      if (k.startsWith(`${conversationId}:`) && k.endsWith(`:${senderOrClientMsgId}`)) {
+        return v;
+      }
+    }
+    return null;
   }
 
-  recordClientMessage(conversationId: string, clientMsgId: string, messageId: string): void {
-    this.deduplicationMap.set(`${conversationId}:${clientMsgId}`, messageId);
+  recordClientMessage(
+    conversationId: string,
+    senderOrClientMsgId: string,
+    clientMsgIdOrMsgId: string,
+    messageId?: string,
+  ): void {
+    const key = messageId
+      ? `${conversationId}:${senderOrClientMsgId}:${clientMsgIdOrMsgId}`
+      : `${conversationId}:${senderOrClientMsgId}`;
+    const targetId = messageId ? messageId : clientMsgIdOrMsgId;
+    this.deduplicationMap.set(key, targetId);
+    if (this.deduplicationMap.size > 10000) {
+      const keys = Array.from(this.deduplicationMap.keys()).slice(0, 2000);
+      for (const k of keys) this.deduplicationMap.delete(k);
+    }
+  }
+
+  getStickerById(stickerId: string): StickerItem | null {
+    return this.stickers.find((s) => s.id === stickerId) ?? null;
   }
 
   listStickers(userId: string): StickerItem[] {
