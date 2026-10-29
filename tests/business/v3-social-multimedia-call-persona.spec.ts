@@ -545,6 +545,49 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(r1).not.toBe(r2);
       expect(r2).not.toBe(r3);
       expect(r3).not.toBe(r4);
+
+      // In rational style, personas also produce tailored outputs
+      const rRational1 = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '感到迷茫',
+        mood: '焦虑',
+        style: 'rational',
+        routeLabel: '理性分析',
+        personaId: 'rational_clarifier',
+      }).result;
+      const rRational2 = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '感到迷茫',
+        mood: '焦虑',
+        style: 'rational',
+        routeLabel: '理性分析',
+        personaId: 'night_companion',
+      }).result;
+      expect(rRational1).toContain('客观事实与当下情绪分开');
+      expect(rRational2).toContain('夜深时分先把事情和顾虑放下');
+      expect(rRational1).not.toBe(rRational2);
+
+      // warm_letter mapping produces text without mechanical prefix label
+      const rWarmLetter = (store as any).composeDynamicText({
+        taskType: 'warm_letter',
+        content: '测试信件内容',
+        mood: '平静',
+        style: 'warm',
+        routeLabel: '暖心陪伴',
+      }).result;
+      expect(rWarmLetter).not.toContain('暖心陪伴：');
+      expect(rWarmLetter).toContain('看到你写下');
+
+      // Unknown persona falls back cleanly to default text
+      const rDefault = (store as any).composeDynamicText({
+        taskType: 'today_letter',
+        content: '日常记录',
+        mood: '平静',
+        style: 'warm',
+        routeLabel: '暖心陪伴',
+        personaId: 'unknown_persona',
+      }).result;
+      expect(rDefault).toContain('看到你写下');
     });
 
     it('sanitizes user input containing unclosed or nested injection brackets', () => {

@@ -236,13 +236,19 @@ async function loadPersona() {
 
 async function selectPersona(personaId: string) {
   if (busyAction.value) return;
+  const oldPersonaId = activePersona.value?.id;
   try {
     statusText.value = '正在切换陪伴角色…';
+    const res = await api.post<{ persona: any }>('/api/v1/me/ai-persona', { personaId });
     const success = await regenerate();
     if (success) {
-      const res = await api.post<{ persona: any }>('/api/v1/me/ai-persona', { personaId });
       activePersona.value = res.persona;
       statusText.value = `「${res.persona.name}」已为你写好今日回信`;
+    } else {
+      if (oldPersonaId) {
+        await api.post('/api/v1/me/ai-persona', { personaId: oldPersonaId }).catch(() => {});
+      }
+      statusText.value = '回信生成未完成，已保持原有角色';
     }
   } catch (err: any) {
     statusText.value = err?.message ?? '切换角色失败';
