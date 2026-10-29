@@ -328,6 +328,7 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
           msgType: 'TEXT',
           content: '我在听，你说吧',
           replyToId: m1Res.item.id,
+          clientMsgId: 'cmsg_m2_quote',
         },
         receiverId,
       );
@@ -338,26 +339,52 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       expect(recallM1Res.item.content).toBe('一条消息已撤回');
       expect(recallM1Res.item.recalledAt).toBeDefined();
 
-      // 5. Sync verification: syncPeerConversation MUST dynamically mask M2's replyToContent
+      // 5. Sending-time quote masking: Bob tries to quote the now-recalled M1 in a new message M3
+      // The server MUST derive quote text from target and mask it to '一条消息已撤回' at send time
+      const m3QuotingRecalled = await store.sendPeerMessage(
+        matchId,
+        {
+          msgType: 'TEXT',
+          content: '你刚刚撤回了什么呀？',
+          replyToId: m1Res.item.id,
+        },
+        receiverId,
+      );
+      expect(m3QuotingRecalled.item.replyToContent).toBe('一条消息已撤回');
+
+      // 6. Deduplication replay path: resending M2 with the same clientMsgId returns cached message
+      // with its quote dynamically masked to '一条消息已撤回'
+      const m2Deduplicated = await store.sendPeerMessage(
+        matchId,
+        {
+          msgType: 'TEXT',
+          content: '我在听，你说吧',
+          clientMsgId: 'cmsg_m2_quote',
+        },
+        receiverId,
+      );
+      expect(m2Deduplicated.item.id).toBe(m2QuotingM1.item.id);
+      expect(m2Deduplicated.item.replyToContent).toBe('一条消息已撤回');
+
+      // 7. Sync verification: syncPeerConversation MUST dynamically mask M2's replyToContent
       // Even though M2 was stored with original text, sync passes allMessages and masks it to '一条消息已撤回'
       const syncAfterRecall = await store.syncPeerConversation(matchId, 0, receiverId);
       const m2InSync = syncAfterRecall.messages.find((m) => m.id === m2QuotingM1.item.id);
       expect(m2InSync?.replyToContent).toBe('一条消息已撤回');
 
-      // Incremental sync with afterSeq also masks it
+      // Incremental sync with afterSeq also returns and unconditionally masks it
       const lastSeq = syncAfterRecall.lastSeq;
-      const syncIncremental = await store.syncPeerConversation(matchId, Math.max(0, lastSeq - 2), receiverId);
+      const syncIncremental = await store.syncPeerConversation(matchId, Math.max(0, lastSeq - 3), receiverId);
       const m2InIncremental = syncIncremental.messages.find((m) => m.id === m2QuotingM1.item.id);
-      if (m2InIncremental) {
-        expect(m2InIncremental.replyToContent).toBe('一条消息已撤回');
-      }
+      expect(m2InIncremental).toBeDefined();
+      expect(m2InIncremental!.replyToContent).toBe('一条消息已撤回');
 
-      // 6. Other user cannot recall someone else's message
+      // 8. Other user cannot recall someone else's message
       await expect(
         store.recallPeerMessage(matchId, stickerRes.item.id, receiverId),
       ).rejects.toThrow('只有发送方可以撤回消息');
 
-      // 7. Non-sticker message has mediaUrl stripped
+      // 9. Non-sticker message has mediaUrl stripped
       const textWithMedia = await store.sendPeerMessage(
         matchId,
         {
