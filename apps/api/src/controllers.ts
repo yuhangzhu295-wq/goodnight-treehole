@@ -1217,11 +1217,24 @@ export class PublicController {
   @Post('peer-conversations/:matchId/messages')
   async peerMessage(
     @Param('matchId') matchId: string,
-    @Body() body: { content?: string },
+    @Body() body: {
+      content?: string;
+      msgType?: string;
+      replyToId?: string;
+      mediaUrl?: string;
+      clientMsgId?: string;
+    },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
     const runtimeId = requireRuntimeUserId(userId);
-    return await this.store.sendPeerMessage(matchId, body.content, runtimeId);
+    const payload = {
+      content: typeof body?.content === 'string' ? body.content : '',
+      msgType: typeof body?.msgType === 'string' ? body.msgType : 'TEXT',
+      replyToId: typeof body?.replyToId === 'string' ? body.replyToId : undefined,
+      mediaUrl: typeof body?.mediaUrl === 'string' ? body.mediaUrl : undefined,
+      clientMsgId: typeof body?.clientMsgId === 'string' ? body.clientMsgId : undefined,
+    };
+    return await this.store.sendPeerMessage(matchId, payload, runtimeId);
   }
 
   @Post('peer-conversations/:matchId/assist')
@@ -1365,10 +1378,13 @@ export class PublicController {
 
   @Post('me/ai-persona')
   async setAiPersona(
-    @Body() body: { personaId: string },
+    @Body() body: { personaId?: string },
     @Headers('x-goodnight-user-id') userId?: string,
   ) {
     const runtimeId = requireRuntimeUserId(userId);
+    if (!body || typeof body.personaId !== 'string') {
+      throw new BadRequestException('缺少有效的人格标识');
+    }
     return this.store.setAiPersona(body.personaId, runtimeId);
   }
 

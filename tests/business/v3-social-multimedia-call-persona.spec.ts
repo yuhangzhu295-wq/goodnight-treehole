@@ -236,6 +236,17 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
           status: 'active',
           expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
         }),
+        requireConversation: async (mId: string, uId: string) => ({
+          conversation: {
+            id: 'conv_rich_test',
+            matchId: mId,
+            starterUserId: starterId,
+            receiverUserId: receiverId,
+            status: 'active',
+            expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+          },
+          userId: uId,
+        }),
         sendMessage: async (mId: string, sender: string, content: string, hooks: any, extraMeta: any) => {
           const newMsg = {
             id: `msg_${messages.length + 1}`,
@@ -326,6 +337,37 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
       await expect(
         store.recallPeerMessage(matchId, stickerRes.item.id, receiverId),
       ).rejects.toThrow('只有发送方可以撤回消息');
+
+      // 6. Quoting a message that has been recalled masks quote content to '一条消息已撤回'
+      const quoteRecalledRes = await store.sendPeerMessage(
+        matchId,
+        {
+          msgType: 'TEXT',
+          content: '你刚才说了什么呀？',
+          replyToId: replyRes.item.id,
+        },
+        starterId,
+      );
+      expect(quoteRecalledRes.item.replyToContent).toBe('一条消息已撤回');
+
+      // 7. Non-sticker message has mediaUrl stripped
+      const textWithMedia = await store.sendPeerMessage(
+        matchId,
+        {
+          msgType: 'TEXT',
+          content: '纯文字消息',
+          mediaUrl: 'https://malicious-tracking.com/pixel.png',
+        },
+        starterId,
+      );
+      expect(textWithMedia.item.mediaUrl).toBeUndefined();
+
+      // 8. syncPeerConversation honors afterSeq and syncs recalled tombstones
+      const syncResult = await store.syncPeerConversation(matchId, 2, starterId);
+      expect(syncResult.messages.length).toBeGreaterThan(0);
+      expect(syncResult.call).toBeNull();
+      // Recalled message is included in sync even if its seq <= afterSeq
+      expect(syncResult.messages.some((m) => m.id === replyRes.item.id)).toBe(true);
     });
   });
 });

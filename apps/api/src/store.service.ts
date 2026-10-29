@@ -5908,8 +5908,19 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  peerMessageForUser(message: PeerMessageRecord, viewerUserId: string) {
+  peerMessageForUser(
+    message: PeerMessageRecord,
+    viewerUserId: string,
+    allMessages?: PeerMessageRecord[],
+  ) {
     const isRecalled = Boolean(message.recalledAt);
+    let safeReplyToContent = message.replyToContent;
+    if (message.replyToId && allMessages) {
+      const target = allMessages.find((m) => m.id === message.replyToId);
+      if (target?.recalledAt) {
+        safeReplyToContent = '一条消息已撤回';
+      }
+    }
     return {
       id: message.id,
       author: message.senderUserId === viewerUserId ? 'self' : 'peer',
@@ -5919,14 +5930,14 @@ export class StoreService implements OnModuleInit {
       createdAt: message.createdAt,
       msgType: message.msgType || 'TEXT',
       replyToId: message.replyToId,
-      replyToContent: message.replyToContent ? this.redactPeerPublicText(message.replyToContent) : undefined,
+      replyToContent: safeReplyToContent ? this.redactPeerPublicText(safeReplyToContent) : undefined,
       mediaUrl: isRecalled ? undefined : message.mediaUrl,
       mediaDuration: message.mediaDuration,
       mediaSize: message.mediaSize,
       thumbnailUrl: isRecalled ? undefined : message.thumbnailUrl,
       recalledAt: message.recalledAt,
       seq: message.seq,
-      clientMsgId: message.clientMsgId,
+      clientMsgId: message.senderUserId === viewerUserId ? message.clientMsgId : undefined,
     };
   }
 
@@ -5971,7 +5982,7 @@ export class StoreService implements OnModuleInit {
       closedAt: conversation.closedAt,
       closedReason: conversation.closedReason,
       journeyId,
-      messages: messages.map((message) => this.peerMessageForUser(message, viewerUserId)),
+      messages: messages.map((message) => this.peerMessageForUser(message, viewerUserId, messages)),
     };
   }
 
@@ -6667,7 +6678,12 @@ export class StoreService implements OnModuleInit {
       msgType = 'TEXT';
     }
 
-    if (msgType === 'STICKER' && mediaUrl) {
+    if (msgType !== 'STICKER') {
+      mediaUrl = undefined;
+      thumbnailUrl = undefined;
+      mediaDuration = undefined;
+      mediaSize = undefined;
+    } else if (mediaUrl) {
       if (!mediaUrl.startsWith('data:image/svg+xml;') && !mediaUrl.startsWith('/assets/')) {
         throw new BadRequestException('非法的表情包资源地址');
       }
