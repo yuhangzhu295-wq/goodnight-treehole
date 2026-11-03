@@ -447,7 +447,7 @@ onMounted(load);
         <div class="emergency-strip">
           <div class="emergency-info">
             <strong class="emergency-title">如遇心理危机，请寻求专业帮助</strong>
-            <span class="emergency-desc">全国心理援助热线：12356（24小时在线）</span>
+            <span class="emergency-desc">如遇紧急危机，请查阅适用地区的专业援助热线与紧急服务</span>
           </div>
           <button
             class="emergency-btn"
@@ -506,6 +506,14 @@ onMounted(load);
           <h2 id="support-dialog-title" class="dialog-title">紧急求助说明</h2>
           <p class="dialog-desc">如果涉及人身安全或严重紧急危机，请优先联系当地急救热线或专业医疗救助机构。树洞主要提供日常记录与工具支持，无法替代专业紧急救助。</p>
           <div class="dialog-actions">
+            <button
+              class="dialog-btn dialog-secondary"
+              data-testid="btn-support-go-safety"
+              type="button"
+              @click="support = false; router.push('/pages/safety/index')"
+            >
+              查看各地区安全支持
+            </button>
             <button
               class="dialog-btn dialog-primary"
               data-testid="btn-support-close"

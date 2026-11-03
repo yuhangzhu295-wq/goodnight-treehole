@@ -251,7 +251,7 @@ onMounted(load);
 
       <!-- Notice Bubble -->
       <p class="handoff-notice">
-        点击下一步只会打开系统分享或联系界面，不会替你发送。
+        点击下一步将保存求助卡并复制到剪贴板，绝不会替你自动发送，请由你亲自发给信任的人。
       </p>
 
       <!-- Actions -->

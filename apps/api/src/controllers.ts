@@ -38,6 +38,7 @@ import type {
   ActionBarrier,
 } from '@goodnight/shared-types';
 import { normalizeStoreEmotion, StoreService, type AIGenerateInput } from './store.service.js';
+import { getRegionalSafetyResources } from './safety-resources.js';
 import { MonthlyReportService } from './monthly-report.service.js';
 import { Batch1PersistenceService } from './batch1-persistence.service.js';
 import { PeerPersistenceService } from './peer-persistence.service.js';
@@ -729,6 +730,11 @@ export class PublicController {
   async reanalyzeSituation(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = requireRuntimeUserId(userId);
     return await this.store.reanalyzeSituation(id, runtimeId);
+  }
+
+  @Get('safety/resources')
+  async safetyResources(@Query('region') region?: string) {
+    return getRegionalSafetyResources(region);
   }
 
   @Post('journeys/:id/safety/acknowledge')
