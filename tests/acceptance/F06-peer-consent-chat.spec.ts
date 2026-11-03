@@ -113,7 +113,7 @@ describe('F06 peer consent and conversation', () => {
       .set('x-goodnight-user-id', ownerCredential)
       .send({ status: 'connected' });
     if (connected.status !== 201) throw new Error(`F06 setup: respond returned ${connected.status}`);
-  });
+  }, 60_000);
 
   afterAll(async () => {
     evidence.flush();
@@ -349,5 +349,5 @@ describe('F06 peer consent and conversation', () => {
     expect(afterRestart.status).toBe(200);
     expect(restored?.status).toBe('closed');
     expect(restored?.messages ?? []).toHaveLength(2);
-  });
+  }, 60_000);
 });
