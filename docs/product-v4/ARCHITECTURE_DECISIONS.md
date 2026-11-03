@@ -194,3 +194,59 @@
   - `pnpm audit:route-consent` 确保路由合法入册；全仓 `typecheck` 验证接口契约。
 - **INDEPENDENT_REVIEW**: 审查代理与反证代理一致核准。
 - **DECISION_STATUS**: APPROVED
+
+---
+
+### ADR-08: 地区化安全求助资源规范与离线自愈架构 (P0-A)
+
+- **DECISION_ID**: ADR-08
+- **REQUIREMENT**: 确保处于危机的用户在任何地区均能获取真实适用、经过核实的紧急援助资源；其他地区不得默认显示中国大陆号码；地区未知时提供明确地区选择与通用应急避险指引（锁屏 Emergency SOS、现实亲友）；断网弱网下具备本地离线自愈能力。
+- **CURRENT_IMPLEMENTATION**:
+  - 后端新建 `apps/api/src/safety-resources.ts`，暴露 `GET /api/v1/safety/resources?region=...` 权威接口。
+  - 支持多地区官方核实资源（CN 120/12356/110，HK 999/23892222，MO 999/28525222，TW 119/1925/1995，OTHER Befrienders/FindAHelpline），每项均标注 `verified: true`，严禁虚构。
+  - 前端 `SafetySupport.vue`：默认未知地区提示通用 SOS 避险，支持地区切换芯片，记住用户偏好；提供真实一键拨号（`tel:`）与真实剪贴板复制；内置离线 Fallback 字典，断网时依然完整可用。
+  - `FeedbackHelp.vue` 与 `RealityHandoff.vue` 文案全面纠正，消除绝对化“全国 12356”与“将打开系统分享”等不实描述。
+- **EVIDENCE**:
+  - `apps/api/src/safety-resources.ts`
+  - `apps/api/src/controllers.ts:735-738`
+  - `apps/mp/src/views/SafetySupport.vue:1-330`
+  - `tests/business/p0-safety-regional.spec.ts` (8/8 passed)
+  - `tests/acceptance/F13-safety-support.spec.ts` (100% passed)
+- **ALTERNATIVES**:
+  1. *仅硬编码中国大陆 120/12356*：海外/港澳台用户遇险时拨打无效甚至被误导，存在严重伦理与安全缺陷（被否决）。
+  2. *粗暴使用 IP 自动定位*：在未授权情况下探测用户地理位置侵犯隐私，且代理/VPN 会导致误判（被否决）。
+- **RISK_ASSESSMENT**: 错误的热线电话在自杀/自残危机下可能导致不可挽回的后果，必须确保 100% 可用、真实可信且有离线保障。
+- **APPROVED_SOLUTION**: 显式地区选择 + 权威后端 API + 内置离线字典 + 真实拨号/复制双重保障。
+- **DECISION_STATUS**: APPROVED
+
+---
+
+### ADR-09: AI 记忆四类建模、即时撤销熔断与五层严格装配 (P0-B)
+
+- **DECISION_ID**: ADR-09
+- **REQUIREMENT**: 支撑用户自主可控的长期情绪记忆体系；支持 4 类记忆（事件经历 Episodic、稳定偏好 Semantic、长期模式 Pattern、当前状态 State）；严格执行五层提示词顺序；当前输入与历史状态冲突时以当前输入为绝对最高准则；用户撤销授权时实现毫秒级物理熔断，绝无旧缓存泄露。
+- **CURRENT_IMPLEMENTATION**:
+  - 数据模型层：`packages/shared-types` 扩展 `MemoryType`、`MemorySensitivity`，`self-persistence.service.ts` 支持 `inferMemoryType`、`inferMemorySensitivity` 与 `revokeMemory`。
+  - 数据库操作：`POST /api/v1/me/memories/:id/revoke` 与 `PATCH ... { status: 'revoked' }` 原子上锁标记 `status = 'revoked'`，更新 `revokedAt`，并在 SQL 层 `m.status = 'active'` 自动排除。
+  - 提示词装配层（`AiPersonaService.assemblePrompt`）：严格锁定五层装配顺序：
+    1. `SafetyPolicy`（最高安全规则，医疗免责，危机 120/12356）
+    2. `TaskPolicy`（任务指令与模式偏好）
+    3. `Persona`（陪伴角色设定）
+    4. `AuthorizedMemory`（经授权的有限记忆，分类整理，注入当前输入覆盖旧状态规则）
+    5. `CurrentTurn`（清洗防注入后的当次输入）
+  - 前端 `MemoryCenter.vue`：支持记忆分类选择、状态角标展示与一键撤销授权按钮。
+- **EVIDENCE**:
+  - `packages/shared-types/src/index.ts:90-109`
+  - `apps/api/src/ai-persona.service.ts:1-240`
+  - `apps/api/src/self-persistence.service.ts:1080-1120, 2190-2245`
+  - `apps/api/src/store.service.ts:7920-8040, 9510-9530`
+  - `apps/mp/src/views/MemoryCenter.vue:1-490`
+  - `tests/business/p0-ai-memory-lifecycle.spec.ts` (6/6 passed)
+  - `tests/acceptance/F08-memory-lifecycle.spec.ts` (100% passed)
+- **ALTERNATIVES**:
+  1. *将所有记忆混成一段扁平文本塞入 Prompt*：无法区分长期稳定偏好与临时状态，导致数天前的“我好累不想说话”持续压制用户今天的积极倾诉（严重体验缺陷，被否决）。
+  2. *仅在前端删除而不做后端物理熔断*：异步任务与旧 Worker 队列仍会读取缓存中的旧记忆（严重隐私缺陷，被否决）。
+- **RISK_ASSESSMENT**: 记忆泄露或状态冲突会引发用户的被窥视感与机械违和感。
+- **APPROVED_SOLUTION**: 4 类记忆显式归类 + 状态冲突消解规则 + 数据库/装配器双重撤销熔断。
+- **DECISION_STATUS**: APPROVED
+
