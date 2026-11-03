@@ -412,16 +412,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.tonight-v2 {
+.tonight-v2,
+.sheet-mask,
+.bottom-sheet {
   --page-bg: #FAF8F5;
   --card-bg: #FFFFFF;
   --surface-tint: #F4EFEA;
   --line-soft: rgba(140, 120, 95, 0.14);
   --ink-primary: #242A32;
   --ink-secondary: #5E6772;
-  --ink-placeholder: #767F8A;
+  --ink-placeholder: #5E6772;
   --font-serif: "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+}
 
+.tonight-v2 {
   position: relative;
   box-sizing: border-box;
   width: 100%;

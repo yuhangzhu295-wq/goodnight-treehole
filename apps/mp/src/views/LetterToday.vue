@@ -408,12 +408,12 @@ onMounted(() => {
   max-width: 100%;
   min-height: 0;
   background: var(--page-bg);
-  padding: 0 20px calc(32px + env(safe-area-inset-bottom));
+  padding: 0 0 calc(32px + env(safe-area-inset-bottom));
 }
 
 .letter-topbar {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
   min-height: 52px;
   border-bottom: 1px solid var(--line-soft);
@@ -428,11 +428,12 @@ onMounted(() => {
 }
 
 .letter-topbar .back-icon {
-  place-items: center start;
-  justify-self: start;
-  width: 32px;
-  height: 32px;
-  padding-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
   /* The chevron's own side bearing was the last 20-30 device px of the inset. */
   text-align: left;
   border: 0;
@@ -440,19 +441,23 @@ onMounted(() => {
   color: #39454c;
   font-size: 24px;
   line-height: 1;
+  cursor: pointer;
 }
 
 .letter-topbar .more-icon {
-  justify-self: end;
-  width: 32px;
-  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 48px;
+  min-height: 48px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: #39454c;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
+  cursor: pointer;
 }
 
 /* Where the letter came from - one quiet line, not an illustrated block. */
@@ -744,8 +749,7 @@ onMounted(() => {
 
 .letter-page .advice-copy {
   margin-top: 8px;
-  /* The shared rule paints this in V1 olive (#607452); the page's secondary copy is grey. */
-  color: #6c747d;
+  color: var(--ink-secondary);
   font-size: 13px;
   line-height: 1.7;
 }

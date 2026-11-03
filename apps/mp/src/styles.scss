@@ -3970,6 +3970,11 @@ body {
   background: var(--gn-bg);
 }
 
+.phone-shell:has(.tonight-v2),
+.phone-shell:has(.letter-page) {
+  background: #FAF8F5;
+}
+
 /* Journey is a full-width flow scene: its own internal gutters provide the
    reference layout, so it must not inherit the handset's decorative gutter. */
 .phone-shell:has(.journey-flow-page) {
