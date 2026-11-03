@@ -10,17 +10,20 @@ type MemoryItem = {
   content: string;
   source: string;
   scope: string;
-  status: 'active' | 'disabled' | 'expired' | 'deleted';
+  memoryType?: 'episodic' | 'semantic' | 'pattern' | 'state';
+  status: 'active' | 'disabled' | 'expired' | 'deleted' | 'revoked';
   createdAt: string;
   expiresAt: string;
+  revokedAt?: string | null;
   deletedAt?: string | null;
   usages?: Array<{ jobId: string; taskType: string; at: string }>;
 };
 
-type EffectiveState = 'active' | 'disabled' | 'expired' | 'deleted';
+type EffectiveState = 'active' | 'disabled' | 'expired' | 'revoked' | 'deleted';
 
 function effectiveState(item: MemoryItem): EffectiveState {
   if (item.status === 'deleted' || Boolean(item.deletedAt)) return 'deleted';
+  if (item.status === 'revoked' || Boolean(item.revokedAt)) return 'revoked';
   if (item.status === 'expired' || Date.parse(item.expiresAt) <= Date.now()) return 'expired';
   if (item.status === 'disabled') return 'disabled';
   return 'active';
@@ -46,7 +49,7 @@ const showInactiveSheet = ref(false);
 const showRetentionSheet = ref(false);
 const defaultRetentionDays = ref(30);
 
-const createDraft = reactive({ title: '', content: '', days: 30, scope: 'all_ai' });
+const createDraft = reactive({ title: '', content: '', days: 30, scope: 'all_ai', memoryType: 'semantic' as 'episodic' | 'semantic' | 'pattern' | 'state' });
 const editDraft = reactive({ title: '', content: '', days: 30, scope: 'all_ai' });
 
 const displayItems = computed(() => {
@@ -58,9 +61,8 @@ const displayItems = computed(() => {
       return aRank - bRank;
     });
 });
-const activeItems = computed(() => items.value.filter((item) => effectiveState(item) === 'active'));
 const inactiveItems = computed(() =>
-  items.value.filter((item) => ['disabled', 'expired'].includes(effectiveState(item))),
+  items.value.filter((item) => ['disabled', 'expired', 'revoked'].includes(effectiveState(item))),
 );
 
 const sourceLabel: Record<string, string> = {
@@ -68,6 +70,13 @@ const sourceLabel: Record<string, string> = {
   journey_summary: '过往经历回顾',
   recovery_confirmed: '生活恢复记录',
   support_plan: '低谷预案备忘',
+};
+
+const typeLabel: Record<string, string> = {
+  episodic: '事件经历 (Episodic)',
+  semantic: '稳定偏好 (Semantic)',
+  pattern: '长期模式 (Pattern)',
+  state: '当前状态 (State)',
 };
 
 const scopeLabel: Record<string, string> = {
@@ -80,6 +89,7 @@ const scopeLabel: Record<string, string> = {
 function daysLeft(item: MemoryItem) {
   const state = effectiveState(item);
   if (state === 'deleted') return '已删除';
+  if (state === 'revoked') return '已撤销授权 · 绝不进入AI上下文';
   if (state === 'expired') return '已到期 · 可重新同意';
   if (state === 'disabled') return '已停用 · 可单独重新授权';
   const days = Math.max(1, Math.ceil((Date.parse(item.expiresAt) - Date.now()) / 86_400_000));
@@ -129,13 +139,33 @@ async function createMemory() {
   error.value = '';
   notice.value = '';
   try {
-    await api.post('/api/v1/memory', { ...createDraft, category: '用户主动保存' });
-    Object.assign(createDraft, { title: '', content: '', days: defaultRetentionDays.value, scope: 'all_ai' });
+    await api.post('/api/v1/memory', {
+      ...createDraft,
+      category: `${createDraft.memoryType}:用户主动保存`,
+      memoryType: createDraft.memoryType,
+    });
+    Object.assign(createDraft, { title: '', content: '', days: defaultRetentionDays.value, scope: 'all_ai', memoryType: 'semantic' });
     composerOpen.value = false;
     notice.value = '这条记忆已经按你的范围与期限保存。';
     await load();
   } catch (cause: any) {
     error.value = cause?.message ?? '记忆没有保存成功';
+  } finally {
+    busyId.value = '';
+  }
+}
+
+async function revoke(item: MemoryItem) {
+  busyId.value = item.id;
+  error.value = '';
+  notice.value = '';
+  try {
+    await api.post(`/api/v1/me/memories/${item.id}/revoke`, {});
+    if (selectedItem.value?.id === item.id) selectedItem.value = null;
+    notice.value = '这条记忆已撤销授权，后续 AI 请求绝不再次召回。';
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '撤销授权失败';
   } finally {
     busyId.value = '';
   }
@@ -375,6 +405,15 @@ onMounted(load);
               placeholder="输入希望系统记住的具体内容"
             ></textarea>
           </div>
+          <div class="field-wrap">
+            <label for="create-type">记忆分类</label>
+            <select id="create-type" v-model="createDraft.memoryType" class="field-select">
+              <option value="semantic">稳定偏好 (Semantic)</option>
+              <option value="episodic">事件经历 (Episodic)</option>
+              <option value="pattern">长期模式 (Pattern)</option>
+              <option value="state">当前状态 (State)</option>
+            </select>
+          </div>
           <div class="field-row">
             <div class="field-wrap flex-1">
               <label for="create-scope">使用范围</label>
@@ -421,6 +460,7 @@ onMounted(load);
               <strong class="detail-title">{{ selectedItem.title }}</strong>
               <p class="detail-content">{{ selectedItem.content }}</p>
               <div class="detail-meta">
+                <span>类型: {{ typeLabel[selectedItem.memoryType ?? 'semantic'] ?? '稳定偏好' }}</span>
                 <span>来源: {{ sourceLabel[selectedItem.source] ?? selectedItem.source }}</span>
                 <span>范围: {{ scopeLabel[selectedItem.scope] ?? selectedItem.scope }}</span>
                 <span>{{ daysLeft(selectedItem) }}</span>
@@ -446,7 +486,16 @@ onMounted(load);
                 暂停使用
               </button>
               <button
-                v-if="['disabled', 'expired'].includes(effectiveState(selectedItem))"
+                v-if="effectiveState(selectedItem) === 'active'"
+                class="btn-danger-outline"
+                data-testid="memory-revoke-btn"
+                type="button"
+                @click="revoke(selectedItem)"
+              >
+                撤销授权 (Revoke)
+              </button>
+              <button
+                v-if="['disabled', 'expired', 'revoked'].includes(effectiveState(selectedItem))"
                 class="btn-primary"
                 type="button"
                 @click="reactivate(selectedItem, 30)"

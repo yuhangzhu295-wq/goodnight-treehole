@@ -1445,6 +1445,12 @@ export class PublicController {
     return await this.store.updateMemory(id, body, runtimeId);
   }
 
+  @Post('me/memories/:id/revoke')
+  async revokeMemory(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
+    const runtimeId = requireRuntimeUserId(userId);
+    return await this.store.revokeMemory(id, runtimeId);
+  }
+
   @Delete('memory/:id')
   async deleteMemory(@Param('id') id: string, @Headers('x-goodnight-user-id') userId?: string) {
     const runtimeId = requireRuntimeUserId(userId);

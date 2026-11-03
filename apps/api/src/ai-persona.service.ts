@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { MemoryItem } from '@goodnight/shared-types';
+import type { MemoryItem, MemoryType } from '@goodnight/shared-types';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -28,6 +28,7 @@ export interface AssembleContextInput {
   memories?: MemoryItem[];
   allowAiMemoryUse?: boolean;
   mode?: string;
+  currentUserId?: string;
 }
 
 @Injectable()
@@ -150,25 +151,19 @@ export class AiPersonaService {
   /**
    * Context Assembler:
    * Assembles the multi-layered prompt with strict priority:
-   * 1. System Safety Policy (highest)
-   * 2. Persona Profile (stylistic personality)
-   * 3. Task Instruction (specific business task)
-   * 4. Consent Scoped Memories (strictly active & non-expired)
-   * 5. User Content & Session context (sanitized)
+   * 1. SafetyPolicy (highest, inviolable)
+   * 2. TaskPolicy (specific business task instruction)
+   * 3. Persona (stylistic personality)
+   * 4. AuthorizedMemory (strictly active, non-expired, non-revoked, categorized with State override rule)
+   * 5. CurrentTurn (user content sanitized against injection)
    */
   assemblePrompt(input: AssembleContextInput): string {
     const parts: string[] = [];
 
-    // 1. Highest: System Safety Policy
+    // 1. SafetyPolicy: System Safety Policy (highest priority)
     parts.push(this.systemSafetyPolicy);
 
-    // 2. Persona Profile
-    const persona = input.personaId
-      ? this.personas[input.personaId] ?? this.personas.night_companion
-      : this.personas.night_companion;
-    parts.push(persona.systemPromptAddition);
-
-    // 3. Task Instruction
+    // 2. TaskPolicy: Task Instruction & Mode
     if (input.taskInstruction) {
       parts.push(`【任务明确要求】\n${input.taskInstruction}`);
     }
@@ -177,30 +172,69 @@ export class AiPersonaService {
       parts.push(`【当前模式偏好】\n${input.mode}`);
     }
 
-    // 4. Consent-Scoped Memory (Strict Dynamic Guard)
-    // Filter active and non-expired memories only
+    // 3. Persona Profile
+    const persona = input.personaId
+      ? this.personas[input.personaId] ?? this.personas.night_companion
+      : this.personas.night_companion;
+    parts.push(persona.systemPromptAddition);
+
+    // 4. AuthorizedMemory: Consent-Scoped Memory (Strict Dynamic Guard & 4 Types)
+    // Filter active, non-expired, non-deleted, and non-revoked memories belonging to current user
     const validMemories = (input.memories ?? []).filter((m) => {
       if (!m || m.status !== 'active') return false;
+      if (m.deletedAt || (m as any).revokedAt || (m.status as string) === 'revoked') return false;
+      if (input.currentUserId && m.userId && m.userId !== input.currentUserId) return false;
       const exp = Date.parse(m.expiresAt);
       return !Number.isNaN(exp) && exp > Date.now();
     });
 
     if (input.allowAiMemoryUse && validMemories.length > 0) {
-      // Limit to max 6 most relevant items to prevent prompt injection and token bloat
-      const safeMemories = validMemories.slice(0, 6).map((m) => {
+      // Group by 4 memory types (Episodic, Semantic, Pattern, State)
+      const episodic: string[] = [];
+      const semantic: string[] = [];
+      const pattern: string[] = [];
+      const state: string[] = [];
+
+      // Up to 6 most relevant items
+      const selected = validMemories.slice(0, 6);
+      for (const m of selected) {
+        const type = ((m as any).memoryType ?? (m as any).type ?? 'semantic') as MemoryType;
         const safeTitle = String(m.title || '').replace(/[\r\n]+/g, ' ').slice(0, 50);
         const safeContent = String(m.content || '').replace(/[\r\n]+/g, ' ').slice(0, 150);
-        return `- [${m.id}] ${safeTitle}：${safeContent}`;
-      });
+        const line = `- [${m.id}] ${safeTitle}：${safeContent}`;
+        if (type === 'episodic') episodic.push(line);
+        else if (type === 'pattern') pattern.push(line);
+        else if (type === 'state') state.push(line);
+        else semantic.push(line);
+      }
+
+      const memSections: string[] = [];
+      if (semantic.length > 0) {
+        memSections.push(`[稳定偏好 (Semantic)]\n${semantic.join('\n')}`);
+      }
+      if (pattern.length > 0) {
+        memSections.push(`[长期模式 (Pattern)]\n${pattern.join('\n')}`);
+      }
+      if (episodic.length > 0) {
+        memSections.push(`[事件经历 (Episodic)]\n${episodic.join('\n')}`);
+      }
+      if (state.length > 0) {
+        memSections.push(
+          `[当前状态备忘 (State - 仅供背景参考)]\n${state.join('\n')}\n*特别消解规则：若用户的当次最新表达与上述历史状态存在差异或矛盾，必须以用户的当次最新表达为绝对最高准则，严禁执着于过期的历史状态。`,
+        );
+      }
+
+      // If no subcategories matched, fall back to flat list
+      const memoryBody = memSections.length > 0 ? memSections.join('\n\n') : selected.map((m) => `- [${m.id}] ${m.title}：${m.content}`).join('\n');
 
       parts.push(
-        `【用户明确授权使用的有限记忆（仅供背景理解，不得直接泄露、推测人格或打标签）】\n${safeMemories.join('\n')}`,
+        `【用户明确授权使用的有限记忆（仅供背景理解，不得直接泄露、推测人格或打标签）】\n${memoryBody}`,
       );
     } else {
       parts.push('【记忆授权状态】用户未授权引用任何历史记忆，请仅基于用户当前当次输入进行回应。');
     }
 
-    // 5. User Provided Content (Sanitized against role/system injection)
+    // 5. CurrentTurn: User Provided Content (Sanitized against role/system injection)
     const sanitizedUserContent = String(input.userContent ?? '')
       .replace(/【[^】\r\n]*(?:系统|任务|角色|记忆|安全|规则)[^】\r\n]*】?/g, '')
       .trim();

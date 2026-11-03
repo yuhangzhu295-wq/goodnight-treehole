@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { SocialMultimediaService } from '../../apps/api/src/social-multimedia.service.js';
 import { AiPersonaService } from '../../apps/api/src/ai-persona.service.js';
 import { StoreService } from '../../apps/api/src/store.service.js';
+import { PublicController } from '../../apps/api/src/controllers.js';
+import { runWithIdentity } from '../../apps/api/src/anonymous-session.service.js';
 
 describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => {
   describe('1. Sticker System & Deduplication', () => {
@@ -415,9 +417,6 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
 
   describe('5. PublicController HTTP Parameter Forwarding & Validation', () => {
     it('forwards whitelisted fields (msgType, replyToId, mediaUrl, clientMsgId) from controller body to store', async () => {
-      const { PublicController } = await import('../../apps/api/src/controllers.js');
-      const { runWithIdentity } = await import('../../apps/api/src/anonymous-session.service.js');
-
       let capturedPayload: any = null;
       const mockStore = {
         sendPeerMessage: async (_mId: string, payload: any, _uId: string) => {
@@ -453,9 +452,6 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
     });
 
     it('rejects invalid or missing personaId on POST /me/ai-persona', async () => {
-      const { PublicController } = await import('../../apps/api/src/controllers.js');
-      const { runWithIdentity } = await import('../../apps/api/src/anonymous-session.service.js');
-
       const mockStore = {
         setAiPersona: (_id: string) => {},
       } as any;
@@ -469,9 +465,6 @@ describe('V3 Social Multimedia, Call Signaling and AI Persona Contracts', () => 
     });
 
     it('returns 501 Not Implemented for unready WebRTC call endpoints to comply with contract §119', async () => {
-      const { PublicController } = await import('../../apps/api/src/controllers.js');
-      const { runWithIdentity } = await import('../../apps/api/src/anonymous-session.service.js');
-
       const controller = new PublicController({} as any, {} as any, {} as any);
 
       await runWithIdentity({ userId: 'u_alice', sessionId: 's1' }, async () => {

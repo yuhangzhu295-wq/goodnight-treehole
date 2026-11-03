@@ -582,10 +582,11 @@ type MemoryItem = {
   content: string;
   source: string;
   scope: string;
-  status: 'active' | 'disabled' | 'expired';
+  status: 'active' | 'disabled' | 'expired' | 'deleted' | 'revoked';
   consentedAt: string;
   expiresAt: string;
   deletedAt?: string;
+  revokedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -7921,11 +7922,15 @@ export class StoreService implements OnModuleInit {
     input: {
       journeyId?: string;
       category?: unknown;
+      memoryType?: unknown;
       title?: unknown;
       content?: unknown;
       days?: number;
       source?: unknown;
       scope?: unknown;
+      sensitivity?: unknown;
+      importance?: unknown;
+      statePriority?: unknown;
     },
     requestedUserId?: string,
   ) {
@@ -7943,15 +7948,19 @@ export class StoreService implements OnModuleInit {
     const scope = ['all_ai', 'journey', 'recovery', 'support'].includes(String(input.scope))
       ? String(input.scope)
       : 'all_ai';
+    const rawType = String(input.memoryType ?? '').toLowerCase();
+    const memoryType = ['episodic', 'semantic', 'pattern', 'state'].includes(rawType) ? rawType : undefined;
+    const catClean =
+      typeof input.category === 'string' && input.category.trim()
+        ? input.category.trim().slice(0, 50)
+        : '用户主动保存';
+    const category = memoryType && !catClean.startsWith(memoryType + ':') ? `${memoryType}:${catClean}` : catClean;
     const createdAt = now();
     const item: MemoryItem = {
       id: id('memory'),
       userId,
       journeyId: journey?.id,
-      category:
-        typeof input.category === 'string' && input.category.trim()
-          ? input.category.trim().slice(0, 50)
-          : '用户主动保存',
+      category,
       title: this.text(input.title ?? input.category ?? '我希望系统记住', '记忆标题', 100),
       content: this.text(input.content, '记忆内容', 500),
       source,
@@ -7962,6 +7971,11 @@ export class StoreService implements OnModuleInit {
       createdAt,
       updatedAt: createdAt,
     };
+    (item as any).memoryType = memoryType ?? 'semantic';
+    (item as any).sensitivity = input.sensitivity ?? 'medium';
+    (item as any).importance = Number(input.importance ?? 1);
+    (item as any).statePriority = Number(input.statePriority ?? 0);
+
     if (DIRECT_DB_MODELS.MemoryItem) {
       const created = await this.selfPersistence.createMemory({
         userId,
@@ -7980,12 +7994,32 @@ export class StoreService implements OnModuleInit {
     return { item };
   }
 
+  async revokeMemory(idValue: string, requestedUserId?: string) {
+    const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      const revoked = await this.selfPersistence.revokeMemory(idValue, userId);
+      return { ok: true, item: revoked as unknown as MemoryItem };
+    }
+    const item = this.memoryItems.find(
+      (memory) => memory.id === idValue && memory.userId === userId && !memory.deletedAt,
+    );
+    if (!item) throw new NotFoundException('记忆不存在');
+    item.status = 'revoked' as any;
+    (item as any).revokedAt = now();
+    item.updatedAt = now();
+    await this.persistAndFlush();
+    return { ok: true, item };
+  }
+
   async updateMemory(
     idValue: string,
     input: { title?: unknown; content?: unknown; days?: number; scope?: unknown; status?: unknown },
     requestedUserId?: string,
   ) {
     const userId = this.resolveRuntimeUserId(requestedUserId);
+    if (input.status === 'revoked') {
+      return await this.revokeMemory(idValue, userId);
+    }
     if (DIRECT_DB_MODELS.MemoryItem) {
       // 'disabled' / 'expired' / 'active' are the user's own switches, and each maps to a distinct
       // service operation. 'active' on an effectively expired row is the explicit re-consent action
@@ -8024,16 +8058,14 @@ export class StoreService implements OnModuleInit {
     if (input.days !== undefined) {
       const days = Math.max(1, Math.min(3650, Number(input.days)));
       item.expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
-      // Extending the retention window must not silently re-activate a memory the user
-      // switched off. Only a memory that was already active stays active; a disabled one
-      // keeps its status unless the caller also sends an explicit status (ISSUE-022).
       if (item.status !== 'disabled') item.status = 'active';
     }
     if (input.status !== undefined) {
-      if (!['active', 'disabled', 'expired'].includes(String(input.status)))
+      if (!['active', 'disabled', 'expired', 'revoked'].includes(String(input.status)))
         throw new BadRequestException('记忆状态无效');
       item.status = String(input.status) as MemoryItem['status'];
       if (item.status === 'expired') item.expiresAt = now();
+      if (item.status === 'revoked') (item as any).revokedAt = now();
     }
     item.updatedAt = now();
     await this.persistAndFlush();
@@ -9484,6 +9516,7 @@ export class StoreService implements OnModuleInit {
       memories: input.memories,
       allowAiMemoryUse: (input.memories ?? []).length > 0,
       mode: modeText,
+      currentUserId: input.userId,
     });
   }
 

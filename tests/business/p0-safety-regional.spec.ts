@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getRegionalSafetyResources, REGIONAL_SAFETY_RESOURCES, SUPPORTED_SAFETY_REGIONS } from '../../apps/api/src/safety-resources.js';
+import { getRegionalSafetyResources, SUPPORTED_SAFETY_REGIONS } from '../../apps/api/src/safety-resources.js';
 import { PublicController } from '../../apps/api/src/controllers.js';
 
 describe('P0-A: Regional Safety Resources Contract', () => {

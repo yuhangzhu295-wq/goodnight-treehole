@@ -1104,6 +1104,24 @@ export class SelfPersistenceService {
     });
   }
 
+  /** Revoke memory consent immediately (P0-B). Revoked memory is excluded from all AI contexts. */
+  async revokeMemory(id: string, userId: string, hooks: SelfWriteHooks = {}): Promise<MemoryItemRecord> {
+    return await this.prisma.$transaction(async (tx) => {
+      if (hooks._onBeforeLock) await hooks._onBeforeLock();
+      await lockSelfWriteRoots(tx, [userId]);
+      if (hooks._onAfterLock) await hooks._onAfterLock();
+      const existing = await tx.memoryItem.findFirst({ where: { id, userId, deletedAt: null } });
+      if (!existing) throw new NotFoundException('记忆不存在');
+      if (existing.status === 'deleted') throw new NotFoundException('记忆不存在');
+      const nowTime = new Date();
+      const updated = await tx.memoryItem.update({
+        where: { id: existing.id },
+        data: { status: 'revoked', updatedAt: nowTime },
+      });
+      return mapMemoryItemRow(updated);
+    });
+  }
+
   /**
    * Deletion is **terminal**: `status='deleted'` plus `deletedAt`, and no update path may move a row
    * out of `deleted`. The old behaviour wrote `status='expired'`, which the plan's `deleted` state
@@ -2187,32 +2205,69 @@ export class SelfPersistenceService {
 }
 
 // ==========================================
-// MemoryItem (Batch 3 §0.5/A5, §0.6/A5)
+// MemoryItem (Batch 3 §0.5/A5, §0.6/A5, V4 P0-B)
 // ==========================================
+
+export type MemoryType = 'episodic' | 'semantic' | 'pattern' | 'state';
+export type MemorySensitivity = 'low' | 'medium' | 'high';
 
 export type MemoryItemRecord = {
   id: string;
   userId: string;
   journeyId?: string;
   category: string;
+  memoryType: MemoryType;
   title: string;
   content: string;
   source: string;
   scope: 'all_ai' | 'journey' | 'recovery' | 'support' | string;
-  status: 'active' | 'disabled' | 'expired' | 'deleted' | string;
+  status: 'active' | 'disabled' | 'expired' | 'deleted' | 'revoked' | string;
   consentedAt: string;
   expiresAt: string;
   deletedAt?: string;
+  revokedAt?: string;
+  sensitivity: MemorySensitivity;
+  importance: number;
+  statePriority: number;
   createdAt: string;
   updatedAt: string;
 };
 
+export function inferMemoryType(category?: string, source?: string): MemoryType {
+  const cat = String(category ?? '').toLowerCase();
+  const src = String(source ?? '').toLowerCase();
+  if (cat.startsWith('episodic:') || cat === 'episodic') return 'episodic';
+  if (cat.startsWith('semantic:') || cat === 'semantic') return 'semantic';
+  if (cat.startsWith('pattern:') || cat === 'pattern') return 'pattern';
+  if (cat.startsWith('state:') || cat === 'state') return 'state';
+
+  if (src === 'journey_summary') return 'episodic';
+  if (src === 'recovery_confirmed') return 'pattern';
+  if (src === 'support_plan') return 'state';
+  if (cat.includes('经历') || cat.includes('事件')) return 'episodic';
+  if (cat.includes('模式') || cat.includes('习惯')) return 'pattern';
+  if (cat.includes('状态') || cat.includes('情绪')) return 'state';
+  return 'semantic';
+}
+
+export function inferMemorySensitivity(category?: string, source?: string): MemorySensitivity {
+  const cat = String(category ?? '').toLowerCase();
+  const src = String(source ?? '').toLowerCase();
+  if (cat.includes('high') || src === 'support_plan') return 'high';
+  if (cat.includes('low')) return 'low';
+  return 'medium';
+}
+
 export function mapMemoryItemRow(row: any): MemoryItemRecord {
+  const memoryType = inferMemoryType(row.category, row.source);
+  const sensitivity = inferMemorySensitivity(row.category, row.source);
+  const isRevoked = row.status === 'revoked';
   return {
     id: row.id,
     userId: row.userId,
     journeyId: row.journeyId ?? undefined,
     category: row.category,
+    memoryType,
     title: row.title,
     content: row.content,
     source: row.source,
@@ -2221,6 +2276,10 @@ export function mapMemoryItemRow(row: any): MemoryItemRecord {
     consentedAt: iso(row.consentedAt),
     expiresAt: iso(row.expiresAt),
     deletedAt: row.deletedAt ? iso(row.deletedAt) : undefined,
+    revokedAt: isRevoked ? iso(row.updatedAt) : undefined,
+    sensitivity,
+    importance: sensitivity === 'high' ? 3 : memoryType === 'state' ? 2 : 1,
+    statePriority: memoryType === 'state' ? 1 : 0,
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   };
