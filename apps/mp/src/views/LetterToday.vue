@@ -395,12 +395,20 @@ onMounted(() => {
 /* The letter is the page: a plain top bar, the source line, then the body. The old version spent a
    hero, an envelope illustration and a second title above the text. */
 .letter-page.goodnight-page {
+  --page-bg: #FAF8F5;
+  --card-bg: #FFFFFF;
+  --line-soft: rgba(140, 120, 95, 0.14);
+  --ink-primary: #242A32;
+  --ink-secondary: #5E6772;
+  --font-serif: "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+
   display: block;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-height: 0;
-  padding: 0 0 calc(32px + env(safe-area-inset-bottom));
+  background: var(--page-bg);
+  padding: 0 20px calc(32px + env(safe-area-inset-bottom));
 }
 
 .letter-topbar {
@@ -408,12 +416,12 @@ onMounted(() => {
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   align-items: center;
   min-height: 52px;
-  border-bottom: 1px solid #e8eaed;
-  background: #ffffff;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--page-bg);
 }
 
 .letter-topbar h1 {
-  color: #242a32;
+  color: var(--ink-primary);
   font-size: 17px;
   font-weight: 650;
   text-align: left;
@@ -449,34 +457,44 @@ onMounted(() => {
 
 /* Where the letter came from - one quiet line, not an illustrated block. */
 .letter-source {
-  margin: 14px 0 0;
-  color: #7a838e;
-  font-size: 12.5px;
+  margin: 16px 0 0;
+  color: var(--ink-secondary);
+  font-size: 13px;
   line-height: 1.6;
 }
 
-.letter-body { margin-top: 14px; }
+.letter-body {
+  margin-top: 14px;
+  padding: 22px 18px 20px;
+  background: var(--card-bg);
+  border: 1px solid rgba(140, 120, 95, 0.15);
+  border-radius: 14px;
+  box-shadow: 0 3px 12px rgba(90, 70, 45, 0.04), 0 1px 3px rgba(90, 70, 45, 0.02);
+}
 
 .letter-title {
-  margin: 0 0 14px;
-  color: #242a32;
-  font-size: 23px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  line-height: 1.35;
+  margin: 0 0 16px;
+  color: var(--ink-primary);
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
 .letter-content {
   margin: 0;
-  color: #333c44;
+  color: #2F3740;
+  font-family: var(--font-serif);
   font-size: 16px;
-  line-height: 1.85;
+  line-height: 1.9;
+  letter-spacing: 0.1px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .letter-content.is-empty {
-  color: #88909a;
+  color: var(--ink-secondary);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -484,24 +502,26 @@ onMounted(() => {
 .letter-retry {
   margin-top: 12px;
   padding: 8px 14px;
-  border: 1px solid #e4e7ea;
+  border: 1px solid rgba(140, 120, 95, 0.2);
   border-radius: 8px;
   background: #ffffff;
   color: #275f56;
   font-size: 13px;
+  cursor: pointer;
 }
 
 .letter-body .signature {
-  margin: 18px 0 0;
-  color: #88909a;
-  font-size: 12px;
+  margin: 20px 0 0;
+  color: var(--ink-secondary);
+  font-family: var(--font-serif);
+  font-size: 13px;
   text-align: right;
 }
 
 /* The design's two rows - 原始记录 and 收藏 - one per line, separated by hairlines. */
 .letter-rows {
-  margin-top: 26px;
-  border-top: 1px solid #ebedf0;
+  margin-top: 24px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .letter-row {
@@ -509,10 +529,10 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 0;
+  min-height: 48px;
   padding: 14px 0;
   border: 0;
-  border-bottom: 1px solid #ebedf0;
+  border-bottom: 1px solid var(--line-soft);
   border-radius: 0;
   background: transparent;
   text-align: left;
@@ -534,7 +554,7 @@ onMounted(() => {
 
 .row-copy strong {
   display: block;
-  color: #242a32;
+  color: var(--ink-primary);
   font-size: 14px;
   font-weight: 650;
 }
@@ -542,7 +562,7 @@ onMounted(() => {
 .row-copy small {
   display: block;
   margin-top: 3px;
-  color: #8b939c;
+  color: var(--ink-secondary);
   font-size: 12px;
 }
 
@@ -550,8 +570,8 @@ onMounted(() => {
 
 .advice-section h2 {
   margin: 20px 0 8px;
-  color: #242a32;
-  font-size: 13.5px;
+  color: var(--ink-primary);
+  font-size: 14px;
   font-weight: 650;
 }
 
