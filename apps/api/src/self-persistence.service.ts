@@ -1148,6 +1148,17 @@ export class SelfPersistenceService {
   }
 
   /**
+   * Delete all memories for a user on account wipe (DELETE /me/data).
+   * Fully removes rows from database to comply with PIPL & GDPR right to be forgotten.
+   */
+  async deleteAllMemoriesForUser(userId: string): Promise<number> {
+    const res = await this.prisma.memoryItem.deleteMany({
+      where: { userId },
+    });
+    return res.count;
+  }
+
+  /**
    * Re-enable a memory the user had switched off, **without** a new consent — its consent has not
    * lapsed, so asking for it again would be noise.
    *

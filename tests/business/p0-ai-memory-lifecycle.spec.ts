@@ -264,4 +264,55 @@ describe('P0-B: AI Memory Architecture, 4 Types, Revocation & 5-Tier Assembly', 
       expect(bobPrompt).toContain('用户未授权引用任何历史记忆');
     });
   });
+
+  describe('5. Account Wipe & Right to be Forgotten (DELETE /me/data)', () => {
+    it('wipes all MemoryItem records permanently when clearMemoriesForUser is called', async () => {
+      const store = new StoreService({} as any);
+      const userId = 'user_wipe_target';
+      store.memoryItems = [
+        {
+          id: 'mem_to_wipe_1',
+          userId,
+          title: '敏感日记',
+          content: '个人隐私',
+          category: '个人',
+          source: 'user_saved',
+          scope: 'all_ai',
+          status: 'active',
+          consentedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: 'mem_other_user',
+          userId: 'user_someone_else',
+          title: '别人的记忆',
+          content: '不可删除',
+          category: '个人',
+          source: 'user_saved',
+          scope: 'all_ai',
+          status: 'active',
+          consentedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      let dbDeletedUser = '';
+      (store as any).selfPersistence = {
+        deleteAllMemoriesForUser: async (uId: string) => {
+          dbDeletedUser = uId;
+          return 1;
+        },
+      };
+
+      await store.clearMemoriesForUser(userId);
+
+      expect(dbDeletedUser).toBe(userId);
+      expect(store.memoryItems.find((m) => m.userId === userId)).toBeUndefined();
+      expect(store.memoryItems.find((m) => m.userId === 'user_someone_else')).toBeDefined();
+    });
+  });
 });

@@ -24,9 +24,12 @@ describe('P0-A: Regional Safety Resources Contract', () => {
     const cnRes = getRegionalSafetyResources('CN');
     expect(cnRes.isUnknownRegion).toBe(false);
     expect(cnRes.region).toBe('CN');
+    expect(cnRes.catalogVersion).toBeDefined();
     expect(cnRes.resources.map((r) => r.number)).toContain('120');
     expect(cnRes.resources.map((r) => r.number)).toContain('12356');
     expect(cnRes.resources.every((r) => r.verified)).toBe(true);
+    expect(cnRes.resources[0].verification?.sourceName).toBeDefined();
+    expect(cnRes.resources[0].verification?.sourceUrl).toBeDefined();
   });
 
   it('returns verified Hong Kong resources for region=HK', () => {

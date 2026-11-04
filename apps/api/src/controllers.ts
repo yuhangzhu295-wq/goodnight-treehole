@@ -2320,6 +2320,7 @@ export class PublicController {
       await this.store.clearFavoritesForUser(runtimeId);
       this.store.socialMultimedia.clearUserFavorites(runtimeId);
       this.store.aiPersona.clearUserPersona(runtimeId);
+      await this.store.clearMemoriesForUser(runtimeId);
       if (DIRECT_DB_MODELS.Diary) await this.store.diariesDb.deleteAllForUser(runtimeId);
       else this.store.diaries = this.store.diaries.filter((item) => item.userId !== runtimeId);
       if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(runtimeId);
@@ -3669,6 +3670,9 @@ export class AdminController {
   @Delete('users/:id/data')
   async deleteUserData(@Param('id') id: string) {
     await this.store.clearFavoritesForUser(id);
+    this.store.socialMultimedia.clearUserFavorites(id);
+    this.store.aiPersona.clearUserPersona(id);
+    await this.store.clearMemoriesForUser(id);
     this.store.diaries = this.store.diaries.filter((item) => item.userId !== id);
     if (DIRECT_DB_MODELS.Letter) await this.store.lettersDb.deleteAllForUser(id);
     else this.store.letters = this.store.letters.filter((item) => item.userId !== id);

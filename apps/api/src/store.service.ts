@@ -2127,6 +2127,9 @@ export class StoreService implements OnModuleInit {
   get memoryItems() {
     return this.data.memoryItems;
   }
+  set memoryItems(items: any[]) {
+    this.data.memoryItems = items;
+  }
   get recoverySnapshots() {
     if (DIRECT_DB_MODELS.RecoverySnapshot) {
       throw new Error(
@@ -2345,6 +2348,13 @@ export class StoreService implements OnModuleInit {
     this.data.favorites = this.data.favorites.filter((item) => item.userId !== userId);
     this.applyFavoriteRemoval(removed);
     return removed;
+  }
+
+  async clearMemoriesForUser(userId: string) {
+    if (DIRECT_DB_MODELS.MemoryItem) {
+      await this.selfPersistence.deleteAllMemoriesForUser(userId);
+    }
+    this.memoryItems = this.memoryItems.filter((item) => item.userId !== userId);
   }
 
   /**
