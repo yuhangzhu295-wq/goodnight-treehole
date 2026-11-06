@@ -1,0 +1,30 @@
+==> test:unit
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+==> test:api
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+==> test:e2e
+ Test Files  12 passed (12)
+      Tests  12 passed (12)
+==> test:visual
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+==> diagnose:all
+==> diagnose:runtime
+==> diagnose:dom-overlays
+==> diagnose:routes
+==> diagnose:api-bindings
+==> diagnose:clickability
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+==> audit:ui-artifacts
+==> audit:ui-artifacts
+==> test:real-browser-front-clicks
+==> test:real-browser-admin-clicks
+==> test:real-browser-cross-flow
+==> test:click-all
+==> test:business-flow
+==> test:cross
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)

@@ -1,0 +1,202 @@
+# Self Route Identity & Fallback Matrix
+
+**Document status:** Normative specification of caller identity sources, fallback behaviour before and after review finding R-06, and ownership enforcement for all Self and related subsystems.
+**Related:** `docs/architecture/BATCH3_SELF_SYSTEM_DESIGN.md` §0.5/A8, `docs/automation/AUTONOMOUS_STATE.md` (finding 6).
+
+---
+
+## 1. Architectural Rule & Defense-in-Depth
+
+### The Defect (Review Finding R-06)
+Before this task, many Self routes accepted an optional `x-goodnight-user-id` header. When the header was missing or empty, `StoreService.resolveRuntimeUserId` silently fell back to the demo user (`user_demo`). Furthermore, several Self routes (including Decision, Cooldown, FutureMessage, and certain Journey lifecycle steps) accepted no identity header at all, hardcoding `user_demo` inside `StoreService`.
+
+Consequently, unauthenticated requests with no identity could read, mutate, or delete private data belonging to `user_demo`.
+
+### The Invariant
+1. **No Implicit Demo Fallback:** Any Self-system route invoked without caller identity (`x-goodnight-user-id`) MUST be refused with **HTTP 401 Unauthorized**.
+2. **Explicit Bounded Identity:** A client-supplied `x-goodnight-user-id` is validated against known persisted anonymous users. If the user ID format is invalid or the user does not exist, access is refused with **HTTP 404 Not Found** (`当前匿名会话用户不存在`).
+3. **Cross-User Isolation (Ownership Check):** User A can only read, mutate, and delete their own records. When User B attempts to access or mutate User A's record by identifier, the request is refused with **HTTP 404 Not Found** (or 403 where applicable), preventing information disclosure or unauthorized mutation.
+4. **Admin Route Protection:** Admin sensitive read endpoints (`/api/admin/v1/...`) require an admin session token in the `Authorization: Bearer <token>` header. Standard user identity (`x-goodnight-user-id`) or unauthenticated callers are refused with **HTTP 401 Unauthorized**.
+5. **Preserving Test Fixtures:** Test fixtures needing the demo user must explicitly send `x-goodnight-user-id: user_demo` (or use `demoUserHeaders()`), keeping `user_demo` isolated and never implicitly assumed.
+
+---
+
+## 2. Route Identity Matrix
+
+| Method | Path | Identity Source | Fallback Before | Fallback After | Ownership Check | Negative Test (`batch3-identity-matrix.spec.ts`) |
+|---|---|---|---|---|---|---|
+| **Privacy** | | | | | | |
+| GET | `/api/v1/settings/privacy` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/privacy` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| GET | `/api/v1/privacy-settings` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| PUT | `/api/v1/settings/privacy` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| PATCH | `/api/v1/settings/privacy` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| PATCH | `/api/v1/me/privacy` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| PATCH | `/api/v1/privacy-settings` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `Privacy: unauthenticated request is refused with 401` |
+| **Memory** | | | | | | |
+| GET | `/api/v1/memory` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters `item.userId === callerId` | `Memory: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/memories` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters `item.userId === callerId` | `Memory: unauthenticated request is refused with 401` |
+| POST | `/api/v1/memory` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId` | `Memory: unauthenticated request is refused with 401` |
+| PATCH | `/api/v1/me/memories/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `memory.userId === callerId` | `Memory: User B is refused on User A record` |
+| DELETE | `/api/v1/memory/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `memory.userId === callerId` | `Memory: User B is refused on User A record` |
+| DELETE | `/api/v1/me/memories/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `memory.userId === callerId` | `Memory: User B is refused on User A record` |
+| POST | `/api/v1/me/memories/:id/reactivate` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `memory.userId === callerId` | `Memory: User B is refused on User A record` |
+| **Recovery** | | | | | | |
+| GET | `/api/v1/me/recovery` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters `snapshot.userId === callerId` | `Recovery: unauthenticated request is refused with 401` |
+| POST | `/api/v1/me/recovery` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId`, checks journey owner | `Recovery: User B is refused on User A journey` |
+| **SupportPlan** | | | | | | |
+| POST | `/api/v1/support-plans` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId`, checks journey owner | `SupportPlan: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/support-plan` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `SupportPlan: unauthenticated request is refused with 401` |
+| PUT | `/api/v1/me/support-plan` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId`, checks journey owner | `SupportPlan: User B is refused on User A journey` |
+| **StableSelf** | | | | | | |
+| GET | `/api/v1/me/stable-self` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `StableSelf: unauthenticated request is refused with 401` |
+| PUT | `/api/v1/me/stable-self` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `StableSelf: unauthenticated request is refused with 401` |
+| **RealityHandoff** | | | | | | |
+| POST | `/api/v1/handoffs` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId`, checks journey owner | `RealityHandoff: unauthenticated request is refused with 401` |
+| POST | `/api/v1/handoffs/:id/share` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `handoff.userId === callerId` | `RealityHandoff: User B is refused on User A record` |
+| GET | `/api/v1/handoffs` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters `handoff.userId === callerId` | `RealityHandoff: unauthenticated request is refused with 401` |
+| **TrustedContact** | | | | | | |
+| POST | `/api/v1/trusted-contacts` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId` | `TrustedContact: unauthenticated request is refused with 401` |
+| GET | `/api/v1/trusted-contacts` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters `contact.userId === callerId` | `TrustedContact: unauthenticated request is refused with 401` |
+| **Decision** | | | | | | |
+| POST | `/api/v1/decisions` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Associated to caller `userId`, checks journey owner | `Decision: unauthenticated request is refused with 401` |
+| GET | `/api/v1/decisions` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Filters `decision.userId === callerId` | `Decision: unauthenticated request is refused with 401` |
+| PATCH | `/api/v1/decisions/:id` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `decision.userId === callerId` | `Decision: User B is refused on User A record` |
+| **Cooldown** | | | | | | |
+| POST | `/api/v1/cooldowns` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Associated to caller `userId`, checks decision owner | `Cooldown: unauthenticated request is refused with 401` |
+| GET | `/api/v1/cooldown` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Filters `cooldown.userId === callerId` | `Cooldown: unauthenticated request is refused with 401` |
+| **FutureSelf** | | | | | | |
+| POST | `/api/v1/future-messages` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Associated to caller `userId`, checks context owner | `FutureSelf: unauthenticated request is refused with 401` |
+| GET | `/api/v1/future-messages` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Filters `message.userId === callerId` | `FutureSelf: unauthenticated request is refused with 401` |
+| **Journey & Archive** | | | | | | |
+| GET | `/api/v1/journeys` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Filters `journey.userId === callerId` | `Journey: unauthenticated request is refused with 401` |
+| POST | `/api/v1/journeys` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId` | `Journey: unauthenticated request is refused with 401` |
+| GET | `/api/v1/journeys/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| GET | `/api/v1/journeys/:id/fingerprint` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| PATCH | `/api/v1/journeys/:id/intent` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| PATCH | `/api/v1/journeys/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| PATCH | `/api/v1/journeys/:id/situation` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/snapshots` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/situation/reanalyze` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/safety/acknowledge` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/updates` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/action-plan` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/actions` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| GET | `/api/v1/journeys/:id/actions` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| GET | `/api/v1/journeys/:id/timeline` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| PATCH | `/api/v1/journeys/:id/status` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/graduate` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/journeys/:id/graduation-consent` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `journey.userId === callerId` | `Journey: User B is refused on User A record` |
+| POST | `/api/v1/actions/:id/checkin` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `action.userId === callerId` | `Journey: User B is refused on User A action checkin` |
+| POST | `/api/v1/actions/:id/checkins` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `action.userId === callerId` | `Journey: User B is refused on User A action checkin` |
+| POST | `/api/v1/actions/:id/adaptive-plan` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `action.userId === callerId` | `Journey: User B is refused on User A action adaptive plan` |
+| POST | `/api/v1/actions/:id/adapt` | `x-goodnight-user-id` | `user_demo` (hardcoded) | Refused 401 | Requires `action.userId === callerId` | `Journey: User B is refused on User A action adapt` |
+| GET | `/api/v1/archive/journeys` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters `journey.userId === callerId` | `JourneyArchive: unauthenticated request is refused with 401` |
+| GET | `/api/v1/archive/journeys/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `JourneyArchive: User B is refused on User A record` |
+| POST | `/api/v1/archive/journeys/:id/export` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `JourneyArchive: User B is refused on User A record` |
+| POST | `/api/v1/archive/journeys/:id/restore` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `JourneyArchive: User B is refused on User A record` |
+| DELETE | `/api/v1/archive/journeys/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `JourneyArchive: User B is refused on User A record` |
+| **Peer Support** | | | | | | |
+| GET | `/api/v1/peers` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` and participant matches | `Peer: unauthenticated request is refused with 401` |
+| POST | `/api/v1/peer-experiences` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId`, checks journey owner | `Peer: unauthenticated request is refused with 401` |
+| POST | `/api/v1/journeys/:id/peer-matches` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Peer: User B is refused on User A journey matches` |
+| GET | `/api/v1/journeys/:id/peers` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `journey.userId === callerId` | `Peer: User B is refused on User A journey peers` |
+| PATCH | `/api/v1/peer-matches/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant (match owner or experience owner) | `Peer: User C is refused on match between A and B` |
+| POST | `/api/v1/peer-matches/:id/respond` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be target of match request | `Peer: User C is refused on match between A and B` |
+| POST | `/api/v1/peer-matches/:id/consent` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in match | `Peer: User C is refused on match between A and B` |
+| GET | `/api/v1/peer-requests` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to incoming requests for caller `userId` | `Peer: unauthenticated request is refused with 401` |
+| PATCH | `/api/v1/peer-experiences/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires `experience.userId === callerId` | `Peer: User B is refused on User A experience edit` |
+| GET | `/api/v1/peer-experiences/:id` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped read (published or caller's own) | `Peer: unauthenticated request is refused with 401` |
+| GET | `/api/v1/peer-conversations` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Filters conversations where caller is participant | `Peer: unauthenticated request is refused with 401` |
+| POST | `/api/v1/peer-conversations/:matchId/messages` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C cannot send messages in conversation between A and B` |
+| POST | `/api/v1/peer-conversations/:matchId/assist` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation assist` |
+| POST | `/api/v1/peer-conversations/:matchId/close` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation close` |
+| POST | `/api/v1/peer-conversations/:matchId/report` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation report` |
+| POST | `/api/v1/peer-conversations/:matchId/block` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation block` |
+| POST | `/api/v1/peer-conversations/:matchId/feedback` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Requires caller to be participant in conversation | `Peer: User C is refused on conversation feedback` |
+| **Private /me Aliases (Review Finding B3-R12)** | | | | | | |
+| GET | `/api/v1/me/letters` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/diaries` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/diaries/months` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| POST | `/api/v1/me/diaries` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Associated to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/favorites` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/profile` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/stats` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/growth-card` | `x-goodnight-user-id` | Hardcoded card | Refused 401 | Identity verified | `PrivateMe: unauthenticated request is refused with 401` |
+| DELETE | `/api/v1/me/data` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| GET | `/api/v1/me/month-report` | `x-goodnight-user-id` | `user_demo` | Refused 401 | Scoped to caller `userId` | `PrivateMe: unauthenticated request is refused with 401` |
+| **Admin Sensitive Reads** | | | | | | |
+| GET | `/api/admin/v1/support/plans` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; returns metadata only, no plan JSON | `AdminSensitive: normal user or missing token refused with 401` |
+| GET | `/api/admin/v1/support/plans/:id` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; enforces permitted admin role (`super_admin`, `admin`); persists audit log before returning content | `AdminSensitive: normal user or missing token refused with 401` |
+| GET | `/api/admin/v1/memory` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; returns metadata only, no memory content | `AdminSensitive: normal user or missing token refused with 401` |
+| GET | `/api/admin/v1/memory/:id` | `Authorization: Bearer <token>` | None (admin guard) | Refused 401 | Admin auth required; enforces permitted admin role (`super_admin`, `admin`); persists audit log before returning content | `AdminSensitive: normal user or missing token refused with 401` |
+
+---
+
+## 3. Genuinely Public Routes (By Design)
+
+The following endpoints do not expose private personal data and are intentionally public without requiring caller identity:
+
+| Method | Path | Intended Purpose / Design Rationale |
+|---|---|---|
+| GET | `/api/health` | Service health probe and deployment fingerprint; returns operational status without user context. |
+| GET | `/api/v1/posts` | Public square feed of approved anonymous posts (`publicPosts`). |
+| GET | `/api/v1/posts/:id/replies` | Public comments on square posts. |
+| GET | `/api/v1/letters` | General letters mailbox read for the default/public experience (private letters accessed via `/api/v1/me/letters` or `/api/v1/letters/:id`). |
+| GET | `/api/v1/letters/today` | Today's public letter prompt. |
+| GET | `/api/v1/config` | Application configuration defaults (features, flags). |
+| GET | `/api/v1/debug/fingerprint` | Build version and runtime instance identifier. |
+| GET | `/api/v1/tools` | Available AI tool catalog and descriptors. |
+| GET | `/api/v1/reply-presets` | Community reply chip presets. |
+| GET | `/api/v1/feedback/categories` | Feedback categorization taxonomy. |
+| GET | `/api/v1/feedback/faqs` | Frequently asked questions list. |
+| POST | `/api/admin/v1/login` | Admin authentication endpoint (issues signed bearer token). |
+| POST | `/api/admin/v1/auth/login` | Alias for admin authentication. |
+| POST | `/api/admin/v1/auth/logout` | Admin logout endpoint. |
+
+---
+
+## 4. Correction: `/api/v1/tonight` was listed here and does not belong (2026-10-15)
+
+The row removed from §3 read *"Tonight summary and inspirational quote"*. That described the
+**route's name**, not its implementation. `tonightHome()` returns the caller's active journey,
+active actions, due check-ins, follow-ups, peer matches and latest letter - every one of them
+private per-user data - and the route called it with no user, so the store substituted the demo id.
+
+Measured with the API running, not inferred:
+
+```
+GET /api/v1/tonight, no credential at all
+  -> 200, journey { id: "journey_6182a7f03d", userId: "user_demo",
+                    title: "毕业同意复现", visibility: "PRIVATE" }
+     plus that user's pending DECISION_COOLDOWN and FUTURE_SELF follow-ups and its peer matches
+
+GET /api/v1/tonight, credential of a freshly issued, unrelated anonymous user
+  -> 200, the identical payload
+```
+
+Both a caller with no identity and a caller with a *different* valid identity received `user_demo`'s
+private dashboard. The route now resolves the caller (`requireRuntimeUserId`) and `tonightHome`
+takes a required `userId`, so a request without an identity is refused with 401.
+
+This is the same defect class as §2 R-06; the difference is that here the documentation had
+declared the leak to be by design, which is why the first pass over these routes did not look at it.
+A route is public because of what it returns, not because of what it is called.
+
+## 5. The C-end write routes, which §2 did not cover
+
+§2 lists routes that *decided* identity from a fallback. These did not decide at all: they called
+`getDemoUserId()` directly, a fixed string, and took no identity from the request. See
+`DEMO_USER_FALLBACK_CLOSURE.md` §"Second pass" for the measurements and the reverse proofs.
+
+| Method | Path | Identity source (after) | Before |
+| --- | --- | --- | --- |
+| POST | `/api/v1/moods` | `requireViewerId()` in the store, 401 without | hardcoded `user_demo` |
+| POST | `/api/v1/posts` | same (alias of the above) | hardcoded `user_demo` |
+| POST | `/api/v1/media/upload` | `requireViewerId()`, 401 without | hardcoded `user_demo` |
+| POST | `/api/v1/feedback` | `requireViewerId()`, 401 without | hardcoded `user_demo` |
+| POST | `/api/v1/posts/:id/replies` | `requireViewerId()`; `anonymous: true` stores no author | hardcoded `user_demo` unless anonymous |
+| POST | `/api/v1/posts/:id/hide` | `viewerUserId()`, 401 without | hardcoded `user_demo` |
+| GET | `/api/v1/posts` | `viewerUserId()` for hides and `favoritedByCurrentUser`; readable without identity | demo account's hides and favourites for every viewer |
+
+

@@ -1,0 +1,10 @@
+[
+ {
+  "selector": "journey-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "journey-action",
+  "expect": { "urlChanged": true }
+ }
+]

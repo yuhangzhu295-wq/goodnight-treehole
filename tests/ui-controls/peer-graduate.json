@@ -1,0 +1,22 @@
+[
+ {
+  "selector": "peer-graduate-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "peer-graduate-note",
+  "settleMs": 500,
+  "expect": { "present": "[data-testid=\"peer-graduate-note-input\"]" }
+ },
+ {
+  "selector": "peer-graduate-feeling-helpful",
+  "prefill": { "click": "peer-graduate-note", "waitFor": "peer-graduate-note-input" },
+  "settleMs": 600,
+  "expect": { "present": "[data-testid=\"peer-graduate-feeling-helpful\"].selected" }
+ },
+ {
+  "selector": "peer-graduate-skip",
+  "settleMs": 2000,
+  "expect": { "urlChanged": true }
+ }
+]

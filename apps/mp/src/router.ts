@@ -18,6 +18,7 @@ const DiaryDetail = () => import('./views/DiaryDetail.vue');
 const ReportMonth = () => import('./views/ReportMonth.vue');
 const LetterList = () => import('./views/LetterList.vue');
 const LetterDetail = () => import('./views/LetterDetail.vue');
+const Archive = () => import('./views/Archive.vue');
 const FavoriteList = () => import('./views/FavoriteList.vue');
 const PrivacySettings = () => import('./views/PrivacySettings.vue');
 const FeedbackHelp = () => import('./views/FeedbackHelp.vue');
@@ -37,6 +38,10 @@ const PeerGraduation = () => import('./views/PeerGraduation.vue');
 const RealityHandoff = () => import('./views/RealityHandoff.vue');
 const FutureSelf = () => import('./views/FutureSelf.vue');
 const Recovery = () => import('./views/Recovery.vue');
+const SupportPlan = () => import('./views/SupportPlan.vue');
+const StableSelf = () => import('./views/StableSelf.vue');
+const MemoryCenter = () => import('./views/MemoryCenter.vue');
+const DecisionVault = () => import('./views/DecisionVault.vue');
 const SafetySupport = () => import('./views/SafetySupport.vue');
 const NotificationCenter = () => import('./views/NotificationCenter.vue');
 
@@ -60,6 +65,10 @@ export const router = createRouter({
     { path: '/pages/notifications/index', component: NotificationCenter },
     { path: '/pages/future-self/index', component: FutureSelf },
     { path: '/pages/recovery/index', component: Recovery },
+    { path: '/pages/support-plan/index', component: SupportPlan },
+    { path: '/pages/stable-self/index', component: StableSelf },
+    { path: '/pages/memory/index', component: MemoryCenter },
+    { path: '/pages/decision/index', component: DecisionVault },
     { path: '/pages/square/index', component: Square },
     { path: '/pages/mood/create', component: MoodCreate },
     { path: '/pages/post/create', component: MoodCreate },
@@ -87,6 +96,7 @@ export const router = createRouter({
     { path: '/pages/me/month-report', component: ReportMonth },
     { path: '/pages/letter/list', component: LetterList },
     { path: '/pages/letter/detail', component: LetterDetail },
+    { path: '/pages/archive/index', component: Archive },
     { path: '/pages/favorite/index', component: FavoriteList },
     { path: '/pages/favorite/list', component: FavoriteList },
     { path: '/pages/settings/privacy', component: PrivacySettings },

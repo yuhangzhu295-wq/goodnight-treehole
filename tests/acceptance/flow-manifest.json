@@ -1,0 +1,117 @@
+{
+  "schema": "goodnight.acceptance-manifest/v1",
+  "note": [
+    "One entry per business flow. `spec` names the file that implements it; `evidence` lists the layers",
+    "that flow must produce. A layer is required unless `notApplicable` explains why it cannot exist for",
+    "that flow - a flow may not simply omit one.",
+    "Status is never stored here: it is derived from the run's summary.json, so the manifest cannot",
+    "disagree with what actually ran."
+  ],
+  "evidenceLayers": ["UI_EVIDENCE", "API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"],
+  "flows": [
+    {
+      "id": "F01",
+      "title": "Anonymous identity and session lifecycle",
+      "spec": "tests/acceptance/F01-identity-session.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"],
+      "notApplicable": { "UI_EVIDENCE": "The Android capture for this flow lives in the F16 page pass; here the identity is exercised over HTTP." }
+    },
+    {
+      "id": "F02",
+      "title": "Tonight entry creates a journey owned by the caller",
+      "spec": "tests/acceptance/F02-tonight-journey.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F03",
+      "title": "Journey state machine and its refusal paths",
+      "spec": "tests/acceptance/F03-journey-state.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F04",
+      "title": "Action commitment: create, complete, re-read, and adapt",
+      "spec": "tests/acceptance/F04-actions.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F05",
+      "title": "Peer experience sharing between two users",
+      "spec": "tests/acceptance/F05-peer-experience.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F06",
+      "title": "Two-sided peer consent and conversation",
+      "spec": "tests/acceptance/F06-peer-consent-chat.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F07",
+      "title": "Privacy revocation actually revokes",
+      "spec": "tests/acceptance/F07-privacy-revocation.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F08",
+      "title": "Memory lifecycle including re-consent and deletion",
+      "spec": "tests/acceptance/F08-memory-lifecycle.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F09",
+      "title": "Decision vault and cooldown",
+      "spec": "tests/acceptance/F09-decision-vault.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F10",
+      "title": "Message to future self: scheduling, restart, delivery once",
+      "spec": "tests/acceptance/F10-future-self.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F11",
+      "title": "Diary, letter and favourite ownership",
+      "spec": "tests/acceptance/F11-diary-letter-favorite.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F12",
+      "title": "Community post: moderation, replies, counters",
+      "spec": "tests/acceptance/F12-community-post.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F13",
+      "title": "Safety support reachability",
+      "spec": "tests/acceptance/F13-safety-support.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F14",
+      "title": "Admin console: moderation, disclosure limits, audit",
+      "spec": "tests/acceptance/F14-admin.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "SECURITY_EVIDENCE"]
+    },
+    {
+      "id": "F15",
+      "title": "Two API instances agree through the database",
+      "spec": "tests/acceptance/F15-multi-instance.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    },
+    {
+      "id": "F16",
+      "title": "Every C-end page opens, responds and persists on Android",
+      "spec": "scripts/acceptance/android-page-pass.mjs",
+      "evidence": ["UI_EVIDENCE", "API_EVIDENCE", "DATABASE_EVIDENCE"],
+      "notApplicable": { "SECURITY_EVIDENCE": "Covered by F01-F15 over HTTP; the page pass is about reachability and real interaction." }
+    },
+    {
+      "id": "F17",
+      "title": "Restart and recovery",
+      "spec": "tests/acceptance/F17-restart-recovery.spec.ts",
+      "evidence": ["API_EVIDENCE", "DATABASE_EVIDENCE", "PERSISTENCE_EVIDENCE"]
+    }
+  ]
+}

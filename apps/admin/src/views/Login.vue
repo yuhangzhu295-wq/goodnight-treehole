@@ -7,7 +7,6 @@ import loginSceneUrl from '../assets/login-scene-reference.png';
 const router = useRouter();
 const username = ref('');
 const password = ref('');
-const captcha = ref('');
 const remember = ref(true);
 const error = ref('');
 const notice = ref('');
@@ -116,16 +115,9 @@ function forgotPassword() {
           <input data-testid="admin-login-password" v-model="password" type="password" aria-label="密码" autocomplete="current-password" placeholder="请输入密码" />
         </span>
       </label>
-      <label class="login-field">
-        <span class="login-field-label">验证码</span>
-        <div class="captcha-row">
-          <span class="login-input-wrap">
-            <svg class="login-input-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3L19 6V11.5C19 16.2 16 19.4 12 21C8 19.4 5 16.2 5 11.5V6L12 3Z" /><path d="M9 12L11 14L15.5 9.5" /></svg>
-            <input data-testid="admin-login-captcha" v-model="captcha" aria-label="验证码" inputmode="text" autocomplete="one-time-code" placeholder="请输入验证码" />
-          </span>
-          <output class="captcha-code">7 · 3 · K · 8</output>
-        </div>
-      </label>
+      <!-- The captcha field that used to sit here was never validated on either side, so it
+           only pretended to be a security control (product audit ISSUE-012). It is removed
+           rather than faked; real protection is server-side throttling on this endpoint. -->
 
       <div class="login-options">
         <label><input type="checkbox" v-model="remember" /> 记住我</label>

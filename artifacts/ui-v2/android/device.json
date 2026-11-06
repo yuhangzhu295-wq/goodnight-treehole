@@ -1,0 +1,11 @@
+{
+  "avd": "GoodnightPixel7Api34",
+  "serial": "emulator-5554",
+  "model": "sdk_gphone64_x86_64",
+  "androidApiLevel": "34",
+  "apkPath": "apps/mp/android/app/build/outputs/apk/debug/app-debug.apk",
+  "apkSha256": "31337e168b55a9e7c540f2821444a874de87a46cedaa89a3954589143b097931",
+  "gitCommit": "b1252be5ae907a736e83e492439c7cf69dac515b",
+  "capturedFor": "ISSUE-001 safe-area before/after",
+  "note": "real emulator renders, not design images"
+}

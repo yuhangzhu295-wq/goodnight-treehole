@@ -1,0 +1,26 @@
+PASS admin login :: status=201
+PASS a real conversation exists between two users :: conversationId=peer_conversation_89cba4cbd6
+PASS user A can file a report :: status=201
+PASS the user-facing response leaks neither reporter nor reason :: keys=id,matchId,status,startsAt,consentAcceptedAt,expiresAt,createdAt,messages
+PASS the other participant can report the same conversation :: status=201
+PASS two independent report rows exist (no overwrite) :: rows=2
+PASS each row keeps its own reporter :: user_demo,user_guest
+PASS each row keeps its own reason :: RC-REPORT-A-1791056158 | RC-REPORT-B-1791056158
+PASS both rows start open :: open,open
+PASS the experience counter is derived from the history :: reportCount=2 historyRows=2
+PASS admin sees both reports as separate rows :: status=200 rows=2
+PASS admin rows carry reporter, reason, time and status :: user_guest:open user_demo:open
+PASS admin can close one report :: status=200
+PASS the closed report is handled and the other is untouched :: A=handled B=open rows=2
+PASS closing a report writes an audit row :: PEER_REPORT_HANDLE present
+PASS a new report after the previous one was closed creates a new row :: rows=3 A_rows=2
+PASS reporting again while a report is still open updates it instead of duplicating :: status=201 rows=3
+PASS the derived counter follows the history :: rows=3
+PASS the conversation keeps a pointer to the latest report :: latestReporter=user_demo reason=RC-REPORT-A4-1791056
+PASS the report list requires admin auth :: status=401
+PASS handling a report requires admin auth :: status=401
+PASS an invalid status is rejected :: status=400
+PASS an unknown report is rejected :: status=404
+PASS the report is not exposed through the user conversation API :: status=200
+
+24/24 pass

@@ -1,0 +1,17 @@
+[
+ {
+  "selector": "btn-favorite",
+  "expect": {
+   "apiRead": "/api/v1/posts",
+   "pick": "b => Number(b.items.find(p => p.id === 'post_seed_shimian').favoritedByCurrentUser === true)",
+   "setupApi": [
+    {
+     "method": "DELETE",
+     "path": "/api/v1/posts/post_seed_shimian/favorite"
+    }
+   ],
+   "apiDelta": 1
+  },
+  "waitFor": "[data-testid=\"btn-favorite\"]"
+ }
+]

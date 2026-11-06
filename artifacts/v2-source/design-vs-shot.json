@@ -1,0 +1,730 @@
+[
+ {
+  "slug": "tonight-home",
+  "design": "01_TonightHome.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 6.92,
+  "columnProfileCorr": 0.8717
+ },
+ {
+  "slug": "square",
+  "design": "22_Square.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 13.18,
+  "columnProfileCorr": 0.0542
+ },
+ {
+  "slug": "peer-network",
+  "design": "02_PeerNetwork.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 7.05,
+  "columnProfileCorr": 0.7161
+ },
+ {
+  "slug": "peer-requests",
+  "design": "07_PeerRequests.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 5.68,
+  "columnProfileCorr": 0.7952
+ },
+ {
+  "slug": "action-center",
+  "design": "03_ActionCenter.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 17.09,
+  "columnProfileCorr": 0.638
+ },
+ {
+  "slug": "future-self",
+  "design": "15_FutureSelf.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 17.77,
+  "columnProfileCorr": 0.9462
+ },
+ {
+  "slug": "tool-index",
+  "design": "26_ToolIndex.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 11.29,
+  "columnProfileCorr": 0.5936
+ },
+ {
+  "slug": "tool-decompose",
+  "design": "27_ToolDecompose.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 21.49,
+  "columnProfileCorr": 0.5059
+ },
+ {
+  "slug": "tool-rewrite",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 23.3,
+  "columnProfileCorr": 0.6076
+ },
+ {
+  "slug": "tool-rant",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 22.51,
+  "columnProfileCorr": 0.5293
+ },
+ {
+  "slug": "tool-heal",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 22.59,
+  "columnProfileCorr": 0.5452
+ },
+ {
+  "slug": "tool-sleep",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 22.25,
+  "columnProfileCorr": 0.5839
+ },
+ {
+  "slug": "tool-work",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 23.23,
+  "columnProfileCorr": 0.5783
+ },
+ {
+  "slug": "tool-breakdown",
+  "design": "27_ToolDecompose.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 21.49,
+  "columnProfileCorr": 0.5059
+ },
+ {
+  "slug": "tool-future",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 23.08,
+  "columnProfileCorr": 0.5623
+ },
+ {
+  "slug": "tool-run",
+  "design": "28_ToolRun.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 23.3,
+  "columnProfileCorr": 0.6076
+ },
+ {
+  "slug": "recovery",
+  "design": "16_Recovery.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 14.08,
+  "columnProfileCorr": 0.6482
+ },
+ {
+  "slug": "support-plan",
+  "design": "17_SupportPlan.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 25.51,
+  "columnProfileCorr": 0.935
+ },
+ {
+  "slug": "stable-self",
+  "design": "18_StableSelf.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 26.88,
+  "columnProfileCorr": 0.9683
+ },
+ {
+  "slug": "decision-vault",
+  "design": "20_DecisionVault.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 10.13,
+  "columnProfileCorr": 0.8592
+ },
+ {
+  "slug": "memory-center",
+  "design": "19_MemoryCenter.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 7.32,
+  "columnProfileCorr": 0.9115
+ },
+ {
+  "slug": "notifications",
+  "design": "14_NotificationCenter.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 4.82,
+  "columnProfileCorr": 0.6903
+ },
+ {
+  "slug": "reality-handoff",
+  "design": "12_RealityHandoff.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 23.23,
+  "columnProfileCorr": 0.8134
+ },
+ {
+  "slug": "safety-support",
+  "design": "13_SafetySupport.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 13.76,
+  "columnProfileCorr": 0.968
+ },
+ {
+  "slug": "me",
+  "design": "04_Me.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 7.65,
+  "columnProfileCorr": 0.8305
+ },
+ {
+  "slug": "me-profile",
+  "design": "29_MeProfile.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 13.05,
+  "columnProfileCorr": 0.8062
+ },
+ {
+  "slug": "me-diaries",
+  "design": "30_DiaryList.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 17.87,
+  "columnProfileCorr": 0.0682
+ },
+ {
+  "slug": "me-month-report",
+  "design": "32_ReportMonth.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 18.41,
+  "columnProfileCorr": 0.7198
+ },
+ {
+  "slug": "diary-list",
+  "design": "30_DiaryList.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 17.87,
+  "columnProfileCorr": 0.0682
+ },
+ {
+  "slug": "letter-list",
+  "design": "33_LetterList.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 10.96,
+  "columnProfileCorr": 0.4127
+ },
+ {
+  "slug": "letter-today",
+  "design": "25_LetterToday.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 13.97,
+  "columnProfileCorr": 0.8816
+ },
+ {
+  "slug": "letter-today-alias",
+  "design": "25_LetterToday.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 13.97,
+  "columnProfileCorr": 0.8816
+ },
+ {
+  "slug": "reply-today",
+  "design": "25_LetterToday.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 13.97,
+  "columnProfileCorr": 0.8816
+ },
+ {
+  "slug": "archive",
+  "design": "21_Archive.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 6.81,
+  "columnProfileCorr": 0.6135
+ },
+ {
+  "slug": "favorites",
+  "design": "35_FavoriteList.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 10.04,
+  "columnProfileCorr": 0.523
+ },
+ {
+  "slug": "settings-privacy",
+  "design": "36_PrivacySettings.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 9.56,
+  "columnProfileCorr": 0.3921
+ },
+ {
+  "slug": "settings-data-policy",
+  "design": "37_DataPolicy.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 10.06,
+  "columnProfileCorr": 0.8927
+ },
+ {
+  "slug": "help-feedback",
+  "design": "38_FeedbackHelp.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 21.58,
+  "columnProfileCorr": 0.6141
+ },
+ {
+  "slug": "help-faqs",
+  "design": "39_HelpFaqs.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 6.45,
+  "columnProfileCorr": 0.3741
+ },
+ {
+  "slug": "feedback-list",
+  "design": "38_FeedbackHelp.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 21.58,
+  "columnProfileCorr": 0.6141
+ },
+ {
+  "slug": "mood-create",
+  "design": "23_MoodCreate.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 18.1,
+  "columnProfileCorr": 0.8057
+ },
+ {
+  "slug": "post-create",
+  "design": "23_MoodCreate.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 18.1,
+  "columnProfileCorr": 0.8057
+ },
+ {
+  "slug": "report-month",
+  "design": "32_ReportMonth.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 18.41,
+  "columnProfileCorr": 0.7198
+ },
+ {
+  "slug": "journey-detail",
+  "design": "05_JourneyDetail.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 15.8,
+  "columnProfileCorr": 0.6872
+ },
+ {
+  "slug": "diary-detail",
+  "design": "31_DiaryDetail.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 5.76,
+  "columnProfileCorr": 0.0469
+ },
+ {
+  "slug": "letter-detail",
+  "design": "34_LetterDetail.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 12.16,
+  "columnProfileCorr": -0.477
+ },
+ {
+  "slug": "post-detail",
+  "design": "24_PostDetail.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 8.47,
+  "columnProfileCorr": 0.4757
+ },
+ {
+  "slug": "peer-detail",
+  "design": "06_PeerExperienceDetail.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 16.1,
+  "columnProfileCorr": 0.6031
+ },
+ {
+  "slug": "peer-consent",
+  "design": "09_PeerConsent.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 23.04,
+  "columnProfileCorr": 0.6419
+ },
+ {
+  "slug": "peer-conversation",
+  "design": "10_PeerConversation.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 8.65,
+  "columnProfileCorr": 0.2102
+ },
+ {
+  "slug": "peer-wait",
+  "design": "08_PeerMatchWaiting.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 14.34,
+  "columnProfileCorr": 0.523
+ },
+ {
+  "slug": "peer-graduate",
+  "design": "11_PeerGraduation.png",
+  "designSize": [
+   780,
+   1688
+  ],
+  "shotSize": [
+   1082,
+   2203
+  ],
+  "meanLumaDiff": 19.95,
+  "columnProfileCorr": 0.7172
+ }
+]

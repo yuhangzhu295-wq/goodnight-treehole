@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Layout from './Layout.vue';
-import { adminApi } from '../api';
+import { adminApi, downloadAdminFile } from '../api';
 
 const items = ref<any[]>([]);
 const total = ref(0);
@@ -10,6 +10,7 @@ const filter = ref('all');
 const selectedId = ref('');
 const detailOpen = ref(false);
 const note = ref('');
+const noteHistory = ref<Array<{ id: string; content: string; createdAt: string }>>([]);
 const status = ref('正在读取用户数据…');
 const busy = ref(false);
 const confirmation = ref<{ title: string; message: string; run: () => Promise<void> } | null>(null);
@@ -65,8 +66,38 @@ async function load() {
 
 function openDetail(user: any) {
   selectedId.value = user.id;
-  note.value = user.note ?? '';
+  note.value = '';
   detailOpen.value = true;
+  void loadNotes(user.id);
+}
+
+/** The note history is read from the API rather than inferred from the list payload, so a
+ *  retracted note and the full history are both visible (ISSUE-027). */
+async function loadNotes(userId: string) {
+  try {
+    const res = await adminApi.get<{ items: Array<{ id: string; content: string; createdAt: string }> }>(
+      `/api/admin/v1/users/${userId}/notes`,
+    );
+    noteHistory.value = res.items ?? [];
+  } catch {
+    noteHistory.value = [];
+  }
+}
+
+async function deleteNote(noteId: string) {
+  const userId = selected.value?.id;
+  if (!userId) return;
+  busy.value = true;
+  try {
+    await adminApi.delete(`/api/admin/v1/users/${userId}/notes/${noteId}`);
+    await load();
+    await loadNotes(userId);
+    status.value = '备注已删除';
+  } catch (error: any) {
+    status.value = error?.message ?? '删除备注失败';
+  } finally {
+    busy.value = false;
+  }
 }
 
 async function mutate(message: string, request: () => Promise<unknown>) {
@@ -95,14 +126,24 @@ function requestStatus(nextStatus: 'normal' | 'limited' | 'banned') {
 }
 
 async function saveNote() {
-  await mutate('用户备注已保存', () => adminApi.post(`/api/admin/v1/users/${selected.value?.id}/note`, { note: note.value, tags: ['运营关注'] }));
+  const userId = selected.value?.id;
+  if (!userId) return;
+  // Appends a note row through the notes collection, which is the persisted business record.
+  await mutate('用户备注已添加', async () => {
+    await adminApi.post(`/api/admin/v1/users/${userId}/notes`, { content: note.value });
+    note.value = '';
+    await loadNotes(userId);
+  });
 }
 
 async function exportUsers() {
   busy.value = true;
   try {
     const response = await adminApi.get<any>('/api/admin/v1/users/export');
-    status.value = response.item?.downloadUrl ? `导出文件已生成：${response.item.downloadUrl}` : '导出文件已生成';
+    const url = response.item?.downloadUrl;
+    if (!url) throw new Error('导出失败，请稍后重试');
+    const filename = await downloadAdminFile(url);
+    status.value = `已导出 ${response.item.count} 位用户：${filename}`;
   } catch (error: any) {
     status.value = error?.message ?? '导出失败，请稍后重试';
   } finally {
@@ -162,7 +203,20 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
             <header class="detail-drawer-header"><div><span>用户详情</span><h2>{{ selected.nickname }}</h2></div><button type="button" class="detail-close" data-testid="admin-detail-close" aria-label="关闭详情" @click="detailOpen = false">×</button></header>
             <div class="detail-drawer-body">
               <section class="detail-group"><h3>基本信息</h3><dl><dt>匿名代号</dt><dd data-visual-mask="userText">{{ text(selected.anonymousCode) }}</dd><dt>用户 ID</dt><dd data-visual-mask="userText">{{ text(selected.id) }}</dd><dt>当前状态</dt><dd>{{ statusLabel(selected.status) }}</dd><dt>注册时间</dt><dd data-visual-mask="time">{{ formatTime(selected.createdAt) }}</dd><dt>树洞数量</dt><dd data-visual-mask="stat">{{ postCountByUser[selected.id] ?? 0 }}</dd><dt>回应数量</dt><dd data-visual-mask="stat">{{ replyCountByUser[selected.id] ?? 0 }}</dd></dl></section>
-              <section class="detail-group"><h3>运营备注</h3><textarea v-model="note" rows="4" placeholder="仅供管理员内部协作使用"></textarea><div class="drawer-actions"><button class="primary" type="button" data-testid="admin-user-note" :disabled="busy" @click="saveNote">保存备注</button><button class="danger" type="button" data-testid="admin-user-ban" :disabled="busy" @click="requestStatus('banned')">封禁用户</button><details><summary data-testid="admin-user-more">更多操作</summary><button type="button" data-testid="admin-user-mute" :disabled="busy" @click="requestStatus('limited')">禁言</button><button type="button" data-testid="admin-user-restore" :disabled="busy" @click="requestStatus('normal')">恢复正常</button></details></div></section>
+              <section class="detail-group">
+                <h3>运营备注</h3>
+                <textarea v-model="note" rows="4" placeholder="仅供管理员内部协作使用"></textarea>
+                <p class="note-hint">提交将追加新备注，不会修改已有历史记录。</p>
+                <div class="drawer-actions"><button class="primary" type="button" data-testid="admin-user-note" :disabled="busy" @click="saveNote">新增备注</button><button class="danger" type="button" data-testid="admin-user-ban" :disabled="busy" @click="requestStatus('banned')">封禁用户</button><details><summary data-testid="admin-user-more">更多操作</summary><button type="button" data-testid="admin-user-mute" :disabled="busy" @click="requestStatus('limited')">禁言</button><button type="button" data-testid="admin-user-restore" :disabled="busy" @click="requestStatus('normal')">恢复正常</button></details></div>
+                <ol v-if="noteHistory.length" class="note-history" data-testid="admin-user-note-history">
+                  <li v-for="item in noteHistory" :key="item.id">
+                    <p>{{ item.content }}</p>
+                    <small data-visual-mask="time">{{ formatTime(item.createdAt) }}</small>
+                    <button type="button" data-testid="admin-user-note-delete" :disabled="busy" @click="deleteNote(item.id)">删除</button>
+                  </li>
+                </ol>
+                <p v-else class="muted">暂无历史备注</p>
+              </section>
               <section v-if="confirmation" class="confirm-panel"><h3>{{ confirmation.title }}</h3><p>{{ confirmation.message }}</p><div><button type="button" @click="confirmation = null">取消</button><button type="button" class="danger" data-testid="admin-confirm-action" @click="confirmation.run().then(() => confirmation = null)">确认封禁</button></div></section>
             </div>
           </aside>
@@ -240,8 +294,13 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
   margin-left: auto;
 }
 
-.users-status {
+/* The status line carries load and write failures, so it must be visible. Hiding it meant a
+   failed request looked like a successful empty table (product audit ISSUE-023). */
+.users-status:empty {
   display: none;
+}
+.users-status {
+  margin: 6px 0 0;
 }
 
 .users-metrics {
@@ -379,5 +438,37 @@ onBeforeUnmount(() => workspaceMedia?.removeEventListener('change', syncWideWork
   .users-filters button[data-testid="admin-user-export"] {
     margin-left: 0;
   }
+}
+/* Operator note history: append-only, so the drawer lists every note that has not been
+   retracted instead of only the most recent one (ISSUE-027). */
+.note-hint {
+  margin: 6px 0 0;
+  color: var(--gn-ink-soft, #5b6257);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.note-history {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.note-history li {
+  color: var(--gn-ink-soft, #5b6257);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.note-history p {
+  margin: 0 0 2px;
+  color: var(--gn-ink, #22271f);
+}
+
+.note-history button {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
 }
 </style>

@@ -80,6 +80,37 @@ export interface PrivacySetting {
   allowRecoveryData?: boolean;
   allowJourneyLongTermAnalysis?: boolean;
   allowLongTermMemory?: boolean;
+  allowAiMemoryUse?: boolean;
+  allowAnonymousExperienceShare?: boolean;
+  allowJourneyArchiveRetention?: boolean;
+  allowFutureSelfNotifications?: boolean;
+  allowDataExport?: boolean;
+}
+
+export type MemoryType = 'episodic' | 'semantic' | 'pattern' | 'state';
+export type MemorySensitivity = 'low' | 'medium' | 'high';
+
+export interface MemoryItem {
+  id: string;
+  userId: string;
+  journeyId?: string | null;
+  category?: string;
+  source?: string;
+  title: string;
+  content: string;
+  scope: string;
+  memoryType?: MemoryType;
+  status: 'active' | 'disabled' | 'expired' | 'archived' | 'deleted' | 'revoked';
+  expiresAt: string;
+  consentedAt?: string;
+  revokedAt?: string | null;
+  deletedAt?: string | null;
+  sensitivity?: MemorySensitivity;
+  importance?: number;
+  statePriority?: number;
+  createdAt: string;
+  updatedAt: string;
+  usages?: Array<{ jobId: string; taskType: string; at: string }>;
 }
 
 export interface LifeJourney {

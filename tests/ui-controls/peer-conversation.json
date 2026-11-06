@@ -1,0 +1,30 @@
+[
+  {
+    "selector": "peer-conv-back",
+    "expect": { "urlChanged": true }
+  },
+  {
+    "selector": "input-peer-conv",
+    "expect": { "present": "[data-testid=\"input-peer-conv\"]" }
+  },
+  {
+    "selector": "btn-peer-conv-send",
+    "prefill": {
+      "fill": { "selector": "input-peer-conv", "value": "今天的心情正在慢慢平复。" },
+      "click": "btn-peer-conv-send",
+      "waitFor": ".message-unit.mine"
+    },
+    "settleMs": 800,
+    "expect": { "present": ".message-unit.mine" }
+  },
+  {
+    "selector": "peer-conv-safety",
+    "settleMs": 400,
+    "expect": { "present": "[data-testid=\"peer-conv-block\"]" }
+  },
+  {
+    "selector": "peer-conv-end",
+    "settleMs": 400,
+    "expect": { "present": "[data-testid=\"peer-conv-confirm-end\"]" }
+  }
+]

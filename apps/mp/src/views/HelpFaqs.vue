@@ -1,19 +1,57 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
+
+type Faq = { id: string; question: string; answer: string };
 
 const router = useRouter();
-const faqs = ref<any[]>([]);
+const faqs = ref<Faq[]>([]);
 const opened = ref('');
 const loading = ref(true);
 const loadError = ref('');
+const searchTerm = ref('');
+
+/** Matches the design's three groups. */
+const groupRules: Array<{ key: string; label: string; test: RegExp }> = [
+  { key: 'account', label: '账号与隐私', test: /身份|账号|匿名|隐私|删除|设备|凭据|编号|找回|数据/ },
+  { key: 'ai', label: 'AI 与同路', test: /AI|同路|会话|聊天|匹配|回信|记忆/ },
+  { key: 'help', label: '反馈与联系', test: /反馈|提交|运营|联系/ },
+];
+
+function groupOf(faq: Faq) {
+  const text = `${faq.question}\n${faq.answer}`;
+  for (const rule of groupRules) {
+    if (rule.test.test(text)) return rule;
+  }
+  // An unmatched entry still belongs somewhere; it is not dropped and it is not invented into a group
+  // its text does not support.
+  return { key: 'other', label: '其他问题', test: /$/ };
+}
+
+const filtered = computed(() => {
+  const term = searchTerm.value.trim().toLowerCase();
+  if (!term) return faqs.value;
+  return faqs.value.filter((faq) => `${faq.question}\n${faq.answer}`.toLowerCase().includes(term));
+});
+
+const groups = computed(() => {
+  const buckets = new Map<string, { label: string; items: Faq[] }>();
+  for (const faq of filtered.value) {
+    const rule = groupOf(faq);
+    const bucket = buckets.get(rule.key) ?? { label: rule.label, items: [] };
+    bucket.items.push(faq);
+    buckets.set(rule.key, bucket);
+  }
+  return [...buckets.entries()].map(([key, value]) => ({ key, ...value }));
+});
 
 async function load() {
   loading.value = true;
   loadError.value = '';
   try {
-    faqs.value = (await api.get<any>('/api/v1/feedback/faqs')).items ?? [];
+    faqs.value = (await api.get<{ items: Faq[] }>('/api/v1/feedback/faqs')).items ?? [];
   } catch (error: any) {
     loadError.value = error?.message ?? '常见问题加载失败，请稍后重试。';
   } finally {
@@ -21,86 +59,365 @@ async function load() {
   }
 }
 
+/**
+ * One line of the answer under a collapsed question.
+ *
+ * The design's rows are title + a grey second line; without it every row was a single line and the
+ * list read as a menu rather than as questions with answers behind them.
+ */
+function previewOf(answer: string) {
+  const text = String(answer ?? '').replace(/\s+/g, ' ').trim();
+  return text.length > 42 ? `${text.slice(0, 42)}…` : text;
+}
+
+/** The design's last group is a real entry point, not a decoration. */
+function openFeedback() {
+  router.push('/pages/help/feedback');
+}
+
 onMounted(load);
 </script>
 
 <template>
-  <section class="page goodnight-page rest-page list-page help-faq-page">
-    <header class="help-faq-hero">
-      <img class="help-faq-tree" src="../assets/goodnight/tree-top-cutout.png" alt="" aria-hidden="true" />
-      <button class="help-faq-back" data-testid="front-faqs-back" type="button" aria-label="返回帮助与反馈" @click="router.back()">‹</button>
-      <div><p>帮助与反馈</p><h1>全部常见问题</h1></div>
+  <section class="goodnight-page help-faq-page">
+    <header class="faq-bar">
+      <button
+        class="back-btn"
+        data-testid="front-faqs-back"
+        type="button"
+        aria-label="返回帮助与反馈"
+        @click="router.back()"
+      >
+        ‹
+      </button>
+      <h1>常见问题</h1>
+      <span aria-hidden="true"></span>
     </header>
 
-    <div v-if="loading" class="help-faq-state" role="status">正在读取常见问题…</div>
+    <div class="faq-search">
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input
+        v-model="searchTerm"
+        data-testid="input-faq-search"
+        type="text"
+        placeholder="搜索常见问题"
+        aria-label="搜索常见问题"
+      />
+      <button v-if="searchTerm" class="search-clear" type="button" data-testid="btn-faq-search-clear" @click="searchTerm = ''">
+        清除
+      </button>
+    </div>
+
+    <p v-if="loading" class="faq-state" data-testid="faq-loading">正在读取常见问题…</p>
+    <LoadErrorBanner v-else-if="loadError" :message="loadError" retry-label="重新加载" @retry="load()" />
+
     <template v-else>
-      <p v-if="loadError" class="help-faq-error" role="status">{{ loadError }}</p>
-      <section v-if="faqs.length" class="help-faq-list" aria-label="全部常见问题">
-        <article v-for="(faq, index) in faqs" :key="faq.id" class="help-faq-item" :data-testid="`faq-full-${index + 1}`">
-          <button type="button" :aria-expanded="opened === faq.id" @click="opened = opened === faq.id ? '' : faq.id">
-            <span class="help-faq-icon" aria-hidden="true">?</span>
-            <strong>{{ faq.question }}</strong>
-            <span class="help-faq-chevron" :class="{ open: opened === faq.id }" aria-hidden="true">›</span>
-          </button>
-          <p v-if="opened === faq.id">{{ faq.answer }}</p>
-        </article>
-      </section>
-      <p v-else class="help-faq-state">暂时没有可展示的常见问题。</p>
+      <template v-if="groups.length">
+        <section v-for="group in groups" :key="group.key" class="faq-group" :aria-label="group.label">
+          <h2 class="group-label">{{ group.label }}</h2>
+          <article
+            v-for="(faq, index) in group.items"
+            :key="faq.id"
+            class="faq-item"
+            :data-testid="index === 0 && group.key === groups[0].key ? 'faq-full-1' : `faq-${faq.id}`"
+          >
+            <button
+              class="faq-trigger"
+              type="button"
+              :aria-expanded="opened === faq.id"
+              @click="opened = opened === faq.id ? '' : faq.id"
+            >
+              <span class="faq-main">
+                <strong class="faq-question">{{ faq.question }}</strong>
+                <small v-if="opened !== faq.id" class="faq-preview">{{ previewOf(faq.answer) }}</small>
+              </span>
+              <span class="faq-chevron" :class="{ open: opened === faq.id }" aria-hidden="true">›</span>
+            </button>
+            <div v-if="opened === faq.id" class="faq-content">
+              <p class="faq-answer">{{ faq.answer }}</p>
+            </div>
+          </article>
+        </section>
+      </template>
+
+      <div v-else class="faq-empty" data-testid="faq-list-empty">
+        <strong>{{ searchTerm ? '没有匹配的问题' : '暂时没有可展示的常见问题。' }}</strong>
+        <p v-if="searchTerm">换一个词试试，搜索只覆盖已经加载的问题。</p>
+      </div>
+
     </template>
+
+    <!-- A real route: the last group of the design is where a reader goes when the answer is not
+         here, and it leads to the form that actually creates a ticket. It sits outside the state
+         branch on purpose: when the FAQ request fails this entry is the only useful action left. -->
+    <section class="faq-group" aria-label="仍需帮助">
+      <h2 class="group-label">仍需帮助</h2>
+      <button class="faq-entry" type="button" data-testid="btn-faq-open-feedback" @click="openFeedback">
+        <span class="faq-copy">
+          <strong>提交问题反馈</strong>
+          <small>将问题发送给运营处理</small>
+        </span>
+        <span class="faq-chevron" aria-hidden="true">›</span>
+      </button>
+    </section>
   </section>
 </template>
 
 <style scoped>
 .help-faq-page {
   display: block;
-  min-height: 100vh;
-  padding: 0 14px calc(132px + env(safe-area-inset-bottom));
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 94% 4%, rgba(228, 239, 206, .68), transparent 22rem),
-    linear-gradient(180deg, #fffdf8 0%, #fcf8ed 78%, #f8f1e3 100%);
-  color: #2c382a;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  gap: 0;
+  /* The bar and search below are exactly viewport-wide; `.goodnight-page` clips them at the inset. */
+  overflow-x: visible;
+  padding: 0 0 calc(24px + env(safe-area-inset-bottom));
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-family: var(--gn-font-body);
 }
 
-.help-faq-page *,
-.help-faq-page *::before,
-.help-faq-page *::after { box-sizing: border-box; }
-
-.help-faq-hero {
-  position: relative;
-  display: flex;
-  gap: 15px;
+.faq-bar {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
   align-items: center;
-  min-height: 154px;
-  margin: 0 -14px 5px;
-  padding: 31px 22px 24px;
-  overflow: hidden;
-  isolation: isolate;
+  gap: 0;
+  box-sizing: border-box;
+  width: calc(100% + 32px);
+  max-width: none;
+  min-height: 52px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gn-line);
+  border-radius: 0;
+  background: var(--gn-paper);
 }
 
-.help-faq-tree { position: absolute; top: -39px; right: -32px; z-index: -1; width: min(62vw, 285px); max-width: none; opacity: .66; pointer-events: none; }
-.help-faq-back { display: grid; place-items: center; flex: 0 0 auto; width: 42px; height: 42px; min-height: 42px; padding: 0; border: 0; border-radius: 50%; color: #4c6e32; background: rgba(255, 253, 246, .72); box-shadow: none; font-size: 38px; line-height: 1; }
-.help-faq-hero > div { min-width: 0; }
-.help-faq-hero p { margin: 0 0 5px; color: #768b50; font-size: 13px; font-weight: 700; letter-spacing: .08em; }
-.help-faq-hero h1 { margin: 0; color: #304829; font-family: var(--gn-font-body, "Noto Serif SC", serif); font-size: clamp(28px, 8.5vw, 38px); letter-spacing: .04em; line-height: 1.15; }
+.faq-bar h1 {
+  margin: 0;
+  color: var(--gn-ink);
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
 
-.help-faq-list { overflow: hidden; border: 1px solid rgba(126, 145, 83, .18); border-radius: 25px; background: rgba(255, 255, 252, .95); box-shadow: 0 14px 30px rgba(74, 84, 55, .08); }
-.help-faq-item { padding: 0 18px; border-bottom: 1px solid rgba(133, 145, 108, .16); }
-.help-faq-item:last-child { border-bottom: 0; }
-.help-faq-item button { display: grid; grid-template-columns: 42px minmax(0, 1fr) 20px; gap: 9px; align-items: center; width: 100%; min-height: 68px; padding: 10px 0; border: 0; border-radius: 0; color: #303a2f; background: transparent; box-shadow: none; text-align: left; }
-.help-faq-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: #6d8548; background: #f6f3e5; font-family: Georgia, serif; font-size: 22px; }
-.help-faq-item strong { overflow: hidden; font-size: 16px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.help-faq-chevron { color: #958d7d; font-size: 30px; font-weight: 300; line-height: 1; transition: transform .16s ease; }
-.help-faq-chevron.open { transform: rotate(90deg); }
-.help-faq-item > p { margin: -2px 0 16px 43px; color: #687364; font-size: 14px; line-height: 1.7; }
-.help-faq-state, .help-faq-error { margin: 34px 12px; color: #71806a; font-size: 14px; line-height: 1.6; text-align: center; }
-.help-faq-error { color: #a05d45; }
+.faq-bar .back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 24px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--gn-ink);
+  font-size: 22px;
+  line-height: 1;
+}
 
-@media (max-width: 374px) {
-  .help-faq-page { padding-right: 11px; padding-left: 11px; }
-  .help-faq-hero { margin-right: -11px; margin-left: -11px; padding-right: 17px; padding-left: 17px; }
-  .help-faq-item { padding-right: 14px; padding-left: 14px; }
-  .help-faq-item button { grid-template-columns: 38px minmax(0, 18px); gap: 8px; }
-  .help-faq-item strong { font-size: 15px; }
+/*
+ * The field is the bordered box, not the input: the icon and the clear control are inside the same
+ * border. Putting the border on the input left the icon outside it and made the clear button a
+ * separate control that pushed the field narrower than the rows below.
+ */
+.faq-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  margin: 12px 0 0;
+  padding: 0 12px;
+  border: 1px solid var(--gn-line);
+  border-radius: 10px;
+  background: var(--gn-paper);
+}
+
+.search-icon {
+  flex: none;
+  color: var(--gn-muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.faq-search input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gn-ink);
+  font-family: var(--gn-font-body);
+  font-size: 14px;
+}
+
+.faq-search input:focus {
+  outline: none;
+}
+
+.faq-search:focus-within {
+  border-color: var(--gn-leaf);
+}
+
+.search-clear {
+  flex: none;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--gn-muted);
+  font-family: var(--gn-font-body);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.faq-state {
+  margin: 24px 0 0;
+  color: var(--gn-muted);
+  font-size: 14px;
+}
+
+.faq-group {
+  margin-top: 18px;
+}
+
+.group-label {
+  margin: 0 0 2px;
+  color: var(--gn-ink);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.faq-item {
+  border-bottom: 1px solid var(--gn-line);
+}
+
+.faq-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--gn-ink);
+}
+
+.faq-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.faq-question {
+  min-width: 0;
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* One line of the answer under a collapsed question; the design's rows are two lines, not one. */
+.faq-preview {
+  overflow: hidden;
+  color: var(--gn-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.faq-chevron {
+  flex: none;
+  color: #b6bcc4;
+  font-size: 20px;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.faq-chevron.open {
+  transform: rotate(90deg);
+}
+
+.faq-content {
+  padding: 0 0 14px;
+}
+
+.faq-answer {
+  margin: 0;
+  color: var(--gn-ink-soft, #4a525d);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.faq-empty {
+  margin: 26px 0 0;
+  padding: 20px 0;
+}
+
+.faq-empty strong {
+  display: block;
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.faq-empty p {
+  margin: 6px 0 0;
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.faq-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+
+.faq-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.faq-copy strong {
+  color: var(--gn-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.faq-copy small {
+  color: var(--gn-muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 </style>

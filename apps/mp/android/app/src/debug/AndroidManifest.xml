@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Debug builds talk to the developer machine's API over plain HTTP through
+      `adb reverse tcp:3000 tcp:3000` (see apps/mp/.env.capacitor-debug).
+
+      Cleartext is confined to this debug source set. The release build never sees this
+      file, so it keeps the platform default and stays HTTPS-only; there is no global
+      android:usesCleartextTraffic="true" in the main manifest.
+    -->
+    <application android:usesCleartextTraffic="true" />
+
+</manifest>

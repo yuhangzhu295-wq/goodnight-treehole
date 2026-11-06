@@ -44,11 +44,14 @@ async function main() {
 
     await step(rows, reportPath, reportTitle, '回信收藏后出现在我的收藏', async () => {
       await page.goto(`${restUrls.front}/pages/letter/list`, { waitUntil: 'domcontentloaded' });
-      const favoriteButton = page.getByTestId('btn-letter-list-fav');
+      // The list is an inbox; the favorite action lives on the letter's detail page.
+      await page.getByTestId('letter-card-first').click();
+      await page.waitForURL('**/pages/letter/detail**', { timeout: 10000 });
+      const favoriteButton = page.getByTestId('btn-letter-detail-fav');
       if ((await favoriteButton.innerText()).includes('已收藏')) {
         await expectApi(page, 'DELETE', /\/api\/v1\/letters\/[^/]+\/favorite/, () => favoriteButton.click());
       }
-      await expectApi(page, 'POST', /\/api\/v1\/letters\/[^/]+\/favorite/, () => page.getByTestId('btn-letter-list-fav').click());
+      await expectApi(page, 'POST', /\/api\/v1\/letters\/[^/]+\/favorite/, () => page.getByTestId('btn-letter-detail-fav').click());
       await page.goto(`${restUrls.front}/pages/favorite/index`, { waitUntil: 'domcontentloaded' });
       await page.getByTestId('favorite-card-first').waitFor({ state: 'visible', timeout: 10000 });
       await screenshot(page, 'after', 'cross-favorite-letter');

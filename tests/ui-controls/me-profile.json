@@ -1,0 +1,49 @@
+[
+ {
+  "selector": "front-profile-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "row-nickname",
+  "expect": { "present": "[data-testid=\"input-nickname\"]" }
+ },
+ {
+  "selector": "btn-profile-save",
+  "settleMs": 800,
+  "expect": { "present": "[data-testid=\"btn-profile-save\"][disabled]" }
+ },
+ {
+  "selector": "btn-profile-save",
+  "prefill": [
+   { "click": "row-nickname", "waitFor": "input-nickname" },
+   { "fill": { "selector": "input-nickname", "value": "夜行{{timestamp}}" } }
+  ],
+  "settleMs": 3000,
+  "expect": { "text": "资料已保存", "present": "[data-testid=\"save-ok\"]" }
+ },
+ {
+  "selector": "row-anonymous-code",
+  "expect": { "present": "[data-testid=\"anonymous-code-note\"]" }
+ },
+ {
+  "selector": "row-identity-note",
+  "expect": { "present": "[data-testid=\"identity-note\"]" }
+ },
+ {
+  "selector": "row-sessions",
+  "settleMs": 2500,
+  "expect": { "present": "[data-testid=\"session-item-current\"]" }
+ },
+ {
+  "selector": "btn-session-revoke",
+  "prefill": [
+   { "click": "row-sessions", "waitFor": "btn-session-revoke", "timeoutMs": 15000 },
+   { "click": "btn-session-revoke", "waitFor": "btn-session-revoke" }
+  ],
+  "settleMs": 3000,
+  "expect": {
+   "present": "[data-testid=\"session-item-current\"]",
+   "gone": "[data-testid=\"btn-session-revoke\"], [data-testid=\"session-error\"]"
+  }
+ }
+]

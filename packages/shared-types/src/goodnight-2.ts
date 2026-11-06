@@ -120,15 +120,59 @@ export interface PeerConversation {
   reportReason?: string;
 }
 
+export type PeerMessageType =
+  | 'TEXT'
+  | 'STICKER'
+  | 'IMAGE'
+  | 'VIDEO'
+  | 'AUDIO'
+  | 'CALL_LOG'
+  | 'SYSTEM';
+
 export interface PeerMessage {
   id: string;
   conversationId: string;
   senderUserId: string;
   content: string;
-  authorType: 'HUMAN' | 'AI_ASSIST';
+  authorType: 'HUMAN' | 'AI_ASSIST' | 'SYSTEM';
   createdAt: string;
   reportedAt?: string;
   piiFlags?: string[];
+  msgType?: PeerMessageType;
+  replyToId?: string;
+  replyToContent?: string;
+  mediaUrl?: string;
+  mediaDuration?: number;
+  mediaSize?: number;
+  thumbnailUrl?: string;
+  recalledAt?: string;
+  seq?: number;
+  clientMsgId?: string;
+}
+
+export type PeerCallType = 'AUDIO' | 'VIDEO';
+export type PeerCallStatus = 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'MISSED' | 'ENDED' | 'CANCELLED';
+
+export interface PeerCallSession {
+  id: string;
+  conversationId: string;
+  callerUserId: string;
+  calleeUserId: string;
+  callType: PeerCallType;
+  status: PeerCallStatus;
+  startedAt?: string;
+  endedAt?: string;
+  durationSeconds?: number;
+  createdAt: string;
+}
+
+export interface StickerItem {
+  id: string;
+  name: string;
+  category: string;
+  url: string;
+  tags: string[];
+  isFavorite?: boolean;
 }
 
 export interface RecoverySignal {

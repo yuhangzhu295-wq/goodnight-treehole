@@ -1,0 +1,1411 @@
+
+> goodnight-treehole@0.1.0 qa:all C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/qa-all.ts
+
+
+==> lint
+
+> goodnight-treehole@0.1.0 lint C:\Users\zyu33\Projects\goodnight-treehole
+> eslint .
+
+
+C:\Users\zyu33\Projects\goodnight-treehole\apps\admin\src\views\ConfigPage.vue
+  24:10  warning  'isEnforced' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\zyu33\Projects\goodnight-treehole\apps\admin\src\views\PostsPage.vue
+  192:1  warning  Expected indentation of 12 spaces but found 6 spaces  vue/html-indent
+  195:1  warning  Expected indentation of 12 spaces but found 6 spaces  vue/html-indent
+
+C:\Users\zyu33\Projects\goodnight-treehole\apps\admin\src\views\RepliesPage.vue
+  214:1  warning  Expected indentation of 12 spaces but found 6 spaces  vue/html-indent
+
+C:\Users\zyu33\Projects\goodnight-treehole\apps\mp\src\views\JourneyDetail.vue
+  212:10  warning  Expected 1 line break after opening tag (`<button>`), but no line breaks found    vue/multiline-html-element-content-newline
+  212:20  warning  Expected 1 line break before closing tag (`</button>`), but no line breaks found  vue/multiline-html-element-content-newline
+
+✖ 6 problems (0 errors, 6 warnings)
+  0 errors and 5 warnings potentially fixable with the `--fix` option.
+
+
+==> typecheck
+
+> goodnight-treehole@0.1.0 typecheck C:\Users\zyu33\Projects\goodnight-treehole
+> tsc --noEmit -p apps/api/tsconfig.json && vue-tsc -p apps/admin/tsconfig.json --noEmit && vue-tsc -p apps/mp/tsconfig.json --noEmit && tsc --noEmit -p packages/shared-types/tsconfig.json && tsc --noEmit -p packages/api-sdk/tsconfig.json
+
+
+==> test:unit
+
+> goodnight-treehole@0.1.0 test:unit C:\Users\zyu33\Projects\goodnight-treehole
+> vitest run tests/unit
+
+
+ RUN  v2.1.9 C:/Users/zyu33/Projects/goodnight-treehole
+
+ ✓ tests/unit/domain.spec.ts (4 tests) 9ms
+ ✓ tests/unit/feedback-lifecycle.spec.ts (3 tests) 7ms
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  18:52:29
+   Duration  1.13s (transform 319ms, setup 0ms, collect 1.26s, tests 17ms, environment 0ms, prepare 232ms)
+
+
+==> test:api
+
+> goodnight-treehole@0.1.0 test:api C:\Users\zyu33\Projects\goodnight-treehole
+> vitest run tests/api
+
+
+ RUN  v2.1.9 C:/Users/zyu33/Projects/goodnight-treehole
+
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [NestFactory] Starting Nest application...
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [InstanceLoader] AppModule dependencies initialized +18ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RoutesResolver] HealthController {/api}: +8ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/health, GET} route +2ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RoutesResolver] PublicController {/api/v1}: +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/debug/fingerprint, GET} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/config, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tonight, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id/export, POST} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id/restore, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/testing/cleanup-browser-fixtures, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/fingerprint, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/intent, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/situation, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/snapshots, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/situation/reanalyze, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/safety/acknowledge, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/updates, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/action-plan, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/actions, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/actions, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/timeline, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/status, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/graduate, POST} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/graduation-consent, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/checkin, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/checkins, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peers, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/peer-matches, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/peers, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id/respond, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id/consent, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-requests, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/adaptive-plan, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/adapt, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/decisions, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/decisions, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/decisions/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/cooldowns, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/cooldown, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/handoffs, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/handoffs/:id/share, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/handoffs, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/trusted-contacts, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/trusted-contacts, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/future-messages, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/future-messages, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/support-plans, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/support-plan, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/support-plan, PUT} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/stable-self, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/stable-self, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/recovery, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/recovery, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/notifications, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/notifications/:id/read, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/messages, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/assist, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/close, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/report, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/block, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/feedback, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/memory, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/memories, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/memory, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/memories/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/memory/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/memories/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hug, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hug, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hugs, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/favorite, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/favorite, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/report, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hide, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/moods, POST} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/moods/:id/queue-ai-replies, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/replies, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/reply-presets, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/replies, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/replies/:id/like, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/ai/generate, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks/latest, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/today, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/read, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/like, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/regenerate, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/generate, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/poster, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/share-image, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/save-to-diary, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/favorite, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/favorite, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/emotion-decompose, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/ai/tools/breakdown, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/decompose, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/run, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/rewrite, POST} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/rant, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/heal, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/sleep, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/work, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/future, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/tools/emotion-decompose/:taskId/save, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/profile, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/stats, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/growth-card, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/data, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/diaries, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/diaries/export, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/exports/:assetId/download, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/diaries, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/diaries/months, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/diaries, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/diaries/months, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/diaries, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/diaries/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/diaries/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/favorites, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/favorites, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/letters, GET} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/favorites/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/months, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/report/month, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/month-report, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/:month/advice, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/:month/poster, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/report/share-image, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/privacy, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/privacy-settings, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/me/privacy, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/privacy-settings, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/feedback/categories, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/feedback/faqs, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/feedback, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/feedback, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/media/upload, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/media/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/upload, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/uploads, POST} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/export/diaries, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/share/image, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/v1/assets/complete, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RoutesResolver] AdminController {/api/admin/v1}: +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/login, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/login, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/logout, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/me, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/me, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/overview, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/summary, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/activity, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/emotion-distribution, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/journeys, GET} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/actions, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/checkins, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-experiences, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-experiences/:id/review, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-matches, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/follow-ups, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/notifications, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-conversations, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/safety/events, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/safety/events/:id/handle, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/support/plans, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/memory, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/ai-summary, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/export, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/export/:assetId/download, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/status, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/note, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/tags, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/tags, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/data, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id, GET} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/moderation, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/review, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/approve, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/reject, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/block, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/visibility, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/risk, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/regenerate-replies, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/moderation, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/review, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/content, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/approve, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/block, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/edit, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id/test, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/ollama/status, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/ollama/sync-models, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style/test, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs, GET} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id/retry, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id/fallback, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/summary, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id/reply, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/reply, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/reply, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id/status, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/status, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/resolve, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories, POST} route +1ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, DELETE} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/system/settings, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/settings, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/config, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/system/settings, PUT} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/settings, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/config, PATCH} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/config/reset, POST} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:34     LOG [RouterExplorer] Mapped {/api/admin/v1/audit-logs, GET} route +0ms
+[Nest] 9228  - 2026/10/03 18:52:35     LOG [NestApplication] Nest application successfully started +585ms
+ ✓ tests/api/api.spec.ts (2 tests) 4897ms
+   ✓ api contracts > serves front APIs and moderation affects visibility 585ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:52:30
+   Duration  5.37s (transform 269ms, setup 0ms, collect 118ms, tests 4.90s, environment 0ms, prepare 130ms)
+
+
+==> test:e2e
+
+> goodnight-treehole@0.1.0 test:e2e C:\Users\zyu33\Projects\goodnight-treehole
+> vitest run tests/e2e
+
+
+ RUN  v2.1.9 C:/Users/zyu33/Projects/goodnight-treehole
+
+ ✓ tests/e2e/front-first5-business-flow.spec.ts (1 test) 3ms
+ ✓ tests/e2e/real-browser-front-clicks.spec.ts (1 test) 3ms
+ ✓ tests/e2e/front-first5-real-user.spec.ts (1 test) 4ms
+ ✓ tests/e2e/front-phase2-tools.spec.ts (1 test) 3ms
+ ✓ tests/e2e/cross-real-business-flow.spec.ts (1 test) 3ms
+ ✓ tests/e2e/admin-real-interactions.spec.ts (1 test) 3ms
+ ✓ tests/e2e/front-real-interactions.spec.ts (1 test) 3ms
+ ✓ tests/e2e/real-browser-admin-clicks.spec.ts (1 test) 3ms
+ ✓ tests/e2e/front-phase3-me.spec.ts (1 test) 4ms
+ ✓ tests/e2e/real-browser-cross-flow.spec.ts (1 test) 3ms
+ ✓ tests/e2e/front-rest-cross-flow.spec.ts (1 test) 2ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [NestFactory] Starting Nest application...
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [InstanceLoader] AppModule dependencies initialized +17ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RoutesResolver] HealthController {/api}: +10ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/health, GET} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RoutesResolver] PublicController {/api/v1}: +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts, GET} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/debug/fingerprint, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/config, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tonight, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys, GET} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id/export, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id/restore, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/testing/cleanup-browser-fixtures, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/fingerprint, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/intent, PATCH} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/situation, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/snapshots, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/situation/reanalyze, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/safety/acknowledge, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/updates, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/action-plan, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/actions, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/actions, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/timeline, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/status, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/graduate, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/graduation-consent, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/checkin, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/checkins, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peers, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/peer-matches, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/peers, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id/respond, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id/consent, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-requests, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/adaptive-plan, POST} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/adapt, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/decisions, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/decisions, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/decisions/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/cooldowns, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/cooldown, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/handoffs, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/handoffs/:id/share, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/handoffs, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/trusted-contacts, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/trusted-contacts, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/future-messages, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/future-messages, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/support-plans, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/support-plan, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/support-plan, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/stable-self, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/stable-self, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/recovery, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/recovery, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/notifications, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/notifications/:id/read, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/messages, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/assist, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/close, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/report, POST} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/block, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/feedback, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/memory, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/memories, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/memory, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/memories/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/memory/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/memories/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hug, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hug, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hugs, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/favorite, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/favorite, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/report, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hide, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/moods, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/moods/:id/queue-ai-replies, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/replies, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/reply-presets, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/replies, POST} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/replies/:id/like, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/ai/generate, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks/latest, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/today, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/read, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/like, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/regenerate, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/generate, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/poster, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/share-image, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/save-to-diary, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/favorite, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/favorite, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/emotion-decompose, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/ai/tools/breakdown, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/decompose, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/run, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/rewrite, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/rant, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/heal, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/sleep, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/work, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/future, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/tools/emotion-decompose/:taskId/save, POST} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/profile, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/stats, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/growth-card, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/data, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/diaries, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/diaries/export, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/exports/:assetId/download, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/diaries, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/diaries/months, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/diaries, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/diaries/months, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/diaries, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/diaries/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/diaries/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/favorites, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/favorites, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/letters, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/favorites/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/months, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/report/month, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/month-report, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/:month/advice, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/:month/poster, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/report/share-image, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, GET} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/privacy, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/privacy-settings, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/me/privacy, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/privacy-settings, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/feedback/categories, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/feedback/faqs, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/feedback, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/feedback, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/media/upload, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/media/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/upload, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/uploads, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/export/diaries, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/share/image, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/v1/assets/complete, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RoutesResolver] AdminController {/api/admin/v1}: +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/login, POST} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/login, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/logout, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/me, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/me, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/overview, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/summary, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/activity, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/emotion-distribution, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/journeys, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/actions, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/checkins, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-experiences, GET} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-experiences/:id/review, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-matches, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/follow-ups, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/notifications, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-conversations, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/safety/events, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/safety/events/:id/handle, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/support/plans, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/memory, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/ai-summary, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/export, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/export/:assetId/download, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/status, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/note, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/tags, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/tags, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/data, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/moderation, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/review, PATCH} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/approve, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/reject, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/block, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/visibility, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/risk, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/regenerate-replies, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/moderation, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/review, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/content, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/approve, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/block, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/edit, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id/test, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/ollama/status, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/ollama/sync-models, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style/test, POST} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id/retry, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id/fallback, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/summary, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id/reply, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/reply, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/reply, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id/status, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/status, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/resolve, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories, GET} route +1ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, DELETE} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/system/settings, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/settings, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/config, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/system/settings, PUT} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/settings, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/config, PATCH} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/config/reset, POST} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [RouterExplorer] Mapped {/api/admin/v1/audit-logs, GET} route +0ms
+[Nest] 30540  - 2026/10/03 18:52:41     LOG [NestApplication] Nest application successfully started +604ms
+ ✓ tests/e2e/app.e2e.spec.ts (1 test) 1772ms
+   ✓ main user/admin flows > reply bottom-sheet flow creates pending reply and admin blocks it 354ms
+
+ Test Files  12 passed (12)
+      Tests  12 passed (12)
+   Start at  18:52:37
+   Duration  5.05s (transform 509ms, setup 0ms, collect 3.31s, tests 1.81s, environment 2ms, prepare 1.75s)
+
+
+==> test:visual
+
+> goodnight-treehole@0.1.0 test:visual C:\Users\zyu33\Projects\goodnight-treehole
+> pnpm test:visual-capture && vitest run tests/visual/front-layout.spec.ts tests/visual/admin-layout.spec.ts
+
+
+> goodnight-treehole@0.1.0 test:visual-capture C:\Users\zyu33\Projects\goodnight-treehole
+> pnpm visual:capture-front && pnpm visual:capture-front-canonical && pnpm visual:compare-front && pnpm visual:capture-admin
+
+
+> goodnight-treehole@0.1.0 visual:capture-front C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/visual/capture-front-pages.ts
+
+01-square -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\01-square.png hscroll=false
+02-mood-create -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\02-mood-create.png hscroll=false
+03-post-detail -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\03-post-detail.png hscroll=false
+04-post-detail-reply-sheet -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\04-post-detail-reply-sheet.png hscroll=false
+05-letter-today -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\05-letter-today.png hscroll=false
+06-tool-index -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\06-tool-index.png hscroll=false
+07-tool-decompose -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\07-tool-decompose.png hscroll=false
+08-me -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\08-me.png hscroll=false
+09-diary-list -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\09-diary-list.png hscroll=false
+10-report-month -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\10-report-month.png hscroll=false
+11-letter-list -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\11-letter-list.png hscroll=false
+12-favorite-list -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\12-favorite-list.png hscroll=false
+13-privacy-settings -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\13-privacy-settings.png hscroll=false
+14-feedback-help -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\claude-after\14-feedback-help.png hscroll=false
+
+> goodnight-treehole@0.1.0 visual:capture-front-canonical C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/visual/capture-front-pages.ts --out-dir artifacts/screenshots/front
+
+01-square -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\01-square.png hscroll=false
+02-mood-create -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\02-mood-create.png hscroll=false
+03-post-detail -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\03-post-detail.png hscroll=false
+04-post-detail-reply-sheet -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\04-post-detail-reply-sheet.png hscroll=false
+05-letter-today -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\05-letter-today.png hscroll=false
+06-tool-index -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\06-tool-index.png hscroll=false
+07-tool-decompose -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\07-tool-decompose.png hscroll=false
+08-me -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\08-me.png hscroll=false
+09-diary-list -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\09-diary-list.png hscroll=false
+10-report-month -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\10-report-month.png hscroll=false
+11-letter-list -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\11-letter-list.png hscroll=false
+12-favorite-list -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\12-favorite-list.png hscroll=false
+13-privacy-settings -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\13-privacy-settings.png hscroll=false
+14-feedback-help -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\front\14-feedback-help.png hscroll=false
+
+> goodnight-treehole@0.1.0 visual:compare-front C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/visual/compare-front-designs.ts
+
+01-square diffRate=0.1584 (15.84%)
+02-mood-create diffRate=0.1689 (16.89%)
+03-post-detail diffRate=0.1392 (13.92%)
+04-post-detail-reply-sheet diffRate=0.1160 (11.60%)
+05-letter-today diffRate=0.1776 (17.76%)
+06-tool-index diffRate=0.1459 (14.59%)
+07-tool-decompose diffRate=0.1146 (11.46%)
+08-me diffRate=0.2540 (25.40%)
+09-diary-list diffRate=0.2200 (22.00%)
+10-report-month diffRate=0.2720 (27.20%)
+11-letter-list diffRate=0.1412 (14.12%)
+12-favorite-list diffRate=0.1283 (12.83%)
+13-privacy-settings diffRate=0.2583 (25.83%)
+14-feedback-help diffRate=0.1580 (15.80%)
+
+> goodnight-treehole@0.1.0 visual:capture-admin C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/visual/capture-admin-pages.ts
+
+02-admin-dashboard 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\02-admin-dashboard-1366.png
+03-admin-user-list 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\03-admin-user-list-1366.png
+04-admin-post-content 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\04-admin-post-content-1366.png
+05-admin-reply-moderation 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\05-admin-reply-moderation-1366.png
+06-admin-ai-provider-center 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\06-admin-ai-provider-center-1366.png
+07-admin-ai-style-routing 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\07-admin-ai-style-routing-1366.png
+08-admin-ai-job-log 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\08-admin-ai-job-log-1366.png
+09-admin-feedback-ticket 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\09-admin-feedback-ticket-1366.png
+10-admin-system-settings 1366px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\10-admin-system-settings-1366.png
+02-admin-dashboard 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\02-admin-dashboard-1440.png
+03-admin-user-list 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\03-admin-user-list-1440.png
+04-admin-post-content 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\04-admin-post-content-1440.png
+05-admin-reply-moderation 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\05-admin-reply-moderation-1440.png
+06-admin-ai-provider-center 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\06-admin-ai-provider-center-1440.png
+07-admin-ai-style-routing 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\07-admin-ai-style-routing-1440.png
+08-admin-ai-job-log 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\08-admin-ai-job-log-1440.png
+09-admin-feedback-ticket 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\09-admin-feedback-ticket-1440.png
+10-admin-system-settings 1440px -> C:\Users\zyu33\Projects\goodnight-treehole\artifacts\screenshots\admin\10-admin-system-settings-1440.png
+
+ RUN  v2.1.9 C:/Users/zyu33/Projects/goodnight-treehole
+
+ ✓ tests/visual/front-layout.spec.ts (1 test) 3ms
+ ✓ tests/visual/admin-layout.spec.ts (1 test) 6ms
+
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+   Start at  18:53:03
+   Duration  395ms (transform 70ms, setup 0ms, collect 79ms, tests 9ms, environment 0ms, prepare 268ms)
+
+
+==> diagnose:all
+
+> goodnight-treehole@0.1.0 diagnose:all C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/diagnose/diagnose-all.ts
+
+
+==> diagnose:runtime
+
+> goodnight-treehole@0.1.0 diagnose:runtime C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/diagnose/diagnose-runtime.ts
+
+(node:48544) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+==> diagnose:dom-overlays
+
+> goodnight-treehole@0.1.0 diagnose:dom-overlays C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/diagnose/diagnose-dom-overlays.ts
+
+
+==> diagnose:routes
+
+> goodnight-treehole@0.1.0 diagnose:routes C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/diagnose/diagnose-routes.ts
+
+
+==> diagnose:api-bindings
+
+> goodnight-treehole@0.1.0 diagnose:api-bindings C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/diagnose/diagnose-api-bindings.ts
+
+
+==> diagnose:clickability
+
+> goodnight-treehole@0.1.0 diagnose:clickability C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/diagnose/diagnose-clickability.ts && vitest run tests/diagnose/clickability.spec.ts
+
+(node:18628) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v2.1.9 C:/Users/zyu33/Projects/goodnight-treehole
+
+ ✓ tests/diagnose/clickability.spec.ts (2 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:57:14
+   Duration  2.41s (transform 188ms, setup 0ms, collect 43ms, tests 8ms, environment 0ms, prepare 2.01s)
+
+
+==> audit:ui-artifacts
+
+> goodnight-treehole@0.1.0 audit:ui-artifacts C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/audit-visible-test-artifacts.ts
+
+Visible test artifact audit passed.
+(node:21180) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+==> audit:ui-artifacts
+
+> goodnight-treehole@0.1.0 audit:ui-artifacts C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/audit-visible-test-artifacts.ts
+
+Visible test artifact audit passed.
+
+==> test:real-browser-front-clicks
+
+> goodnight-treehole@0.1.0 test:real-browser-front-clicks C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/real-browser-front-clicks.ts
+
+(node:10168) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+==> test:real-browser-admin-clicks
+
+> goodnight-treehole@0.1.0 test:real-browser-admin-clicks C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/real-browser-admin-clicks.ts
+
+(node:31296) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+==> test:real-browser-cross-flow
+
+> goodnight-treehole@0.1.0 test:real-browser-cross-flow C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/real-browser-cross-flow.ts
+
+(node:50004) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+==> test:click-all
+
+> goodnight-treehole@0.1.0 test:click-all C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/test-click-all.ts
+
+RUN front tab-square
+PASS front tab-square
+RUN front tab-letter
+PASS front tab-letter
+RUN front tab-tool
+PASS front tab-tool
+RUN front tab-me
+PASS front tab-me
+RUN front post-card-first
+PASS front post-card-first
+RUN front btn-write-mood
+PASS front btn-write-mood
+RUN front filter-all
+PASS front filter-all
+RUN front filter-weiqu
+PASS front filter-weiqu
+RUN front filter-jiaolv
+PASS front filter-jiaolv
+RUN front filter-shimian
+PASS front filter-shimian
+RUN front filter-lianai
+PASS front filter-lianai
+RUN front filter-gongzuo
+PASS front filter-gongzuo
+RUN front btn-square-hug-first
+PASS front btn-square-hug-first
+RUN front btn-square-reply-first
+PASS front btn-square-reply-first
+RUN front square-menu-copy
+PASS front square-menu-copy
+RUN front square-menu-report
+PASS front square-menu-report
+RUN front square-menu-hide
+PASS front square-menu-hide
+RUN front input-mood-content
+PASS front input-mood-content
+RUN front mood-emotion-jiaolv
+PASS front mood-emotion-jiaolv
+RUN front mood-visibility-public
+PASS front mood-visibility-public
+RUN front mood-style-warm
+PASS front mood-style-warm
+RUN front input-mood-images
+PASS front input-mood-images
+RUN front btn-submit-mood
+PASS front btn-submit-mood
+RUN front btn-hug
+PASS front btn-hug
+RUN front btn-favorite
+PASS front btn-favorite
+RUN front btn-open-reply
+PASS front btn-open-reply
+RUN front reply-like-first
+PASS front reply-like-first
+RUN front detail-menu-copy
+PASS front detail-menu-copy
+RUN front detail-menu-report
+PASS front detail-menu-report
+RUN front detail-menu-block
+PASS front detail-menu-block
+RUN front input-reply-content
+PASS front input-reply-content
+RUN front reply-preset-0
+PASS front reply-preset-0
+RUN front toggle-reply-anonymous
+PASS front toggle-reply-anonymous
+RUN front btn-close-reply
+PASS front btn-close-reply
+RUN front btn-submit-reply
+PASS front btn-submit-reply
+RUN front btn-letter-warm
+PASS front btn-letter-warm
+RUN front btn-letter-rational
+PASS front btn-letter-rational
+RUN front btn-letter-light
+PASS front btn-letter-light
+RUN front btn-letter-poetic
+PASS front btn-letter-poetic
+RUN front btn-letter-save
+PASS front btn-letter-save
+RUN front btn-letter-poster
+PASS front btn-letter-poster
+RUN front tool-letter
+PASS front tool-letter
+RUN front tool-decompose
+PASS front tool-decompose
+RUN front tool-rewrite
+PASS front tool-rewrite
+RUN front tool-rant
+PASS front tool-rant
+RUN front tool-healing-quote
+PASS front tool-healing-quote
+RUN front tool-sleep-comfort
+PASS front tool-sleep-comfort
+RUN front tool-work-support
+PASS front tool-work-support
+RUN front tool-future-letter
+PASS front tool-future-letter
+RUN front tool-report
+PASS front tool-report
+RUN front input-decompose
+PASS front input-decompose
+RUN front btn-decompose-run
+PASS front btn-decompose-run
+RUN front btn-decompose-save
+PASS front btn-decompose-save
+RUN front btn-tool-run-submit
+PASS front btn-tool-run-submit
+RUN front btn-tool-run-save
+PASS front btn-tool-run-save
+RUN front btn-tool-run-copy
+PASS front btn-tool-run-copy
+RUN front entry-diary
+PASS front entry-diary
+RUN front entry-letter-list
+PASS front entry-letter-list
+RUN front entry-favorite
+PASS front entry-favorite
+RUN front entry-report
+PASS front entry-report
+RUN front entry-privacy
+PASS front entry-privacy
+RUN front entry-feedback
+PASS front entry-feedback
+RUN front btn-clear-data
+PASS front btn-clear-data
+RUN front btn-clear-cancel
+PASS front btn-clear-cancel
+RUN front btn-report-poster
+PASS front btn-report-poster
+RUN front btn-report-advice
+PASS front btn-report-advice
+RUN front toggle-privacy-private
+PASS front toggle-privacy-private
+RUN front toggle-privacy-human
+PASS front toggle-privacy-human
+RUN front toggle-privacy-anonymous
+PASS front toggle-privacy-anonymous
+RUN front toggle-privacy-report-share
+PASS front toggle-privacy-report-share
+RUN front btn-data-explain
+PASS front btn-data-explain
+RUN front btn-data-policy-route
+PASS front btn-data-policy-route
+RUN front input-feedback-content
+PASS front input-feedback-content
+RUN front btn-feedback-submit
+PASS front btn-feedback-submit
+RUN admin admin-login-username
+PASS admin admin-login-username
+RUN admin admin-login-password
+PASS admin admin-login-password
+RUN admin admin-forgot-password
+PASS admin admin-forgot-password
+RUN admin admin-login-submit
+PASS admin admin-login-submit
+RUN admin admin-dashboard-refresh
+PASS admin admin-dashboard-refresh
+RUN admin admin-dashboard-open-posts
+PASS admin admin-dashboard-open-posts
+RUN admin admin-dashboard-open-jobs
+PASS admin admin-dashboard-open-jobs
+RUN admin admin-shortcut-posts
+PASS admin admin-shortcut-posts
+RUN admin admin-shortcut-ai
+PASS admin admin-shortcut-ai
+RUN admin admin-shortcut-feedback
+PASS admin admin-shortcut-feedback
+RUN admin admin-nav-users
+PASS admin admin-nav-users
+RUN admin admin-nav-posts
+PASS admin admin-nav-posts
+RUN admin admin-nav-replies
+PASS admin admin-nav-replies
+RUN admin admin-nav-providers
+PASS admin admin-nav-providers
+RUN admin admin-nav-routes
+PASS admin admin-nav-routes
+RUN admin admin-nav-jobs
+PASS admin admin-nav-jobs
+RUN admin admin-nav-feedback
+PASS admin admin-nav-feedback
+RUN admin admin-nav-config
+PASS admin admin-nav-config
+RUN admin admin-user-search
+PASS admin admin-user-search
+RUN admin admin-user-status-filter
+PASS admin admin-user-status-filter
+RUN admin users-row-first
+PASS admin users-row-first
+RUN admin admin-confirm-action
+PASS admin admin-confirm-action
+RUN admin admin-user-restore
+PASS admin admin-user-restore
+RUN admin admin-post-search
+PASS admin admin-post-search
+RUN admin posts-row-first
+PASS admin posts-row-first
+RUN admin admin-post-approve
+PASS admin admin-post-approve
+RUN admin admin-confirm-action
+PASS admin admin-confirm-action
+RUN admin admin-post-risk
+PASS admin admin-post-risk
+RUN admin replies-row-first
+PASS admin replies-row-first
+RUN admin admin-reply-approve
+PASS admin admin-reply-approve
+RUN admin admin-confirm-action
+PASS admin admin-confirm-action
+RUN admin admin-provider-refresh
+PASS admin admin-provider-refresh
+RUN admin admin-provider-row-dapi
+PASS admin admin-provider-row-dapi
+RUN admin admin-provider-test-provider_dapi_deepseek
+PASS admin admin-provider-test-provider_dapi_deepseek
+RUN admin admin-provider-edit
+PASS admin admin-provider-edit
+RUN admin admin-provider-toggle-provider_openai_remote
+PASS admin admin-provider-toggle-provider_openai_remote
+RUN admin admin-provider-toggle-provider_openai_remote
+PASS admin admin-provider-toggle-provider_openai_remote
+RUN admin admin-route-edit-warm
+PASS admin admin-route-edit-warm
+RUN admin admin-route-save
+PASS admin admin-route-save
+RUN admin admin-route-test-warm
+PASS admin admin-route-test-warm
+RUN admin admin-ai-jobs-refresh
+PASS admin admin-ai-jobs-refresh
+RUN admin jobs-row-first
+PASS admin jobs-row-first
+RUN admin tickets-row-first
+PASS admin tickets-row-first
+RUN admin admin-ticket-processing
+PASS admin admin-ticket-processing
+RUN admin admin-ticket-resolve
+PASS admin admin-ticket-resolve
+RUN admin admin-config-save
+PASS admin admin-config-save
+RUN admin admin-faq-add
+PASS admin admin-faq-add
+RUN admin admin-preset-add
+PASS admin admin-preset-add
+RUN admin admin-category-add
+PASS admin admin-category-add
+RUN admin admin-audit-refresh
+PASS admin admin-audit-refresh
+
+==> test:business-flow
+
+> goodnight-treehole@0.1.0 test:business-flow C:\Users\zyu33\Projects\goodnight-treehole
+> tsx scripts/test-business-flow.ts
+
+(node:48532) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+==> test:cross
+
+> goodnight-treehole@0.1.0 test:cross C:\Users\zyu33\Projects\goodnight-treehole
+> vitest run tests/cross
+
+
+ RUN  v2.1.9 C:/Users/zyu33/Projects/goodnight-treehole
+
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [NestFactory] Starting Nest application...
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [InstanceLoader] AppModule dependencies initialized +17ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RoutesResolver] HealthController {/api}: +8ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/health, GET} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RoutesResolver] PublicController {/api/v1}: +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/debug/fingerprint, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/config, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tonight, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys, GET} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id/export, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id/restore, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/archive/journeys/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/testing/cleanup-browser-fixtures, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/fingerprint, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/intent, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id, PATCH} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/situation, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/snapshots, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/situation/reanalyze, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/safety/acknowledge, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/updates, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/action-plan, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/actions, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/actions, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/timeline, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/status, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/graduate, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/graduation-consent, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/checkin, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/checkins, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peers, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/peer-matches, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/journeys/:id/peers, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id/respond, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-matches/:id/consent, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-requests, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-experiences/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/adaptive-plan, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/actions/:id/adapt, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/decisions, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/decisions, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/decisions/:id, PATCH} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/cooldowns, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/cooldown, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/handoffs, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/handoffs/:id/share, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/handoffs, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/trusted-contacts, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/trusted-contacts, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/future-messages, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/future-messages, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/support-plans, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/support-plan, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/support-plan, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/stable-self, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/stable-self, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/recovery, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/recovery, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/notifications, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/notifications/:id/read, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/messages, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/assist, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/close, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/report, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/block, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/peer-conversations/:matchId/feedback, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/memory, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/memories, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/memory, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/memories/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/memory/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/memories/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hug, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hug, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hugs, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/favorite, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/favorite, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/report, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/hide, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/moods, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/moods/:id/queue-ai-replies, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/replies, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/reply-presets, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/posts/:id/replies, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/replies/:id/like, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/ai/generate, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks/latest, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/ai/tasks/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/today, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/read, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/like, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/regenerate, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/generate, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/poster, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/share-image, POST} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/save-to-diary, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/favorite, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/letters/:id/favorite, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/emotion-decompose, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/ai/tools/breakdown, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/decompose, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/run, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/rewrite, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/rant, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/heal, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/sleep, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/work, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/future, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/tools/emotion-decompose/:taskId/save, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/profile, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/stats, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/growth-card, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/data, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/diaries, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/diaries/export, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/exports/:assetId/download, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/diaries, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/diaries/months, GET} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/diaries, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/diaries/months, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/diaries, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/diaries/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/diaries/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/favorites, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/favorites, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/letters, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/favorites/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/months, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/report/month, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/month-report, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/:month/advice, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/reports/monthly/:month/poster, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/report/share-image, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/privacy, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/privacy-settings, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/settings/privacy, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/me/privacy, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/privacy-settings, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/feedback/categories, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/feedback/faqs, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/feedback, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/feedback, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/media/upload, POST} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/media/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/upload, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/uploads, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/export/diaries, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/share/image, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/v1/assets/complete, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RoutesResolver] AdminController {/api/admin/v1}: +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/login, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/login, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/logout, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/auth/me, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/me, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/overview, GET} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/summary, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/activity, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/emotion-distribution, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/journeys, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/actions, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/checkins, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-experiences, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-experiences/:id/review, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-matches, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/follow-ups, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/notifications, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/peer-conversations, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/safety/events, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/safety/events/:id/handle, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/support/plans, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/memory, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/dashboard/ai-summary, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/export, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/export/:assetId/download, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/status, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/note, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/tags, PATCH} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/tags, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/users/:id/data, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/moderation, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/review, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/approve, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/reject, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/block, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/visibility, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/risk, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id/regenerate-replies, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/posts/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/moderation, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/review, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/content, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/approve, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/block, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/replies/:id/edit, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id/test, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/ollama/status, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/ollama/sync-models, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/providers/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/routes/:style/test, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id/retry, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/ai/jobs/:id/fallback, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/summary, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id/reply, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/reply, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/reply, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/tickets/:id/status, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/status, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback/:id/resolve, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/faqs/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/reply-presets/:id, DELETE} route +1ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/feedback-categories/:id, DELETE} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/system/settings, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/settings, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/config, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/system/settings, PUT} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/settings, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/config, PATCH} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/config/reset, POST} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:38     LOG [RouterExplorer] Mapped {/api/admin/v1/audit-logs, GET} route +0ms
+[Nest] 9452  - 2026/10/03 19:00:39     LOG [NestApplication] Nest application successfully started +583ms
+ ❯ tests/cross/cross.spec.ts (3 tests | 1 failed) 2704ms
+   × cross terminal acceptance loops > uses the supplied remote DAPI and persists the completed AiJob 802ms
+     → expected { id: 'job_73af83372f', …(20) } to match object { status: 'succeeded', …(2) }
+(18 matching properties omitted from actual)
+   ✓ cross terminal acceptance loops > makes feedback and reply preset admin changes visible to front APIs 428ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cross/cross.spec.ts > cross terminal acceptance loops > uses the supplied remote DAPI and persists the completed AiJob
+AssertionError: expected { id: 'job_73af83372f', …(20) } to match object { status: 'succeeded', …(2) }
+(18 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "fallbackUsed": false,
+-   "providerId": "provider_dapi_deepseek",
+-   "status": "succeeded",
++   "fallbackUsed": true,
++   "providerId": "provider_safe_template",
++   "status": "fallback",
+  }
+
+ ❯ tests/cross/cross.spec.ts:43:26
+     41|     const completedJob = await waitForJob(server, regeneration.body.jo…
+     42| 
+     43|     expect(completedJob).toMatchObject({ status: 'succeeded', provider…
+       |                          ^
+     44|     expect(completedJob.modelName).toMatch(/deepseek/i);
+     45|     expect(completedJob.result.length).toBeGreaterThan(10);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  19:00:34
+   Duration  6.67s (transform 296ms, setup 0ms, collect 3.55s, tests 2.70s, environment 0ms, prepare 136ms)
+
+ ELIFECYCLE  Command failed with exit code 1.
+ ELIFECYCLE  Command failed with exit code 1.

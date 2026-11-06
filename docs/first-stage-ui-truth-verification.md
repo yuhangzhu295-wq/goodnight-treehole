@@ -33,8 +33,8 @@ FIRST_STAGE_UI_FROZEN=true
 
 ## Evidence root
 
-- C:\Users\zyu33\Documents\Codex\2026-07-04\yan\artifacts\final-ui-truth-audit\first-stage
-- Reviewer input: C:\Users\zyu33\Documents\Codex\2026-07-04\yan\docs\first-stage-ui-truth-review.json
+- C:\Users\zyu33\Projects\goodnight-treehole\artifacts\final-ui-truth-audit\first-stage
+- Reviewer input: C:\Users\zyu33\Projects\goodnight-treehole\docs\first-stage-ui-truth-review.json
 
 ## Notification persisted-state QA
 
@@ -45,26 +45,8 @@ FIRST_STAGE_UI_FROZEN=true
 
 ## Current outcome and next step
 
-- This execution is frozen: every page and every manually reviewed visual area is `DONE`, and all capture, interaction, persistence, browser and cross-end checks in this report are current.
-- Static reference copy and runtime data can legitimately differ. Dynamic DAPI responses, current Journey events and persisted notification text remain live data; they were not replaced with a screenshot or hard-coded sample text to make the comparison appear closer.
-
-## Page-by-page repair summary
-
-Every row was inspected from its current 420x786 `reference.png`, `actual.png`, `side-by-side.png`, and `difference.png` set under `artifacts/final-ui-truth-audit/first-stage/<page>/`.
-
-| Page | Before | After and repair points | Reviewer result |
-| --- | --- | --- | --- |
-| #1 Tonight | The opening scene did not keep the reference's input-first reading order or stable quick-entry spacing. | Rebalanced night Hero, textarea, six quick entries, companion paper and primary continue action; kept relationship, notification and Journey actions live. | DONE |
-| #36 Situation | The confirmation content read as disconnected cards. | Consolidated it into one continuous paper with the three narrative sections, local decorations and real confirm/edit/reanalyze actions. | DONE |
-| #29 Temperature | The slider, symptoms and support copy did not follow the reference's single-task rhythm. | Reordered the real range, symptom choices, thought note and support note; retained actual 1-10 data and both save/record actions. | DONE |
-| #13 Intent | The eight real support choices lacked the intended warm-paper hierarchy. | Restored the 2-column eight-choice grid, local scene assets and bottom cue while preserving every branch selection. | DONE |
-| #32 Stabilize | Breathing, calming, note and real-help controls competed visually. | Established the continuous support-paper order: opening, breathing, calm box, note, real-world support and CTAs. | DONE |
-| #33 Safety | Hero height and safety-action density did not match the reference; navigation needed detail-page treatment. | Tightened the Hero and action sequence, added the 3-column step rhythm, preserved real handoff/12356/120/acknowledge actions, and removed the global TabBar as required by the reference. | DONE |
-| #16 Handoff | Contact and assistance grids did not match the reference proportions. | Applied short Hero, 4+2 contact layout, 3x2 help layout, phone preview and real generate/save/copy/edit/contact-drawer actions. | DONE |
-| #6 Action | Dynamic DAPI action text could crowd the visual hierarchy. | Kept real DAPI output readable with natural wrapping, a primary-action paper, follow-up strip and retained complete/not-complete/assist paths. | DONE |
-| #37 Adaptive | The obstacle selection and reduced-action result did not form the reference's clear sequence. | Rebuilt the sequence as previous action, 2x3 barriers, real DAPI smaller action, effort controls and real regenerate/accept actions. | DONE |
-| #39 Notification | The live list lacked compact reference hierarchy and type-specific visual anchors. | Added the compact Hero/filter/card structure and persisted type icons; empty, single, four-type and 20-item stress states remain API-backed and clicking a card persists `read`. | DONE |
-| #34 Timeline | Summary and timeline events lacked the reference's compact temporal hierarchy. | Applied the dedicated short Hero, compact Journey summary, trend and event anchors; retained real event count, add-update input and journey actions without a TabBar. | DONE |
+- The audit is intentionally not frozen: the reference-side-by-side review found material visual gaps in every page even though the verified data flows and navigation contracts remain live.
+- The next UI pass should repair the documented PARTIAL areas page by page, then capture fresh evidence and submit a new human review. A visual status must not be upgraded merely because automated checks pass.
 
 ## Executed verification commands
 

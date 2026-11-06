@@ -88,14 +88,15 @@ async function main() {
       await screenshot(page, 'before', '11-letter-list');
       const unread = await expectApi(page, 'GET', '/api/v1/letters?status=unread', () => page.getByTestId('filter-letter-unread').click());
       await expectApi(page, 'GET', '/api/v1/letters', () => page.getByTestId('filter-letter-all').click());
-      const like = await expectApi(page, 'POST', /\/api\/v1\/letters\/[^/]+\/like/, () => page.getByTestId('btn-letter-like-first').click());
-      const favoriteButton = page.getByTestId('btn-letter-list-fav');
+      // The list is an inbox: opening a row is what marks it read, and the actions live in detail.
+      const read = await expectApi(page, 'PATCH', /\/api\/v1\/letters\/[^/]+\/read/, () => page.getByTestId('letter-card-first').click());
+      await page.waitForURL('**/pages/letter/detail**', { timeout: 10000 });
+      const like = await expectApi(page, 'POST', /\/api\/v1\/letters\/[^/]+\/like/, () => page.getByTestId('btn-letter-detail-like').click());
+      const favoriteButton = page.getByTestId('btn-letter-detail-fav');
       if ((await favoriteButton.innerText()).includes('已收藏')) {
         await expectApi(page, 'DELETE', /\/api\/v1\/letters\/[^/]+\/favorite/, () => favoriteButton.click());
       }
-      const fav = await expectApi(page, 'POST', /\/api\/v1\/letters\/[^/]+\/favorite/, () => page.getByTestId('btn-letter-list-fav').click());
-      const read = await expectApi(page, 'PATCH', /\/api\/v1\/letters\/[^/]+\/read/, () => page.getByTestId('btn-letter-read-full-first').click());
-      await page.waitForURL('**/pages/letter/detail**', { timeout: 10000 });
+      const fav = await expectApi(page, 'POST', /\/api\/v1\/letters\/[^/]+\/favorite/, () => page.getByTestId('btn-letter-detail-fav').click());
       return `${unread}; ${like}; ${fav}; ${read}`;
     });
 

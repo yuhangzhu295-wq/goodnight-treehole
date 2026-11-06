@@ -2,8 +2,15 @@ import { chromium, type Page } from 'playwright';
 import fs from 'node:fs/promises';
 import { cleanRuntime, kill, markdown, startFullStack, urls } from './real-browser-utils';
 
+// Admin endpoints require a bearer token. The token is obtained by the real UI login
+// below and read back from localStorage, so the API calls this script makes are the
+// same ones the admin app makes rather than an unauthenticated shortcut.
+let adminToken: string | null = null;
+
 async function apiJson(path: string, init?: RequestInit) {
-  const res = await fetch(`${urls.api}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  const headers: Record<string, string> = { 'content-type': 'application/json', ...((init?.headers as Record<string, string>) ?? {}) };
+  if (adminToken && path.startsWith('/api/admin/')) headers.authorization = `Bearer ${adminToken}`;
+  const res = await fetch(`${urls.api}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} => ${res.status}`);
   return res.json();
 }
@@ -14,6 +21,7 @@ async function loginAdmin(page: Page) {
   await page.getByTestId('admin-login-password').fill('admin123');
   await page.getByTestId('admin-login-submit').click();
   await page.waitForURL('**/dashboard', { timeout: 10000 });
+  adminToken = await page.evaluate(() => localStorage.getItem('goodnight-admin-token'));
 }
 
 async function main() {

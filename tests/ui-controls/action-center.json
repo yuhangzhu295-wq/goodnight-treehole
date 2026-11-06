@@ -1,0 +1,6 @@
+[
+ {
+  "selector": "action-history",
+  "expect": { "urlChanged": true }
+ }
+]

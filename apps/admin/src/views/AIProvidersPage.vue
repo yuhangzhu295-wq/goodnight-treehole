@@ -489,14 +489,14 @@ onMounted(load);
   font-size: 12px;
 }
 
+/* Visible: this line reports load and save failures. It used to be clipped to 1px, so a
+   failed request left a bare empty table with no on-screen explanation (ISSUE-023). */
 .provider-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
+  margin: 6px 0 0;
+}
+
+.provider-status:empty {
+  display: none;
 }
 
 .provider-workspace {

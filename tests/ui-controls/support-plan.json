@@ -1,0 +1,15 @@
+[
+ {
+  "selector": "support-plan-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "support-plan-safety",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "support-plan-save",
+  "settleMs": 800,
+  "expect": { "present": "[data-testid=\"support-plan-save\"]" }
+ }
+]

@@ -2,96 +2,869 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import AppIcon from '../components/icons/AppIcon.vue';
+import LoadErrorBanner from '../components/LoadErrorBanner.vue';
 
-type PeerExperience = { id: string; title: string; domain: string; subDomain?: string; stage: string; tags: string[]; createdAt: string; graduated: boolean; laterRecordCount: number };
-type PeerMatch = { id: string; journeyId: string; status: string; reasons: string[]; experience?: PeerExperience };
-type PeerNetwork = { privacyEnabled: boolean; matches: PeerMatch[]; experiences: PeerExperience[]; limited: boolean };
+type PeerExperience = {
+  id: string;
+  title: string;
+  domain: string;
+  subDomain?: string;
+  stage: string;
+  tags: string[];
+  createdAt: string;
+  graduated: boolean;
+  laterRecordCount: number;
+  content?: string;
+  laterSummary?: Record<string, unknown>;
+};
+
+type PeerMatch = {
+  id: string;
+  journeyId: string;
+  status: string;
+  reasons: string[];
+  experience?: PeerExperience;
+};
+
+type PeerNetwork = {
+  privacyEnabled: boolean;
+  matches: PeerMatch[];
+  experiences: PeerExperience[];
+  limited: boolean;
+};
+
+type PeerRequest = {
+  id: string;
+  journeyId: string;
+  status: string;
+  /** 'active' or 'closed' once the request became a conversation. */
+  conversationStatus?: string;
+  requestReason?: string;
+  requestQuestion?: string;
+  createdAt: string;
+  experience?: PeerExperience;
+};
 
 const router = useRouter();
 const item = ref<PeerNetwork | null>(null);
+const requests = ref<PeerRequest[]>([]);
 const loading = ref(true);
+const loadingRequests = ref(false);
 const error = ref('');
 const enabling = ref(false);
-const primaryMatch = computed(() => item.value?.matches[0]);
-const secondaryMatches = computed(() => (item.value?.matches ?? []).slice(1, 3));
-const publishedExperiences = computed(() => {
-  const matchedExperienceIds = new Set((item.value?.matches ?? []).map((match) => match.experience?.id).filter(Boolean));
-  return (item.value?.experiences ?? []).filter((experience) => !matchedExperienceIds.has(experience.id)).slice(0, 2);
+const currentTab = ref<'recommended' | 'latest' | 'requests'>('recommended');
+
+// Deduplicate matches to ensure no duplicate cards appear
+/**
+ * One card per distinct story, not per row.
+ *
+ * Several stored experiences are word-for-word identical, so deduplicating by id alone rendered the
+ * same story four times in a row - which is what makes a feed look machine-generated. The duplicate
+ * count is kept so the page can say "另有 N 位同行者留下过相同的经历" instead of pretending there is only
+ * one. (The first attempt keyed on `experience.content`, which this list returns empty; the title is
+ * the field that actually identifies the story here.)
+ */
+const uniqueMatches = computed(() => {
+  const seen = new Set<string>();
+  const list: Array<PeerMatch & { duplicateCount: number }> = [];
+  for (const match of item.value?.matches ?? []) {
+    const expId = match.experience?.id ?? match.id;
+    if (list.some((m) => m.experience?.id === expId)) continue;
+    // The network view's matches carry the experience's title but not its body (`content` arrives
+    // empty), so deduplicating on the body alone silently did nothing. The title is what identifies
+    // the story in this list, so that is what the key uses.
+    const title = (match.experience?.title ?? '').trim();
+    const twin = title ? list.find((m) => (m.experience?.title ?? '').trim() === title) : undefined;
+    if (twin) {
+      twin.duplicateCount += 1;
+      continue;
+    }
+    seen.add(expId);
+    list.push({ ...match, duplicateCount: 1 });
+  }
+  return list;
+});
+
+// Latest experiences sorted by createdAt descending
+const latestExperiences = computed(() => {
+  const matchedIds = new Set(uniqueMatches.value.map((m) => m.experience?.id).filter(Boolean));
+  return [...(item.value?.experiences ?? [])]
+    .filter((exp) => !matchedIds.has(exp.id))
+    .sort((a, b) => Date.parse(b.createdAt || '0') - Date.parse(a.createdAt || '0'));
 });
 
 async function load() {
   loading.value = true;
-  try { item.value = (await api.get<{ item: PeerNetwork }>('/api/v1/peers')).item; error.value = ''; }
-  catch (cause: any) { error.value = cause?.message ?? '同路经历加载失败'; }
-  finally { loading.value = false; }
+  error.value = '';
+  try {
+    item.value = (await api.get<{ item: PeerNetwork }>('/api/v1/peers')).item;
+  } catch (cause: any) {
+    error.value = cause?.message ?? '同路经历加载失败';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function loadRequests() {
+  loadingRequests.value = true;
+  try {
+    // scope=sent: this tab is "你发起的同路询问与回应状态". Without the scope it listed incoming
+    // requests, so a user who had sent one saw nothing and someone else's request looked like theirs.
+    const res = await api.get<{ items: PeerRequest[] }>('/api/v1/peer-requests?scope=sent');
+    requests.value = res.items ?? [];
+  } catch {
+    requests.value = [];
+  } finally {
+    loadingRequests.value = false;
+  }
+}
+
+function switchTab(tab: 'recommended' | 'latest' | 'requests') {
+  currentTab.value = tab;
+  if (tab === 'requests' && requests.value.length === 0) {
+    void loadRequests();
+  }
 }
 
 async function enable() {
   enabling.value = true;
-  try { await api.patch('/api/v1/me/privacy', { allowPeerMatching: true, allowAnonymousExperienceStats: true }); await load(); }
-  catch (cause: any) { error.value = cause?.message ?? '隐私设置更新失败'; }
-  finally { enabling.value = false; }
+  try {
+    await api.patch('/api/v1/me/privacy', {
+      allowPeerMatching: true,
+      allowAnonymousExperienceStats: true,
+    });
+    await load();
+  } catch (cause: any) {
+    error.value = cause?.message ?? '隐私设置更新失败';
+  } finally {
+    enabling.value = false;
+  }
 }
 
-function openExperience(match: PeerMatch) {
-  if (match.status === 'requested' || match.status === 'connected') { router.push(`/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`); return; }
+function openMatch(match: PeerMatch) {
+  if (match.status === 'requested' || match.status === 'connected') {
+    void router.push(`/pages/peer/wait?matchId=${encodeURIComponent(match.id)}`);
+    return;
+  }
   const experienceId = match.experience?.id;
-  if (experienceId) router.push(`/pages/peer/detail?id=${encodeURIComponent(experienceId)}&matchId=${encodeURIComponent(match.id)}`);
+  if (experienceId) {
+    void router.push(`/pages/peer/detail?id=${encodeURIComponent(experienceId)}&matchId=${encodeURIComponent(match.id)}`);
+  }
 }
 
-function openPublished(experience: PeerExperience) { router.push(`/pages/peer/detail?id=${encodeURIComponent(experience.id)}`); }
-function ago(createdAt: string) { const days = Math.max(0, Math.floor((Date.now() - Date.parse(createdAt)) / 86_400_000)); return days < 1 ? '最近留下' : days < 30 ? `${days} 天前留下` : '较早留下'; }
-onMounted(load);
+function openExperience(experience: PeerExperience) {
+  void router.push(`/pages/peer/detail?id=${encodeURIComponent(experience.id)}`);
+}
+
+/** 等待回应 / 已同意 / 会话中 / 结束, from the real status plus the conversation's own status. */
+function requestStatusLabel(req: PeerRequest) {
+  if (req.conversationStatus === 'active') return '会话中';
+  if (req.conversationStatus === 'closed') return '已结束';
+  if (req.status === 'connected') return '已同意';
+  if (req.status === 'declined') return '已婉拒';
+  if (req.status === 'blocked') return '已停止';
+  return '等待回应';
+}
+
+function openRequest(req: PeerRequest) {
+  const matchId = encodeURIComponent(req.id);
+  // Route by where the request actually is: an active or ended request opens its conversation, an
+  // agreed one still needs the boundary confirmed, and only an unanswered one goes to the wait page.
+  if (req.conversationStatus) {
+    void router.push(`/pages/peer/conversation?matchId=${matchId}`);
+    return;
+  }
+  if (req.status === 'connected') {
+    void router.push(`/pages/peer/consent?matchId=${matchId}`);
+    return;
+  }
+  if (req.status === 'requested') {
+    void router.push(`/pages/peer/wait?matchId=${matchId}`);
+  }
+  // declined / blocked: there is nothing further to open.
+}
+
+function ago(createdAt: string) {
+  if (!createdAt) return '近期留下';
+  const days = Math.max(0, Math.floor((Date.now() - Date.parse(createdAt)) / 86_400_000));
+  if (days < 1) return '今天留下';
+  if (days === 1) return '昨天留下';
+  if (days < 30) return `${days} 天前留下`;
+  return '较早留下';
+}
+
+function formatStatus(status: string) {
+  switch (status) {
+    case 'requested':
+      return '等待回应';
+    case 'connected':
+      return '已连接';
+    case 'declined':
+      return '已婉拒';
+    case 'blocked':
+      return '已关闭';
+    default:
+      return '查看后来记录';
+  }
+}
+
+onMounted(() => {
+  void load();
+});
 </script>
 
 <template>
-  <section class="goodnight-page peer-network-page">
-    <header class="peer-hero">
-      <div class="hero-top"><span class="hero-brand"><i aria-hidden="true"></i>晚安树洞</span><span class="hero-mark">匿名同路</span></div>
-      <div class="hero-copy"><h1>有人也走过<br>相似的路</h1><p>先看故事，再决定要不要靠近。</p></div>
+  <div class="peer-v2">
+    <!-- Top Header -->
+    <header class="peer-header">
+      <div class="header-left">
+        <h1 class="header-title">同路人</h1>
+      </div>
+      <div class="header-right">
+        <button
+          class="icon-button"
+          aria-label="刷新"
+          type="button"
+          @click="load"
+        >
+          <AppIcon name="refresh" :size="20" />
+        </button>
+      </div>
     </header>
 
-    <div class="peer-tabs" role="tablist" aria-label="同路内容"><button class="active" type="button">推荐给你</button><button type="button" @click="router.push('/pages/peer/requests')">我的请求</button></div>
-    <p v-if="error" class="error-note" role="alert">{{ error }}</p>
-    <p v-if="loading" class="state-note">正在找走过相似路的人…</p>
+    <!-- Segmented Tab Bar -->
+    <nav class="segment-bar" role="tablist" aria-label="同路栏目">
+      <button
+        type="button"
+        class="segment-item"
+        data-testid="peer-tab-recommended"
+        :class="{ active: currentTab === 'recommended' }"
+        role="tab"
+        :aria-selected="currentTab === 'recommended'"
+        @click="switchTab('recommended')"
+      >
+        推荐
+      </button>
+      <button
+        type="button"
+        class="segment-item"
+        data-testid="peer-tab-latest"
+        :class="{ active: currentTab === 'latest' }"
+        role="tab"
+        :aria-selected="currentTab === 'latest'"
+        @click="switchTab('latest')"
+      >
+        最新
+      </button>
+      <button
+        type="button"
+        class="segment-item"
+        data-testid="peer-tab-requests"
+        :class="{ active: currentTab === 'requests' }"
+        role="tab"
+        :aria-selected="currentTab === 'requests'"
+        @click="switchTab('requests')"
+      >
+        我的请求
+      </button>
+    </nav>
 
-    <section v-else-if="!item || !item.privacyEnabled" class="boundary-card">
-      <span class="leaf-glyph" aria-hidden="true"></span><h2>这里不会自动让别人看到你</h2>
-      <p>只有你愿意，系统才会用匿名后的经历，帮你寻找走过相似道路的人。</p>
-      <ul><li>会分享：经你确认的匿名经历与后来。</li><li>不会分享：昵称、联系方式、位置或真实身份。</li></ul>
-      <button :disabled="enabling" @click="enable">{{ enabling ? '正在确认…' : '允许匿名寻找同路经历' }}</button>
-      <button class="privacy-link" type="button" @click="router.push('/pages/privacy/index')">看看隐私边界</button>
+    <LoadErrorBanner :message="error" retry-label="重新加载" @retry="load" />
+
+    <div v-if="loading" class="state-message">
+      正在寻找走过相似道路的记录…
+    </div>
+
+    <!-- Privacy Gate Notice -->
+    <section v-else-if="!item || !item.privacyEnabled" class="privacy-card">
+      <div class="privacy-badge">隐私保护</div>
+      <h2 class="privacy-title">同路人经历匹配未开启</h2>
+      <p class="privacy-desc">开启后，系统仅基于匿名经历匹配相似历程，不会公开任何个人身份。</p>
+
+      <div class="privacy-scope">
+        <div class="scope-row">
+          <strong>公开范围</strong>
+          <span>经你确认的匿名经历文本与阶段总结</span>
+        </div>
+        <div class="scope-row">
+          <strong>保护范围</strong>
+          <span>隐藏昵称、联系方式、设备与具体位置</span>
+        </div>
+      </div>
+
+      <div class="privacy-buttons">
+        <button
+          class="btn-primary"
+          :disabled="enabling"
+          type="button"
+          @click="enable"
+        >
+          {{ enabling ? '正在确认…' : '允许匿名寻找同路经历' }}
+        </button>
+        <button
+          class="btn-secondary"
+          data-testid="peer-privacy-boundary"
+          type="button"
+          @click="router.push('/pages/settings/privacy')"
+        >
+          查看隐私边界设置
+        </button>
+      </div>
     </section>
 
-    <template v-else>
-      <section class="recommend-block">
-        <div class="section-heading"><div><span class="heading-leaf" aria-hidden="true"></span><h2>和你很像的经历</h2></div><button type="button" @click="load">换一批</button></div>
-        <article v-if="primaryMatch" class="peer-story-card peer-story-card--primary">
-          <div class="story-meta"><span>{{ primaryMatch.experience?.domain || '匿名经历' }} · {{ ago(primaryMatch.experience?.createdAt || '') }}</span><span class="later-pill">真实后来</span></div>
-          <h3>{{ primaryMatch.experience?.title || '一段匿名经历' }}</h3>
-          <p class="story-quote">{{ primaryMatch.reasons.join(' · ') || '这段经历和你眼前的处境有一些相似。' }}</p>
-          <div class="story-tags"><span v-for="reason in primaryMatch.reasons.slice(0, 3)" :key="reason">{{ reason }}</span></div>
-          <div class="story-footer"><span>{{ primaryMatch.experience?.laterRecordCount ? `留下了 ${primaryMatch.experience.laterRecordCount} 段后来` : '留下一点后来' }}</span><button type="button" @click="openExperience(primaryMatch)">{{ primaryMatch.status === 'requested' ? '等待回应' : primaryMatch.status === 'connected' ? '查看进展' : '看看 TA 后来怎么样' }}</button></div>
+    <!-- Tab 1: Recommended Stories -->
+    <main v-else-if="currentTab === 'recommended'" class="peer-feed">
+      <div class="feed-intro">只展示对方愿意公开的匿名经历</div>
+
+      <div v-if="uniqueMatches.length === 0" class="empty-feed">
+        <div class="empty-icon">◎</div>
+        <h3 class="empty-title">暂时没有匹配的经历</h3>
+        <p class="empty-desc">可以稍后再来看看，或者调整愿意分享的范围。</p>
+        <button
+          class="empty-btn"
+          data-testid="peer-privacy-boundary"
+          type="button"
+          @click="router.push('/pages/settings/privacy')"
+        >
+          查看我的分享设置
+        </button>
+      </div>
+
+      <div v-else class="story-list">
+        <article
+          v-for="match in uniqueMatches"
+          :key="match.id"
+          class="story-card"
+        >
+          <div class="author-row">
+            <div class="avatar-circle">
+              {{ (match.experience?.domain || '同')[0] }}
+            </div>
+            <div class="author-info">
+              <span class="author-name">匿名同行者</span>
+              <span class="author-meta">{{ match.experience?.domain || '匿名经历' }} · {{ ago(match.experience?.createdAt || '') }}</span>
+            </div>
+            <span v-if="match.status === 'connected'" class="status-pill connected">已连接</span>
+            <span v-else-if="match.status === 'requested'" class="status-pill pending">等待回应</span>
+          </div>
+
+          <h3 class="story-title">{{ match.experience?.title || '一段匿名经历' }}</h3>
+
+          <p v-if="match.experience?.content" class="story-excerpt">
+            {{ match.experience.content }}
+          </p>
+
+          <!-- The match rationale is one quiet line under the story. It used to be a labelled strip
+               that competed with the body for attention, which the audit called out: the reason a post
+               was recommended matters less than what the peer actually wrote. -->
+          <p v-if="match.reasons && match.reasons.length > 0" class="reason-line">
+            {{ match.reasons.join(' · ') }}
+          </p>
+          <p v-if="match.duplicateCount > 1" class="duplicate-note">
+            另有 {{ match.duplicateCount - 1 }} 位同行者留下过相同的经历
+          </p>
+
+          <div class="story-bottom">
+            <span class="progress-meta">
+              {{ match.experience?.laterRecordCount ? `已记录 ${match.experience.laterRecordCount} 条后续` : match.experience?.graduated ? '阶段已完成' : '持续记录中' }}
+            </span>
+            <button
+              class="action-link"
+              type="button"
+              @click="openMatch(match)"
+            >
+              {{ formatStatus(match.status) }} ›
+            </button>
+          </div>
         </article>
-        <p v-else class="empty-note">暂时还没有足够接近的同路经历。你正在走的路会慢慢变得更清楚。</p>
-        <article v-for="match in secondaryMatches" :key="match.id" class="peer-story-card peer-story-card--secondary">
-          <div class="secondary-copy"><span>{{ match.experience?.domain || '匿名经历' }} · {{ ago(match.experience?.createdAt || '') }}</span><h3>{{ match.experience?.title || '另一段匿名经历' }}</h3><p>{{ match.reasons[0] || '也许能给你一点不一样的陪伴。' }}</p></div>
-          <button type="button" :aria-label="`查看 ${match.experience?.title || '匿名经历'}`" @click="openExperience(match)">›</button>
+      </div>
+    </main>
+
+    <!-- Tab 2: Latest Experiences -->
+    <main v-else-if="currentTab === 'latest'" class="peer-feed">
+      <div class="feed-intro">按时间顺序浏览最新的匿名经历</div>
+
+      <div v-if="latestExperiences.length === 0" class="empty-feed">
+        <div class="empty-icon">◎</div>
+        <h3 class="empty-title">暂时没有更多最新经历</h3>
+        <p class="empty-desc">后续有其他同行者分享后将显示在这里。</p>
+      </div>
+
+      <div v-else class="story-list">
+        <article
+          v-for="exp in latestExperiences"
+          :key="exp.id"
+          class="story-card"
+        >
+          <div class="author-row">
+            <div class="avatar-circle">
+              {{ (exp.domain || '同')[0] }}
+            </div>
+            <div class="author-info">
+              <span class="author-name">匿名同行者</span>
+              <span class="author-meta">{{ exp.domain }} · {{ ago(exp.createdAt) }}</span>
+            </div>
+          </div>
+
+          <h3 class="story-title">{{ exp.title }}</h3>
+
+          <p v-if="exp.content" class="story-excerpt">
+            {{ exp.content }}
+          </p>
+
+          <div class="story-bottom">
+            <span class="progress-meta">
+              {{ exp.laterRecordCount ? `已记录 ${exp.laterRecordCount} 条后续` : exp.graduated ? '阶段已完成' : '持续记录中' }}
+            </span>
+            <button
+              class="action-link"
+              type="button"
+              @click="openExperience(exp)"
+            >
+              查看后来记录 ›
+            </button>
+          </div>
         </article>
-      </section>
-      <section v-if="publishedExperiences.length" class="public-block">
-        <div class="section-heading section-heading--quiet"><div><span class="heading-leaf" aria-hidden="true"></span><h2>还有一些人，留下了后来</h2></div></div>
-        <button v-for="experience in publishedExperiences" :key="experience.id" type="button" class="public-row" @click="openPublished(experience)"><span class="row-sprout" aria-hidden="true"></span><span><strong>{{ experience.title }}</strong><small>{{ experience.domain }} · {{ experience.graduated ? '已经走过一段' : '仍在慢慢走' }}</small></span><b aria-hidden="true"></b></button>
-        <p v-if="item.limited" class="limit-note">今晚先看到这里，明天也会有新的后来。</p>
-      </section>
-    </template>
-  </section>
+      </div>
+    </main>
+
+    <!-- Tab 3: My Requests -->
+    <main v-else class="peer-feed">
+      <div class="feed-intro">你发起的同路询问与回应状态</div>
+
+      <div v-if="loadingRequests" class="state-message">
+        正在读取请求记录…
+      </div>
+
+      <div v-else-if="requests.length === 0" class="empty-feed">
+        <div class="empty-icon">✉</div>
+        <h3 class="empty-title">暂无发出的同路请求</h3>
+        <p class="empty-desc">你可以向走过相似阶段的同行者询问应对体会。</p>
+        <button
+          class="empty-btn"
+          type="button"
+          @click="switchTab('recommended')"
+        >
+          去看看推荐经历
+        </button>
+      </div>
+
+      <div v-else class="story-list">
+        <article
+          v-for="req in requests"
+          :key="req.id"
+          class="story-card"
+          @click="openRequest(req)"
+        >
+          <div class="author-row">
+            <div class="avatar-circle">
+              {{ (req.experience?.domain || '问')[0] }}
+            </div>
+            <div class="author-info">
+              <span class="author-name">向同行者询问</span>
+              <span class="author-meta">{{ req.experience?.domain || '匿名' }} · {{ ago(req.createdAt) }}</span>
+            </div>
+            <span
+              class="status-pill"
+              :class="{
+                connected: req.conversationStatus === 'active' || req.status === 'connected',
+                pending: req.status === 'requested' && !req.conversationStatus,
+                ended: req.conversationStatus === 'closed' || req.status === 'declined' || req.status === 'blocked',
+              }"
+            >
+              {{ requestStatusLabel(req) }}
+            </span>
+          </div>
+
+          <h3 class="story-title">{{ req.experience?.title || '同路申请' }}</h3>
+          <p v-if="req.requestReason" class="story-excerpt">
+            理由：{{ req.requestReason }}
+          </p>
+          <p v-if="req.requestQuestion" class="story-excerpt">
+            问题：{{ req.requestQuestion }}
+          </p>
+
+          <div class="story-bottom">
+            <span class="progress-meta">点击查看等待与沟通详情</span>
+            <span class="action-link">查看详情 ›</span>
+          </div>
+        </article>
+      </div>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.peer-network-page{display:grid;align-content:start;gap:13px;padding:0 16px 142px;background:linear-gradient(180deg,#19313a 0 190px,#fbf8ef 190px)}
-.peer-hero{position:relative;min-height:181px;margin:0 -16px;padding:18px 25px;overflow:hidden;color:#f7f2df;background:linear-gradient(118deg,#162b34 0 43%,#31484b 100%)}
-.hero-top,.hero-copy{position:relative;z-index:1}.hero-top{display:flex;align-items:center;justify-content:space-between;font-size:12px}.hero-brand{display:inline-flex;align-items:center;gap:7px;font-weight:700}.hero-brand i{width:18px;height:18px;border:1px solid rgba(240,247,227,.72);border-radius:50% 50% 48% 11%;transform:rotate(-35deg)}.hero-mark{padding:4px 9px;border:1px solid rgba(255,255,255,.32);border-radius:999px}.hero-copy{margin-top:27px}.peer-hero h1{margin:0;color:#fff9e8;font-family:var(--gn-font-display);font-size:30px;font-weight:400;line-height:1.16;text-shadow:0 2px 12px rgba(9,25,29,.25)}.peer-hero p{max-width:230px;margin:7px 0 0;color:#e7ead9;font-size:13px;line-height:1.6}.peer-hero::after{position:absolute;right:-10px;bottom:-8px;width:250px;height:171px;background:url('../assets/goodnight/peer/peer-night-hero.png') right bottom/auto 171px no-repeat;content:'';opacity:.96;pointer-events:none;-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 32%,#000);mask-image:linear-gradient(90deg,transparent 0%,#000 32%,#000)}
-.peer-tabs{display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-top:-14px;padding:4px;border:1px solid rgba(215,207,184,.82);border-radius:999px;background:#fffdf8;box-shadow:0 9px 23px rgba(30,45,39,.13)}.peer-tabs button{min-height:39px;border:0;border-radius:999px;background:transparent;color:#7c7b71;font:inherit;cursor:pointer}.peer-tabs .active{background:#fffef9;color:var(--gn-green-dark);box-shadow:inset 0 -2px 0 var(--gn-green)}
-.state-note,.empty-note{margin:34px 10px;color:var(--gn-subtext);line-height:1.7;text-align:center}.error-note{margin:0;color:var(--gn-danger);text-align:center}.boundary-card,.peer-story-card,.public-block{border:1px solid var(--gn-border);border-radius:20px;background:rgba(255,254,249,.94);box-shadow:var(--gn-shadow-card)}.boundary-card{padding:24px;text-align:center}.boundary-card h2{margin:8px 0;color:var(--gn-green-dark)}.boundary-card p{margin:0;color:var(--gn-subtext);line-height:1.7}.boundary-card button,.story-footer button{min-height:44px;border:0;border-radius:999px;background:var(--gn-green);color:#fff;font:inherit;cursor:pointer}.boundary-card button{width:100%;margin-top:18px}.recommend-block{display:grid;gap:10px}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 8px 1px}.section-heading>div{display:flex;align-items:center;gap:8px;min-width:0}.heading-leaf{display:inline-block;width:13px;height:13px;border:1px solid var(--gn-green);border-radius:50% 50% 50% 5px;transform:rotate(-35deg)}.section-heading h2{margin:0;color:#394b39;font-family:var(--gn-font-display);font-size:18px;font-weight:400}.section-heading button{border:0;background:transparent;color:var(--gn-green);font:inherit;font-size:12px;cursor:pointer}.peer-story-card{position:relative;overflow:hidden}.peer-story-card--primary{min-height:190px;padding:15px 16px 14px}.peer-story-card--primary::after{position:absolute;right:-2px;bottom:-1px;width:166px;height:128px;background:url('../assets/goodnight/peer/peer-bench-scene.png') right bottom/contain no-repeat;content:'';opacity:.56;pointer-events:none}.story-meta,.story-tags,.story-footer,.peer-story-card h3,.story-quote{position:relative;z-index:1}.story-meta{display:flex;align-items:center;justify-content:space-between;gap:9px;color:#87907d;font-size:11px}.later-pill{padding:4px 8px;border-radius:999px;background:#eef1df;color:#6d7a48;font-size:11px}.peer-story-card h3{max-width:250px;margin:11px 0 8px;color:#283a2d;font-family:var(--gn-font-display);font-size:21px;font-weight:400;line-height:1.26}.story-quote{max-width:242px;margin:0;color:#677063;font-size:13px;line-height:1.6}.story-tags{display:flex;flex-wrap:wrap;gap:6px;max-width:242px;margin-top:10px}.story-tags span{padding:4px 8px;border-radius:999px;background:#f4eee6;color:#886e62;font-size:10px}.story-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:11px;padding-top:10px;border-top:1px solid rgba(95,127,62,.15)}.story-footer span{color:#798174;font-size:11px}.story-footer button{min-height:34px;padding:0 12px;font-size:11px}.peer-story-card--secondary{display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:10px;min-height:92px;padding:14px 16px}.secondary-copy{display:grid;gap:4px;min-width:0}.secondary-copy>span{color:#87907d;font-size:11px}.secondary-copy h3{margin:0;color:#354737;font-size:16px}.secondary-copy p{margin:0;color:#687267;font-size:12px;line-height:1.45}.peer-story-card--secondary>button{position:relative;z-index:1;width:31px;height:31px;border:0;border-radius:50%;background:#f5f3e8;color:var(--gn-green);font-size:25px;line-height:1;cursor:pointer}.public-block{display:grid;gap:0;padding:13px 16px}.section-heading--quiet{padding:0 0 7px}.section-heading--quiet h2{font-size:16px}.public-row{display:grid;grid-template-columns:27px minmax(0,1fr)18px;align-items:center;gap:8px;width:100%;padding:11px 0;border:0;border-top:1px solid var(--gn-border);background:transparent;text-align:left;cursor:pointer}.public-row span:nth-child(2){display:grid;gap:3px}.public-row strong{overflow:hidden;color:var(--gn-text);font-size:13px;text-overflow:ellipsis;white-space:nowrap}.public-row small{overflow:hidden;color:var(--gn-subtext);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.limit-note{margin:11px 0 0;color:var(--gn-subtext);font-size:11px;text-align:center}.boundary-card ul{display:grid;gap:7px;margin:16px 0 0;padding:0;list-style:none;color:var(--gn-text);font-size:13px;line-height:1.55;text-align:left}.boundary-card li{padding:9px 11px;border-radius:12px;background:#f6f7ef}.boundary-card .privacy-link{min-height:34px;margin-top:4px;background:transparent;color:var(--gn-green-dark);text-decoration:underline}.leaf-glyph,.row-sprout{display:inline-block;position:relative;flex:0 0 auto;color:transparent}.leaf-glyph{width:26px;height:26px;border:1.5px solid var(--gn-green);border-radius:50% 50% 50% 5px;transform:rotate(-35deg)}.leaf-glyph::after{position:absolute;left:50%;top:4px;height:19px;border-left:1px solid var(--gn-green);content:''}.row-sprout{width:16px;height:16px;border:1.5px solid var(--gn-green);border-radius:50% 50% 50% 5px;transform:rotate(-35deg)}.row-sprout::after{position:absolute;left:7px;top:2px;height:12px;border-left:1px solid var(--gn-green);content:''}.public-row b{width:8px;height:8px;border-top:1.5px solid var(--gn-green);border-right:1.5px solid var(--gn-green);transform:rotate(45deg)}
+.peer-v2 {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  background: #FFFFFF;
+  color: #242A32;
+  font-family: var(--gn-font-body);
+}
+
+.peer-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 20px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E8EBEF;
+}
+
+.header-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #242A32;
+  letter-spacing: -0.3px;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #39454C;
+  cursor: pointer;
+}
+
+.segment-bar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 20px;
+  border-bottom: 1px solid #E8EBEF;
+  gap: 28px;
+  background: #FFFFFF;
+}
+
+.segment-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #757D87;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.segment-item.active {
+  color: #275F56;
+  font-weight: 600;
+}
+
+.segment-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #275F56;
+  border-radius: 2px;
+}
+
+.state-message {
+  padding: 40px 20px;
+  color: #757D87;
+  font-size: 13px;
+  text-align: center;
+}
+
+.privacy-card {
+  margin: 20px;
+  padding: 20px;
+  border: 1px solid #E8EBEF;
+  border-radius: 12px;
+  background: #FFFFFF;
+}
+
+.privacy-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #EAF4EE;
+  color: #275F56;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.privacy-title {
+  margin: 10px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #242A32;
+}
+
+.privacy-desc {
+  margin: 0;
+  color: #757D87;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.privacy-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #F7F8FA;
+}
+
+.scope-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scope-row strong {
+  font-size: 12px;
+  color: #242A32;
+}
+
+.scope-row span {
+  font-size: 12px;
+  color: #757D87;
+  line-height: 1.4;
+}
+
+.privacy-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.btn-primary {
+  min-height: 48px;
+  border: 0;
+  border-radius: 10px;
+  background: #275F56;
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  min-height: 48px;
+  border: 1px solid #DCE1E5;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #242A32;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.peer-feed {
+  padding: 12px 20px 0;
+}
+
+.feed-intro {
+  margin-bottom: 12px;
+  color: #757D87;
+  font-size: 12px;
+}
+
+.empty-feed {
+  margin-top: 60px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.empty-icon {
+  font-size: 36px;
+  color: #92A9A0;
+}
+
+.empty-title {
+  margin: 16px 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #242A32;
+}
+
+.empty-desc {
+  margin: 0;
+  color: #757D87;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.empty-btn {
+  margin-top: 18px;
+  min-height: 48px;
+  padding: 10px 20px;
+  border: 1px solid #DCE1E5;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #242A32;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.story-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.story-card {
+  padding: 16px 0;
+  border-bottom: 1px solid #E8EBEF;
+}
+
+.story-card:last-child {
+  border-bottom: 0;
+}
+
+.author-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 17px;
+  background: #EAF4EE;
+  color: #275F56;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.author-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.author-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #242A32;
+}
+
+.author-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #757D87;
+}
+
+.status-pill {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #F7F8FA;
+  color: #757D87;
+}
+
+.status-pill.connected {
+  background: #EAF4EE;
+  color: #275F56;
+}
+
+.status-pill.pending {
+  background: #FFF8EE;
+  color: #947444;
+}
+
+/* 已结束 / 已婉拒 / 已停止: a settled state, quieter than the pending one. */
+.status-pill.ended {
+  background: #F1F2F4;
+  color: #757D87;
+}
+
+.story-title {
+  margin: 10px 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #242A32;
+}
+
+.story-excerpt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #58616B;
+}
+
+/* The rationale and the duplicate count are supporting detail: small, quiet, below the story. */
+.reason-line {
+  margin: 8px 0 0;
+  color: #88909a;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.duplicate-note {
+  margin: 4px 0 0;
+  color: #9aa1a8;
+  font-size: 11px;
+}
+
+.reason-text {
+  color: #58616B;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.progress-meta {
+  font-size: 11px;
+  color: #757D87;
+}
+
+.action-link {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: #275F56;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
 </style>

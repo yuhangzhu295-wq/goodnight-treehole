@@ -1,0 +1,11 @@
+[
+  {
+    "selector": "btn-submit-mood",
+    "fill": { "selector": "input-mood-content", "value": "效果断言验证：这一条心情应当真实写入数据库。" },
+    "expect": {
+      "apiRead": "/api/v1/diaries",
+      "apiDelta": 1,
+      "pick": "b => b.items.length"
+    }
+  }
+]

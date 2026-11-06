@@ -1,0 +1,557 @@
+[
+ {
+  "component": "ActionCenter",
+  "routes": [
+   "/pages/action/index"
+  ],
+  "viewId": "VIEW-01",
+  "design": "03_ActionCenter.png",
+  "priority": "P2",
+  "canonicalSlug": "action-center",
+  "aliasSlugs": [],
+  "relation": "基本接近"
+ },
+ {
+  "component": "Archive",
+  "routes": [
+   "/pages/archive/index"
+  ],
+  "viewId": "VIEW-02",
+  "design": "21_Archive.png",
+  "priority": "P1",
+  "canonicalSlug": "archive",
+  "aliasSlugs": [],
+  "relation": "产品架构冲突"
+ },
+ {
+  "component": "DataPolicy",
+  "routes": [
+   "/pages/settings/data-policy"
+  ],
+  "viewId": "VIEW-03",
+  "design": "37_DataPolicy.png",
+  "priority": "P2",
+  "canonicalSlug": "settings-data-policy",
+  "aliasSlugs": [],
+  "relation": "基本接近但旧风格"
+ },
+ {
+  "component": "DecisionVault",
+  "routes": [
+   "/pages/decision/index"
+  ],
+  "viewId": "VIEW-04",
+  "design": "20_DecisionVault.png",
+  "priority": "P1",
+  "canonicalSlug": "decision-vault",
+  "aliasSlugs": [],
+  "relation": "不同业务状态"
+ },
+ {
+  "component": "DiaryDetail",
+  "routes": [
+   "/pages/diary/detail"
+  ],
+  "viewId": "VIEW-05",
+  "design": "31_DiaryDetail.png",
+  "priority": "P1",
+  "canonicalSlug": "diary-detail",
+  "aliasSlugs": [],
+  "relation": "信息不足"
+ },
+ {
+  "component": "DiaryList",
+  "routes": [
+   "/pages/diary/index",
+   "/pages/diary/list",
+   "/pages/me/diaries"
+  ],
+  "viewId": "VIEW-06",
+  "design": "30_DiaryList.png",
+  "priority": "P1",
+  "canonicalSlug": "me-diaries",
+  "aliasSlugs": [
+   {
+    "slug": "diary-list",
+    "route": "/pages/diary/index",
+    "relation": "明显偏离"
+   }
+  ],
+  "relation": "合法别名且旧风格"
+ },
+ {
+  "component": "FavoriteList",
+  "routes": [
+   "/pages/favorite/index",
+   "/pages/favorite/list"
+  ],
+  "viewId": "VIEW-07",
+  "design": "35_FavoriteList.png",
+  "priority": "P2",
+  "canonicalSlug": "favorites",
+  "aliasSlugs": [],
+  "relation": "状态不可比且旧风格"
+ },
+ {
+  "component": "FeedbackHelp",
+  "routes": [
+   "/pages/help/feedback",
+   "/pages/feedback/index"
+  ],
+  "viewId": "VIEW-08",
+  "design": "38_FeedbackHelp.png",
+  "priority": "P2",
+  "canonicalSlug": "help-feedback",
+  "aliasSlugs": [
+   {
+    "slug": "feedback-list",
+    "route": "/pages/feedback/index",
+    "relation": "合法别名"
+   }
+  ],
+  "relation": "功能较全但视觉偏离"
+ },
+ {
+  "component": "FutureSelf",
+  "routes": [
+   "/pages/future-self/index"
+  ],
+  "viewId": "VIEW-09",
+  "design": "15_FutureSelf.png",
+  "priority": "P1",
+  "canonicalSlug": "future-self",
+  "aliasSlugs": [],
+  "relation": "部分接近"
+ },
+ {
+  "component": "HelpFaqs",
+  "routes": [
+   "/pages/help/faqs"
+  ],
+  "viewId": "VIEW-10",
+  "design": "39_HelpFaqs.png",
+  "priority": "P2",
+  "canonicalSlug": "help-faqs",
+  "aliasSlugs": [],
+  "relation": "状态不可比"
+ },
+ {
+  "component": "JourneyDetail",
+  "routes": [
+   "/pages/journey/detail"
+  ],
+  "viewId": "VIEW-11",
+  "design": "05_JourneyDetail.png",
+  "priority": "P2",
+  "canonicalSlug": "journey-detail",
+  "aliasSlugs": [],
+  "relation": "流程状态不可比"
+ },
+ {
+  "component": "LetterDetail",
+  "routes": [
+   "/pages/letter/detail"
+  ],
+  "viewId": "VIEW-12",
+  "design": "34_LetterDetail.png",
+  "priority": "P1",
+  "canonicalSlug": "letter-detail",
+  "aliasSlugs": [],
+  "relation": "信息层级不足"
+ },
+ {
+  "component": "LetterList",
+  "routes": [
+   "/pages/letter/list"
+  ],
+  "viewId": "VIEW-13",
+  "design": "33_LetterList.png",
+  "priority": "P1",
+  "canonicalSlug": "letter-list",
+  "aliasSlugs": [],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "LetterToday",
+  "routes": [
+   "/pages/letter/index",
+   "/pages/letter/today",
+   "/pages/reply/today"
+  ],
+  "viewId": "VIEW-14",
+  "design": "25_LetterToday.png",
+  "priority": "P1",
+  "canonicalSlug": "letter-today",
+  "aliasSlugs": [
+   {
+    "slug": "letter-today-alias",
+    "route": "/pages/letter/today",
+    "relation": "合法别名"
+   },
+   {
+    "slug": "reply-today",
+    "route": "/pages/reply/today",
+    "relation": "合法别名"
+   }
+  ],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "Me",
+  "routes": [
+   "/pages/me/index"
+  ],
+  "viewId": "VIEW-15",
+  "design": "04_Me.png",
+  "priority": "P2",
+  "canonicalSlug": "me",
+  "aliasSlugs": [],
+  "relation": "部分接近"
+ },
+ {
+  "component": "MemoryCenter",
+  "routes": [
+   "/pages/memory/index"
+  ],
+  "viewId": "VIEW-16",
+  "design": "19_MemoryCenter.png",
+  "priority": "P2",
+  "canonicalSlug": "memory-center",
+  "aliasSlugs": [],
+  "relation": "状态不可比"
+ },
+ {
+  "component": "MeProfile",
+  "routes": [
+   "/pages/me/profile"
+  ],
+  "viewId": "VIEW-17",
+  "design": "29_MeProfile.png",
+  "priority": "P2",
+  "canonicalSlug": "me-profile",
+  "aliasSlugs": [],
+  "relation": "基本接近"
+ },
+ {
+  "component": "MoodCreate",
+  "routes": [
+   "/pages/mood/create",
+   "/pages/post/create"
+  ],
+  "viewId": "VIEW-18",
+  "design": "23_MoodCreate.png",
+  "priority": "P1",
+  "canonicalSlug": "mood-create",
+  "aliasSlugs": [
+   {
+    "slug": "post-create",
+    "route": "/pages/post/create",
+    "relation": "合法别名"
+   }
+  ],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "NotificationCenter",
+  "routes": [
+   "/pages/notifications/index"
+  ],
+  "viewId": "VIEW-19",
+  "design": "14_NotificationCenter.png",
+  "priority": "P2",
+  "canonicalSlug": "notifications",
+  "aliasSlugs": [],
+  "relation": "状态不可比"
+ },
+ {
+  "component": "PeerConsent",
+  "routes": [
+   "/pages/peer/consent"
+  ],
+  "viewId": "VIEW-20",
+  "design": "09_PeerConsent.png",
+  "priority": "P1",
+  "canonicalSlug": "peer-consent",
+  "aliasSlugs": [],
+  "relation": "结构偏离"
+ },
+ {
+  "component": "PeerConversation",
+  "routes": [
+   "/pages/peer/conversation"
+  ],
+  "viewId": "VIEW-21",
+  "design": "10_PeerConversation.png",
+  "priority": "P2",
+  "canonicalSlug": "peer-conversation",
+  "aliasSlugs": [],
+  "relation": "部分接近"
+ },
+ {
+  "component": "PeerExperienceDetail",
+  "routes": [
+   "/pages/peer/detail"
+  ],
+  "viewId": "VIEW-22",
+  "design": "06_PeerExperienceDetail.png",
+  "priority": "P1",
+  "canonicalSlug": "peer-detail",
+  "aliasSlugs": [],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "PeerGraduation",
+  "routes": [
+   "/pages/peer/graduate"
+  ],
+  "viewId": "VIEW-23",
+  "design": "11_PeerGraduation.png",
+  "priority": "P2",
+  "canonicalSlug": "peer-graduate",
+  "aliasSlugs": [],
+  "relation": "结构偏离但不能删业务"
+ },
+ {
+  "component": "PeerMatchWaiting",
+  "routes": [
+   "/pages/peer/wait"
+  ],
+  "viewId": "VIEW-24",
+  "design": "08_PeerMatchWaiting.png",
+  "priority": "P1",
+  "canonicalSlug": "peer-wait",
+  "aliasSlugs": [],
+  "relation": "重大状态疑点"
+ },
+ {
+  "component": "PeerNetwork",
+  "routes": [
+   "/pages/peers/index"
+  ],
+  "viewId": "VIEW-25",
+  "design": "02_PeerNetwork.png",
+  "priority": "P1",
+  "canonicalSlug": "peer-network",
+  "aliasSlugs": [],
+  "relation": "部分接近"
+ },
+ {
+  "component": "PeerRequests",
+  "routes": [
+   "/pages/peer/requests"
+  ],
+  "viewId": "VIEW-26",
+  "design": "07_PeerRequests.png",
+  "priority": "P1",
+  "canonicalSlug": "peer-requests",
+  "aliasSlugs": [],
+  "relation": "结构偏离"
+ },
+ {
+  "component": "PostDetail",
+  "routes": [
+   "/pages/post/detail"
+  ],
+  "viewId": "VIEW-27",
+  "design": "24_PostDetail.png",
+  "priority": "P1",
+  "canonicalSlug": "post-detail",
+  "aliasSlugs": [],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "PrivacySettings",
+  "routes": [
+   "/pages/settings/privacy"
+  ],
+  "viewId": "VIEW-28",
+  "design": "36_PrivacySettings.png",
+  "priority": "P2",
+  "canonicalSlug": "settings-privacy",
+  "aliasSlugs": [],
+  "relation": "功能多于设计图"
+ },
+ {
+  "component": "RealityHandoff",
+  "routes": [
+   "/pages/reality-handoff/index"
+  ],
+  "viewId": "VIEW-29",
+  "design": "12_RealityHandoff.png",
+  "priority": "P2",
+  "canonicalSlug": "reality-handoff",
+  "aliasSlugs": [],
+  "relation": "部分偏离"
+ },
+ {
+  "component": "Recovery",
+  "routes": [
+   "/pages/recovery/index"
+  ],
+  "viewId": "VIEW-30",
+  "design": "16_Recovery.png",
+  "priority": "P2",
+  "canonicalSlug": "recovery",
+  "aliasSlugs": [],
+  "relation": "状态不可比"
+ },
+ {
+  "component": "ReportMonth",
+  "routes": [
+   "/pages/report/month",
+   "/pages/me/month-report"
+  ],
+  "viewId": "VIEW-31",
+  "design": "32_ReportMonth.png",
+  "priority": "P1",
+  "canonicalSlug": "me-month-report",
+  "aliasSlugs": [
+   {
+    "slug": "report-month",
+    "route": "/pages/report/month",
+    "relation": "合法别名"
+   }
+  ],
+  "relation": "合法别名且旧风格"
+ },
+ {
+  "component": "SafetySupport",
+  "routes": [
+   "/pages/safety/index"
+  ],
+  "viewId": "VIEW-32",
+  "design": "13_SafetySupport.png",
+  "priority": "P1",
+  "canonicalSlug": "safety-support",
+  "aliasSlugs": [],
+  "relation": "安全优先问题"
+ },
+ {
+  "component": "Square",
+  "routes": [
+   "/pages/square/index"
+  ],
+  "viewId": "VIEW-33",
+  "design": "22_Square.png",
+  "priority": "P1",
+  "canonicalSlug": "square",
+  "aliasSlugs": [],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "StableSelf",
+  "routes": [
+   "/pages/stable-self/index"
+  ],
+  "viewId": "VIEW-34",
+  "design": "18_StableSelf.png",
+  "priority": "P1",
+  "canonicalSlug": "stable-self",
+  "aliasSlugs": [],
+  "relation": "结构偏离"
+ },
+ {
+  "component": "SupportPlan",
+  "routes": [
+   "/pages/support-plan/index"
+  ],
+  "viewId": "VIEW-35",
+  "design": "17_SupportPlan.png",
+  "priority": "P2",
+  "canonicalSlug": "support-plan",
+  "aliasSlugs": [],
+  "relation": "结构较接近"
+ },
+ {
+  "component": "TonightHome",
+  "routes": [
+   "/pages/tonight/index"
+  ],
+  "viewId": "VIEW-36",
+  "design": "01_TonightHome.png",
+  "priority": "P2",
+  "canonicalSlug": "tonight-home",
+  "aliasSlugs": [],
+  "relation": "基本接近"
+ },
+ {
+  "component": "ToolDecompose",
+  "routes": [
+   "/pages/tool/decompose",
+   "/pages/tool/breakdown"
+  ],
+  "viewId": "VIEW-37",
+  "design": "27_ToolDecompose.png",
+  "priority": "P1",
+  "canonicalSlug": "tool-decompose",
+  "aliasSlugs": [
+   {
+    "slug": "tool-breakdown",
+    "route": "/pages/tool/breakdown",
+    "relation": "合法别名"
+   }
+  ],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "ToolIndex",
+  "routes": [
+   "/pages/tool/index"
+  ],
+  "viewId": "VIEW-38",
+  "design": "26_ToolIndex.png",
+  "priority": "P1",
+  "canonicalSlug": "tool-index",
+  "aliasSlugs": [],
+  "relation": "明显偏离"
+ },
+ {
+  "component": "ToolRun",
+  "routes": [
+   "/pages/tool/run",
+   "/pages/tool/rewrite",
+   "/pages/tool/rant",
+   "/pages/tool/heal",
+   "/pages/tool/sleep",
+   "/pages/tool/work",
+   "/pages/tool/future"
+  ],
+  "viewId": "VIEW-39",
+  "design": "28_ToolRun.png",
+  "priority": "P1",
+  "canonicalSlug": "tool-rewrite",
+  "aliasSlugs": [
+   {
+    "slug": "tool-rant",
+    "route": "/pages/tool/rant",
+    "relation": "缺少专属设计图"
+   },
+   {
+    "slug": "tool-heal",
+    "route": "/pages/tool/heal",
+    "relation": "缺少专属设计图"
+   },
+   {
+    "slug": "tool-sleep",
+    "route": "/pages/tool/sleep",
+    "relation": "缺少专属设计图"
+   },
+   {
+    "slug": "tool-work",
+    "route": "/pages/tool/work",
+    "relation": "缺少专属设计图"
+   },
+   {
+    "slug": "tool-future",
+    "route": "/pages/tool/future",
+    "relation": "缺少专属设计图"
+   },
+   {
+    "slug": "tool-run",
+    "route": "/pages/tool/run",
+    "relation": "合法别名"
+   }
+  ],
+  "relation": "缺少专属设计图"
+ }
+]

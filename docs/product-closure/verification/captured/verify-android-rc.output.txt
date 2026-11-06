@@ -1,0 +1,14 @@
+PASS the target is the native app WebView :: https://localhost/pages/tonight/index
+PASS the native app reaches the tonight page through its own navigation :: https://localhost/pages/tonight/index
+PASS the native app routes a high-risk entry to the safety screen :: https://localhost/pages/safety/index?journeyId=journey_670884c5aa
+PASS the native entry produced a real SafetyEvent :: id=safety_5f8d7281fe status=open
+PASS BACK returns to the previous page instead of leaving the app :: url=https://localhost/pages/tonight/index foreground=true
+PASS the demo user has a conversation to report from :: matchId=peer_match_66e64045dc
+PASS the native conversation renders its safety control :: https://localhost/pages/peer/conversation?matchId=peer_match_66e64045dc
+PASS the safety sheet opens from the native conversation :: dialog
+PASS the native report reaches the database as its own row :: id=peer_report_e9214c0dd9 status=open reporter=user_demo
+PASS the report is added to the conversation history rather than replacing it :: historyRows=4
+PASS the native tool page renders :: https://localhost/pages/tool/rewrite
+PASS the native app still labels a fallback reply :: ☂ 当前模型暂时不可用，下面是一段安全兜底内容，不是模型实时生成的回信。
+
+12/12 pass

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../../api';
 import AppIcon from '../icons/AppIcon.vue';
 
-const props = defineProps<{ journeyId: string }>();
+const props = defineProps<{ journeyId: string; heading?: string; subheading?: string }>();
 const router = useRouter();
 const seconds = ref(0);
 const note = ref('');
@@ -12,6 +12,28 @@ const status = ref('');
 const busy = ref(false);
 let timer: number | undefined;
 function stopTimer() { if (timer) window.clearInterval(timer); timer = undefined; }
+
+const breathingPhase = computed(() => {
+  if (!seconds.value) return 0;
+  const elapsed = 30 - seconds.value;
+  const cycleTime = elapsed % 16;
+  if (cycleTime < 4) return 1;
+  if (cycleTime < 8) return 2;
+  if (cycleTime < 14) return 3;
+  return 4;
+});
+
+const breathingGuide = computed(() => {
+  if (!seconds.value) return '慢慢吸气，跟着节奏，把呼吸带回来。';
+  switch (breathingPhase.value) {
+    case 1: return `吸气中…… (${seconds.value}s)`;
+    case 2: return `轻轻屏息…… (${seconds.value}s)`;
+    case 3: return `慢慢呼气…… (${seconds.value}s)`;
+    case 4: return `自然停顿…… (${seconds.value}s)`;
+    default: return `还剩 ${seconds.value} 秒`;
+  }
+});
+
 async function beginBreathing() {
   if (seconds.value) return;
   seconds.value = 30; status.value = '跟着节奏慢慢呼吸就好。';
@@ -27,50 +49,63 @@ onBeforeUnmount(stopTimer);
 
 <template>
   <section class="stabilize-screen" data-testid="stabilize-panel">
-    <div class="comfort-note"><span class="comfort-mark"><AppIcon name="leaf" /></span><div><p>我想对你说</p><strong>今晚先不用解决。<br>我们先让这一刻轻一点。</strong></div></div>
-    <div class="stabilize-options">
-      <button class="support-option breathing-option" data-testid="stabilize-breath" @click="beginBreathing"><span class="support-icon"><AppIcon name="breath" /></span><span><strong>跟我呼吸30秒</strong><small>{{ seconds ? `还剩 ${seconds} 秒` : '慢慢吸气，跟着节奏，把呼吸带回来。' }}</small><span class="breath-stages" aria-hidden="true"><i><b>1</b>吸气 4秒</i><i><b>2</b>停留 4秒</i><i><b>3</b>呼气 6秒</i><i><b>4</b>停留 2秒</i></span></span><AppIcon name="arrow" :size="18" /></button>
-      <button class="support-option pause-option" :disabled="busy" data-testid="stabilize-pause" @click="pauseImpulse"><span class="support-icon"><AppIcon name="pause" /></span><span><strong>先把想做的事情放一下</strong><small>给大脑降降温，稍晚再决定。</small><span class="cooldown-tags" aria-hidden="true"><i>暂停计划</i><i>延迟决定</i><i>不给回应</i></span></span><AppIcon name="arrow" :size="18" /></button>
-      <label class="write-option"><span class="support-icon"><AppIcon name="pen" /></span><span><strong>写一句也可以</strong><input v-model="note" maxlength="300" placeholder="比如，你想说点什么呢……" @keyup.enter="saveNote" /></span><button :disabled="busy || !note.trim()" @click="saveNote">留下</button></label>
+    <header v-if="heading" class="step-head">
+      <h2>{{ heading }}</h2>
+      <p v-if="subheading">{{ subheading }}</p>
+    </header>
+
+    <div class="comfort-note">
+      <span class="comfort-mark"><AppIcon name="leaf" :size="19" /></span>
+      <div><p>我想对你说</p><strong>今晚先不用解决。<br />我们先让这一刻轻一点。</strong></div>
     </div>
+
+    <div class="stabilize-options">
+      <button class="support-option breathing-option" data-testid="stabilize-breath" @click="beginBreathing"><span class="support-icon"><AppIcon name="breath" :size="19" /></span><span><strong>跟我呼吸30秒</strong><small>{{ breathingGuide }}</small><span class="breath-stages" aria-hidden="true"><i :class="{ active: breathingPhase === 1 }"><b>1</b>吸气 4秒</i><i :class="{ active: breathingPhase === 2 }"><b>2</b>停留 4秒</i><i :class="{ active: breathingPhase === 3 }"><b>3</b>呼气 6秒</i><i :class="{ active: breathingPhase === 4 }"><b>4</b>停留 2秒</i></span></span><AppIcon name="arrow" :size="18" /></button>
+      <button class="support-option pause-option" :disabled="busy" data-testid="stabilize-pause" @click="pauseImpulse"><span class="support-icon"><AppIcon name="pause" :size="19" /></span><span><strong>先把想做的事情放一下</strong><small>给大脑降降温，稍晚再决定。</small><span class="cooldown-tags" aria-hidden="true"><i>暂停计划</i><i>延迟决定</i><i>不给回应</i></span></span><AppIcon name="arrow" :size="18" /></button>
+      <label class="write-option"><span class="support-icon"><AppIcon name="pen" :size="19" /></span><span><strong>写一句也可以</strong><input v-model="note" maxlength="300" placeholder="比如，你想说点什么呢……" @keyup.enter="saveNote" /></span><button :disabled="busy || !note.trim()" @click="saveNote">留下</button></label>
+    </div>
+
     <p v-if="status" class="status" role="status">{{ status }}</p>
-    <div class="handoff-note"><AppIcon name="heart" :size="21" /><p>如果你愿意，我也可以帮你把想说的一句话，发给现实中的人。</p></div>
+
+    <div class="handoff-note"><AppIcon name="heart" :size="19" /><p>如果你愿意，我也可以帮你把想说的一句话，发给现实中的人。</p></div>
     <div class="stabilize-actions"><button class="handoff-button" @click="router.push(`/pages/reality-handoff/index?journeyId=${journeyId}`)">帮我告诉现实中的一个人</button><button class="change-support" @click="router.push(`/pages/journey/detail?id=${journeyId}&mode=intent`)">换一种支持</button></div>
   </section>
 </template>
 
 <style scoped>
-:global(.journey-flow--stabilize .journey-flow-hero) { min-height: 167px; }
+.stabilize-screen { display: grid; gap: 14px; }
 
-.stabilize-screen { display: grid; gap: 10px; }
-.comfort-note { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; align-items: center; border: 1px solid rgba(102, 121, 85, .15); border-radius: 22px; background: linear-gradient(145deg, #fffdf7, #f2ecdf); padding: 15px 16px; box-shadow: 0 12px 25px rgba(20, 32, 27, .08); }
-.comfort-mark, .support-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #e8eedf; color: #54734e; }
-.comfort-note p { margin: 0 0 4px; color: #798275; font-size: 12px; }
-.comfort-note strong { color: #3d573d; font-size: 16px; line-height: 1.45; }
+.step-head h2 { margin: 0; font-size: 22px; line-height: 1.3; color: var(--gn-text, #242a32); }
+.step-head p { margin: 6px 0 0; font-size: 13px; color: var(--gn-subtext, #757d87); }
+
+.comfort-note { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; align-items: center; padding: 16px; border: 1px solid var(--gn-border, #e8ebef); border-radius: var(--gn-radius-card, 12px); background: var(--gn-card, #ffffff); }
+.comfort-mark, .support-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--gn-green-light, #eaf4ee); color: var(--gn-green-dark, #1e4d45); }
+.comfort-note p { margin: 0 0 4px; color: var(--gn-muted, #757d87); font-size: 12px; }
+.comfort-note strong { color: var(--gn-text, #242a32); font-size: 16px; line-height: 1.45; }
+
 .stabilize-options { display: grid; gap: 8px; }
-.support-option, .write-option { display: grid; grid-template-columns: 42px minmax(0, 1fr) 20px; gap: 10px; align-items: center; width: 100%; min-height: 68px; border: 1px solid rgba(95, 127, 62, .15); border-radius: 18px; background: rgba(255, 253, 247, .96); padding: 10px 12px; color: #40573e; text-align: left; font: inherit; box-shadow: 0 7px 16px rgba(44, 58, 42, .05); cursor: pointer; }
-.breathing-option { min-height: 104px; }
-.pause-option { min-height: 82px; }
+.support-option, .write-option { display: grid; grid-template-columns: 38px minmax(0, 1fr) 20px; gap: 10px; align-items: center; width: 100%; min-height: 68px; padding: 12px; border: 1px solid var(--gn-border, #e8ebef); border-radius: var(--gn-radius-card, 12px); background: var(--gn-card, #ffffff); color: var(--gn-text, #242a32); text-align: left; font: inherit; cursor: pointer; }
 .support-option > span:nth-child(2), .write-option > span:nth-child(2) { min-width: 0; }
 .support-option strong, .write-option strong, .support-option small { display: block; }
 .support-option strong, .write-option strong { font-size: 15px; line-height: 1.35; }
-.support-option small { margin-top: 3px; color: #758076; font-size: 11px; line-height: 1.4; }
-.support-option > svg { justify-self: end; color: #667d60; }
-.breath-stages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-top: 8px; color: #76806e; font-size: 9px; text-align: center; }
-.breath-stages i { display: grid; justify-items: center; gap: 1px; font-style: normal; white-space: nowrap; }
-.breath-stages b { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: #dce6d2; color: #4f7049; font-size: 9px; }
+.support-option small { margin-top: 3px; color: var(--gn-subtext, #757d87); font-size: 11px; line-height: 1.4; }
+.support-option > svg { justify-self: end; color: var(--gn-muted, #757d87); }
+.breath-stages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-top: 8px; color: var(--gn-muted, #757d87); font-size: 9px; text-align: center; }
+.breath-stages i { display: grid; justify-items: center; gap: 1px; font-style: normal; white-space: nowrap; transition: color 0.2s ease; }
+.breath-stages i.active { color: var(--gn-green-dark, #1e4d45); font-weight: 700; }
+.breath-stages b { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--gn-green-light, #eaf4ee); color: var(--gn-green-dark, #1e4d45); font-size: 9px; transition: all 0.2s ease; }
+.breath-stages i.active b { background: var(--gn-leaf, #275f56); color: #ffffff; transform: scale(1.2); }
 .cooldown-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
-.cooldown-tags i { border-radius: 999px; background: #eef1e5; padding: 3px 6px; color: #66785e; font-size: 9px; font-style: normal; white-space: nowrap; }
-.write-option { grid-template-columns: 42px minmax(0, 1fr) auto; }
-.write-option input { width: 100%; min-height: 31px; margin-top: 4px; border: 1px solid rgba(95, 127, 62, .16); border-radius: 9px; background: #fffefa; padding: 5px 8px; color: #40543f; font: inherit; font-size: 12px; }
-.write-option button { min-height: 34px; border: 0; border-radius: 999px; background: #e7eddd; padding: 7px 10px; color: #476a41; font: inherit; cursor: pointer; }
+.cooldown-tags i { border-radius: 999px; background: var(--gn-paper-warm, #f7f8fa); padding: 3px 7px; color: var(--gn-subtext, #757d87); font-size: 9px; font-style: normal; white-space: nowrap; }
+.write-option { grid-template-columns: 38px minmax(0, 1fr) auto; }
+.write-option input { box-sizing: border-box; width: 100%; min-height: 32px; margin-top: 4px; padding: 6px 10px; border: 0; border-radius: 9px; background: var(--gn-paper-warm, #f7f8fa); color: var(--gn-text, #242a32); font: inherit; font-size: 12px; }
+.write-option button { min-height: 34px; padding: 7px 12px; border: 0; border-radius: var(--gn-radius-small, 8px); background: var(--gn-green-light, #eaf4ee); color: var(--gn-green-dark, #1e4d45); font: inherit; cursor: pointer; }
 .write-option button:disabled { opacity: .5; cursor: wait; }
-.status { margin: 0; border-radius: 13px; background: #edf2e6; padding: 10px; color: #526b4b; font-size: 13px; line-height: 1.5; }
-.handoff-note { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: center; min-height: 58px; overflow: hidden; border-radius: 16px; background: linear-gradient(100deg, #e9eddd, #f4eee2); padding: 11px 102px 11px 12px; color: #536a4d; }
-.handoff-note::after { position: absolute; right: -4px; bottom: -7px; width: 104px; height: 76px; background: url('../../assets/goodnight/illustrations/situation-book-lantern.png') right bottom / contain no-repeat; content: ''; opacity: .55; pointer-events: none; }
-.handoff-note > * { position: relative; z-index: 1; }
+
+.status { margin: 0; padding: 12px; border-radius: var(--gn-radius-card, 12px); background: var(--gn-green-light, #eaf4ee); color: var(--gn-green-dark, #1e4d45); font-size: 13px; line-height: 1.5; }
+.handoff-note { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; padding: 12px; border: 1px solid var(--gn-border, #e8ebef); border-radius: var(--gn-radius-card, 12px); background: var(--gn-card, #ffffff); color: var(--gn-subtext, #757d87); }
 .handoff-note p { margin: 0; font-size: 13px; line-height: 1.48; }
-.stabilize-actions { display: grid; gap: 5px; padding: 0 10px; }
-.handoff-button { min-height: 40px; border: 0; border-radius: 999px; background: #416a50; color: #fff; font: inherit; box-shadow: 0 10px 18px rgba(44, 83, 58, .18); cursor: pointer; }
-.change-support { min-height: 34px; border: 0; background: transparent; color: #597251; font: inherit; font-size: 13px; cursor: pointer; }
+.stabilize-actions { display: grid; gap: 8px; }
+.handoff-button { min-height: 44px; border: 0; border-radius: var(--gn-radius-small, 8px); background: var(--gn-leaf, #275f56); color: #ffffff; font: inherit; cursor: pointer; }
+.change-support { min-height: 40px; border: 1px solid var(--gn-border, #e8ebef); border-radius: var(--gn-radius-small, 8px); background: var(--gn-card, #ffffff); color: var(--gn-text, #242a32); font: inherit; font-size: 13px; cursor: pointer; }
 </style>

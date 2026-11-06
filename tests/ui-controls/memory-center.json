@@ -1,0 +1,31 @@
+[
+ {
+  "selector": "front-memory-back",
+  "expect": { "urlChanged": true }
+ },
+ {
+  "selector": "toggle-ai-memory",
+  "settleMs": 800,
+  "expect": { "present": "[data-testid=\"toggle-ai-memory\"]" }
+ },
+ {
+  "selector": "btn-memory-usage-info",
+  "settleMs": 500,
+  "expect": { "present": ".info-content" }
+ },
+ {
+  "selector": "memory-card-first",
+  "settleMs": 600,
+  "expect": { "present": ".detail-title", "text": "最近在准备换工作" }
+ },
+ {
+  "selector": "btn-manage-retention",
+  "settleMs": 500,
+  "expect": { "present": ".retention-options" }
+ },
+ {
+  "selector": "btn-manage-inactive",
+  "settleMs": 500,
+  "expect": { "present": ".inactive-item-card" }
+ }
+]

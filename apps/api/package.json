@@ -13,7 +13,7 @@
     "@nestjs/core": "^10.4.20",
     "@nestjs/platform-express": "^10.4.20",
     "@nestjs/swagger": "^7.4.2",
-    "@prisma/client": "^7.8.0",
+    "@prisma/client": "5.22.0",
     "@types/multer": "^2.2.0",
     "bullmq": "^5.56.5",
     "class-transformer": "^0.5.1",
